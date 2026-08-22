@@ -1,0 +1,71 @@
+# Cursor Rules — HRM System
+
+You are working in a monorepo for an HRM system (Bangladesh jurisdiction). **Before writing, editing, or reviewing any code, you must ground your work in the documentation in `/docs`.** This file tells you how to use that documentation — it does not replace it.
+
+---
+
+## 1. Mandatory First Step
+
+Before generating code for any task, read `docs/DOCUMENTATION_INDEX.md` and open whichever doc(s) it points to for the task at hand. Do not guess at business logic, schema shape, API conventions, or security rules from general knowledge — this project has explicit, opinionated answers to almost everything, and they live in `/docs`.
+
+If a task touches a topic not covered by any doc, say so explicitly rather than inventing an approach — flag it as a gap for the human to resolve, per the pattern already used throughout `/docs` (🔶 markers).
+
+---
+
+## 2. Always-Read Baseline (every task, no exceptions)
+
+Regardless of what you're building, these three inform everything:
+
+1. **`docs/RULES.md`** — coding conventions, folder structure, layering rules, what NOT to do. This is the closest thing to a second `.cursorrules` file and takes precedence over your own default style preferences.
+2. **`docs/ARCHITECTURE.md`** — where things belong (which app, which module), tech stack, key decisions and their rationale. Don't introduce a library, pattern, or architectural approach that isn't already established here without flagging it.
+3. **`docs/DATABASE_SCHEMA.md`** — the actual data model. Never invent a table/column/enum value that isn't defined here. If a feature needs a schema change, say so explicitly and propose the addition in the same style as the existing schema (naming conventions, `id`/`created_at`/`updated_at`, soft-delete where relevant) — don't silently improvise a shape.
+
+---
+
+## 3. Task-Specific Docs (consult based on what you're touching)
+
+| You're working on... | Read first |
+|---|---|
+| Any API endpoint | `docs/API_GUIDELINES.md`, `docs/ERROR_HANDLING.md` |
+| Login, PIN, biometric, sessions | `docs/AUTH_FLOW.md`, `docs/SECURITY.md` §2 |
+| Roles, permissions, `@RequirePermission` guards | `docs/ROLES_PERMISSIONS.md` |
+| Admin-configurable settings, secrets, integrations | `docs/SYSTEM_SETTINGS.md` |
+| Payroll calculation (any of it) | `docs/PAYROLL_LOGIC.md` — this is the source of truth for tax/PF/overtime formulas; do not compute these from general knowledge |
+| Attendance, geofencing, check-in/out, offline sync | `docs/ATTENDANCE_LOGIC.md`, `docs/OFFLINE_SYNC.md` |
+| Any DB migration | `docs/MIGRATIONS.md`, `docs/DATABASE_SCHEMA.md` |
+| Web app (`apps/admin`) UI/components | `docs/UI_GUIDELINES.md`, `docs/DESIGN_SYSTEM.md` |
+| Mobile app (`apps/mobile`) screens/nav | `docs/NAVIGATION.md`, `docs/MOBILE_PERMISSIONS.md` |
+| Shared types/constants (`packages/shared`) | `docs/SHARED_TYPES.md` |
+| Writing tests | `docs/TESTING.md` |
+| Naming anything (variables, labels, statuses) | `docs/GLOSSARY.md` — use these exact terms, don't invent synonyms |
+| Not sure which phase/order to build in | `docs/PHASES.md` |
+
+Full topic-to-file mapping, including which doc wins when two seem to overlap: `docs/DOCUMENTATION_INDEX.md`.
+
+---
+
+## 4. Non-Negotiable Rules (repeated here because they're the most common source of subtly wrong code)
+
+- **Permissions are dynamic, not a hardcoded enum.** Use `@RequirePermission('module.action')` on the backend and permission-key checks (never role-name string comparisons) on the frontend. See `docs/ROLES_PERMISSIONS.md` §13.
+- **PIN and Biometric login are mobile-only.** The web app (`apps/admin`) only offers password login. See `docs/AUTH_FLOW.md` §11.
+- **Money is always `Decimal`, never `Float`.** See `docs/RULES.md` §3, `docs/DATABASE_SCHEMA.md` conventions.
+- **Geofence/attendance validity is always decided server-side**, never trusted from the client. See `docs/ATTENDANCE_LOGIC.md` §1.
+- **Payroll maker ≠ payroll checker.** The same user cannot prepare and approve the same payroll run. See `docs/PAYROLL_LOGIC.md` §8, `docs/SECURITY.md` §5.
+- **Business-configurable values go in `system_settings`, not `.env` and not hardcoded.** Only true bootstrap values (DB connection, `MASTER_ENCRYPTION_KEY`, JWT secrets) belong in `.env`. See `docs/ENV_SETUP.md` §1, `docs/SYSTEM_SETTINGS.md`.
+- **Payroll/attendance/auth logic requires unit tests before merge — no exceptions.** See `docs/TESTING.md` §8.
+- **Reference the doc you're implementing** — when code applies a rule from a doc, note it in a comment (e.g., `// per PAYROLL_LOGIC.md §3.3`), so future readers can trace *why* the code does what it does.
+
+---
+
+## 5. When Docs and Code Disagree
+
+If you find code that contradicts `/docs`, the docs win — flag the discrepancy rather than matching the existing (wrong) code, unless the human explicitly says the doc is stale. If you're the one changing a business rule (e.g., a payroll formula, a permission default), update the relevant `/docs` file in the same change — a code change that isn't reflected in docs is treated as incomplete, not just under-documented.
+
+---
+
+## 6. When You're Uncertain
+
+Prefer asking or flagging over guessing, specifically for:
+- Anything marked 🔶 (open decision) in a doc — these are unresolved on purpose, not oversights
+- Payroll/tax figures — these are jurisdiction-specific (Bangladesh, per `docs/PAYROLL_LOGIC.md`) and change annually via national Budget; never assume a figure that isn't written down
+- Anything touching money, permissions, or personal data (bank accounts, national ID, biometric keys) — get this right the first time, per `docs/SECURITY.md`
