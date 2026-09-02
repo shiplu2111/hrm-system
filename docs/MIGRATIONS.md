@@ -2,19 +2,33 @@
 
 ## 1. Tooling
 
-Database migrations managed via TypeORM/Prisma migration tooling (confirm final ORM choice and record here once decided) — never manual/ad-hoc schema changes against any shared environment.
+**ORM choice: Prisma** (PostgreSQL, `@prisma/client` in `apps/api`).
+
+- Schema source of truth: `apps/api/prisma/schema.prisma` — keep in sync with `DATABASE_SCHEMA.md` (see RULES.md §8).
+- Migration files: `apps/api/prisma/migrations/` — generated via `prisma migrate dev`; never hand-edit SQL that has already run in staging/production.
+- Prisma uses **forward-only** migrations. There is no built-in `down` step. To revert a change, write a new forward migration that undoes it (or restore from backup in production). Call out genuinely irreversible migrations explicitly in the PR description (see §2).
+- Run migrations locally with `npm run migrate` from the repo root (loads `.env` via `dotenv-cli`).
 
 ## 2. Rules
 
 - Every schema change ships as a migration file committed alongside the code that depends on it (see RULES.md §8) — no schema change without a corresponding DATABASE_SCHEMA.md update in the same change.
-- Migrations must be reversible (`up`/`down`) wherever feasible. If a migration is genuinely irreversible (e.g. destructive data transform), that must be called out explicitly in the PR description.
+- Migrations must be reversible (`up`/`down`) wherever feasible. With Prisma, reversibility is achieved by adding a compensating forward migration; document rollback steps in the PR when a change cannot be safely undone.
 - Never edit a migration that has already run in staging/production — write a new migration to correct it.
 
 ## 3. Naming Convention
 
+Prisma migration **folder** names (auto-prefixed with a timestamp by the CLI):
+
 ```
-{timestamp}_{verb}_{description}.ts
-e.g. 20260901120000_add_effective_dating_to_leave_policies.ts
+{timestamp}_{verb}_{description}/
+  migration.sql
+e.g. 20260901120000_create_multi_tenancy_and_country_framework/migration.sql
+```
+
+Create with an explicit name:
+
+```bash
+npm run migrate -- --name create_organization_structure
 ```
 
 ## 4. Payroll/Financial Table Migrations
@@ -40,3 +54,11 @@ e.g. 20260901120000_add_effective_dating_to_leave_policies.ts
 4. Apply to production during deployment (see DEPLOYMENT.md)
 5. Monitor for errors immediately after
 ```
+
+## 8. Commands
+
+| Command | Purpose |
+|---------|---------|
+| `npm run migrate` | Create/apply migration in dev (`prisma migrate dev`) |
+| `npm run migrate:deploy` | Apply pending migrations (CI/production) |
+| `npm run prisma:generate` | Regenerate Prisma Client after schema changes |

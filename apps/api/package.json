@@ -4,17 +4,24 @@
   "private": true,
   "description": "HRM NestJS backend API",
   "scripts": {
-    "build": "nest build",
-    "dev": "nest start --watch",
-    "start": "node dist/main",
-    "start:prod": "node dist/main",
-    "lint": "eslint \"{src,test}/**/*.ts\" --fix"
+    "build": "prisma generate && nest build",
+    "dev": "dotenv -e ../../.env -- nest start --watch",
+    "start": "dotenv -e ../../.env -- node dist/main",
+    "start:prod": "dotenv -e ../../.env -- node dist/main",
+    "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:status": "dotenv -e ../../.env -- prisma migrate status",
+    "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:studio": "dotenv -e ../../.env -- prisma studio"
   },
   "dependencies": {
     "@hrm/shared-types": "*",
     "@nestjs/common": "^11.0.12",
     "@nestjs/core": "^11.0.12",
     "@nestjs/platform-express": "^11.0.12",
+    "@prisma/client": "^6.19.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -23,6 +30,13 @@
     "@nestjs/schematics": "^11.0.3",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.10",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.19.0",
+    "tsx": "^4.19.3",
     "typescript": "^5.7.3"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma",
+    "seed": "tsx prisma/seed.ts"
   }
 }

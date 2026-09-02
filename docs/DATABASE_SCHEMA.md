@@ -18,7 +18,7 @@ country_rules
 companies (belongs to tenant)
   id, tenant_id, name, country_id, financial_year_start
 
-branches / locations
+branches / locations  → table: `locations`
   id, company_id, name, address, lat, lng, geofence_radius_m
 ```
 
@@ -51,14 +51,17 @@ employees
   id, tenant_id, company_id, employee_number, first_name, last_name,
   personal_info(json), employment_status, department_id, designation_id,
   employment_type_id, manager_id (self-ref), hire_date, probation_end_date,
-  confirmation_date, work_location_id, cost_centre_id, created_at
+  confirmation_date, work_location_id, cost_centre_id, created_at, updated_at,
+  deleted_at (soft-delete — see §10)
 
 employee_documents
-  id, employee_id, document_type_id, fields(json), file_key, expiry_date, verified_at
+  id, employee_id, document_type_id, fields(json), file_key, expiry_date,
+  verified_at, created_at, updated_at
 
 employee_lifecycle_events
   id, employee_id, event_type (promotion|transfer|salary_revision|suspension|
-  resignation|termination|rehire), effective_date, details(json), created_by
+  resignation|termination|rehire), effective_date, details(json), created_by,
+  created_at, updated_at
 ```
 
 ## 4. Attendance & Offline Sync
@@ -67,93 +70,109 @@ employee_lifecycle_events
 attendance_records
   id, employee_id, date, clock_in_at, clock_out_at, source (manual|mobile|
   biometric|qr|gps), status, gps_lat, gps_lng, device_id,
-  local_id (client-generated, unique per device), synced_at, sync_status
+  local_id (client-generated UUID, nullable for server-created rows),
+  synced_at, sync_status, created_at, updated_at
 
 breaks
-  id, attendance_record_id, start_at, end_at
+  id, attendance_record_id, start_at, end_at, created_at, updated_at
 ```
-`local_id` + `employee_id` is unique — this is what makes offline sync idempotent (see OFFLINE_SYNC.md).
+**Offline sync idempotency (critical):** `UNIQUE (employee_id, local_id)` on `attendance_records` — replaying the same sync payload must never create a duplicate (see OFFLINE_SYNC.md §2). PostgreSQL treats NULL `local_id` as distinct, so multiple server-created rows without a `local_id` remain valid.
 
 ## 5. Roster / Shift
 
 ```
 shifts
   id, company_id, name, start_time, end_time, break_minutes, grace_minutes,
-  ot_rule_id
+  ot_rule_id (→ payroll_rules), created_at, updated_at
 
 rosters
-  id, employee_id, shift_id, date, location_id
+  id, employee_id, shift_id, date, location_id, created_at, updated_at
+  UNIQUE (employee_id, date)
 ```
 
 ## 6. Leave
 
 ```
 leave_types
-  id, company_id, name, is_paid
+  id, company_id, name, is_paid, created_at, updated_at
 
 leave_policies
   id, company_id, leave_type_id, entitlement_days, accrual_type,
-  carry_forward_max, expiry_months, effective_from, effective_to
+  carry_forward_max, expiry_months, effective_from, effective_to,
+  created_at, updated_at
 
 leave_balances
-  id, employee_id, leave_type_id, balance_days, as_of_year
+  id, employee_id, leave_type_id, balance_days, as_of_year,
+  created_at, updated_at
+  UNIQUE (employee_id, leave_type_id, as_of_year)
 
 leave_requests
   id, employee_id, leave_type_id, start_date, end_date, status,
-  approval_chain(json), local_id
+  approval_chain(json), local_id, created_at, updated_at
 ```
+**Offline sync idempotency:** `UNIQUE (employee_id, local_id)` on `leave_requests` (same pattern as attendance_records).
 
 ## 7. Payroll
 
 ```
 salary_structures
   id, employee_id, component_type (earning|deduction), component_id,
-  amount_or_formula, effective_from, effective_to
+  amount_or_formula, effective_from, effective_to, created_at, updated_at
 
 pay_components
   id, company_id, name, type (earning|deduction), calculation_type
-  (fixed|formula|percentage), formula(json)
+  (fixed|formula|percentage), formula(json), created_at, updated_at
 
 payroll_rules
-  id, country_id/company_id, rule_json, effective_from, effective_to
+  id, country_id (nullable), company_id (nullable), rule_json,
+  effective_from, effective_to, created_at, updated_at
 
 payroll_periods
-  id, company_id, start_date, end_date, payment_date, status
+  id, company_id, start_date, end_date, payment_date, status,
+  created_at, updated_at
 
 payroll_runs
   id, payroll_period_id, employee_id, gross_pay, total_deductions, net_pay,
   status (draft|calculated|under_review|approved|finalized|paid|cancelled),
-  finalized_at, locked boolean
+  finalized_at, locked, created_at, updated_at, deleted_at (soft-delete)
 
 payslips
-  id, payroll_run_id, file_key, generated_at
+  id, payroll_run_id, file_key, generated_at, created_at, updated_at
 ```
 
 ## 8. Tax & Superannuation
 
 ```
 tax_brackets
-  id, country_id, tax_year, bracket_json, effective_from, effective_to
+  id, country_id, tax_year, bracket_json, effective_from, effective_to,
+  created_at, updated_at
 
 employee_tax_profiles
-  id, employee_id, tax_id_number, tax_settings(json)
+  id, employee_id, tax_id_number, tax_settings(json), created_at, updated_at
 
 superannuation_contributions
-  id, payroll_run_id, employee_contribution, employer_contribution
+  id, payroll_run_id, employee_contribution, employer_contribution,
+  created_at, updated_at
 ```
+Monetary columns use `numeric(14,2)` minimum (see §10). Rule-versioned tables (`leave_policies`, `salary_structures`, `payroll_rules`, `tax_brackets`) include `effective_from`/`effective_to` per RULES.md §4.
 
 ## 9. Audit & Security
 
 ```
 audit_logs
-  id, tenant_id, user_id, action, module, record_id, old_value(json),
-  new_value(json), ip_address, device, created_at   -- append-only, never updated/deleted
+  id, tenant_id (nullable for platform-level events), user_id, action, module,
+  record_id, old_value(json), new_value(json), ip_address, device, created_at
+  -- append-only: no updated_at; UPDATE/DELETE blocked by DB trigger + REVOKE
 
 roles
-  id, tenant_id (nullable for system roles), name
+  id, tenant_id (nullable for system roles), name, created_at, updated_at
+  UNIQUE (tenant_id, name) WHERE tenant_id IS NOT NULL
+  UNIQUE (name) WHERE tenant_id IS NULL
 
 permissions
-  id, role_id, module, action (view|create|edit|delete|approve|finalize)
+  id, role_id, module, action (view|create|edit|delete|approve|finalize),
+  created_at, updated_at
+  UNIQUE (role_id, module, action)
 ```
 
 ## 10. Conventions
@@ -170,11 +189,15 @@ These tables back the runtime-configurable settings described in ARCHITECTURE.md
 ```
 tenant_settings
   id, tenant_id, category (smtp|notification|integration|branding|feature_flag),
-  key, value(json, encrypted for secret categories), updated_by, updated_at
+  key, value(json, encrypted for secret categories), updated_by, created_at,
+  updated_at
+  UNIQUE (tenant_id, category, key)
 
 platform_settings
   id, category (smtp_default|notification_default|country_config|maintenance),
-  key, value(json, encrypted for secret categories), updated_by, updated_at
+  key, value(json, encrypted for secret categories), updated_by, created_at,
+  updated_at
+  UNIQUE (category, key)
 ```
 
 - `smtp` category example `value`: `{ host, port, username, password (encrypted), from_address, from_name, use_tls }`.

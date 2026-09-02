@@ -22,6 +22,11 @@
     "docker:logs": "docker compose logs -f",
     "build": "npm run build -w @hrm/shared-types && npm run build -w @hrm/api && npm run build -w @hrm/admin && npm run build -w @hrm/web",
     "build:types": "npm run build -w @hrm/shared-types",
+    "migrate": "npm run migrate:dev -w @hrm/api",
+    "migrate:deploy": "npm run migrate:deploy -w @hrm/api",
+    "migrate:status": "npm run migrate:status -w @hrm/api",
+    "seed": "npm run seed -w @hrm/api",
+    "prisma:generate": "npm run prisma:generate -w @hrm/api",
     "lint": "npm run lint --workspaces --if-present"
   },
   "engines": {

@@ -1,0 +1,924 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// §1 Core Multi-Tenancy & Country Framework (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+enum TenantStatus {
+  active
+  suspended
+  cancelled
+
+  @@map("tenant_status")
+}
+
+enum StorageDriver {
+  local
+  s3
+
+  @@map("storage_driver")
+}
+
+enum CountryRuleType {
+  tax
+  leave
+  ot
+  social_security
+
+  @@map("country_rule_type")
+}
+
+model Tenant {
+  id            String        @id @default(uuid()) @db.Uuid
+  name          String
+  subdomain     String        @unique
+  planId        String?       @map("plan_id")
+  status        TenantStatus  @default(active)
+  storageDriver StorageDriver @default(local) @map("storage_driver")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  companies Company[]
+  employees Employee[]
+  auditLogs AuditLog[]
+  roles     Role[]
+  tenantSettings TenantSetting[]
+
+  @@map("tenants")
+}
+
+model Country {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  isoCode    String   @unique @map("iso_code") @db.VarChar(3)
+  currency   String   @db.VarChar(3)
+  timezone   String
+  dateFormat String   @map("date_format")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  countryRules CountryRule[]
+  companies    Company[]
+  payrollRules PayrollRule[]
+  taxBrackets  TaxBracket[]
+
+  @@map("countries")
+}
+
+model CountryRule {
+  id            String          @id @default(uuid()) @db.Uuid
+  countryId     String          @map("country_id") @db.Uuid
+  ruleType      CountryRuleType @map("rule_type")
+  payload       Json
+  effectiveFrom DateTime        @map("effective_from") @db.Date
+  effectiveTo   DateTime?       @map("effective_to") @db.Date
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+
+  @@index([countryId])
+  @@index([countryId, ruleType, effectiveFrom])
+  @@map("country_rules")
+}
+
+model Company {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  name              String
+  countryId         String   @map("country_id") @db.Uuid
+  financialYearStart Int     @map("financial_year_start") @db.SmallInt
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  country   Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  locations       Location[]
+  departments     Department[]
+  jobLevels       JobLevel[]
+  designations    Designation[]
+  employmentTypes EmploymentType[]
+  teams           Team[]
+  costCentres     CostCentre[]
+  employees       Employee[]
+  payComponents   PayComponent[]
+  payrollRules    PayrollRule[]
+  shifts          Shift[]
+  leaveTypes      LeaveType[]
+  leavePolicies   LeavePolicy[]
+  payrollPeriods  PayrollPeriod[]
+
+  @@index([tenantId])
+  @@index([countryId])
+  @@map("companies")
+}
+
+model Location {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  name             String
+  address          String?
+  lat              Decimal? @db.Decimal(10, 7)
+  lng              Decimal? @db.Decimal(10, 7)
+  geofenceRadiusM  Int?     @map("geofence_radius_m")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees Employee[] @relation("EmployeeWorkLocation")
+  rosters   Roster[]
+
+  @@index([companyId])
+  @@map("locations")
+}
+
+// ---------------------------------------------------------------------------
+// §2 Organization (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+model Department {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @map("company_id") @db.Uuid
+  parentDepartmentId String?  @map("parent_department_id") @db.Uuid
+  name               String
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parentDepartment   Department?  @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id], onDelete: Restrict)
+  childDepartments   Department[] @relation("DepartmentHierarchy")
+  designations       Designation[]
+  employees          Employee[]
+
+  @@index([companyId])
+  @@index([parentDepartmentId])
+  @@map("departments")
+}
+
+model JobLevel {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  code      String
+  name      String
+  rank      Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  designations Designation[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("job_levels")
+}
+
+model Designation {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  departmentId String?  @map("department_id") @db.Uuid
+  jobLevelId   String?  @map("job_level_id") @db.Uuid
+  name         String
+  salaryGrade  String?  @map("salary_grade")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  jobLevel   JobLevel?   @relation(fields: [jobLevelId], references: [id], onDelete: Restrict)
+  employees  Employee[]
+
+  @@index([companyId])
+  @@index([departmentId])
+  @@index([jobLevelId])
+  @@map("designations")
+}
+
+model EmploymentType {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees Employee[]
+
+  @@index([companyId])
+  @@map("employment_types")
+}
+
+model Team {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@map("teams")
+}
+
+model CostCentre {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees Employee[] @relation("EmployeeCostCentre")
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("cost_centres")
+}
+
+// ---------------------------------------------------------------------------
+// §3 Employee (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+enum EmploymentStatus {
+  active
+  inactive
+  terminated
+  on_leave
+
+  @@map("employment_status")
+}
+
+enum LifecycleEventType {
+  promotion
+  transfer
+  salary_revision
+  suspension
+  resignation
+  termination
+  rehire
+
+  @@map("lifecycle_event_type")
+}
+
+model Employee {
+  id                String           @id @default(uuid()) @db.Uuid
+  tenantId          String           @map("tenant_id") @db.Uuid
+  companyId         String           @map("company_id") @db.Uuid
+  employeeNumber    String           @map("employee_number")
+  firstName         String           @map("first_name")
+  lastName          String           @map("last_name")
+  personalInfo      Json             @default("{}") @map("personal_info")
+  employmentStatus  EmploymentStatus @default(active) @map("employment_status")
+  departmentId      String?          @map("department_id") @db.Uuid
+  designationId     String?          @map("designation_id") @db.Uuid
+  employmentTypeId  String?          @map("employment_type_id") @db.Uuid
+  managerId         String?          @map("manager_id") @db.Uuid
+  hireDate          DateTime         @map("hire_date") @db.Date
+  probationEndDate  DateTime?        @map("probation_end_date") @db.Date
+  confirmationDate  DateTime?        @map("confirmation_date") @db.Date
+  workLocationId    String?          @map("work_location_id") @db.Uuid
+  costCentreId      String?          @map("cost_centre_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  deletedAt         DateTime?        @map("deleted_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  designation    Designation?    @relation(fields: [designationId], references: [id], onDelete: Restrict)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: Restrict)
+  manager        Employee?       @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: Restrict)
+  directReports  Employee[]      @relation("EmployeeManager")
+  workLocation   Location?       @relation("EmployeeWorkLocation", fields: [workLocationId], references: [id], onDelete: Restrict)
+  costCentre     CostCentre?     @relation("EmployeeCostCentre", fields: [costCentreId], references: [id], onDelete: Restrict)
+  documents      EmployeeDocument[]
+  lifecycleEvents EmployeeLifecycleEvent[]
+  attendanceRecords AttendanceRecord[]
+  rosters           Roster[]
+  leaveBalances     LeaveBalance[]
+  leaveRequests     LeaveRequest[]
+  salaryStructures  SalaryStructure[]
+  payrollRuns       PayrollRun[]
+  taxProfiles       EmployeeTaxProfile[]
+
+  @@unique([tenantId, employeeNumber])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([employmentTypeId])
+  @@index([managerId])
+  @@index([workLocationId])
+  @@index([costCentreId])
+  @@map("employees")
+}
+
+model EmployeeDocument {
+  id             String    @id @default(uuid()) @db.Uuid
+  employeeId     String    @map("employee_id") @db.Uuid
+  documentTypeId String    @map("document_type_id") @db.Uuid
+  fields         Json      @default("{}")
+  fileKey        String    @map("file_key")
+  expiryDate     DateTime? @map("expiry_date") @db.Date
+  verifiedAt     DateTime? @map("verified_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([documentTypeId])
+  @@map("employee_documents")
+}
+
+model EmployeeLifecycleEvent {
+  id            String             @id @default(uuid()) @db.Uuid
+  employeeId    String             @map("employee_id") @db.Uuid
+  eventType     LifecycleEventType @map("event_type")
+  effectiveDate DateTime           @map("effective_date") @db.Date
+  details       Json               @default("{}")
+  createdBy     String             @map("created_by") @db.Uuid
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([eventType])
+  @@map("employee_lifecycle_events")
+}
+
+// ---------------------------------------------------------------------------
+// §4 Attendance & Offline Sync (DATABASE_SCHEMA.md, OFFLINE_SYNC.md §2)
+// ---------------------------------------------------------------------------
+
+enum AttendanceSource {
+  manual
+  mobile
+  biometric
+  qr
+  gps
+
+  @@map("attendance_source")
+}
+
+enum AttendanceRecordStatus {
+  present
+  absent
+  late
+  early_leave
+  half_day
+  holiday
+  weekend
+  leave
+  wfh
+  business_trip
+
+  @@map("attendance_record_status")
+}
+
+enum SyncStatus {
+  pending
+  syncing
+  synced
+  failed
+
+  @@map("sync_status")
+}
+
+model AttendanceRecord {
+  id         String                 @id @default(uuid()) @db.Uuid
+  employeeId String                 @map("employee_id") @db.Uuid
+  date       DateTime               @db.Date
+  clockInAt  DateTime?              @map("clock_in_at")
+  clockOutAt DateTime?              @map("clock_out_at")
+  source     AttendanceSource
+  status     AttendanceRecordStatus
+  gpsLat     Decimal?               @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng     Decimal?               @map("gps_lng") @db.Decimal(10, 7)
+  deviceId   String?                @map("device_id")
+  /// Client-generated UUID for offline sync idempotency (OFFLINE_SYNC.md §2)
+  localId    String?                @map("local_id") @db.Uuid
+  syncedAt   DateTime?              @map("synced_at")
+  syncStatus SyncStatus?            @map("sync_status")
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  breaks   Break[]
+
+  /// Idempotent sync: replaying the same (employee_id, local_id) must never duplicate (OFFLINE_SYNC.md §2)
+  @@unique([employeeId, localId], map: "attendance_records_employee_id_local_id_key")
+  @@index([employeeId])
+  @@index([employeeId, date])
+  @@index([syncStatus])
+  @@map("attendance_records")
+}
+
+model Break {
+  id                 String    @id @default(uuid()) @db.Uuid
+  attendanceRecordId String    @map("attendance_record_id") @db.Uuid
+  startAt            DateTime  @map("start_at")
+  endAt              DateTime? @map("end_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  attendanceRecord AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+
+  @@index([attendanceRecordId])
+  @@map("breaks")
+}
+
+// ---------------------------------------------------------------------------
+// §5–§6 Roster / Shift & Leave (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+enum LeaveAccrualType {
+  monthly
+  yearly
+  on_hire
+
+  @@map("leave_accrual_type")
+}
+
+enum LeaveRequestStatus {
+  draft
+  pending
+  approved
+  rejected
+  cancelled
+
+  @@map("leave_request_status")
+}
+
+enum PayComponentType {
+  earning
+  deduction
+
+  @@map("pay_component_type")
+}
+
+enum PayComponentCalculationType {
+  fixed
+  formula
+  percentage
+
+  @@map("pay_component_calculation_type")
+}
+
+model PayComponent {
+  id              String                      @id @default(uuid()) @db.Uuid
+  companyId       String                      @map("company_id") @db.Uuid
+  name            String
+  type            PayComponentType
+  calculationType PayComponentCalculationType @map("calculation_type")
+  formula         Json?
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salaryStructures SalaryStructure[]
+
+  @@index([companyId])
+  @@map("pay_components")
+}
+
+/// Country- or company-scoped payroll/OT rules — effective-dated (RULES.md §4)
+model PayrollRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  countryId     String?   @map("country_id") @db.Uuid
+  companyId     String?   @map("company_id") @db.Uuid
+  ruleJson      Json      @map("rule_json")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  country Country? @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  shifts  Shift[]
+
+  @@index([countryId])
+  @@index([companyId])
+  @@index([countryId, effectiveFrom])
+  @@index([companyId, effectiveFrom])
+  @@map("payroll_rules")
+}
+
+model Shift {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  name          String
+  startTime     DateTime  @map("start_time") @db.Time(0)
+  endTime       DateTime  @map("end_time") @db.Time(0)
+  breakMinutes  Int       @default(0) @map("break_minutes")
+  graceMinutes  Int       @default(0) @map("grace_minutes")
+  otRuleId      String?   @map("ot_rule_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  otRule  PayrollRule? @relation(fields: [otRuleId], references: [id], onDelete: Restrict)
+  rosters Roster[]
+
+  @@index([companyId])
+  @@index([otRuleId])
+  @@map("shifts")
+}
+
+model Roster {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  shiftId    String   @map("shift_id") @db.Uuid
+  date       DateTime @db.Date
+  locationId String?  @map("location_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift    Shift     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, date])
+  @@index([shiftId])
+  @@index([locationId])
+  @@map("rosters")
+}
+
+model LeaveType {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  isPaid    Boolean  @default(true) @map("is_paid")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  leavePolicies LeavePolicy[]
+  leaveBalances LeaveBalance[]
+  leaveRequests LeaveRequest[]
+
+  @@index([companyId])
+  @@map("leave_types")
+}
+
+model LeavePolicy {
+  id               String           @id @default(uuid()) @db.Uuid
+  companyId        String           @map("company_id") @db.Uuid
+  leaveTypeId      String           @map("leave_type_id") @db.Uuid
+  entitlementDays  Decimal          @map("entitlement_days") @db.Decimal(8, 2)
+  accrualType      LeaveAccrualType @map("accrual_type")
+  carryForwardMax  Decimal?         @map("carry_forward_max") @db.Decimal(8, 2)
+  expiryMonths     Int?             @map("expiry_months")
+  effectiveFrom    DateTime         @map("effective_from") @db.Date
+  effectiveTo      DateTime?        @map("effective_to") @db.Date
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([leaveTypeId])
+  @@index([companyId, leaveTypeId, effectiveFrom])
+  @@map("leave_policies")
+}
+
+model LeaveBalance {
+  id          String   @id @default(uuid()) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  leaveTypeId String   @map("leave_type_id") @db.Uuid
+  balanceDays Decimal  @map("balance_days") @db.Decimal(8, 2)
+  asOfYear    Int      @map("as_of_year")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, leaveTypeId, asOfYear])
+  @@index([leaveTypeId])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id             String             @id @default(uuid()) @db.Uuid
+  employeeId     String             @map("employee_id") @db.Uuid
+  leaveTypeId    String             @map("leave_type_id") @db.Uuid
+  startDate      DateTime           @map("start_date") @db.Date
+  endDate        DateTime           @map("end_date") @db.Date
+  status         LeaveRequestStatus @default(draft)
+  approvalChain  Json               @default("[]") @map("approval_chain")
+  localId        String?            @map("local_id") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, localId], map: "leave_requests_employee_id_local_id_key")
+  @@index([employeeId])
+  @@index([leaveTypeId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §7 Payroll (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+enum SalaryStructureComponentType {
+  earning
+  deduction
+
+  @@map("salary_structure_component_type")
+}
+
+enum PayrollPeriodStatus {
+  draft
+  open
+  processing
+  closed
+
+  @@map("payroll_period_status")
+}
+
+enum PayrollRunStatus {
+  draft
+  calculated
+  under_review
+  approved
+  finalized
+  paid
+  cancelled
+
+  @@map("payroll_run_status")
+}
+
+model SalaryStructure {
+  id              String                       @id @default(uuid()) @db.Uuid
+  employeeId      String                       @map("employee_id") @db.Uuid
+  componentType   SalaryStructureComponentType @map("component_type")
+  componentId     String                       @map("component_id") @db.Uuid
+  amountOrFormula Json                         @map("amount_or_formula")
+  effectiveFrom   DateTime                     @map("effective_from") @db.Date
+  effectiveTo     DateTime?                    @map("effective_to") @db.Date
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  employee  Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  component PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([componentId])
+  @@index([employeeId, effectiveFrom])
+  @@map("salary_structures")
+}
+
+model PayrollPeriod {
+  id          String              @id @default(uuid()) @db.Uuid
+  companyId   String              @map("company_id") @db.Uuid
+  startDate   DateTime            @map("start_date") @db.Date
+  endDate     DateTime            @map("end_date") @db.Date
+  paymentDate DateTime            @map("payment_date") @db.Date
+  status      PayrollPeriodStatus @default(draft)
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  payrollRuns PayrollRun[]
+
+  @@index([companyId])
+  @@index([companyId, startDate])
+  @@map("payroll_periods")
+}
+
+model PayrollRun {
+  id               String           @id @default(uuid()) @db.Uuid
+  payrollPeriodId  String           @map("payroll_period_id") @db.Uuid
+  employeeId       String           @map("employee_id") @db.Uuid
+  grossPay         Decimal          @map("gross_pay") @db.Decimal(14, 2)
+  totalDeductions  Decimal          @map("total_deductions") @db.Decimal(14, 2)
+  netPay           Decimal          @map("net_pay") @db.Decimal(14, 2)
+  status           PayrollRunStatus @default(draft)
+  finalizedAt      DateTime?        @map("finalized_at")
+  locked           Boolean          @default(false)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  deletedAt        DateTime?        @map("deleted_at")
+
+  payrollPeriod              PayrollPeriod               @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
+  employee                   Employee                    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  payslips                   Payslip[]
+  superannuationContributions SuperannuationContribution[]
+
+  @@index([payrollPeriodId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id           String   @id @default(uuid()) @db.Uuid
+  payrollRunId String   @map("payroll_run_id") @db.Uuid
+  fileKey      String   @map("file_key")
+  generatedAt  DateTime @map("generated_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+
+  @@index([payrollRunId])
+  @@map("payslips")
+}
+
+// ---------------------------------------------------------------------------
+// §8 Tax & Superannuation (DATABASE_SCHEMA.md)
+// ---------------------------------------------------------------------------
+
+model TaxBracket {
+  id            String    @id @default(uuid()) @db.Uuid
+  countryId     String    @map("country_id") @db.Uuid
+  taxYear       Int       @map("tax_year")
+  bracketJson   Json      @map("bracket_json")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+
+  @@index([countryId])
+  @@index([countryId, taxYear, effectiveFrom])
+  @@map("tax_brackets")
+}
+
+model EmployeeTaxProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  employeeId   String   @map("employee_id") @db.Uuid
+  taxIdNumber  String?  @map("tax_id_number")
+  taxSettings  Json     @default("{}") @map("tax_settings")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@map("employee_tax_profiles")
+}
+
+model SuperannuationContribution {
+  id                   String   @id @default(uuid()) @db.Uuid
+  payrollRunId         String   @map("payroll_run_id") @db.Uuid
+  employeeContribution Decimal  @map("employee_contribution") @db.Decimal(14, 2)
+  employerContribution Decimal  @map("employer_contribution") @db.Decimal(14, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+
+  @@index([payrollRunId])
+  @@map("superannuation_contributions")
+}
+
+// ---------------------------------------------------------------------------
+// §9 Audit & Security (DATABASE_SCHEMA.md, AUDIT_LOG.md)
+// ---------------------------------------------------------------------------
+
+enum AuditAction {
+  create
+  update
+  delete
+  approve
+  finalize
+  reject
+  suspend
+  restore
+
+  @@map("audit_action")
+}
+
+model AuditLog {
+  id        String      @id @default(uuid()) @db.Uuid
+  tenantId  String?     @map("tenant_id") @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  action    AuditAction
+  module    String
+  recordId  String      @map("record_id") @db.Uuid
+  oldValue  Json?       @map("old_value")
+  newValue  Json?       @map("new_value")
+  ipAddress String?     @map("ip_address")
+  device    String?
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, module])
+  @@index([tenantId, recordId])
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model Role {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String?   @map("tenant_id") @db.Uuid
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  permissions Permission[]
+
+  @@index([tenantId])
+  @@map("roles")
+}
+
+enum PermissionAction {
+  view
+  create
+  edit
+  delete
+  approve
+  finalize
+
+  @@map("permission_action")
+}
+
+model Permission {
+  id        String           @id @default(uuid()) @db.Uuid
+  roleId    String           @map("role_id") @db.Uuid
+  module    String
+  action    PermissionAction
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, module, action])
+  @@index([roleId])
+  @@map("permissions")
+}
+
+// ---------------------------------------------------------------------------
+// §11 Runtime Settings (DATABASE_SCHEMA.md, SYSTEM_SETTINGS.md §2a)
+// ---------------------------------------------------------------------------
+
+enum TenantSettingCategory {
+  smtp
+  notification
+  integration
+  branding
+  feature_flag
+
+  @@map("tenant_setting_category")
+}
+
+enum PlatformSettingCategory {
+  smtp_default
+  notification_default
+  country_config
+  maintenance
+
+  @@map("platform_setting_category")
+}
+
+model TenantSetting {
+  id        String                @id @default(uuid()) @db.Uuid
+  tenantId  String                @map("tenant_id") @db.Uuid
+  category  TenantSettingCategory
+  key       String
+  value     Json
+  updatedBy String                @map("updated_by") @db.Uuid
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, category, key])
+  @@index([tenantId])
+  @@index([tenantId, category])
+  @@map("tenant_settings")
+}
+
+model PlatformSetting {
+  id        String                  @id @default(uuid()) @db.Uuid
+  category  PlatformSettingCategory
+  key       String
+  value     Json
+  updatedBy String                  @map("updated_by") @db.Uuid
+  createdAt DateTime                @default(now()) @map("created_at")
+  updatedAt DateTime                @updatedAt @map("updated_at")
+
+  @@unique([category, key])
+  @@map("platform_settings")
+}
