@@ -1,0 +1,34 @@
+{
+  "name": "hrm-system",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-tenant HR + Payroll + Attendance SaaS platform",
+  "workspaces": [
+    "apps/api",
+    "apps/admin",
+    "apps/web",
+    "apps/mobile",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build -w @hrm/shared-types",
+    "dev": "concurrently -k -n api,web,admin,mobile -c blue,green,yellow,magenta \"npm run dev:api\" \"wait-on http://localhost:3000/health -t 60000 && npm run dev:web\" \"wait-on http://localhost:5173 -t 120000 && npm run dev:admin\" \"wait-on http://localhost:5174 -t 120000 && node scripts/start-mobile.js\"",
+    "dev:api": "npm run dev -w @hrm/api",
+    "dev:admin": "npm run dev -w @hrm/admin",
+    "dev:web": "npm run dev -w @hrm/web",
+    "dev:mobile": "npm run dev -w @hrm/mobile",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "build": "npm run build -w @hrm/shared-types && npm run build -w @hrm/api && npm run build -w @hrm/admin && npm run build -w @hrm/web",
+    "build:types": "npm run build -w @hrm/shared-types",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "wait-on": "^8.0.1"
+  }
+}

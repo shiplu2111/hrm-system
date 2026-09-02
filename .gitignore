@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.expo/
+web-build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test / coverage
+coverage/
+
+# NestJS
+apps/api/dist/
+apps/backend/
+
+# React Native / Expo
+apps/mobile/.expo/
+apps/mobile/dist-web/
+apps/mobile/android/
+apps/mobile/ios/
+
+# Storage (local dev)
+storage/

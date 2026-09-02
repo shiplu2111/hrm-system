@@ -1,0 +1,6 @@
+packages:
+  - 'apps/api'
+  - 'apps/admin'
+  - 'apps/web'
+  - 'apps/mobile'
+  - 'packages/*'

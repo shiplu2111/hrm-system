@@ -1,149 +1,73 @@
-# PHASES.md — Development Roadmap
+# PHASES.md
 
-This defines the build order for the HRM system. Each phase should be functionally complete and testable before moving to the next — do not build features out of order, since later modules (payroll, performance) depend on earlier ones (employee, attendance).
+Recommended build order. Confirm final phasing with the product owner before locking sprints — this is a starting recommendation, not a fixed contract.
 
----
+## Phase 1 — MVP (build first)
 
-## Phase 0 — Project Setup
-**Goal:** Monorepo skeleton running end-to-end with a single "hello world" flow (login).
+Core modules required for the first commercial release. The database schema, multi-tenant architecture, country-rule engine, and payroll calculation engine (see ARCHITECTURE.md and PAYROLL_LOGIC.md) must be finalized before UI work starts on any of these.
 
-- [ ] Turborepo + pnpm workspace setup (`apps/backend`, `apps/admin`, `apps/mobile`, `packages/shared`)
-- [ ] NestJS backend scaffold, PostgreSQL + Redis via Docker Compose
-- [ ] Prisma (or chosen ORM) initial setup + connection
-- [ ] React (Vite) admin scaffold with routing shell
-- [ ] React Native (Expo) mobile scaffold with navigation shell
-- [ ] Shared types package wired into all 3 apps
-- [ ] CI basics: lint + build check on PR
-- [ ] `.env.example` files for all apps
+- **01. SaaS Platform & Multi-Tenancy**
+- **02. Global Country & Compliance Framework**
+- **03. Company / Organization Setup**
+- **04. Employee Core (HRIS)**
+- **05. Employee Lifecycle Events**
+- **09. Document Management (Generalized)**
+- **10. Attendance**
+- **12. Roster / Shift Management**
+- **13. Leave Management**
+- **14. Holiday Calendar**
+- **15. Overtime Management**
+- **16. Payroll Setup & Salary Structure**
+- **18. Payroll Processing**
+- **19. Payslip & Salary Payment**
+- **20. Tax Management**
+- **24. Employee Self-Service (ESS)**
+- **32. Mobile App**
+- **33. Attendance Security (Geofence / Device / Biometric)**
+- **34. Notification Engine**
+- **37. Data Import / Export & Migration**
+- **38. Reports**
+- **39. Dashboard**
+- **40. RBAC / Roles / Permissions**
+- **41. Security & Compliance**
+- **42. Audit Log**
+- **44. Subscription & Billing**
+- **47. System Settings & Backup**
 
-**Exit criteria:** All 3 apps run locally, backend has a health-check endpoint both admin and mobile can successfully call.
+## Phase 2 (build after MVP is stable and validated in production)
 
----
+Important modules that extend the platform. Do not begin these until Phase 1 payroll has been validated against at least two different country configurations.
 
-## Phase 1 — Auth & Employee Core
-**Goal:** Users can register, log in (password), and basic employee records exist.
+- **06. Contract Management**
+- **07. Recruitment / ATS**
+- **08. Onboarding / Offboarding**
+- **11. Timesheet**
+- **17. Payroll Rules / Formula Engine**
+- **21. Superannuation / Pension / Benefits**
+- **22. Loan & Salary Advance**
+- **23. Expense & Reimbursement**
+- **27. Asset Management**
+- **35. Approval Workflow Engine / Workflow Builder**
+- **36. Accounting / GL Integration**
+- **43. Integration / API**
+- **45. In-App Support / Help Center**
+- **46. Multi-Currency, Multi-Timezone, Multi-Language**
 
-- [ ] `User`/`Employee` DB schema (see `DATABASE_SCHEMA.md`)
-- [ ] Registration (password-based) — backend + admin (for HR-created employees) + mobile (self-register, if applicable)
-- [ ] Login via password — JWT issuance, refresh token flow
-- [ ] Role-based access control (Super Admin / HR / Manager / Employee) — guards + decorators
-- [ ] Employee CRUD (profile, department, designation, reporting manager) — admin UI
-- [ ] Employee self-profile view — mobile
-- [ ] PIN setup (post-registration, in Settings) — backend + mobile
-- [ ] Biometric setup (post-registration, in Settings) — backend + mobile, public-key enrollment
-- [ ] Login via PIN and Biometric (in addition to password)
+## Phase 3 (enterprise / later maturity)
 
-**Exit criteria:** An HR user can create an employee from admin; that employee can log into mobile via password, then set up PIN/biometric and re-login using either.
+Nice-to-have modules that broaden the platform but are not required for early commercial viability.
 
----
+- **25. Performance Management**
+- **26. Training & Certification**
+- **28. Employee Relations / Case Management**
+- **29. Employee Engagement**
+- **30. Health & Safety**
+- **31. Vendor / Contractor Management**
 
-## Phase 2 — Attendance & Location Tracking
-**Goal:** Employees can check in/out with GPS validation; admin can see attendance in real time.
+## Build Order Within Phase 1
 
-- [ ] Office/site location config (admin) — geofence radius per site
-- [ ] Check-in / check-out — mobile, captures GPS coordinates
-- [ ] Server-side geofence validation logic (see `ATTENDANCE_LOGIC.md`)
-- [ ] Attendance status auto-flagging (on-time / late / early-leave / absent)
-- [ ] Offline check-in queue + sync — mobile
-- [ ] Attendance history view — mobile (self) + admin (all employees)
-- [ ] Manual attendance regularization request + approval workflow
-- [ ] Shift assignment (basic: fixed shift per employee/department)
-
-**Exit criteria:** Employee checks in from within geofence → recorded as valid; from outside → flagged; admin dashboard shows live attendance status per employee.
-
----
-
-## Phase 3 — Leave Management
-**Goal:** Employees can apply for leave; managers/HR can approve.
-
-- [ ] Leave type configuration (Casual/Sick/Earned/Unpaid) — admin
-- [ ] Leave balance calculation/allocation per employee per year
-- [ ] Apply for leave — mobile
-- [ ] Approve/reject workflow — Manager → HR (configurable chain) — admin
-- [ ] Leave calendar view — admin + mobile
-- [ ] Notifications on leave status change
-
-**Exit criteria:** Employee applies for leave → manager approves → balance updates → employee notified.
-
----
-
-## Phase 4 — Payroll
-**Goal:** Full salary calculation and payslip generation, using attendance + leave data.
-
-- [ ] Salary structure setup per employee (Basic + Allowances) — admin
-- [ ] Deduction rules: Tax, PF, Insurance, Loan/Advance — admin config
-- [ ] Overtime calculation from attendance data
-- [ ] Monthly payroll run (background job) — see `PAYROLL_LOGIC.md`
-- [ ] Payroll approval workflow before finalization
-- [ ] Payslip PDF generation
-- [ ] Payslip view — mobile (self-service)
-- [ ] Bank disbursement export (file-based, per open decision in `ARCHITECTURE.md`)
-- [ ] Payroll cost reports — admin
-
-**Exit criteria:** A full monthly payroll run executes for a test employee set, correctly factoring attendance/leave/overtime, producing accurate payslips.
-
----
-
-## Phase 5 — Recruitment & Onboarding
-**Goal:** Basic hiring pipeline and structured onboarding for new employees.
-
-- [ ] Job requisition creation — admin
-- [ ] Candidate pipeline (Applied → Interview → Offer → Hired) — admin
-- [ ] Convert hired candidate → employee record (links to Phase 1 employee module)
-- [ ] Onboarding checklist per new hire
-
-**Exit criteria:** A candidate can be tracked through the pipeline and converted into an active employee record with an onboarding checklist assigned.
-
----
-
-## Phase 6 — Performance Management
-**Goal:** Goal-setting and appraisal cycles.
-
-- [ ] KPI/Goal setting per employee — admin
-- [ ] Appraisal cycle configuration (quarterly/annual)
-- [ ] Self-review + manager review — mobile + admin
-- [ ] Performance history view
-
-**Exit criteria:** An appraisal cycle can run start-to-finish for a test employee with both self and manager review captured.
-
----
-
-## Phase 7 — Training & Offboarding
-**Goal:** Round out the employee lifecycle.
-
-- [ ] Training program listing + enrollment — admin + mobile
-- [ ] Training completion tracking
-- [ ] Exit request workflow
-- [ ] Final settlement calculation (links to Payroll module)
-- [ ] Asset return checklist
-
-**Exit criteria:** An employee exit can be processed end-to-end, including final settlement.
-
----
-
-## Phase 8 — Reports, Analytics & Polish
-**Goal:** Cross-module reporting and production readiness.
-
-- [ ] Attendance summary reports (daily/monthly/department)
-- [ ] Payroll cost/summary reports
-- [ ] Leave utilization reports
-- [ ] Export to CSV/PDF across reports
-- [ ] Notification system hardening (email/SMS/push channels finalized)
-- [ ] Performance/load testing
-- [ ] Security audit pass (see `SECURITY.md`)
-- [ ] Bengali localization (if in scope — see `PRD.md` open question)
-
-**Exit criteria:** System is production-ready — reports accurate, security reviewed, load-tested for target employee count.
-
----
-
-## Notes on Sequencing
-
-- **Do not start Payroll (Phase 4) before Attendance (Phase 2) and Leave (Phase 3) are stable** — payroll depends on their data.
-- **Auth (Phase 1) must be fully done, including biometric, before broad mobile feature work** — retrofitting auth later is costly.
-- Recruitment, Performance, and Training (Phases 5–7) are relatively independent of each other and can be reordered or parallelized if team capacity allows, but all depend on the core Employee module from Phase 1.
-- Each phase should ship with its own tests (see `TESTING.md`) — do not defer testing to Phase 8.
-
-## MVP Definition
-
-If a faster launch is needed, the **minimum viable product** = Phase 0 + 1 + 2 + 3 + 4 (Setup → Auth/Employee → Attendance → Leave → Payroll). Recruitment, Performance, and Training can launch post-MVP.
+1. Database schema / ERD (tenants, countries, country_rules, departments, designations, roles, permissions, employees, salary_components, payroll_rules, attendance, roster, leave, payroll)
+2. Multi-tenant + country-rule architecture (no UI yet)
+3. Payroll calculation engine core, validated against 2+ countries
+4. Remaining Phase 1 modules (Employee Core, Attendance, Leave, Roster, Payroll Processing, ESS, Mobile App, RBAC, Security, Audit Log)
+5. Phase 2, then Phase 3

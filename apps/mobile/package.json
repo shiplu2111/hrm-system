@@ -1,0 +1,26 @@
+{
+  "name": "@hrm/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --port 8082",
+    "dev": "expo start --port 8082 --clear",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@hrm/shared-types": "*",
+    "expo": "^57.0.0",
+    "expo-splash-screen": "~57.0.8",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.9",
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,188 +1,112 @@
-# ARCHITECTURE.md — HRM System
+# ARCHITECTURE.md
 
-## 1. High-Level Overview
-
-The system is a monorepo with three client-facing applications sharing one backend API and a shared types/utils package.
+## 1. High-Level System
 
 ```
-                        ┌─────────────────────┐
-                        │   PostgreSQL (DB)    │
-                        └──────────┬───────────┘
-                                   │
-                        ┌──────────┴───────────┐
-                        │   Redis (Cache/Queue) │
-                        └──────────┬───────────┘
-                                   │
-                        ┌──────────┴───────────┐
-                        │   NestJS API Server   │
-                        │  (apps/backend)       │
-                        └──────────┬───────────┘
-                                   │  REST + WebSocket (JWT auth)
-              ┌────────────────────┼────────────────────┐
-              │                    │                    │
-   ┌──────────┴─────────┐ ┌────────┴────────┐  ┌────────┴────────┐
-   │  Web App            │ │  Mobile App     │  │  (Future) Public │
-   │  (Admin + Employee  │ │  React Native   │  │  API Consumers   │
-   │   Self-Service)     │ │  (apps/mobile)  │  │                  │
-   │  React + Vite       │ │                 │  │                  │
-   │  (apps/admin)       │ │                 │  │                  │
-   └─────────────────────┘ └─────────────────┘  └─────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│  Web App (React) │     │ Mobile App (RN)   │     │ Super Admin Panel   │
+│  Admin/Employee   │     │ Employee (offline)│     │                    │
+└────────┬─────────┘     └────────┬──────────┘     └─────────┬──────────┘
+         │                        │  (queued sync)             │
+         └────────────┬───────────┴────────────┬───────────────┘
+                       │        REST API (JWT)   │
+              ┌────────▼─────────────────────────▼────────┐
+              │            NestJS Backend                  │
+              │  ┌──────────────┐  ┌──────────────────┐    │
+              │  │ Auth/RBAC     │  │ Payroll Engine    │    │
+              │  ├──────────────┤  ├──────────────────┤    │
+              │  │ Tenant Mgmt   │  │ Rule Resolver     │    │
+              │  ├──────────────┤  ├──────────────────┤    │
+              │  │ Attendance    │  │ Sync/Queue (BullMQ)│   │
+              │  └──────────────┘  └──────────────────┘    │
+              └───────────┬─────────────────┬───────────────┘
+                           │                 │
+                  ┌────────▼──────┐   ┌──────▼───────┐
+                  │ PostgreSQL     │   │ Redis / Queue │
+                  └────────────────┘   └───────────────┘
+                           │
+                  ┌────────▼──────────────┐
+                  │ File Storage (driver)   │
+                  │ S3-compatible OR local   │
+                  └────────────────────────┘
 ```
 
-## 2. Monorepo Layout
+## 2. Multi-Tenancy
+
+- Every business data table carries a `tenant_id` column.
+- All queries MUST be scoped by `tenant_id` at the repository/service layer — never trust a client-supplied tenant filter alone; derive it from the authenticated session.
+- Tenant isolation is enforced in code (row-level), not by separate databases, for MVP. Revisit dedicated-DB-per-tenant only if a specific enterprise client requires it.
+
+## 3. Country-Rule Engine (core architectural principle)
 
 ```
-hrm-system/
-├── apps/
-│   ├── backend/
-│   │   └── src/
-│   │       ├── modules/
-│   │       │   ├── auth/
-│   │       │   ├── employee/
-│   │       │   ├── attendance/
-│   │       │   ├── leave/
-│   │       │   ├── payroll/
-│   │       │   ├── recruitment/
-│   │       │   ├── performance/
-│   │       │   ├── notification/
-│   │       │   └── reports/
-│   │       ├── common/          # guards, interceptors, filters, decorators
-│   │       ├── config/          # env config, validation
-│   │       └── main.ts
-│   ├── admin/
-│   │   └── src/
-│   │       ├── pages/
-│   │       ├── components/
-│   │       ├── features/        # module-based: attendance/, payroll/, leave/...
-│   │       ├── api/              # API client calls (uses shared types)
-│   │       ├── store/            # zustand stores
-│   │       └── routes/
-│   └── mobile/
-│       └── src/
-│           ├── screens/
-│           ├── components/
-│           ├── features/
-│           ├── api/
-│           ├── auth/            # biometric/PIN local logic
-│           └── navigation/
-├── packages/
-│   └── shared/
-│       ├── types/                # DTOs, interfaces shared across apps
-│       ├── constants/            # roles, leave types, error codes
-│       └── utils/                # date/currency formatting, validators
-└── docs/
+Payroll/Leave/Tax Calculation Request
+            │
+            ▼
+      Rule Resolver
+            │
+   ┌────────┼─────────┬──────────────┬───────────────────┐
+   ▼        ▼          ▼              ▼                   ▼
+Global   Country    State/Province   Company Policy   Employee Contract
+Default  Rules      Rules            (override)       (final override)
+            │
+            ▼
+   Effective-dated rule version (matched to the payroll/calculation date)
+            │
+            ▼
+        Calculation
 ```
 
-## 3. Backend Architecture (NestJS)
+**Non-negotiable rule:** country-specific or company-specific logic must never be hard-coded inside controllers or services. It is always resolved through this chain from configuration/database tables. See RULES.md.
 
-### 3.1 Module Pattern
-Each business domain (attendance, payroll, leave, etc.) is a **self-contained NestJS module** with:
-- `*.controller.ts` — route handlers only, no business logic
-- `*.service.ts` — business logic
-- `*.repository.ts` (or Prisma/TypeORM equivalent) — data access
-- `dto/` — request/response validation (class-validator)
-- `entities/` — DB models
-- `*.module.ts` — wiring
+## 4. Payroll Calculation Pipeline
 
-### 3.2 Layering Rule
+See PAYROLL_LOGIC.md for full detail. Summary:
+
 ```
-Controller → Service → Repository → Database
+Attendance + Leave + Timesheet + Overtime + Salary Structure + Bonuses + Deductions
+        → Rule Resolver (country/state/company/contract)
+        → Gross Pay
+        → Deductions (tax, loan, insurance, etc.)
+        → Net Pay
+        → Payslip
+        → Payment Batch
 ```
-Controllers never touch the database directly. Services never know about HTTP (req/res).
 
-### 3.3 Cross-Cutting Concerns
-- **Auth Guard:** JWT verification + role-based `@Roles()` decorator on every protected route
-- **Validation:** Global `ValidationPipe` using DTOs
-- **Error Handling:** Global exception filter → consistent error shape (see `API_GUIDELINES.md`)
-- **Logging:** Structured logger (e.g., Pino), request ID tracing
-- **Rate Limiting:** On auth endpoints especially (PIN brute-force protection)
+## 5. Offline-First Mobile Architecture
 
-### 3.4 Background Jobs
-Use **Bull (Redis-backed queue)** for:
-- Monthly payroll run
-- Payslip PDF generation
-- Notification dispatch (email/SMS/push)
-- Attendance offline-sync reconciliation
+See OFFLINE_SYNC.md for full detail. Summary: the mobile app is not a thin client — it has a local database, queues actions offline, and reconciles with the server using idempotent sync operations keyed by a client-generated `local_id`.
 
-### 3.5 Real-time
-Socket.io gateway for:
-- Live attendance status on admin dashboard
-- Leave approval notifications
+## 6. File Storage Abstraction
 
-## 4. Database
+All file operations (documents, payslips, assets, profile photos) go through a storage driver interface:
 
-- **Engine:** PostgreSQL
-- **ORM:** Prisma (recommended for type-safety + migration DX with TypeScript monorepo)
-- Full schema detailed in `DATABASE_SCHEMA.md`
-- Financial tables (payroll, salary) use `DECIMAL`, never `FLOAT`
-- All tables: `id (uuid)`, `created_at`, `updated_at`, soft-delete via `deleted_at` where applicable
+```ts
+interface StorageDriver {
+  upload(key: string, file: Buffer, meta: FileMeta): Promise<string>;
+  getUrl(key: string): Promise<string>;
+  delete(key: string): Promise<void>;
+}
+```
 
-## 5. Authentication Architecture
+Two implementations: `S3StorageDriver` (AWS S3 / DigitalOcean Spaces / MinIO) and `LocalDiskStorageDriver`. The active driver is chosen per deployment via environment configuration (see ENV_SETUP.md and FILE_STORAGE.md) — application code never references the storage mechanism directly.
 
-- JWT access token (short-lived, ~15 min) + refresh token (long-lived, stored httpOnly/secure on admin; secure storage on mobile)
-- Password: bcrypt hash
-- PIN: bcrypt hash, separate column, rate-limited endpoint
-- Biometric: **device never sends raw biometric data**. Device generates a key pair on enrollment (stored in Android Keystore / iOS Secure Enclave via `expo-secure-store`), sends public key to backend. Login = device signs a server-issued challenge with the private key after local biometric verification; backend verifies signature with stored public key.
-- Full flow in `AUTH_FLOW.md`
+## 7. Effective-Dated Rule Versioning
 
-## 6. Web App Architecture (React) — Admin + Employee Self-Service
+Tax brackets, leave policies, and OT rules change over time. Every rule table includes `effective_from` and `effective_to`. Payroll always resolves rules using the payroll period's date, not "today" — this keeps historical payroll runs correct even after law changes.
 
-`apps/admin` is a **single web app serving every role**, not an admin-only tool — HR/Manager/Super Admin get the full admin surface, while `employee` (and any custom role scoped similarly) logs into the same app and sees a restricted, self-service-only subset of screens (mirroring the mobile app's tab structure — check-in status, leave, payslips, profile — per `NAVIGATION.md` §10). This means **employees can log in from a PC/browser as well as the mobile app**, using the same account and the same dynamic permission set (`ROLES_PERMISSIONS.md` §1) — there is no separate "employee web portal" codebase to maintain in parallel.
+## 7a. Runtime-Configurable Settings (Admin Panel, not `.env`)
 
-- **Vite + TypeScript**
-- **Server state:** TanStack Query (all API data — caching, refetch, mutation)
-- **Client/UI state:** Zustand (auth session, UI toggles) — kept minimal
-- **UI Kit:** Ant Design (data-heavy tables/forms suit HRM use case)
-- **Routing:** React Router, route guards based on the current user's **permission key list** returned at login (`ROLES_PERMISSIONS.md` §13.2), not a hardcoded role name — a route like `/payroll` checks for `payroll.view_all` in the session's permission list, so it works identically for the seeded `hr` role and any future custom role granted that same permission.
-- **Feature-folder structure:** each module (`payroll/`, `attendance/`, `leave/`) contains its own components, hooks, and API calls — not split by generic type (avoids `components/`, `hooks/` global sprawl)
-- **Auth method on web:** password only (or SSO if added later) — **PIN and biometric login remain mobile-only** (`AUTH_FLOW.md` §11 clarifies this split), since PIN/biometric exist specifically for the mobile app's faster-repeated-unlock use case and don't map cleanly to a browser context; an employee who set up PIN/biometric on mobile still logs into the web app with their password.
-- **Landing experience by role:** on login, `employee`-scoped users land on a self-service home view (check-in status, leave balance, recent payslip) instead of the admin dashboard's org-wide overview — the app shell is shared, but the default route and available nav items differ by permission set, same mechanism as route guards above.
+Operational settings that a Company Admin or Super Admin should be able to change without a developer or a redeploy — SMTP/email settings, notification rules, real-time notification toggles, third-party integration credentials, feature flags, country rule sets — are stored in database-backed settings tables (`tenant_settings`, `platform_settings`) and exposed through the Admin Panel, not baked into `.env`. `.env` is reserved for true bootstrap config the app needs before it can reach the database (DB/Redis connection, JWT secrets, storage driver base credentials). See ENV_SETUP.md §0 and SYSTEM_SETTINGS.md §2a for the full split and rationale.
 
-## 7. Mobile App Architecture (React Native / Expo)
+## 7b. Real-Time Layer
 
-- **Expo managed workflow** (switch to bare workflow only if continuous background location tracking becomes a hard requirement)
-- **Location:** `expo-location` — captured at check-in/out; geofence validation done server-side (client sends coordinates, backend is source of truth for validity)
-- **Biometric:** `expo-local-authentication` for device-level prompt; `expo-secure-store` for key storage
-- **Offline support:** local queue (e.g., SQLite via `expo-sqlite` or `WatermelonDB`) for check-in/out events made offline; background sync on reconnect
-- **Navigation:** React Navigation
-- **State:** TanStack Query + Zustand (same pattern as admin, for consistency)
+A WebSocket layer delivers live in-app notifications and status updates (e.g. a payroll run's status changing while a Payroll Admin has the screen open) to connected web/mobile clients. This is additive to the persisted notification record — see NOTIFICATION_LOGIC.md §10 — never the sole source of truth for a notification, consistent with the offline-safety principle applied elsewhere in the system (see OFFLINE_SYNC.md).
 
-## 8. Shared Package (`packages/shared`)
+## 8. Related Documents
 
-- TypeScript types/DTOs used by backend (as source of truth), re-exported and consumed by admin + mobile to avoid drift
-- Shared constants: role enums, leave type enums, error codes
-- Shared pure utility functions: currency formatting, date helpers (no framework-specific code here)
-
-## 9. Environment Separation
-
-| Environment | Purpose |
-|---|---|
-| `local` | Developer machines, Docker Compose DB/Redis |
-| `staging` | Pre-production testing |
-| `production` | Live system |
-
-Config validated at boot via `@nestjs/config` + Joi/Zod schema — app fails fast if required env vars are missing.
-
-## 10. Deployment (high-level, adjust per infra choice)
-
-- **Backend:** Containerized (Docker), deployed to a VM/container service (e.g., ECS, Railway, Render, or self-hosted VPS)
-- **Admin:** Static build, served via CDN/Nginx or hosting like Vercel
-- **Mobile:** Built via EAS Build (Expo), distributed via Play Store / App Store / internal TestFlight
-- **DB:** Managed PostgreSQL recommended in production (backups, point-in-time recovery)
-
-## 11. Key Architectural Decisions & Rationale
-
-| Decision | Rationale |
-|---|---|
-| Monorepo (Turborepo + pnpm) | Shared types across 3 apps, single install, consistent tooling |
-| NestJS over Express | Enforced modular structure suits multi-module HRM domain |
-| PostgreSQL over NoSQL | Payroll/attendance data is relational, needs strong consistency/transactions |
-| Server-side geofence validation | Client-side-only validation is spoofable; backend must be source of truth |
-| Public-key biometric auth | Biometric data never leaves the device — required for security/compliance |
-| TanStack Query on both admin & mobile | Consistent data-fetching pattern, less duplicated logic |
-
-## 12. Open Architecture Decisions
-
-- [ ] Prisma vs TypeORM — finalize before backend scaffolding begins
-- [ ] Bank disbursement: direct integration vs export file (impacts payroll module design)
-- [ ] Background location tracking requirement (impacts Expo managed vs bare workflow choice)
+- DATABASE_SCHEMA.md — table-level detail
+- PAYROLL_LOGIC.md, LEAVE_LOGIC.md, ATTENDANCE_LOGIC.md — domain logic
+- OFFLINE_SYNC.md — mobile sync design
+- SECURITY.md, AUTH_FLOW.md — auth and data protection
+- FILE_STORAGE.md — storage driver detail
