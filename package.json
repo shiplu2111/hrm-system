@@ -26,6 +26,7 @@
     "migrate:deploy": "npm run migrate:deploy -w @hrm/api",
     "migrate:status": "npm run migrate:status -w @hrm/api",
     "seed": "npm run seed -w @hrm/api",
+    "test:e2e": "npm run test:e2e -w @hrm/api",
     "prisma:generate": "npm run prisma:generate -w @hrm/api",
     "lint": "npm run lint --workspaces --if-present"
   },

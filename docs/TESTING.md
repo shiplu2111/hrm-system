@@ -26,7 +26,15 @@ No feature in these areas ships without unit tests (see RULES.md §8):
 
 ## 4. Multi-Tenant Isolation Tests
 
-- Automated test suite that attempts cross-tenant data access (as User A from Tenant 1, try to read/write Tenant 2 data) and asserts failure on every tested endpoint — run in CI, not just manually (see SECURITY.md §8).
+Automated suite: `npm run test:e2e` (from repo root) — `apps/api/test/tenant-isolation.e2e-spec.ts`.
+
+Covers (TESTING.md / SECURITY.md §8):
+- Authenticated user can read own-tenant data
+- Same user gets **404** for another tenant's record (not a leak via `200`)
+- Client-supplied `tenantId` in query/body is **rejected** (`400 TENANT_ID_NOT_ALLOWED`)
+- Prisma extension scopes `findUnique` by JWT `tenant_id`
+
+Requires seeded demo data (`npm run seed`) and a running PostgreSQL instance (`DATABASE_URL` in `.env`).
 
 ## 5. Payroll Regression Tests
 
@@ -39,7 +47,19 @@ No feature in these areas ships without unit tests (see RULES.md §8):
 
 ## 7. Test Data
 
-- Seed data (see ENV_SETUP.md §5) doubles as the base fixture set for integration/E2E tests — avoid maintaining two divergent sets of "sample data."
+Seed data (see ENV_SETUP.md §5) is the base fixture set for integration/E2E tests — do not maintain a second divergent sample dataset.
+
+**Demo tenant:** subdomain `demo` · password `password`
+
+| Role | Login email |
+|---|---|
+| Company Owner | `admin@cmsnbd.com` |
+| HR Admin | `hr@cmsnbd.com` |
+| Payroll Admin | `payroll@cmsnbd.com` |
+| Manager | `manager@cmsnbd.com` |
+| Employee | `employee@cmsnbd.com` |
+
+Always pass `tenantSubdomain: "demo"` (or the tenant UUID) on login in tests.
 
 ## 8. Manual QA Checklist (pre-release)
 

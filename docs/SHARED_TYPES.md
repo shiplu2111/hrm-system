@@ -4,7 +4,7 @@
 
 Types/DTOs used by both backend (NestJS) and clients (React web, React Native mobile) live in a single shared package to prevent drift between what the API returns and what the client expects (see RULES.md §6).
 
-## 2. Package Structure (suggested)
+## 2. Package Structure
 
 ```
 /packages/shared-types/
@@ -13,12 +13,12 @@ Types/DTOs used by both backend (NestJS) and clients (React web, React Native mo
     attendance.ts
     leave.ts
     payroll.ts
-    auth.ts
-    common.ts   -- pagination, error shape, enums shared across modules
+    auth.ts       -- LoginRequest, LoginResponse, AuthUser, AccessTokenClaims
+    common.ts     -- ApiResponse, ApiError, PermissionAction, SyncableRecord
   package.json
 ```
 
-Consumed by backend, web, and mobile via workspace/monorepo linking (or published as a private npm package if not using a monorepo — confirm repo strategy).
+Consumed via npm workspaces (`@hrm/shared-types`) by `apps/api`, `apps/web`, `apps/admin`, and `apps/mobile`.
 
 ## 3. Core Shared Enums (examples)
 
@@ -65,6 +65,33 @@ export interface ApiError {
 }
 ```
 Matches API_GUIDELINES.md and ERROR_HANDLING.md exactly — any change to the API response shape must update this file in the same commit.
+
+## 5a. Auth types (implemented)
+
+```ts
+export interface LoginRequest {
+  email: string;
+  password: string;
+  tenantSubdomain?: string;  // e.g. "demo"
+  tenantId?: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  tenantId: string | null;
+  roleId: string;
+  employeeId: string | null;
+  permissions: { module: string; action: PermissionAction }[];
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;   // seconds, default 900 (15m)
+  user: AuthUser;
+}
+```
 
 ## 6. Versioning
 

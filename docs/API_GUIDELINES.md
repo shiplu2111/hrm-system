@@ -50,6 +50,18 @@
 
 ## 10. Documentation
 
-- Every endpoint documented via OpenAPI/Swagger, generated from code annotations, kept in sync automatically — not maintained as a separate hand-written doc.
+- OpenAPI/Swagger UI: **http://localhost:3000/api/docs** (when API is running via `npm run dev:api`).
+- Spec is generated from NestJS decorators in `apps/api/src` — not maintained as a separate hand-written doc.
+- Use **Authorize** in Swagger with `Bearer <accessToken>` after logging in via `POST /api/v1/auth/login`.
+
+### Implemented auth endpoints (v1)
+
+| Method | Path | Auth required |
+|---|---|---|
+| `POST` | `/api/v1/auth/login` | No |
+| `POST` | `/api/v1/auth/refresh` | Refresh token (body or httpOnly cookie) |
+| `GET` | `/health` | No |
+
+See AUTH_FLOW.md and ENV_SETUP.md §5 for demo credentials.
 
 See ERROR_HANDLING.md, SHARED_TYPES.md, and AUTH_FLOW.md for related conventions.

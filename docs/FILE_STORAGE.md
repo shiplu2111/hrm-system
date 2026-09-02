@@ -41,7 +41,7 @@ LOCAL_STORAGE_PUBLIC_URL_BASE=
 ```
 {tenant_id}/{module}/{entity_id}/{filename_or_uuid}.{ext}
 ```
-e.g. `acme-corp/documents/emp-1234/passport-scan.pdf` — keeps tenant isolation visible even at the storage layer and simplifies per-tenant export/deletion.
+e.g. `demo/documents/emp-001/passport-scan.pdf` — keeps tenant isolation visible even at the storage layer and simplifies per-tenant export/deletion.
 
 ## 5. Access Control
 

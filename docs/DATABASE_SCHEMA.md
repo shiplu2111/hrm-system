@@ -173,7 +173,21 @@ permissions
   id, role_id, module, action (view|create|edit|delete|approve|finalize),
   created_at, updated_at
   UNIQUE (role_id, module, action)
+
+users
+  id, tenant_id (nullable for platform users), employee_id (nullable),
+  role_id, email, password_hash, is_active, failed_login_attempts,
+  locked_until, last_login_at, created_at, updated_at
+  UNIQUE (tenant_id, email) WHERE tenant_id IS NOT NULL
+  UNIQUE (email) WHERE tenant_id IS NULL
+
+  refresh_tokens
+  id, user_id, token_hash, family_id, expires_at, revoked_at,
+  user_agent, ip_address, created_at
+  -- rotation: each refresh revokes the previous token in the family
 ```
+
+**Local seed reference:** tenant subdomain `demo`, company **Demo Corp Pty Ltd**, country **Australia (AUS)**. Login emails: `admin@cmsnbd.com`, `hr@cmsnbd.com`, `payroll@cmsnbd.com`, `manager@cmsnbd.com`, `employee@cmsnbd.com` — see ENV_SETUP.md §5.
 
 ## 10. Conventions
 

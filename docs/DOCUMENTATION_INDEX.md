@@ -43,10 +43,14 @@ Master index of all project documentation. Start here.
 - **MOBILE_PERMISSIONS.md** — device permissions and graceful degradation
 
 ## Operations
-- **ENV_SETUP.md** — local dev environment setup
+- **ENV_SETUP.md** — local dev environment setup (includes demo logins `@cmsnbd.com`)
 - **DEPLOYMENT.md** — CI/CD, environments, rollout
 - **SYSTEM_SETTINGS.md** — tenant/platform settings, backup/restore
 - **TESTING.md** — test strategy and mandatory coverage areas
+
+**Quick local URLs** (API running on port 3000):
+- Swagger: http://localhost:3000/api/docs
+- Health: http://localhost:3000/health
 
 ## Reference
 - **GLOSSARY.md** — shared vocabulary

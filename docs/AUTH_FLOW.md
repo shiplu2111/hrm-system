@@ -55,3 +55,40 @@ See SECURITY.md for password complexity, rotation, and lockout rules.
 ## 10. Role & Permission Loading
 
 On login, a permission snapshot is embedded in the token for fast checks; the authoritative permission set is always re-checked server-side on sensitive actions (never trust the token's permission claims alone for approve/finalize-type actions — see ROLES_PERMISSIONS.md).
+
+## 11. Current Implementation (local dev)
+
+**Status:** JWT login + refresh with rotation are implemented. 2FA, biometric, and logout endpoints are not yet implemented.
+
+| Item | Detail |
+|---|---|
+| Login | `POST /api/v1/auth/login` |
+| Refresh | `POST /api/v1/auth/refresh` |
+| Access token TTL | `JWT_ACCESS_EXPIRY` — default `15m` |
+| Refresh token TTL | `JWT_REFRESH_EXPIRY` — default `30d` |
+| Refresh storage | `refresh_tokens` table (hashed); rotation revokes previous token |
+| Swagger | http://localhost:3000/api/docs |
+
+**Access token JWT claims:**
+
+```json
+{
+  "sub": "<user_id>",
+  "tenant_id": "<tenant_uuid>",
+  "role_id": "<role_uuid>",
+  "employee_id": "<employee_uuid>",
+  "permissions": [{ "module": "employee", "action": "view" }]
+}
+```
+
+**Login body** — tenant via subdomain or explicit ID (see ENV_SETUP.md §5 for demo accounts):
+
+```json
+{
+  "email": "admin@cmsnbd.com",
+  "password": "password",
+  "tenantSubdomain": "demo"
+}
+```
+
+Code: `apps/api/src/auth/`.

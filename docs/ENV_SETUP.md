@@ -77,27 +77,65 @@ BANKING_API_KEY=
 ```bash
 git clone <repo>
 cd <repo>
-cp .env.example .env   # fill in local values
+cp .env.example .env   # fill in local values (see §2)
 npm install
-npm run migrate         # see MIGRATIONS.md
-npm run seed             # base data: default roles, sample country config
-npm run start:dev
+npm run migrate        # apply Prisma migrations — see MIGRATIONS.md
+npm run seed           # demo tenant, roles, users — see §5
+npm run dev:api        # API on http://localhost:3000
 ```
+
+**Swagger UI (interactive API docs):** http://localhost:3000/api/docs
+
+**Health check (no auth):** http://localhost:3000/health
 
 ## 4. Mobile App Local Setup
 
 ```bash
-cd mobile
+cd apps/mobile
 npm install
 npx pod-install          # iOS only
-npm run android   # or: npm run ios
+npm run android          # or: npm run ios
 ```
 
-Point the mobile app's API base URL at your local backend (`.env` in the mobile project or a config file — confirm exact mechanism once mobile scaffolding exists).
+Point the mobile app at `http://localhost:3000` (or your machine IP) for the API base URL.
 
 ## 5. Seed Data
 
-Local seed should include: one sample tenant, one sample country configuration (with tax brackets and leave rules), a few employees across roles, so the payroll engine and permission system can be exercised end-to-end immediately.
+Seed script: `apps/api/prisma/seed.ts` — run via `npm run seed` from the repo root.
+
+Idempotent (safe to re-run). Creates:
+
+| Entity | Value |
+|---|---|
+| Tenant | **Demo Corp** — subdomain `demo` |
+| Company | **Demo Corp Pty Ltd** (AU financial year starts July) |
+| Country | **Australia** (`AUS`, AUD, progressive tax brackets + leave/OT country rules) |
+| Roles | 8 system roles with permissions (see ROLES_PERMISSIONS.md §1) |
+| Employees | 5 sample employees with manager hierarchy + leave balances |
+
+### Demo login accounts
+
+All accounts share password **`password`** (local dev only — never use in staging/production).
+
+| Role | Email |
+|---|---|
+| Company Owner | `admin@cmsnbd.com` |
+| HR Admin | `hr@cmsnbd.com` |
+| Payroll Admin | `payroll@cmsnbd.com` |
+| Manager | `manager@cmsnbd.com` |
+| Employee | `employee@cmsnbd.com` |
+
+**Login request** (`POST /api/v1/auth/login`):
+
+```json
+{
+  "email": "admin@cmsnbd.com",
+  "password": "password",
+  "tenantSubdomain": "demo"
+}
+```
+
+Returns JWT `accessToken` (15 min) + `refreshToken` (30 days, rotated on each refresh). See AUTH_FLOW.md and Swagger at `/api/docs`.
 
 ## 6. Per-Environment Config
 

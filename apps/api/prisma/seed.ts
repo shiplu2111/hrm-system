@@ -9,6 +9,7 @@ import {
   PermissionAction,
   PrismaClient,
 } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -53,10 +54,27 @@ const ID = {
   taxProfilePayrollAdmin: '10000000-0000-4000-8000-000000000052',
   taxProfileManager: '10000000-0000-4000-8000-000000000053',
   taxProfileStaff: '10000000-0000-4000-8000-000000000054',
+  userOwner: '10000000-0000-4000-8000-000000000060',
+  userHrAdmin: '10000000-0000-4000-8000-000000000061',
+  userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
+  userManager: '10000000-0000-4000-8000-000000000063',
+  userStaff: '10000000-0000-4000-8000-000000000064',
 } as const;
 
 const EFFECTIVE_FROM = new Date('2024-07-01');
 const SEED_YEAR = 2025;
+const DEMO_PASSWORD = 'password';
+const BCRYPT_ROUNDS = 12;
+const SEED_EMAIL_DOMAIN = 'cmsnbd.com';
+
+/** Login emails by role — e.g. admin@cmsnbd.com, employee@cmsnbd.com */
+const ROLE_SEED_EMAIL: Record<string, string> = {
+  'Company Owner': `admin@${SEED_EMAIL_DOMAIN}`,
+  'HR Admin': `hr@${SEED_EMAIL_DOMAIN}`,
+  'Payroll Admin': `payroll@${SEED_EMAIL_DOMAIN}`,
+  Manager: `manager@${SEED_EMAIL_DOMAIN}`,
+  Employee: `employee@${SEED_EMAIL_DOMAIN}`,
+};
 
 type ModulePermission = { module: string; actions: PermissionAction[] };
 
@@ -506,7 +524,7 @@ async function main(): Promise<void> {
       employeeNumber: 'EMP-001',
       firstName: 'Sarah',
       lastName: 'Chen',
-      email: 'sarah.chen@demo-hrm.local',
+      email: ROLE_SEED_EMAIL['Company Owner'],
       roleId: ID.roleCompanyOwner,
       roleName: 'Company Owner',
       departmentId: ID.departmentHr,
@@ -519,7 +537,7 @@ async function main(): Promise<void> {
       employeeNumber: 'EMP-002',
       firstName: 'James',
       lastName: 'Wilson',
-      email: 'james.wilson@demo-hrm.local',
+      email: ROLE_SEED_EMAIL['HR Admin'],
       roleId: ID.roleHrAdmin,
       roleName: 'HR Admin',
       departmentId: ID.departmentHr,
@@ -533,7 +551,7 @@ async function main(): Promise<void> {
       employeeNumber: 'EMP-003',
       firstName: 'Priya',
       lastName: 'Patel',
-      email: 'priya.patel@demo-hrm.local',
+      email: ROLE_SEED_EMAIL['Payroll Admin'],
       roleId: ID.rolePayrollAdmin,
       roleName: 'Payroll Admin',
       departmentId: ID.departmentHr,
@@ -547,7 +565,7 @@ async function main(): Promise<void> {
       employeeNumber: 'EMP-004',
       firstName: 'Alex',
       lastName: 'Thompson',
-      email: 'alex.thompson@demo-hrm.local',
+      email: ROLE_SEED_EMAIL.Manager,
       roleId: ID.roleManager,
       roleName: 'Manager',
       departmentId: ID.departmentEng,
@@ -561,7 +579,7 @@ async function main(): Promise<void> {
       employeeNumber: 'EMP-005',
       firstName: 'Jordan',
       lastName: 'Lee',
-      email: 'jordan.lee@demo-hrm.local',
+      email: ROLE_SEED_EMAIL.Employee,
       roleId: ID.roleEmployee,
       roleName: 'Employee',
       departmentId: ID.departmentEng,
@@ -666,6 +684,41 @@ async function main(): Promise<void> {
     });
   }
 
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
+
+  const seedUserIds: Record<string, string> = {
+    [ID.empOwner]: ID.userOwner,
+    [ID.empHrAdmin]: ID.userHrAdmin,
+    [ID.empPayrollAdmin]: ID.userPayrollAdmin,
+    [ID.empManager]: ID.userManager,
+    [ID.empStaff]: ID.userStaff,
+  };
+
+  for (const emp of employees) {
+    await prisma.user.upsert({
+      where: { id: seedUserIds[emp.id] },
+      create: {
+        id: seedUserIds[emp.id],
+        tenantId: tenant.id,
+        employeeId: emp.id,
+        roleId: emp.roleId,
+        email: emp.email,
+        passwordHash,
+        isActive: true,
+      },
+      update: {
+        tenantId: tenant.id,
+        employeeId: emp.id,
+        roleId: emp.roleId,
+        email: emp.email,
+        passwordHash,
+        isActive: true,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+  }
+
   console.log('Seed complete.');
   console.log(`  Tenant:   ${tenant.name} (subdomain: demo)`);
   console.log(`  Company:  ${company.name}`);
@@ -676,6 +729,14 @@ async function main(): Promise<void> {
   for (const emp of employees) {
     console.log(`    - ${emp.firstName} ${emp.lastName} (${emp.roleName})`);
   }
+  console.log('  Demo logins (password for all):', DEMO_PASSWORD);
+  for (const emp of employees) {
+    console.log(`    - ${emp.email} (${emp.roleName})`);
+  }
+  console.log('  Example: POST /api/v1/auth/login');
+  console.log(
+    `    { "email": "${ROLE_SEED_EMAIL['Company Owner']}", "password": "${DEMO_PASSWORD}", "tenantSubdomain": "demo" }`,
+  );
 }
 
 main()
