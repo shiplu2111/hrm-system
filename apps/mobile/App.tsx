@@ -1,63 +1,89 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
-import type { ApiResponse } from '@hrm/shared-types';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import type { AuthUser } from '@hrm/shared-types';
+import { SyncStatusIndicator } from './src/components/SyncStatusIndicator';
+import { SyncStatusProvider } from './src/context/SyncStatusContext';
+import { getDatabase } from './src/db/database';
+import { clearSession, getStoredUser } from './src/db/session-repository';
+import { ClockScreen } from './src/screens/ClockScreen';
+import { LoginScreen } from './src/screens/LoginScreen';
 
-const placeholderResponse: ApiResponse<{ message: string }> = {
-  data: { message: 'HRM Mobile is running' },
-};
+function AuthenticatedApp({
+  user,
+  onLogout,
+}: {
+  user: AuthUser;
+  onLogout: () => void;
+}) {
+  return (
+    <SyncStatusProvider employeeId={user.employeeId}>
+      <View style={styles.authenticated}>
+        <SyncStatusIndicator />
+        <View style={styles.content}>
+          <ClockScreen user={user} onLogout={onLogout} />
+        </View>
+      </View>
+    </SyncStatusProvider>
+  );
+}
 
 export default function App() {
+  const [booting, setBooting] = useState(true);
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    async function boot() {
+      await getDatabase();
+      const stored = await getStoredUser();
+      setUser(stored);
+      setBooting(false);
+    }
+    void boot();
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await clearSession();
+    setUser(null);
+  }, []);
+
+  if (booting) {
+    return (
+      <View style={styles.boot}>
+        <ActivityIndicator size="large" color="#38bdf8" />
+        <StatusBar style="light" />
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.eyebrow}>HRM Platform</Text>
-      <Text style={styles.title}>Mobile App Boilerplate</Text>
-      <Text style={styles.subtitle}>
-        Offline-first employee app will live here. Shared types are wired via
-        @hrm/shared-types.
-      </Text>
-      <Text style={styles.code}>{placeholderResponse.data.message}</Text>
-      <StatusBar style="light" />
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        {user ? (
+          <AuthenticatedApp user={user} onLogout={() => void handleLogout()} />
+        ) : (
+          <LoginScreen onLoggedIn={setUser} />
+        )}
+        <StatusBar style="light" />
+      </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: { flex: 1, backgroundColor: '#0f172a' },
+  boot: {
     flex: 1,
     backgroundColor: '#0f172a',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
   },
-  eyebrow: {
-    color: '#94a3b8',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 8,
+  authenticated: {
+    flex: 1,
+    backgroundColor: '#0f172a',
   },
-  title: {
-    color: '#f8fafc',
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  subtitle: {
-    color: '#cbd5e1',
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  code: {
-    color: '#e2e8f0',
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    overflow: 'hidden',
-    fontFamily: 'monospace',
+  content: {
+    flex: 1,
   },
 });

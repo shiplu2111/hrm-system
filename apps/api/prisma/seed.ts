@@ -61,6 +61,7 @@ const ID = {
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
   userSuperAdmin: '10000000-0000-4000-8000-000000000065',
+  shiftStandard: '10000000-0000-4000-8000-000000000070',
 } as const;
 
 const EFFECTIVE_FROM = new Date('2024-07-01');
@@ -731,6 +732,57 @@ async function main(): Promise<void> {
         taxSettings: { taxFreeThreshold: true, helpDebt: false },
       },
     });
+  }
+
+  const shiftStart = new Date('1970-01-01T09:00:00.000Z');
+  const shiftEnd = new Date('1970-01-01T17:00:00.000Z');
+
+  await prisma.shift.upsert({
+    where: { id: ID.shiftStandard },
+    create: {
+      id: ID.shiftStandard,
+      companyId: company.id,
+      name: 'Standard 9–5',
+      startTime: shiftStart,
+      endTime: shiftEnd,
+      breakMinutes: 60,
+      graceMinutes: 15,
+    },
+    update: {
+      name: 'Standard 9–5',
+      startTime: shiftStart,
+      endTime: shiftEnd,
+      breakMinutes: 60,
+      graceMinutes: 15,
+    },
+  });
+
+  const rosterAnchor = new Date();
+  for (const emp of employees) {
+    for (let offset = -7; offset <= 14; offset += 1) {
+      const date = new Date(
+        Date.UTC(
+          rosterAnchor.getUTCFullYear(),
+          rosterAnchor.getUTCMonth(),
+          rosterAnchor.getUTCDate() + offset,
+        ),
+      );
+      await prisma.roster.upsert({
+        where: {
+          employeeId_date: { employeeId: emp.id, date },
+        },
+        create: {
+          employeeId: emp.id,
+          shiftId: ID.shiftStandard,
+          date,
+          locationId: ID.location,
+        },
+        update: {
+          shiftId: ID.shiftStandard,
+          locationId: ID.location,
+        },
+      });
+    }
   }
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);

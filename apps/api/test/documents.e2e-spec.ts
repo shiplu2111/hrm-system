@@ -138,6 +138,31 @@ describe('Document Management (MODULES.md §09)', () => {
     expect(audit).toBeTruthy();
   });
 
+  it('uploads employee document file through storage driver', async () => {
+    const pdf = Buffer.from('%PDF-1.4 test document');
+    const upload = await request(app.getHttpServer())
+      .post(`/api/v1/employees/${employeeId}/documents/${employeeDocumentId}/file`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', pdf, {
+        filename: 'permit-scan.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+
+    expect(upload.body.data.fileKey).toMatch(
+      /^[0-9a-f-]{36}\/documents\/[0-9a-f-]{36}\/.+\.pdf$/i,
+    );
+
+    const fileUrl = await request(app.getHttpServer())
+      .get(
+        `/api/v1/employees/${employeeId}/documents/${employeeDocumentId}/file-url`,
+      )
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(fileUrl.body.data.url).toContain('/api/v1/storage/files?key=');
+  });
+
   it('rejects document with missing required field', async () => {
     await request(app.getHttpServer())
       .post(`/api/v1/employees/${employeeId}/documents`)

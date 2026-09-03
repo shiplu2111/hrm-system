@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,11 +11,15 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { DOCUMENT_FILE_POLICY } from '../storage/document-file.policy';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
   CreateEmployeeDocumentDto,
@@ -53,6 +58,23 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @Get(':documentId/file-url')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({
+    summary: 'Get a time-limited download URL for the document file',
+  })
+  async getFileUrl(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+  ) {
+    return {
+      data: await this.employeeDocumentsService.getDocumentFileUrl(
+        employeeId,
+        documentId,
+      ),
+    };
+  }
+
   @Post()
   @RequirePermission('employee', 'create')
   async create(
@@ -65,6 +87,49 @@ export class EmployeeDocumentsController {
       data: await this.employeeDocumentsService.createDocument(
         employeeId,
         dto,
+        user,
+        { ipAddress: req.ip, device: req.headers['user-agent'] },
+      ),
+    };
+  }
+
+  @Post(':documentId/file')
+  @RequirePermission('employee', 'edit')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: DOCUMENT_FILE_POLICY.maxBytes },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Upload or replace the document file attachment' })
+  async uploadFile(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'File is required',
+      });
+    }
+
+    return {
+      data: await this.employeeDocumentsService.uploadDocumentFile(
+        employeeId,
+        documentId,
+        file,
         user,
         { ipAddress: req.ip, device: req.headers['user-agent'] },
       ),

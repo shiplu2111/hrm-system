@@ -8,6 +8,8 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { validateCustomFieldValues } from '../custom-fields/field-validation.utils';
 import { PrismaService } from '../database/prisma.service';
+import { assertValidDocumentUpload } from '../storage/document-file.policy';
+import { StorageService } from '../storage/storage.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import type {
   CreateEmployeeDocumentDto,
@@ -19,6 +21,7 @@ export class EmployeeDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly storageService: StorageService,
   ) {}
 
   async listDocuments(employeeId: string) {
@@ -92,7 +95,7 @@ export class EmployeeDocumentsService {
         employeeId,
         documentTypeId: dto.documentTypeId,
         fields: validatedFields as Prisma.InputJsonValue,
-        fileKey: dto.fileKey?.trim() || null,
+        fileKey: null,
         expiryDate: dto.expiryDate ? this.parseDate(dto.expiryDate) : null,
       },
       include: {
@@ -161,13 +164,12 @@ export class EmployeeDocumentsService {
         ...(dto.fields !== undefined
           ? { fields: mergedFields as Prisma.InputJsonValue }
           : {}),
-        ...(dto.fileKey !== undefined ? { fileKey: dto.fileKey?.trim() || null } : {}),
         ...(dto.expiryDate !== undefined
           ? {
               expiryDate: dto.expiryDate ? this.parseDate(dto.expiryDate) : null,
             }
           : {}),
-        ...(dto.fields !== undefined || dto.fileKey !== undefined
+        ...(dto.fields !== undefined
           ? { verifiedAt: null }
           : {}),
       },
@@ -196,6 +198,86 @@ export class EmployeeDocumentsService {
     });
 
     return this.toResponse(updated);
+  }
+
+  async uploadDocumentFile(
+    employeeId: string,
+    documentId: string,
+    file: Express.Multer.File,
+    user: AuthenticatedUser,
+    meta?: { ipAddress?: string; device?: string },
+  ) {
+    assertValidDocumentUpload(file);
+
+    const employee = await this.assertEmployee(employeeId);
+    const existing = await this.getDocOrThrow(employeeId, documentId);
+
+    const storageKey = this.storageService.buildEmployeeDocumentKey(
+      employee.tenantId,
+      employeeId,
+      file.originalname,
+    );
+
+    await this.storageService.upload(storageKey, file.buffer, {
+      contentType: file.mimetype,
+      originalName: file.originalname,
+      size: file.size,
+    });
+
+    if (existing.fileKey) {
+      await this.storageService.delete(existing.fileKey).catch(() => undefined);
+    }
+
+    const updated = await this.prisma.unscoped.employeeDocument.update({
+      where: { id: documentId },
+      data: {
+        fileKey: storageKey,
+        verifiedAt: null,
+      },
+      include: {
+        documentType: {
+          select: {
+            id: true,
+            name: true,
+            requiresVerification: true,
+            tracksExpiry: true,
+          },
+        },
+      },
+    });
+
+    await this.auditService.log({
+      tenantId: employee.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'employee',
+      recordId: documentId,
+      oldValue: { fileKey: existing.fileKey },
+      newValue: { fileKey: storageKey },
+      ipAddress: meta?.ipAddress,
+      device: meta?.device,
+    });
+
+    return this.toResponse(updated);
+  }
+
+  async getDocumentFileUrl(employeeId: string, documentId: string) {
+    await this.assertEmployee(employeeId);
+    const existing = await this.getDocOrThrow(employeeId, documentId);
+
+    if (!existing.fileKey) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Document has no uploaded file',
+      });
+    }
+
+    const url = await this.storageService.getUrl(existing.fileKey, 900);
+    return {
+      url,
+      expiresInSeconds: 900,
+      fileKey: existing.fileKey,
+    };
   }
 
   async verifyDocument(
@@ -245,6 +327,10 @@ export class EmployeeDocumentsService {
   ): Promise<void> {
     const employee = await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
+
+    if (existing.fileKey) {
+      await this.storageService.delete(existing.fileKey).catch(() => undefined);
+    }
 
     await this.prisma.unscoped.employeeDocument.delete({
       where: { id: documentId },

@@ -383,6 +383,7 @@ model Employee {
   documents      EmployeeDocument[]
   lifecycleEvents EmployeeLifecycleEvent[]
   attendanceRecords AttendanceRecord[]
+  attendanceSyncEvents AttendanceSyncEvent[]
   rosters           Roster[]
   leaveBalances     LeaveBalance[]
   leaveRequests     LeaveRequest[]
@@ -560,12 +561,24 @@ enum SyncStatus {
   @@map("sync_status")
 }
 
+enum AttendanceReviewStatus {
+  none
+  pending_manager
+  approved
+
+  @@map("attendance_review_status")
+}
+
 model AttendanceRecord {
   id         String                 @id @default(uuid()) @db.Uuid
   employeeId String                 @map("employee_id") @db.Uuid
   date       DateTime               @db.Date
+  /// Device-reported punch time (OFFLINE_SYNC.md §5 — not trusted alone for payroll)
   clockInAt  DateTime?              @map("clock_in_at")
   clockOutAt DateTime?              @map("clock_out_at")
+  /// Server time at sync for payroll truth once review clears (OFFLINE_SYNC.md §5)
+  clockInServerAt  DateTime?        @map("clock_in_server_at")
+  clockOutServerAt DateTime?        @map("clock_out_server_at")
   source     AttendanceSource
   status     AttendanceRecordStatus
   gpsLat     Decimal?               @map("gps_lat") @db.Decimal(10, 7)
@@ -575,17 +588,24 @@ model AttendanceRecord {
   localId    String?                @map("local_id") @db.Uuid
   syncedAt   DateTime?              @map("synced_at")
   syncStatus SyncStatus?            @map("sync_status")
+  timeAnomaly       Boolean          @default(false) @map("time_anomaly")
+  geofenceMismatch  Boolean          @default(false) @map("geofence_mismatch")
+  payrollEligible   Boolean          @default(true) @map("payroll_eligible")
+  reviewStatus      AttendanceReviewStatus @default(none) @map("review_status")
   createdAt  DateTime               @default(now()) @map("created_at")
   updatedAt  DateTime               @updatedAt @map("updated_at")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   breaks   Break[]
+  syncEvents AttendanceSyncEvent[]
 
   /// Idempotent sync: replaying the same (employee_id, local_id) must never duplicate (OFFLINE_SYNC.md §2)
   @@unique([employeeId, localId], map: "attendance_records_employee_id_local_id_key")
   @@index([employeeId])
   @@index([employeeId, date])
   @@index([syncStatus])
+  @@index([payrollEligible])
+  @@index([reviewStatus])
   @@map("attendance_records")
 }
 
@@ -601,6 +621,38 @@ model Break {
 
   @@index([attendanceRecordId])
   @@map("breaks")
+}
+
+enum AttendanceSyncEventType {
+  clock_in
+  clock_out
+  break_start
+  break_end
+
+  @@map("attendance_sync_event_type")
+}
+
+/// Processed offline attendance events — idempotent on (employee_id, local_id) per OFFLINE_SYNC.md §2–§4.
+model AttendanceSyncEvent {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  employeeId         String                  @map("employee_id") @db.Uuid
+  localId            String                  @map("local_id") @db.Uuid
+  eventType          AttendanceSyncEventType @map("event_type")
+  attendanceRecordId String?                 @map("attendance_record_id") @db.Uuid
+  deviceTimestamp    DateTime                @map("device_timestamp")
+  serverTimestamp    DateTime                @map("server_timestamp")
+  timeAnomaly        Boolean                 @default(false) @map("time_anomaly")
+  deviceGeofenceOk   Boolean?                @map("device_geofence_ok")
+  serverGeofenceOk   Boolean?                @map("server_geofence_ok")
+  geofenceMismatch   Boolean                 @default(false) @map("geofence_mismatch")
+  createdAt          DateTime                @default(now()) @map("created_at")
+
+  employee         Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  attendanceRecord AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, localId], map: "attendance_sync_events_employee_id_local_id_key")
+  @@index([attendanceRecordId])
+  @@map("attendance_sync_events")
 }
 
 // ---------------------------------------------------------------------------

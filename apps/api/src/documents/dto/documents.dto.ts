@@ -167,20 +167,12 @@ export class CreateEmployeeDocumentDto {
 
   @IsOptional()
   @IsString()
-  fileKey?: string | null;
-
-  @IsOptional()
-  @IsString()
   expiryDate?: string | null;
 }
 
 export class UpdateEmployeeDocumentDto {
   @IsOptional()
   fields?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  fileKey?: string | null;
 
   @IsOptional()
   @IsString()

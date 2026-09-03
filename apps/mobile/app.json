@@ -14,21 +14,46 @@
           "resizeMode": "contain",
           "backgroundColor": "#0f172a"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "HRM uses your location to validate geofenced clock-in and clock-out for attendance records."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "HRM uses the camera for face verification and document capture for HR records."
+        }
       ]
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hrm.mobile"
+      "bundleIdentifier": "com.hrm.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "HRM uses your location to validate geofenced clock-in and clock-out for attendance records.",
+        "NSCameraUsageDescription": "HRM uses the camera for face verification and document capture for HR records.",
+        "NSFaceIDUsageDescription": "HRM uses Face ID to protect access to your employee account."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f172a"
       },
-      "package": "com.hrm.mobile"
+      "package": "com.hrm.mobile",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000/api/v1"
     }
   }
 }

@@ -1,5 +1,5 @@
 import type { EmployeeDocumentRecord } from '@hrm/shared-types';
-import { tenantApiRequest } from './tenant-api-client';
+import { ApiError, getTenantAccessToken, tenantApiRequest } from './tenant-api-client';
 
 export function listEmployeeDocuments(
   employeeId: string,
@@ -14,7 +14,6 @@ export function createEmployeeDocument(
   input: {
     documentTypeId: string;
     fields?: Record<string, unknown>;
-    fileKey?: string | null;
     expiryDate?: string | null;
   },
 ): Promise<EmployeeDocumentRecord> {
@@ -42,4 +41,42 @@ export function deleteEmployeeDocument(
     `/employees/${employeeId}/documents/${documentId}`,
     { method: 'DELETE' },
   );
+}
+
+export async function uploadEmployeeDocumentFile(
+  employeeId: string,
+  documentId: string,
+  file: File,
+): Promise<EmployeeDocumentRecord> {
+  const token = getTenantAccessToken();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL ?? '/api/v1'}/employees/${employeeId}/documents/${documentId}/file`,
+    {
+      method: 'POST',
+      headers,
+      body: formData,
+    },
+  );
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    data?: EmployeeDocumentRecord;
+    error?: { message?: string };
+  };
+
+  if (!response.ok) {
+    throw new ApiError(
+      payload.error?.message ?? `Upload failed (${response.status})`,
+      response.status,
+    );
+  }
+
+  return payload.data as EmployeeDocumentRecord;
 }

@@ -14,6 +14,7 @@ import {
   createEmployeeDocument,
   deleteEmployeeDocument,
   listEmployeeDocuments,
+  uploadEmployeeDocumentFile,
   verifyEmployeeDocument,
 } from '@/lib/employee-documents-api';
 import { ApiError } from '@/lib/tenant-api-client';
@@ -37,6 +38,7 @@ export function EmployeeDocumentsPage() {
     documentTypeId: '',
     expiryDate: '',
     fieldValues: {} as Record<string, string>,
+    file: null as File | null,
   });
 
   const selectedType = docTypes.find((t) => t.id === form.documentTypeId);
@@ -69,14 +71,16 @@ export function EmployeeDocumentsPage() {
     if (!selectedEmployeeId || !form.documentTypeId) return;
     setError(null);
     try {
-      await createEmployeeDocument(selectedEmployeeId, {
+      const created = await createEmployeeDocument(selectedEmployeeId, {
         documentTypeId: form.documentTypeId,
         fields: form.fieldValues,
         expiryDate: form.expiryDate || null,
-        fileKey: form.fieldValues.file_key || null,
       });
+      if (form.file) {
+        await uploadEmployeeDocumentFile(selectedEmployeeId, created.id, form.file);
+      }
       setModalOpen(false);
-      setForm({ documentTypeId: '', expiryDate: '', fieldValues: {} });
+      setForm({ documentTypeId: '', expiryDate: '', fieldValues: {}, file: null });
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
@@ -131,6 +135,9 @@ export function EmployeeDocumentsPage() {
               <div className="mt-3 text-sm font-medium text-primary">{doc.documentTypeName}</div>
               {doc.expiryDate && (
                 <div className="text-xs text-muted mt-1">Expires {doc.expiryDate}</div>
+              )}
+              {doc.fileKey && (
+                <div className="text-xs text-muted mt-1 truncate">File attached</div>
               )}
               <div className="mt-3 flex gap-2">
                 {doc.requiresVerification && !doc.verifiedAt && (
@@ -223,6 +230,17 @@ export function EmployeeDocumentsPage() {
               )}
             </div>
           ))}
+          <div>
+            <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
+            <Input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={(e) => setForm({
+                ...form,
+                file: e.target.files?.[0] ?? null,
+              })}
+            />
+          </div>
         </div>
       </Modal>
     </div>
