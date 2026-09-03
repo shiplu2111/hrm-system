@@ -8,5 +8,6 @@ export * from './attendance';
 export * from './leave';
 export * from './roster';
 export * from './payroll';
+export * from './payroll-formula';
 export * from './rules';
 export * from './country-config';

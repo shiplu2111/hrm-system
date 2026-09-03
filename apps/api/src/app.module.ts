@@ -14,6 +14,7 @@ import { EmployeesModule } from './employees/employees.module';
 import { OrganizationModule } from './organization/organization.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RolesModule } from './roles/roles.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { PlatformModule } from './platform/platform.module';
 import { RosterModule } from './roster/roster.module';
 import { RuleResolverModule } from './rule-resolver/rule-resolver.module';
@@ -36,6 +37,7 @@ import { TenantModule } from './tenant/tenant.module';
     RosterModule,
     EmployeesModule,
     LeaveModule,
+    PayrollModule,
     LifecycleModule,
     CustomFieldsModule,
     DocumentsModule,

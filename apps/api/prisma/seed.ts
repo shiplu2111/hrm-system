@@ -24,6 +24,12 @@ const ID = {
   stateRuleNswHoliday: '10000000-0000-4000-8000-000000000007',
   companyHoliday: '10000000-0000-4000-8000-000000000071',
   branchHoliday: '10000000-0000-4000-8000-000000000072',
+  payComponentBasic: '10000000-0000-4000-8000-000000000080',
+  payComponentHra: '10000000-0000-4000-8000-000000000081',
+  payComponentTax: '10000000-0000-4000-8000-000000000082',
+  salaryStructureBasic: '10000000-0000-4000-8000-000000000090',
+  salaryStructureHra: '10000000-0000-4000-8000-000000000091',
+  salaryStructureTax: '10000000-0000-4000-8000-000000000092',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -116,7 +122,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
   'HR Admin': [
     { module: 'employee', actions: ['view', 'create', 'edit'] },
     { module: 'leave', actions: ['view', 'approve'] },
-    { module: 'payroll', actions: ['view'] },
+    { module: 'payroll', actions: ['view', 'create', 'edit'] },
     { module: 'attendance', actions: ['view', 'create', 'edit', 'delete'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
   ],
@@ -847,6 +853,102 @@ async function main(): Promise<void> {
       });
     }
   }
+
+  await prisma.payComponent.upsert({
+    where: { id: ID.payComponentBasic },
+    create: {
+      id: ID.payComponentBasic,
+      companyId: company.id,
+      name: 'Basic Salary',
+      type: 'earning',
+      calculationType: 'fixed',
+    },
+    update: { name: 'Basic Salary', type: 'earning', calculationType: 'fixed' },
+  });
+
+  await prisma.payComponent.upsert({
+    where: { id: ID.payComponentHra },
+    create: {
+      id: ID.payComponentHra,
+      companyId: company.id,
+      name: 'House Rent Allowance',
+      type: 'earning',
+      calculationType: 'percentage',
+      formula: { base: 'basic', percentage: 10 },
+    },
+    update: {
+      name: 'House Rent Allowance',
+      type: 'earning',
+      calculationType: 'percentage',
+      formula: { base: 'basic', percentage: 10 },
+    },
+  });
+
+  await prisma.payComponent.upsert({
+    where: { id: ID.payComponentTax },
+    create: {
+      id: ID.payComponentTax,
+      companyId: company.id,
+      name: 'Income Tax',
+      type: 'deduction',
+      calculationType: 'percentage',
+      formula: { base: 'gross', percentage: 15 },
+    },
+    update: {
+      name: 'Income Tax',
+      type: 'deduction',
+      calculationType: 'percentage',
+      formula: { base: 'gross', percentage: 15 },
+    },
+  });
+
+  await prisma.salaryStructure.upsert({
+    where: { id: ID.salaryStructureBasic },
+    create: {
+      id: ID.salaryStructureBasic,
+      employeeId: ID.empStaff,
+      componentType: 'earning',
+      componentId: ID.payComponentBasic,
+      amountOrFormula: { amount: '6000.00' },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+    update: {
+      amountOrFormula: { amount: '6000.00' },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.salaryStructure.upsert({
+    where: { id: ID.salaryStructureHra },
+    create: {
+      id: ID.salaryStructureHra,
+      employeeId: ID.empStaff,
+      componentType: 'earning',
+      componentId: ID.payComponentHra,
+      amountOrFormula: { percentage: 10 },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+    update: {
+      amountOrFormula: { percentage: 10 },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.salaryStructure.upsert({
+    where: { id: ID.salaryStructureTax },
+    create: {
+      id: ID.salaryStructureTax,
+      employeeId: ID.empStaff,
+      componentType: 'deduction',
+      componentId: ID.payComponentTax,
+      amountOrFormula: { percentage: 15 },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+    update: {
+      amountOrFormula: { percentage: 15 },
+      effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+  });
 
   await prisma.holiday.upsert({
     where: { id: ID.companyHoliday },

@@ -191,6 +191,8 @@ model Company {
   leaveTypes      LeaveType[]
   leavePolicies   LeavePolicy[]
   payrollPeriods  PayrollPeriod[]
+  payrollAdjustments PayrollAdjustment[]
+  paymentBatches  PaymentBatch[]
   companyRules    CompanyRule[]
   documentTypes   DocumentType[]
   customFieldDefinitions CustomFieldDefinition[]
@@ -392,6 +394,8 @@ model Employee {
   leaveRequests     LeaveRequest[]
   salaryStructures  SalaryStructure[]
   payrollRuns       PayrollRun[]
+  payrollAdjustments PayrollAdjustment[]
+  paymentBatchItems PaymentBatchItem[]
   taxProfiles       EmployeeTaxProfile[]
   user              User?
   contractRules     EmployeeContractRule[]
@@ -989,6 +993,8 @@ model PayrollPeriod {
 
   company     Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   payrollRuns PayrollRun[]
+  payrollAdjustments PayrollAdjustment[]
+  paymentBatches PaymentBatch[]
 
   @@index([companyId])
   @@index([companyId, startDate])
@@ -1013,11 +1019,59 @@ model PayrollRun {
   employee                   Employee                    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   payslips                   Payslip[]
   superannuationContributions SuperannuationContribution[]
+  adjustmentsAsOriginal      PayrollAdjustment[] @relation("OriginalPayrollRun")
+  paymentBatchItem           PaymentBatchItem?
 
   @@index([payrollPeriodId])
   @@index([employeeId])
   @@index([status])
   @@map("payroll_runs")
+}
+
+enum PayrollAdjustmentStatus {
+  draft
+  pending
+  applied
+  cancelled
+
+  @@map("payroll_adjustment_status")
+}
+
+/// Retroactive correction entry — never mutates a finalized payroll run (PAYROLL_LOGIC.md §11)
+model PayrollAdjustment {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  companyId              String                  @map("company_id") @db.Uuid
+  employeeId             String                  @map("employee_id") @db.Uuid
+  originalPayrollRunId   String                  @map("original_payroll_run_id") @db.Uuid
+  applyToPayrollPeriodId String?                 @map("apply_to_payroll_period_id") @db.Uuid
+  retroactiveFrom        DateTime                @map("retroactive_from") @db.Date
+  retroactiveTo          DateTime                @map("retroactive_to") @db.Date
+  reason                 String
+  originalGrossPay       Decimal                 @map("original_gross_pay") @db.Decimal(14, 2)
+  originalTotalDeductions Decimal                @map("original_total_deductions") @db.Decimal(14, 2)
+  originalNetPay         Decimal                 @map("original_net_pay") @db.Decimal(14, 2)
+  revisedGrossPay        Decimal                 @map("revised_gross_pay") @db.Decimal(14, 2)
+  revisedTotalDeductions Decimal                 @map("revised_total_deductions") @db.Decimal(14, 2)
+  revisedNetPay          Decimal                 @map("revised_net_pay") @db.Decimal(14, 2)
+  adjustmentGrossPay     Decimal                 @map("adjustment_gross_pay") @db.Decimal(14, 2)
+  adjustmentTotalDeductions Decimal              @map("adjustment_total_deductions") @db.Decimal(14, 2)
+  adjustmentNetPay       Decimal                 @map("adjustment_net_pay") @db.Decimal(14, 2)
+  status                 PayrollAdjustmentStatus @default(draft)
+  appliedAt              DateTime?               @map("applied_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  company              Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee             Employee       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  originalPayrollRun   PayrollRun     @relation("OriginalPayrollRun", fields: [originalPayrollRunId], references: [id], onDelete: Restrict)
+  applyToPayrollPeriod PayrollPeriod? @relation(fields: [applyToPayrollPeriodId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([originalPayrollRunId])
+  @@index([applyToPayrollPeriodId])
+  @@index([status])
+  @@map("payroll_adjustments")
 }
 
 model Payslip {
@@ -1030,8 +1084,75 @@ model Payslip {
 
   payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
 
+  @@unique([payrollRunId])
   @@index([payrollRunId])
   @@map("payslips")
+}
+
+enum PaymentBatchStatus {
+  draft
+  pending
+  paid
+  failed
+
+  @@map("payment_batch_status")
+}
+
+enum PaymentBatchItemStatus {
+  pending
+  paid
+  failed
+
+  @@map("payment_batch_item_status")
+}
+
+model PaymentBatch {
+  id                   String             @id @default(uuid()) @db.Uuid
+  companyId            String             @map("company_id") @db.Uuid
+  payrollPeriodId      String             @map("payroll_period_id") @db.Uuid
+  referenceNumber      String             @map("reference_number")
+  status               PaymentBatchStatus @default(draft)
+  totalAmount          Decimal            @map("total_amount") @db.Decimal(14, 2)
+  itemCount            Int                @map("item_count")
+  transactionReference String?            @map("transaction_reference")
+  failureReason        String?            @map("failure_reason")
+  submittedAt          DateTime?          @map("submitted_at")
+  paidAt               DateTime?          @map("paid_at")
+  failedAt             DateTime?          @map("failed_at")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  payrollPeriod PayrollPeriod      @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
+  items         PaymentBatchItem[]
+
+  @@unique([companyId, referenceNumber])
+  @@index([companyId])
+  @@index([payrollPeriodId])
+  @@index([status])
+  @@map("payment_batches")
+}
+
+model PaymentBatchItem {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  paymentBatchId       String                 @map("payment_batch_id") @db.Uuid
+  payrollRunId         String                 @unique @map("payroll_run_id") @db.Uuid
+  employeeId           String                 @map("employee_id") @db.Uuid
+  amount               Decimal                @db.Decimal(14, 2)
+  status               PaymentBatchItemStatus @default(pending)
+  transactionReference String?                @map("transaction_reference")
+  failureReason        String?                @map("failure_reason")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  paymentBatch PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Restrict)
+  payrollRun   PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([paymentBatchId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("payment_batch_items")
 }
 
 // ---------------------------------------------------------------------------
