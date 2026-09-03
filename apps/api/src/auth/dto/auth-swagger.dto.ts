@@ -11,7 +11,11 @@ export class LoginDto {
   @MinLength(8)
   password!: string;
 
-  @ApiPropertyOptional({ example: 'demo', description: 'Tenant subdomain (AUTH_FLOW.md §5)' })
+  @ApiPropertyOptional({
+    example: 'demo',
+    description:
+      'Tenant subdomain (AUTH_FLOW.md §5). Omit for platform Super Admin login.',
+  })
   @IsOptional()
   @IsString()
   tenantSubdomain?: string;

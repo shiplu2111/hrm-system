@@ -7,6 +7,8 @@ import { PrismaModule } from './database/prisma.module';
 import { EmployeesModule } from './employees/employees.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RolesModule } from './roles/roles.module';
+import { PlatformModule } from './platform/platform.module';
+import { RuleResolverModule } from './rule-resolver/rule-resolver.module';
 import { TenantModule } from './tenant/tenant.module';
 
 @Module({
@@ -18,6 +20,8 @@ import { TenantModule } from './tenant/tenant.module';
     AuthModule,
     EmployeesModule,
     RolesModule,
+    RuleResolverModule,
+    PlatformModule,
   ],
   controllers: [AppController],
   providers: [AppService],

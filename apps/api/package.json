@@ -9,6 +9,7 @@
     "start": "dotenv -e ../../.env -- node dist/main",
     "start:prod": "dotenv -e ../../.env -- node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "test": "jest --config jest.config.js",
     "test:e2e": "dotenv -e ../../.env -- jest --config ./test/jest-e2e.json --runInBand",
     "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
     "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",

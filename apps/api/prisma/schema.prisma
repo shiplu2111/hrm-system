@@ -31,6 +31,7 @@ enum CountryRuleType {
   leave
   ot
   social_security
+  public_holiday
 
   @@map("country_rule_type")
 }
@@ -51,6 +52,8 @@ model Tenant {
   roles     Role[]
   tenantSettings TenantSetting[]
   users     User[]
+  companyRules CompanyRule[]
+  employeeContractRules EmployeeContractRule[]
 
   @@map("tenants")
 }
@@ -69,6 +72,7 @@ model Country {
   companies    Company[]
   payrollRules PayrollRule[]
   taxBrackets  TaxBracket[]
+  stateProvinceRules StateProvinceRule[]
 
   @@map("countries")
 }
@@ -88,6 +92,77 @@ model CountryRule {
   @@index([countryId])
   @@index([countryId, ruleType, effectiveFrom])
   @@map("country_rules")
+}
+
+model GlobalRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  ruleType      String    @map("rule_type")
+  payload       Json
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([ruleType, effectiveFrom])
+  @@map("global_rules")
+}
+
+model StateProvinceRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  countryId     String    @map("country_id") @db.Uuid
+  stateCode     String    @map("state_code") @db.VarChar(16)
+  ruleType      String    @map("rule_type")
+  payload       Json
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+
+  @@index([countryId])
+  @@index([countryId, stateCode, ruleType, effectiveFrom])
+  @@map("state_province_rules")
+}
+
+model CompanyRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  ruleType      String    @map("rule_type")
+  payload       Json
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([tenantId, companyId, ruleType, effectiveFrom])
+  @@map("company_rules")
+}
+
+model EmployeeContractRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  employeeId    String    @map("employee_id") @db.Uuid
+  ruleType      String    @map("rule_type")
+  payload       Json
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@index([tenantId, employeeId, ruleType, effectiveFrom])
+  @@map("employee_contract_rules")
 }
 
 model Company {
@@ -115,6 +190,7 @@ model Company {
   leaveTypes      LeaveType[]
   leavePolicies   LeavePolicy[]
   payrollPeriods  PayrollPeriod[]
+  companyRules    CompanyRule[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -310,6 +386,7 @@ model Employee {
   payrollRuns       PayrollRun[]
   taxProfiles       EmployeeTaxProfile[]
   user              User?
+  contractRules     EmployeeContractRule[]
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])

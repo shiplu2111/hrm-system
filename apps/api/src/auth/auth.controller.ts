@@ -44,7 +44,8 @@ export class AuthController {
   @ApiOperation({
     summary: 'Login with email and password',
     description:
-      'Tenant-aware login. Provide `tenantSubdomain` (e.g. `demo`) or `tenantId`. ' +
+      'Tenant-aware login. Provide `tenantSubdomain` (e.g. `demo`) or `tenantId` for tenant users. ' +
+      'Platform **Super Admin** omits tenant fields (`tenantId` is null in the JWT). ' +
       'Issues a short-lived JWT access token and a refresh token (also set as httpOnly cookie).',
   })
   @ApiBody({
@@ -56,6 +57,13 @@ export class AuthController {
           email: 'admin@cmsnbd.com',
           password: 'password',
           tenantSubdomain: 'demo',
+        },
+      },
+      super: {
+        summary: 'Super Admin (platform — no tenant)',
+        value: {
+          email: 'super@cmsnbd.com',
+          password: 'password',
         },
       },
     },

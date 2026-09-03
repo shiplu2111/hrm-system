@@ -12,7 +12,22 @@ countries
   id, name, iso_code, currency, timezone, date_format
 
 country_rules
-  id, country_id, rule_type (tax|leave|ot|social_security), payload(json),
+  id, country_id, rule_type (tax|leave|ot|social_security|public_holiday), payload(json),
+  effective_from, effective_to
+
+global_rules
+  id, rule_type, payload(json), effective_from, effective_to
+
+state_province_rules
+  id, country_id, state_code, rule_type, payload(json),
+  effective_from, effective_to
+
+company_rules
+  id, tenant_id, company_id, rule_type, payload(json),
+  effective_from, effective_to
+
+employee_contract_rules
+  id, tenant_id, employee_id, rule_type, payload(json),
   effective_from, effective_to
 
 companies (belongs to tenant)

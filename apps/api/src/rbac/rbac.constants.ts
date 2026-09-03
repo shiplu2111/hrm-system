@@ -19,6 +19,7 @@ export const PERMISSION_MODULES = [
   'attendance',
   'settings',
   'audit',
+  'platform',
 ] as const;
 
 export type PermissionModule = (typeof PERMISSION_MODULES)[number];

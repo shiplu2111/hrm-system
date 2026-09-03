@@ -20,6 +20,7 @@ const ID = {
   taxBracket: '10000000-0000-4000-8000-000000000003',
   countryRuleLeave: '10000000-0000-4000-8000-000000000004',
   countryRuleOt: '10000000-0000-4000-8000-000000000005',
+  countryRulePublicHoliday: '10000000-0000-4000-8000-000000000006',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -59,6 +60,7 @@ const ID = {
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
+  userSuperAdmin: '10000000-0000-4000-8000-000000000065',
 } as const;
 
 const EFFECTIVE_FROM = new Date('2024-07-01');
@@ -86,6 +88,7 @@ const MODULES = [
   'attendance',
   'settings',
   'audit',
+  'platform',
 ] as const;
 
 const ALL_ACTIONS: PermissionAction[] = [
@@ -100,7 +103,9 @@ const ALL_ACTIONS: PermissionAction[] = [
 /** Default role permission matrix — ROLES_PERMISSIONS.md §1–§3. */
 const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
   'Super Admin': MODULES.map((module) => ({ module, actions: [...ALL_ACTIONS] })),
-  'Company Owner': MODULES.filter((m) => m !== 'tenant').map((module) => ({
+  'Company Owner': MODULES.filter(
+    (module) => module !== 'tenant' && module !== 'platform',
+  ).map((module) => ({
     module,
     actions: [...ALL_ACTIONS],
   })),
@@ -270,6 +275,43 @@ async function main(): Promise<void> {
       payload: {
         weeklyThresholdHours: 38,
         multipliers: { weekday: 1.5, weekend: 2.0, publicHoliday: 2.5 },
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+      effectiveTo: null,
+    },
+  });
+
+  await prisma.countryRule.upsert({
+    where: { id: ID.countryRulePublicHoliday },
+    create: {
+      id: ID.countryRulePublicHoliday,
+      countryId: country.id,
+      ruleType: CountryRuleType.public_holiday,
+      payload: {
+        holidays: [
+          { name: "New Year's Day", date: '2025-01-01', recurring: true },
+          { name: 'Australia Day', date: '2025-01-26', recurring: true },
+          { name: 'Good Friday', date: '2025-04-18', recurring: false },
+          { name: 'Anzac Day', date: '2025-04-25', recurring: true },
+          { name: "Queen's Birthday", date: '2025-06-09', recurring: false },
+          { name: 'Christmas Day', date: '2025-12-25', recurring: true },
+          { name: 'Boxing Day', date: '2025-12-26', recurring: true },
+        ],
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: {
+      ruleType: CountryRuleType.public_holiday,
+      payload: {
+        holidays: [
+          { name: "New Year's Day", date: '2025-01-01', recurring: true },
+          { name: 'Australia Day', date: '2025-01-26', recurring: true },
+          { name: 'Good Friday', date: '2025-04-18', recurring: false },
+          { name: 'Anzac Day', date: '2025-04-25', recurring: true },
+          { name: "Queen's Birthday", date: '2025-06-09', recurring: false },
+          { name: 'Christmas Day', date: '2025-12-25', recurring: true },
+          { name: 'Boxing Day', date: '2025-12-26', recurring: true },
+        ],
       },
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
@@ -501,6 +543,13 @@ async function main(): Promise<void> {
     await upsertRolePermissions(role.id, ROLE_PERMISSIONS[role.name] ?? []);
   }
 
+  await prisma.permission.deleteMany({
+    where: {
+      module: 'platform',
+      role: { tenantId: { not: null } },
+    },
+  });
+
   // --- Sample employees across roles (role stored in personalInfo until auth/users exist) ---
   type EmployeeSeed = {
     id: string;
@@ -719,6 +768,29 @@ async function main(): Promise<void> {
     });
   }
 
+  await prisma.user.upsert({
+    where: { id: ID.userSuperAdmin },
+    create: {
+      id: ID.userSuperAdmin,
+      tenantId: null,
+      employeeId: null,
+      roleId: ID.roleSuperAdmin,
+      email: `super@${SEED_EMAIL_DOMAIN}`,
+      passwordHash,
+      isActive: true,
+    },
+    update: {
+      tenantId: null,
+      employeeId: null,
+      roleId: ID.roleSuperAdmin,
+      email: `super@${SEED_EMAIL_DOMAIN}`,
+      passwordHash,
+      isActive: true,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    },
+  });
+
   console.log('Seed complete.');
   console.log(`  Tenant:   ${tenant.name} (subdomain: demo)`);
   console.log(`  Company:  ${company.name}`);
@@ -733,6 +805,7 @@ async function main(): Promise<void> {
   for (const emp of employees) {
     console.log(`    - ${emp.email} (${emp.roleName})`);
   }
+  console.log(`    - super@${SEED_EMAIL_DOMAIN} (Super Admin — platform, no tenant)`);
   console.log('  Example: POST /api/v1/auth/login');
   console.log(
     `    { "email": "${ROLE_SEED_EMAIL['Company Owner']}", "password": "${DEMO_PASSWORD}", "tenantSubdomain": "demo" }`,

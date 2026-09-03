@@ -101,7 +101,7 @@ const navItems: { key: PlatformView; label: string; icon: ComponentType<{ classN
   { key: 'dashboard', label: 'Platform Dashboard', icon: LayoutDashboard },
   { key: 'tenants', label: 'Tenants / Companies', icon: Building2 },
   { key: 'tenant-isolation', label: 'Tenant Isolation', icon: Database },
-  { key: 'country-compliance', label: 'Country & Compliance', icon: Globe2 },
+  { key: 'country-compliance', label: 'Country Configuration', icon: Globe2 },
   { key: 'billing', label: 'Subscriptions & Billing', icon: CreditCard },
   { key: 'users', label: 'Platform Users', icon: UserCog },
   { key: 'health', label: 'System Health', icon: Activity },
