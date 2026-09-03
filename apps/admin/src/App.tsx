@@ -1,8 +1,10 @@
 import {
   AuthProvider,
   PortalLoginPage,
+  isAdminPortalUser,
   useAuth,
 } from '@hrm/portal-ui';
+import { useEffect } from 'react';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { CompanyProvider } from '@/context/CompanyContext';
 import { NavProvider } from '@/context/NavContext';
@@ -139,7 +141,13 @@ function PageRouter() {
 }
 
 function AdminApp() {
-  const { isAuthenticated, login, logout } = useAuth();
+  const { isAuthenticated, login, logout, user } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && user && !isAdminPortalUser(user)) {
+      logout();
+    }
+  }, [isAuthenticated, user, logout]);
 
   if (!isAuthenticated) {
     return <PortalLoginPage portal="admin" onLogin={login} />;

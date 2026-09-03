@@ -23,6 +23,7 @@ import type { LoginDto } from './dto/auth-swagger.dto';
 
 type UserWithRole = User & {
   role: {
+    name: string;
     permissions: Permission[];
   };
 };
@@ -181,6 +182,7 @@ export class AuthService {
       id: user.id,
       tenantId: user.tenantId,
       roleId: user.roleId,
+      roleName: user.role.name,
       employeeId: user.employeeId,
       email: user.email,
       permissions: this.toPermissionClaims(user.role.permissions),
@@ -221,6 +223,7 @@ export class AuthService {
       sub: user.id,
       tenant_id: user.tenantId,
       role_id: user.roleId,
+      role_name: user.roleName,
       employee_id: user.employeeId,
       permissions: user.permissions,
     };

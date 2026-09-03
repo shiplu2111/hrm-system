@@ -157,6 +157,7 @@ interface AuthLoginResponse {
     email: string;
     tenantId: string | null;
     roleId: string;
+    roleName: string;
     employeeId: string | null;
     permissions: { module: string; action: string }[];
   };

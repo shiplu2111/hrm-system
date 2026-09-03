@@ -8,14 +8,16 @@ import {
 } from 'react';
 import {
   clearPortalToken,
-  getPortalToken,
   portalLogin,
+  validatePortalSession,
   type PortalKind,
+  type PortalSessionUser,
 } from '../lib/portal-auth';
 
 interface AuthContextValue {
   portal: PortalKind;
   isAuthenticated: boolean;
+  user: PortalSessionUser | null;
   login: (email: string, password: string, tenantSubdomain?: string) => Promise<void>;
   logout: () => void;
 }
@@ -29,26 +31,30 @@ export function AuthProvider({
   portal: PortalKind;
   children: ReactNode;
 }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => !!getPortalToken(portal),
+  const [user, setUser] = useState<PortalSessionUser | null>(() =>
+    validatePortalSession(portal),
   );
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!user);
 
   const login = useCallback(
     async (email: string, password: string, tenantSubdomain?: string) => {
       await portalLogin(portal, email, password, tenantSubdomain);
-      setIsAuthenticated(true);
+      const session = validatePortalSession(portal);
+      setUser(session);
+      setIsAuthenticated(!!session);
     },
     [portal],
   );
 
   const logout = useCallback(() => {
     clearPortalToken(portal);
+    setUser(null);
     setIsAuthenticated(false);
   }, [portal]);
 
   const value = useMemo(
-    () => ({ portal, isAuthenticated, login, logout }),
-    [portal, isAuthenticated, login, logout],
+    () => ({ portal, isAuthenticated, user, login, logout }),
+    [portal, isAuthenticated, user, login, logout],
   );
 
   return (

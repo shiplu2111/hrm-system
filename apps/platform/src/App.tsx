@@ -4,10 +4,17 @@ import {
   ThemeProvider,
   useAuth,
 } from '@hrm/portal-ui';
+import { useEffect } from 'react';
 import { PlatformControlPanelPage } from '@/pages/platform/PlatformControlPanelPage';
 
 function PlatformApp() {
-  const { isAuthenticated, login, logout } = useAuth();
+  const { isAuthenticated, login, logout, user } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && user?.tenantId) {
+      logout();
+    }
+  }, [isAuthenticated, user, logout]);
 
   if (!isAuthenticated) {
     return <PortalLoginPage portal="platform" onLogin={login} />;

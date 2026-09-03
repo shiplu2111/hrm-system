@@ -95,19 +95,21 @@ const tenants: Tenant[] = [
   { id: 'orbit', name: 'Orbit Logistics', domain: 'orbit.nexushr.com', plan: 'Business', employees: 516, status: 'Cancelled', mrr: 0, signup: 'Sep 04, 2023', health: 24, region: 'Middle East', country: 'UAE', admin: 'Omar Rahman', email: 'omar@orbit.ae' },
 ];
 
-const navItems: { key: PlatformView; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { key: 'dashboard', label: 'Platform Dashboard', icon: LayoutDashboard },
-  { key: 'tenants', label: 'Tenants / Companies', icon: Building2 },
-  { key: 'tenant-isolation', label: 'Tenant Isolation', icon: Database },
+const navItems: { key: PlatformView; label: string; icon: ComponentType<{ className?: string }>; hidden?: boolean }[] = [
+  { key: 'dashboard', label: 'Platform Dashboard', icon: LayoutDashboard, hidden: true },
+  { key: 'tenants', label: 'Tenants / Companies', icon: Building2, hidden: true },
+  { key: 'tenant-isolation', label: 'Tenant Isolation', icon: Database, hidden: true },
   { key: 'country-compliance', label: 'Country Configuration', icon: Globe2 },
-  { key: 'billing', label: 'Subscriptions & Billing', icon: CreditCard },
-  { key: 'users', label: 'Platform Users', icon: UserCog },
-  { key: 'health', label: 'System Health', icon: Activity },
-  { key: 'features', label: 'Feature Flags', icon: SlidersHorizontal },
-  { key: 'support', label: 'Support Tickets', icon: Headphones },
-  { key: 'settings', label: 'Platform Settings', icon: Settings },
-  { key: 'audit', label: 'Audit Log', icon: FileClock },
+  { key: 'billing', label: 'Subscriptions & Billing', icon: CreditCard, hidden: true },
+  { key: 'users', label: 'Platform Users', icon: UserCog, hidden: true },
+  { key: 'health', label: 'System Health', icon: Activity, hidden: true },
+  { key: 'features', label: 'Feature Flags', icon: SlidersHorizontal, hidden: true },
+  { key: 'support', label: 'Support Tickets', icon: Headphones, hidden: true },
+  { key: 'settings', label: 'Platform Settings', icon: Settings, hidden: true },
+  { key: 'audit', label: 'Audit Log', icon: FileClock, hidden: true },
 ];
+
+const visibleNavItems = navItems.filter((item) => !item.hidden);
 
 const kpis = [
   { label: 'Total Tenants', value: '128', change: '+6 this month', icon: Building2, tone: 'indigo' },
@@ -590,7 +592,7 @@ function CreateTenant({ onBack, onCreated }: { onBack: () => void; onCreated: ()
 }
 
 export function PlatformControlPanelPage({ onLogout }: { onLogout: () => void }) {
-  const [view, setView] = useState<PlatformView>('dashboard');
+  const [view, setView] = useState<PlatformView>('country-compliance');
   const [selectedTenant, setSelectedTenant] = useState<Tenant>(tenants[0]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -612,7 +614,7 @@ export function PlatformControlPanelPage({ onLogout }: { onLogout: () => void })
         </div>
         <div className="px-4 pt-4"><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-400/25 text-indigo-200 text-[9px] font-bold tracking-[0.16em]"><LockKeyhole className="h-3 w-3" /> PLATFORM ADMIN</span></div>
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          {navItems.map(({ key, label, icon: Icon }) => {
+          {visibleNavItems.map(({ key, label, icon: Icon }) => {
             const active = view === key || (key === 'tenants' && ['tenant-detail', 'create-tenant'].includes(view));
             return <button key={key} onClick={() => go(key)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-xs font-semibold transition-all ${active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Icon className="h-4 w-4" /><span>{label}</span>{key === 'support' && <span className="ml-auto px-1.5 py-0.5 rounded bg-orange-500 text-white text-[9px]">37</span>}</button>;
           })}

@@ -3,13 +3,20 @@ export { AuthProvider, useAuth } from './context/AuthContext';
 export { PortalLoginPage } from './auth/PortalLoginPage';
 export {
   ApiError,
+  assertPortalAccess,
   clearPortalToken,
   ensurePortalLogin,
+  getPortalSession,
   getPortalToken,
+  isAdminPortalUser,
+  isEmployeePortalUser,
   portalApiRequest,
   portalLogin,
   setPortalToken,
+  validatePortalSession,
+  type PermissionClaim,
   type PortalKind,
+  type PortalSessionUser,
 } from './lib/portal-auth';
 
 export { Button } from './components/ui/Button';

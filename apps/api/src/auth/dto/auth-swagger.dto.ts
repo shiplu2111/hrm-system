@@ -61,6 +61,9 @@ export class AuthUserDto {
   @ApiProperty()
   roleId!: string;
 
+  @ApiProperty({ example: 'Employee' })
+  roleName!: string;
+
   @ApiProperty({ nullable: true })
   employeeId!: string | null;
 
