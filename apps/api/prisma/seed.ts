@@ -21,6 +21,9 @@ const ID = {
   countryRuleLeave: '10000000-0000-4000-8000-000000000004',
   countryRuleOt: '10000000-0000-4000-8000-000000000005',
   countryRulePublicHoliday: '10000000-0000-4000-8000-000000000006',
+  stateRuleNswHoliday: '10000000-0000-4000-8000-000000000007',
+  companyHoliday: '10000000-0000-4000-8000-000000000071',
+  branchHoliday: '10000000-0000-4000-8000-000000000072',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -114,8 +117,8 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'employee', actions: ['view', 'create', 'edit'] },
     { module: 'leave', actions: ['view', 'approve'] },
     { module: 'payroll', actions: ['view'] },
-    { module: 'attendance', actions: ['view'] },
-    { module: 'settings', actions: ['view', 'edit'] },
+    { module: 'attendance', actions: ['view', 'create', 'edit', 'delete'] },
+    { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
@@ -319,6 +322,34 @@ async function main(): Promise<void> {
     },
   });
 
+  await prisma.stateProvinceRule.upsert({
+    where: { id: ID.stateRuleNswHoliday },
+    create: {
+      id: ID.stateRuleNswHoliday,
+      countryId: country.id,
+      stateCode: 'NSW',
+      ruleType: 'public_holiday',
+      payload: {
+        holidays: [
+          { name: 'Labour Day (NSW)', date: '2025-10-06', recurring: false },
+          { name: 'Labour Day (NSW)', date: '2026-10-05', recurring: false },
+        ],
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: {
+      ruleType: 'public_holiday',
+      payload: {
+        holidays: [
+          { name: 'Labour Day (NSW)', date: '2025-10-06', recurring: false },
+          { name: 'Labour Day (NSW)', date: '2026-10-05', recurring: false },
+        ],
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+      effectiveTo: null,
+    },
+  });
+
   const company = await prisma.company.upsert({
     where: { id: ID.company },
     create: {
@@ -494,12 +525,26 @@ async function main(): Promise<void> {
       entitlementDays: 20,
       accrualType: LeaveAccrualType.monthly,
       carryForwardMax: 5,
+      expiryMonths: 6,
+      encashmentAllowed: false,
+      probationRestricted: true,
+      allowNegativeBalance: false,
+      halfDayAllowed: true,
+      deductPublicHolidays: false,
+      approvalSteps: [{ roleName: 'Manager' }, { roleName: 'HR Admin' }],
+      yearlyAccrualAnchor: 'financial_year',
       effectiveFrom: EFFECTIVE_FROM,
     },
     update: {
       entitlementDays: 20,
       accrualType: LeaveAccrualType.monthly,
       carryForwardMax: 5,
+      expiryMonths: 6,
+      probationRestricted: true,
+      allowNegativeBalance: false,
+      halfDayAllowed: true,
+      deductPublicHolidays: false,
+      approvalSteps: [{ roleName: 'Manager' }, { roleName: 'HR Admin' }],
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
     },
@@ -513,11 +558,19 @@ async function main(): Promise<void> {
       leaveTypeId: ID.leaveTypeSick,
       entitlementDays: 10,
       accrualType: LeaveAccrualType.yearly,
+      yearlyAccrualAnchor: 'financial_year',
+      probationRestricted: false,
+      halfDayAllowed: true,
+      approvalSteps: [{ roleName: 'Manager' }],
       effectiveFrom: EFFECTIVE_FROM,
     },
     update: {
       entitlementDays: 10,
       accrualType: LeaveAccrualType.yearly,
+      yearlyAccrualAnchor: 'financial_year',
+      probationRestricted: false,
+      halfDayAllowed: true,
+      approvalSteps: [{ roleName: 'Manager' }],
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
     },
@@ -743,17 +796,27 @@ async function main(): Promise<void> {
       id: ID.shiftStandard,
       companyId: company.id,
       name: 'Standard 9–5',
+      shiftType: 'fixed',
       startTime: shiftStart,
       endTime: shiftEnd,
       breakMinutes: 60,
       graceMinutes: 15,
+      minimumMinutes: 420,
+      lateRule: { graceMinutes: 15, halfDayAfterMinutes: 120 },
+      earlyLeaveRule: { graceMinutes: 15 },
+      weekendRule: { appliesOnWeekend: false },
     },
     update: {
       name: 'Standard 9–5',
+      shiftType: 'fixed',
       startTime: shiftStart,
       endTime: shiftEnd,
       breakMinutes: 60,
       graceMinutes: 15,
+      minimumMinutes: 420,
+      lateRule: { graceMinutes: 15, halfDayAfterMinutes: 120 },
+      earlyLeaveRule: { graceMinutes: 15 },
+      weekendRule: { appliesOnWeekend: false },
     },
   });
 
@@ -784,6 +847,41 @@ async function main(): Promise<void> {
       });
     }
   }
+
+  await prisma.holiday.upsert({
+    where: { id: ID.companyHoliday },
+    create: {
+      id: ID.companyHoliday,
+      tenantId: tenant.id,
+      companyId: company.id,
+      scope: 'company',
+      name: 'Demo Corp Foundation Day',
+      date: new Date('2025-11-15T00:00:00.000Z'),
+      recurring: true,
+    },
+    update: {
+      name: 'Demo Corp Foundation Day',
+      recurring: true,
+    },
+  });
+
+  await prisma.holiday.upsert({
+    where: { id: ID.branchHoliday },
+    create: {
+      id: ID.branchHoliday,
+      tenantId: tenant.id,
+      companyId: company.id,
+      scope: 'branch',
+      locationId: ID.location,
+      name: 'Sydney HQ Open Day',
+      date: new Date('2025-08-01T00:00:00.000Z'),
+      recurring: false,
+    },
+    update: {
+      name: 'Sydney HQ Open Day',
+      locationId: ID.location,
+    },
+  });
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
 

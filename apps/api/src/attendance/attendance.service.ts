@@ -29,12 +29,13 @@ export class AttendanceService {
   async getDayRecord(employeeId: string, dateInput?: string) {
     await this.assertEmployee(employeeId);
     const workDate = dateInput ? this.parseDate(dateInput) : startOfUtcDay();
-    const shift = await this.getAssignedShift(employeeId, workDate);
 
     const record = await this.prisma.unscoped.attendanceRecord.findFirst({
       where: { employeeId, date: workDate },
       include: { breaks: { orderBy: { startAt: 'asc' } } },
     });
+
+    const shift = await this.resolveShiftForDay(employeeId, workDate, record?.status);
 
     return this.toResponse(record, shift, workDate);
   }
@@ -217,6 +218,41 @@ export class AttendanceService {
         message: 'End the active break before continuing',
       });
     }
+  }
+
+  private async resolveShiftForDay(
+    employeeId: string,
+    workDate: Date,
+    status?: AttendanceRecordStatus | null,
+  ): Promise<Shift> {
+    if (status === AttendanceRecordStatus.leave || status === AttendanceRecordStatus.half_day) {
+      try {
+        return await this.getAssignedShift(employeeId, workDate);
+      } catch {
+        return this.placeholderShift();
+      }
+    }
+    return this.getAssignedShift(employeeId, workDate);
+  }
+
+  private placeholderShift(): Shift {
+    return {
+      id: '00000000-0000-4000-8000-000000000099',
+      companyId: '00000000-0000-4000-8000-000000000010',
+      name: 'Leave day',
+      shiftType: 'fixed',
+      startTime: new Date('1970-01-01T09:00:00.000Z'),
+      endTime: new Date('1970-01-01T17:00:00.000Z'),
+      breakMinutes: 0,
+      graceMinutes: 0,
+      minimumMinutes: null,
+      lateRule: null,
+      earlyLeaveRule: null,
+      weekendRule: null,
+      otRuleId: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    };
   }
 
   private async getAssignedShift(

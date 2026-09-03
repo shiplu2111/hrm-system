@@ -54,6 +54,7 @@ model Tenant {
   users     User[]
   companyRules CompanyRule[]
   employeeContractRules EmployeeContractRule[]
+  holidays  Holiday[]
 
   @@map("tenants")
 }
@@ -193,6 +194,7 @@ model Company {
   companyRules    CompanyRule[]
   documentTypes   DocumentType[]
   customFieldDefinitions CustomFieldDefinition[]
+  holidays        Holiday[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -213,6 +215,7 @@ model Location {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employees Employee[] @relation("EmployeeWorkLocation")
   rosters   Roster[]
+  holidays  Holiday[]
 
   @@index([companyId])
   @@map("locations")
@@ -392,6 +395,7 @@ model Employee {
   taxProfiles       EmployeeTaxProfile[]
   user              User?
   contractRules     EmployeeContractRule[]
+  holidays          Holiday[]
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -667,6 +671,13 @@ enum LeaveAccrualType {
   @@map("leave_accrual_type")
 }
 
+enum YearlyAccrualAnchor {
+  financial_year
+  hire_anniversary
+
+  @@map("yearly_accrual_anchor")
+}
+
 enum LeaveRequestStatus {
   draft
   pending
@@ -731,17 +742,33 @@ model PayrollRule {
   @@map("payroll_rules")
 }
 
+enum ShiftType {
+  fixed
+  rotating
+  night
+  split
+  flexible
+  overnight
+
+  @@map("shift_type")
+}
+
 model Shift {
-  id            String    @id @default(uuid()) @db.Uuid
-  companyId     String    @map("company_id") @db.Uuid
-  name          String
-  startTime     DateTime  @map("start_time") @db.Time(0)
-  endTime       DateTime  @map("end_time") @db.Time(0)
-  breakMinutes  Int       @default(0) @map("break_minutes")
-  graceMinutes  Int       @default(0) @map("grace_minutes")
-  otRuleId      String?   @map("ot_rule_id") @db.Uuid
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  name             String
+  shiftType        ShiftType @default(fixed) @map("shift_type")
+  startTime        DateTime  @map("start_time") @db.Time(0)
+  endTime          DateTime  @map("end_time") @db.Time(0)
+  breakMinutes     Int       @default(0) @map("break_minutes")
+  graceMinutes     Int       @default(0) @map("grace_minutes")
+  minimumMinutes   Int?      @map("minimum_minutes")
+  lateRule         Json?     @map("late_rule")
+  earlyLeaveRule   Json?     @map("early_leave_rule")
+  weekendRule      Json?     @map("weekend_rule")
+  otRuleId         String?   @map("ot_rule_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   company Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   otRule  PayrollRule? @relation(fields: [otRuleId], references: [id], onDelete: Restrict)
@@ -771,6 +798,40 @@ model Roster {
   @@map("rosters")
 }
 
+enum HolidayScope {
+  company
+  branch
+  employee
+
+  @@map("holiday_scope")
+}
+
+/// Tenant-managed holidays (company / branch / employee). Country & state holidays
+/// come from CountryRule and StateProvinceRule (MODULES.md §14).
+model Holiday {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  companyId  String       @map("company_id") @db.Uuid
+  scope      HolidayScope
+  locationId String?      @map("location_id") @db.Uuid
+  employeeId String?      @map("employee_id") @db.Uuid
+  name       String
+  date       DateTime     @db.Date
+  recurring  Boolean      @default(false)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, companyId, date])
+  @@index([locationId, date])
+  @@index([employeeId, date])
+  @@map("holidays")
+}
+
 model LeaveType {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @map("company_id") @db.Uuid
@@ -789,17 +850,25 @@ model LeaveType {
 }
 
 model LeavePolicy {
-  id               String           @id @default(uuid()) @db.Uuid
-  companyId        String           @map("company_id") @db.Uuid
-  leaveTypeId      String           @map("leave_type_id") @db.Uuid
-  entitlementDays  Decimal          @map("entitlement_days") @db.Decimal(8, 2)
-  accrualType      LeaveAccrualType @map("accrual_type")
-  carryForwardMax  Decimal?         @map("carry_forward_max") @db.Decimal(8, 2)
-  expiryMonths     Int?             @map("expiry_months")
-  effectiveFrom    DateTime         @map("effective_from") @db.Date
-  effectiveTo      DateTime?        @map("effective_to") @db.Date
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  id                   String              @id @default(uuid()) @db.Uuid
+  companyId            String              @map("company_id") @db.Uuid
+  leaveTypeId          String              @map("leave_type_id") @db.Uuid
+  entitlementDays      Decimal             @map("entitlement_days") @db.Decimal(8, 2)
+  accrualType          LeaveAccrualType    @map("accrual_type")
+  carryForwardMax      Decimal?            @map("carry_forward_max") @db.Decimal(8, 2)
+  expiryMonths         Int?                @map("expiry_months")
+  encashmentAllowed    Boolean             @default(false) @map("encashment_allowed")
+  probationRestricted  Boolean             @default(true) @map("probation_restricted")
+  allowNegativeBalance Boolean             @default(false) @map("allow_negative_balance")
+  negativeBalanceCap   Decimal?            @map("negative_balance_cap") @db.Decimal(8, 2)
+  halfDayAllowed       Boolean             @default(true) @map("half_day_allowed")
+  deductPublicHolidays Boolean             @default(false) @map("deduct_public_holidays")
+  approvalSteps        Json                @default("[{\"roleName\":\"Manager\"},{\"roleName\":\"HR Admin\"}]") @map("approval_steps")
+  yearlyAccrualAnchor  YearlyAccrualAnchor @default(financial_year) @map("yearly_accrual_anchor")
+  effectiveFrom        DateTime            @map("effective_from") @db.Date
+  effectiveTo          DateTime?           @map("effective_to") @db.Date
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
@@ -811,13 +880,16 @@ model LeavePolicy {
 }
 
 model LeaveBalance {
-  id          String   @id @default(uuid()) @db.Uuid
-  employeeId  String   @map("employee_id") @db.Uuid
-  leaveTypeId String   @map("leave_type_id") @db.Uuid
-  balanceDays Decimal  @map("balance_days") @db.Decimal(8, 2)
-  asOfYear    Int      @map("as_of_year")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid()) @db.Uuid
+  employeeId            String    @map("employee_id") @db.Uuid
+  leaveTypeId           String    @map("leave_type_id") @db.Uuid
+  balanceDays           Decimal   @map("balance_days") @db.Decimal(8, 2)
+  carriedForwardDays    Decimal   @default(0) @map("carried_forward_days") @db.Decimal(8, 2)
+  carriedForwardExpiresAt DateTime? @map("carried_forward_expires_at") @db.Date
+  lastAccrualAt         DateTime? @map("last_accrual_at") @db.Date
+  asOfYear              Int       @map("as_of_year")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
@@ -833,8 +905,12 @@ model LeaveRequest {
   leaveTypeId    String             @map("leave_type_id") @db.Uuid
   startDate      DateTime           @map("start_date") @db.Date
   endDate        DateTime           @map("end_date") @db.Date
+  halfDay        Boolean            @default(false) @map("half_day")
+  totalDays      Decimal            @default(0) @map("total_days") @db.Decimal(8, 2)
+  reason         String?
   status         LeaveRequestStatus @default(draft)
   approvalChain  Json               @default("[]") @map("approval_chain")
+  deductedAt     DateTime?          @map("deducted_at")
   localId        String?            @map("local_id") @db.Uuid
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")

@@ -6,6 +6,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   'Role',
   'AuditLog',
   'TenantSetting',
+  'Holiday',
 ]);
 
 export const CLIENT_TENANT_FIELD_NAMES = [

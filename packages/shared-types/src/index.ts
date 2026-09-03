@@ -6,6 +6,7 @@ export * from './documents';
 export * from './organization';
 export * from './attendance';
 export * from './leave';
+export * from './roster';
 export * from './payroll';
 export * from './rules';
 export * from './country-config';
