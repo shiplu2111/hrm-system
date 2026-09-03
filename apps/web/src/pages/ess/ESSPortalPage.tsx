@@ -51,8 +51,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Progress, ProgressBar } from '@/components/ui/Progress';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
-import { useTheme } from '@/context/ThemeContext';
-import { PortalSwitcher } from '@/components/layout/PortalSwitcher';
+import { useTheme } from '@hrm/portal-ui';
 import {
   essEmployeeProfile,
   essLeaveBalances,
@@ -83,7 +82,7 @@ interface BreakEntry {
 
 const breakTypes: BreakType[] = ['Tea Break', 'Lunch Break', 'Prayer Break', 'Personal Break'];
 
-export function ESSPortalPage() {
+export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
   const { theme, toggleTheme } = useTheme();
 
   // Navigation Sub-view
@@ -378,8 +377,15 @@ export function ESSPortalPage() {
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
 
-          {/* Portal switcher: Employee / Company Admin / Super Admin */}
-          <PortalSwitcher />
+          {/* Sign out */}
+          <button
+            type="button"
+            onClick={onLogout}
+            className="p-2 rounded-xl text-secondary hover:text-primary hover:bg-[rgb(var(--bg-hover))] transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
 
           {/* User Avatar */}
           <div className="flex items-center gap-2 pl-2 border-l border-base">

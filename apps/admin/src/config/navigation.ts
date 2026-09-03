@@ -21,29 +21,38 @@ export interface NavItem {
   label: string;
   page: PageKey;
   badge?: string;
+  /** Hide until the page is wired to the API. Remove or set false to show. */
+  hidden?: boolean;
 }
 
 export interface NavGroup {
   label: string;
   icon: LucideIcon;
   items: NavItem[];
+  /** Hide entire section until any module in the group is ready. */
+  hidden?: boolean;
 }
 
 export const navGroups: NavGroup[] = [
   {
     label: 'Dashboard',
     icon: LayoutDashboard,
-    items: [{ label: 'Overview', page: 'dashboard' }],
+    items: [
+      { label: 'Overview', page: 'dashboard' },
+    ],
   },
   {
     label: 'Organization',
     icon: Building2,
     items: [
-      { label: 'Company Profile', page: 'org-profile' },
+      { label: 'Company Profile', page: 'org-profile', hidden: true },
       { label: 'Departments', page: 'org-departments' },
-      { label: 'Designations & Levels', page: 'org-designations' },
+      { label: 'Designations', page: 'org-designations' },
+      { label: 'Job Levels', page: 'org-job-levels' },
       { label: 'Employment Types', page: 'org-employment-types' },
-      { label: 'Org Chart', page: 'org-chart' },
+      { label: 'Teams', page: 'org-teams' },
+      { label: 'Cost Centres', page: 'org-cost-centres' },
+      { label: 'Org Chart', page: 'org-chart', hidden: true },
     ],
   },
   {
@@ -52,10 +61,10 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: 'Employee Directory', page: 'emp-directory' },
       { label: 'Lifecycle Events', page: 'emp-lifecycle' },
-      { label: 'Contracts', page: 'emp-contracts' },
-      { label: 'Recruitment / ATS', page: 'recruitment' },
-      { label: 'Onboarding', page: 'onboarding' },
-      { label: 'Offboarding', page: 'offboarding' },
+      { label: 'Contracts', page: 'emp-contracts', hidden: true },
+      { label: 'Recruitment / ATS', page: 'recruitment', hidden: true },
+      { label: 'Onboarding', page: 'onboarding', hidden: true },
+      { label: 'Offboarding', page: 'offboarding', hidden: true },
       { label: 'Document Types', page: 'doc-types' },
       { label: 'Employee Documents', page: 'emp-documents' },
       { label: 'Custom Fields', page: 'field-builder' },
@@ -64,6 +73,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Time & Attendance',
     icon: Clock,
+    hidden: true,
     items: [
       { label: 'Attendance', page: 'attendance' },
       { label: 'Regularization', page: 'attendance-regularization' },
@@ -85,6 +95,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Payroll',
     icon: Wallet,
+    hidden: true,
     items: [
       { label: 'Pay Runs & Processing', page: 'payroll-runs' },
       { label: 'Pay Schedules', page: 'pay-schedules' },
@@ -102,11 +113,13 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Subscription & Billing',
     icon: CreditCard,
+    hidden: true,
     items: [{ label: 'Plans & Tenant Invoicing', page: 'billing' }],
   },
   {
     label: 'Talent & Culture',
     icon: Target,
+    hidden: true,
     items: [
       { label: 'Performance Management', page: 'performance', badge: 'Phase 3' },
       { label: 'Training & Certification', page: 'training', badge: 'Phase 3' },
@@ -119,6 +132,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Operations & Integrations',
     icon: Package,
+    hidden: true,
     items: [
       { label: 'Asset Management', page: 'assets', badge: 'Phase 2' },
       { label: 'Accounting / GL', page: 'accounting', badge: 'Phase 2' },
@@ -128,6 +142,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Employee Self-Service',
     icon: UserCog,
+    hidden: true,
     items: [
       { label: 'Employee Portal (ESS)', page: 'ess', badge: 'Portal' },
     ],
@@ -135,6 +150,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Reports & Analytics',
     icon: BarChart3,
+    hidden: true,
     items: [
       { label: 'Reports Hub', page: 'reports-hub' },
       { label: 'Scheduled Deliveries', page: 'reports-scheduled' },
@@ -145,6 +161,7 @@ export const navGroups: NavGroup[] = [
   {
     label: 'System & Settings',
     icon: Settings,
+    hidden: true,
     items: [
       { label: 'Authentication Flow', page: 'auth', badge: 'Demo' },
       { label: 'Platform Admin Portal', page: 'platform-admin', badge: 'Platform' },
@@ -159,6 +176,17 @@ export const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+/** Sidebar-ready nav: drops hidden groups/items. Pages remain routable via App.tsx. */
+export function getVisibleNavGroups(): NavGroup[] {
+  return navGroups
+    .filter((group) => !group.hidden)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.hidden),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,

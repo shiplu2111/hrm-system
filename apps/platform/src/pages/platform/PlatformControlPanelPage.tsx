@@ -40,11 +40,9 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useNav } from '@/context/NavContext';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
 import { Dropdown, DropdownDivider, DropdownHeader, DropdownItem } from '@/components/ui/Dropdown';
-import { PortalSwitcher } from '@/components/layout/PortalSwitcher';
 import { PlatformBillingPage } from '@/pages/platform/PlatformBillingPage';
 import { FeatureFlagsPage } from '@/pages/platform/FeatureFlagsPage';
 import { SystemHealthPage } from '@/pages/platform/SystemHealthPage';
@@ -591,8 +589,7 @@ function CreateTenant({ onBack, onCreated }: { onBack: () => void; onCreated: ()
   );
 }
 
-export function PlatformControlPanelPage() {
-  const { navigate } = useNav();
+export function PlatformControlPanelPage({ onLogout }: { onLogout: () => void }) {
   const [view, setView] = useState<PlatformView>('dashboard');
   const [selectedTenant, setSelectedTenant] = useState<Tenant>(tenants[0]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -620,7 +617,7 @@ export function PlatformControlPanelPage() {
             return <button key={key} onClick={() => go(key)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-xs font-semibold transition-all ${active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}><Icon className="h-4 w-4" /><span>{label}</span>{key === 'support' && <span className="ml-auto px-1.5 py-0.5 rounded bg-orange-500 text-white text-[9px]">37</span>}</button>;
           })}
         </nav>
-        <div className="p-3 border-t border-white/10"><button onClick={() => navigate('auth')} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 text-left"><Avatar name="Alex Morgan" size="sm" /><div className="flex-1"><div className="text-xs font-bold text-white">Alex Morgan</div><div className="text-[10px] text-slate-500">Platform Operator</div></div><LogOut className="h-4 w-4 text-slate-500" /></button></div>
+        <div className="p-3 border-t border-white/10"><button type="button" onClick={onLogout} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 text-left"><Avatar name="Alex Morgan" size="sm" /><div className="flex-1"><div className="text-xs font-bold text-white">Alex Morgan</div><div className="text-[10px] text-slate-500">Platform Operator</div></div><LogOut className="h-4 w-4 text-slate-500" /></button></div>
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -632,15 +629,13 @@ export function PlatformControlPanelPage() {
             <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono text-slate-500 border border-slate-700 rounded px-1.5 py-0.5">⌘ K</kbd>
             {searchResults.length > 0 && <div className="absolute top-11 inset-x-0 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">{searchResults.map((tenant) => <button key={tenant.id} onClick={() => { setSelectedTenant(tenant); setView('tenant-detail'); setGlobalSearch(''); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-left"><Building2 className="h-4 w-4 text-indigo-500" /><div className="flex-1"><div className="text-sm font-bold">{tenant.name}</div><div className="text-[10px] text-slate-500">{tenant.domain}</div></div><ArrowRight className="h-4 w-4 text-slate-400" /></button>)}</div>}
           </div>
-          <PortalSwitcher variant="dark" />
           <button className="relative h-9 w-9 rounded-lg hover:bg-white/10 text-slate-300 flex items-center justify-center" title="Platform-wide alerts"><Bell className="h-4.5 w-4.5" /><span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-slate-950 animate-pulse" /></button>
           <Dropdown width="w-72" trigger={<div className="flex items-center gap-2 p-1 rounded-lg hover:bg-white/10"><Avatar name="Alex Morgan" size="sm" /><ChevronDown className="h-4 w-4 text-slate-400" /></div>}>
             <DropdownHeader><div className="text-xs font-bold text-primary">Platform operator session</div><div className="text-[10px] text-muted mt-0.5">Privileged actions are audit logged</div></DropdownHeader>
             <DropdownDivider />
-            <DropdownItem icon={<Building2 className="h-4 w-4" />} onClick={() => navigate('dashboard')}><span><span className="block">Switch to Acme Corporation</span><span className="block text-[10px] text-warning-600">Viewing as admin · actions logged</span></span></DropdownItem>
             <DropdownItem icon={<Shield className="h-4 w-4" />}>Security settings</DropdownItem>
             <DropdownDivider />
-            <DropdownItem icon={<LogOut className="h-4 w-4" />} onClick={() => navigate('auth')}>Sign out</DropdownItem>
+            <DropdownItem icon={<LogOut className="h-4 w-4" />} onClick={onLogout}>Sign out</DropdownItem>
           </Dropdown>
         </header>
 

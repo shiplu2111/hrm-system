@@ -1,107 +1,115 @@
-import { useState } from 'react';
-import { Plus, X, Briefcase, Clock, Calendar, Zap, Heart } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Plus, X, Loader2 } from 'lucide-react';
+import type { NamedOrgEntity } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label } from '@/components/ui/Form';
-import { Badge } from '@/components/ui/Badge';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { OrgPageState } from '@/components/org/OrgPageState';
+import {
+  createEmploymentType,
+  deleteEmploymentType,
+  listEmploymentTypes,
+} from '@/lib/organization-api';
+import { ApiError } from '@/lib/tenant-api-client';
 
-interface EmpType {
-  id: string;
-  name: string;
-  description: string;
-  icon: typeof Briefcase;
-  color: string;
-  count: number;
-}
-
-const iconOptions = [
-  { icon: Briefcase, label: 'Briefcase', color: 'bg-accent-100 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300' },
-  { icon: Clock, label: 'Clock', color: 'bg-success-100 text-success-700 dark:bg-success-950/40 dark:text-success-300' },
-  { icon: Calendar, label: 'Calendar', color: 'bg-warning-100 text-warning-700 dark:bg-warning-950/40 dark:text-warning-300' },
-  { icon: Zap, label: 'Zap', color: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300' },
-  { icon: Heart, label: 'Heart', color: 'bg-error-100 text-error-700 dark:bg-error-950/40 dark:text-error-300' },
-];
-
-const initialTypes: EmpType[] = [
-  { id: '1', name: 'Full-Time', description: 'Permanent, 40 hrs/week', icon: Briefcase, color: 'bg-accent-100 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300', count: 980 },
-  { id: '2', name: 'Part-Time', description: 'Permanent, < 40 hrs/week', icon: Clock, color: 'bg-success-100 text-success-700 dark:bg-success-950/40 dark:text-success-300', count: 145 },
-  { id: '3', name: 'Contract', description: 'Fixed-term contract', icon: Calendar, color: 'bg-warning-100 text-warning-700 dark:bg-warning-950/40 dark:text-warning-300', count: 89 },
-  { id: '4', name: 'Intern', description: 'Temporary, training role', icon: Zap, color: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300', count: 42 },
-  { id: '5', name: 'Consultant', description: 'External advisor', icon: Heart, color: 'bg-error-100 text-error-700 dark:bg-error-950/40 dark:text-error-300', count: 28 },
-];
-
-export function EmploymentTypesPage() {
-  const [types, setTypes] = useState<EmpType[]>(initialTypes);
+function EmploymentTypesContent({ companyId }: { companyId: string }) {
+  const [types, setTypes] = useState<NamedOrgEntity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', iconIdx: 0 });
+  const [name, setName] = useState('');
 
-  const addType = () => {
-    if (!form.name) return;
-    const iconOpt = iconOptions[form.iconIdx];
-    setTypes((prev) => [...prev, {
-      id: Date.now().toString(),
-      name: form.name,
-      description: form.description,
-      icon: iconOpt.icon,
-      color: iconOpt.color,
-      count: 0,
-    }]);
-    setForm({ name: '', description: '', iconIdx: 0 });
-    setModalOpen(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setTypes(await listEmploymentTypes(companyId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const addType = async () => {
+    if (!name.trim()) return;
+    setError(null);
+    try {
+      await createEmploymentType(companyId, { name: name.trim() });
+      setName('');
+      setModalOpen(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Create failed');
+    }
   };
 
-  const removeType = (id: string) => setTypes((prev) => prev.filter((t) => t.id !== id));
+  const removeType = async (id: string) => {
+    if (!window.confirm('Delete this employment type?')) return;
+    try {
+      await deleteEmploymentType(companyId, id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Delete failed');
+    }
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-4xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-primary">Employment Types</h1>
-          <p className="text-sm text-secondary mt-0.5">Define how employees are classified in your organization.</p>
+          <p className="text-sm text-secondary mt-0.5">
+            Define how employees are classified in your organization.
+          </p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" /> Add Custom Type
-        </Button>
+        <div className="flex items-center gap-2">
+          <CompanySelector />
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" /> Add Type
+          </Button>
+        </div>
       </div>
 
+      {error && (
+        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">
+          {error}
+        </div>
+      )}
+
       <Card>
-        <CardHeader>
-          <CardTitle>Employment Type Tags</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Employment Types</CardTitle></CardHeader>
         <CardBody>
-          <div className="flex flex-wrap gap-3">
-            {types.map((t) => {
-              const Icon = t.icon;
-              return (
+          {loading ? (
+            <div className="py-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {types.map((t) => (
                 <div
                   key={t.id}
-                  className="group relative flex items-center gap-2.5 surface border border-base rounded-xl pl-3 pr-8 py-2.5 hover:shadow-card-hover hover:border-strong transition-all"
+                  className="group relative flex items-center gap-2 surface border border-base rounded-xl pl-3 pr-8 py-2.5"
                 >
-                  <div className={`h-8 w-8 rounded-lg ${t.color} flex items-center justify-center shrink-0`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-primary">{t.name}</div>
-                    <div className="text-[11px] text-muted">{t.description}</div>
-                  </div>
-                  <Badge tone="neutral" className="absolute top-1.5 right-2">{t.count}</Badge>
+                  <div className="text-sm font-medium text-primary">{t.name}</div>
                   <button
-                    onClick={() => removeType(t.id)}
-                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full surface border border-base text-muted hover:text-error-600 hover:border-error-300 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                    type="button"
+                    onClick={() => void removeType(t.id)}
+                    className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full surface border border-base text-muted hover:text-error-600 flex items-center justify-center opacity-0 group-hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
                   </button>
                 </div>
-              );
-            })}
-            <button
-              onClick={() => setModalOpen(true)}
-              className="flex items-center gap-2 border-2 border-dashed border-strong rounded-xl px-4 py-2.5 text-secondary hover:border-accent-500 hover:text-accent-600 transition-colors"
-            >
-              <Plus className="h-4 w-4" /> Add Type
-            </button>
-          </div>
+              ))}
+              {types.length === 0 && (
+                <p className="text-sm text-muted">No employment types defined yet.</p>
+              )}
+            </div>
+          )}
         </CardBody>
       </Card>
 
@@ -112,40 +120,21 @@ export function EmploymentTypesPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={addType}>Create Type</Button>
+            <Button variant="primary" onClick={() => void addType()}>Create</Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div>
-            <Label>Type Name</Label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Freelance" />
-          </div>
-          <div>
-            <Label>Description</Label>
-            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. Project-based, no fixed hours" />
-          </div>
-          <div>
-            <Label>Icon</Label>
-            <div className="flex gap-2">
-              {iconOptions.map((opt, i) => {
-                const Icon = opt.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setForm({ ...form, iconIdx: i })}
-                    className={`h-10 w-10 rounded-lg flex items-center justify-center border-2 transition-all ${
-                      form.iconIdx === i ? 'border-accent-500 ring-2 ring-accent-500/20' : 'border-base hover:border-strong'
-                    } ${opt.color}`}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <div>
+          <Label>Name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full-Time" />
         </div>
       </Modal>
     </div>
+  );
+}
+
+export function EmploymentTypesPage() {
+  return (
+    <OrgPageState>{(companyId) => <EmploymentTypesContent companyId={companyId} />}</OrgPageState>
   );
 }

@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: 248 250 252;       /* slate-50 */
+    --bg-surface: 255 255 255;    /* white */
+    --bg-elevated: 255 255 255;
+    --bg-muted: 241 245 249;      /* slate-100 */
+    --bg-hover: 241 245 249;
+    --border-base: 226 232 240;   /* slate-200 */
+    --border-strong: 203 213 225; /* slate-300 */
+    --text-primary: 15 23 42;     /* slate-900 */
+    --text-secondary: 71 85 105;  /* slate-600 */
+    --text-muted: 100 116 139;    /* slate-500 */
+    --text-inverse: 255 255 255;
+  }
+
+  .dark {
+    --bg-base: 2 6 23;            /* slate-950 */
+    --bg-surface: 15 23 42;       /* slate-900 */
+    --bg-elevated: 30 41 59;      /* slate-800 */
+    --bg-muted: 30 41 59;
+    --bg-hover: 30 41 59;
+    --border-base: 30 41 59;      /* slate-800 */
+    --border-strong: 51 65 85;   /* slate-700 */
+    --text-primary: 248 250 252; /* slate-50 */
+    --text-secondary: 148 163 184;/* slate-400 */
+    --text-muted: 100 116 139;   /* slate-500 */
+    --text-inverse: 15 23 42;
+  }
+
+  * {
+    border-color: rgb(var(--border-base));
+  }
+
+  body {
+    background-color: rgb(var(--bg-base));
+    color: rgb(var(--text-primary));
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: rgb(59 130 246 / 0.2);
+  }
+}
+
+@layer components {
+  .surface {
+    background-color: rgb(var(--bg-surface));
+    border-color: rgb(var(--border-base));
+  }
+  .surface-muted {
+    background-color: rgb(var(--bg-muted));
+  }
+  .text-primary { color: rgb(var(--text-primary)); }
+  .text-secondary { color: rgb(var(--text-secondary)); }
+  .text-muted { color: rgb(var(--text-muted)); }
+  .border-base { border-color: rgb(var(--border-base)); }
+  .border-strong { border-color: rgb(var(--border-strong)); }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border-strong)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--border-strong));
+    border-radius: 9999px;
+  }
+}
+
+/* Smooth theme transition */
+.theme-transition,
+.theme-transition * {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}

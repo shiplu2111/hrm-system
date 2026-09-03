@@ -1,11 +1,20 @@
+import {
+  AuthProvider,
+  PortalLoginPage,
+  useAuth,
+} from '@hrm/portal-ui';
 import { ThemeProvider } from '@/context/ThemeContext';
-import { NavProvider, useNav } from '@/context/NavContext';
+import { CompanyProvider } from '@/context/CompanyContext';
+import { NavProvider } from '@/context/NavContext';
 import { AppShell } from '@/components/layout/AppShell';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { CompanyProfilePage } from '@/pages/org/CompanyProfilePage';
 import { DepartmentsPage } from '@/pages/org/DepartmentsPage';
 import { DesignationsPage } from '@/pages/org/DesignationsPage';
+import { JobLevelsPage } from '@/pages/org/JobLevelsPage';
 import { EmploymentTypesPage } from '@/pages/org/EmploymentTypesPage';
+import { TeamsPage } from '@/pages/org/TeamsPage';
+import { CostCentresPage } from '@/pages/org/CostCentresPage';
 import { OrgChartPage } from '@/pages/org/OrgChartPage';
 import { RolesPage } from '@/pages/rbac/RolesPage';
 import { PermissionMatrixPage } from '@/pages/rbac/PermissionMatrixPage';
@@ -50,19 +59,16 @@ import { LoansPage } from '@/pages/payroll/LoansPage';
 import { ExpensesPage } from '@/pages/payroll/ExpensesPage';
 import { BillingPage } from '@/pages/billing/BillingPage';
 import { ConstructionPage } from '@/pages/ConstructionPage';
-import { AuthPage } from '@/pages/auth/AuthPage';
-import { ESSPortalPage } from '@/pages/ess/ESSPortalPage';
-import { PlatformControlPanelPage } from '@/pages/platform/PlatformControlPanelPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
 import { HelpCenterPage } from '@/pages/support/HelpCenterPage';
-import { HelpWidget } from '@/components/support/HelpWidget';
 import { PerformanceManagementPage } from '@/pages/talent/PerformanceManagementPage';
 import { TrainingCertificationPage } from '@/pages/talent/TrainingCertificationPage';
 import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
 import { EmployeeEngagementPage } from '@/pages/talent/EmployeeEngagementPage';
 import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
+import { useNav } from '@/context/NavContext';
 
 function PageRouter() {
   const { current } = useNav();
@@ -72,7 +78,10 @@ function PageRouter() {
     case 'org-profile': return <CompanyProfilePage />;
     case 'org-departments': return <DepartmentsPage />;
     case 'org-designations': return <DesignationsPage />;
+    case 'org-job-levels': return <JobLevelsPage />;
     case 'org-employment-types': return <EmploymentTypesPage />;
+    case 'org-teams': return <TeamsPage />;
+    case 'org-cost-centres': return <CostCentresPage />;
     case 'org-chart': return <OrgChartPage />;
     case 'rbac-roles': return <RolesPage />;
     case 'rbac-matrix': return <PermissionMatrixPage />;
@@ -104,7 +113,6 @@ function PageRouter() {
     case 'geofence': return <GeofencePage />;
     case 'devices': return <DevicesPage />;
     case 'attendance-methods': return <AttendanceMethodsPage />;
-    // Payroll & Billing
     case 'payroll-runs': return <PayrollRunWizardPage />;
     case 'pay-schedules': return <PaySchedulePage />;
     case 'salary-components': return <SalaryComponentsPage />;
@@ -130,46 +138,30 @@ function PageRouter() {
   }
 }
 
-function AppRouter() {
-  const { current, navigate } = useNav();
+function AdminApp() {
+  const { isAuthenticated, login, logout } = useAuth();
 
-  if (current === 'auth') {
-    return (
-      <AuthPage
-        onSuccess={(destination) => {
-          if (destination === 'employee') navigate('ess');
-          else if (destination === 'platform') navigate('platform-admin');
-          else navigate('dashboard');
-        }}
-      />
-    );
+  if (!isAuthenticated) {
+    return <PortalLoginPage portal="admin" onLogin={login} />;
   }
-
-  if (current === 'ess') {
-    return (
-      <>
-        <ESSPortalPage />
-        <HelpWidget />
-      </>
-    );
-  }
-  if (current === 'platform-admin') return <PlatformControlPanelPage />;
 
   return (
-    <AppShell>
-      <PageRouter />
-    </AppShell>
+    <CompanyProvider>
+      <NavProvider>
+        <AppShell onLogout={logout}>
+          <PageRouter />
+        </AppShell>
+      </NavProvider>
+    </CompanyProvider>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <ThemeProvider>
-      <NavProvider>
-        <AppRouter />
-      </NavProvider>
+      <AuthProvider portal="admin">
+        <AdminApp />
+      </AuthProvider>
     </ThemeProvider>
   );
 }
-
-export default App;

@@ -4,7 +4,13 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { HelpWidget } from '@/components/support/HelpWidget';
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  onLogout,
+}: {
+  children: ReactNode;
+  onLogout: () => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -17,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         onCloseMobile={() => setMobileOpen(false)}
       />
       <div className="flex-1 flex flex-col min-w-0">
-        <Topbar onOpenMobile={() => setMobileOpen(true)} />
+        <Topbar onOpenMobile={() => setMobileOpen(true)} onLogout={onLogout} />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           {children}
           <footer className="px-6 py-4 text-center text-[10px] text-muted border-t border-base">

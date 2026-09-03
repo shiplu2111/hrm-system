@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, X, PanelLeftClose, PanelLeft } from 'lucide-react';
-import { navGroups } from '@/config/navigation';
+import { getVisibleNavGroups } from '@/config/navigation';
 import { useNav, type PageKey } from '@/context/NavContext';
 import { Badge } from '@/components/ui/Badge';
 
@@ -14,8 +14,10 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
   const { current, navigate } = useNav();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(['Dashboard', 'Organization', 'Settings'])
+    new Set(['Dashboard', 'Organization', 'People'])
   );
+
+  const visibleNavGroups = getVisibleNavGroups();
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -51,7 +53,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-3 space-y-0.5">
-        {navGroups.map((group) => {
+        {visibleNavGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.label) || collapsed;
           const hasActive = group.items.some((i) => i.page === current);
           const Icon = group.icon;

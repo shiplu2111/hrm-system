@@ -1,54 +1,79 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
-  ApiResponse,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
+import {
+  CreateEmployeeDto,
+  UpdateEmployeeDto,
+} from '../organization/dto/organization.dto';
 import { RequirePermission } from '../rbac/require-permission.decorator';
-import { PrismaService } from '../database/prisma.service';
+import { EmployeesService } from './employees.service';
 
 @ApiTags('employees')
 @ApiBearerAuth('access-token')
 @Controller('employees')
 export class EmployeesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly employeesService: EmployeesService) {}
+
+  @Get()
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'List employees (tenant-scoped)' })
+  @ApiQuery({ name: 'companyId', required: false })
+  async listEmployees(
+    @Query('companyId') companyId?: string,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['listEmployees']>>>> {
+    return { data: await this.employeesService.listEmployees(companyId) };
+  }
 
   @Get(':id')
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'Get employee by ID (tenant-scoped)' })
-  @ApiResponse({ status: 200, description: 'Employee in the authenticated tenant' })
-  @ApiResponse({ status: 404, description: 'Not found or belongs to another tenant' })
   async findOne(
-    @Param('id') id: string,
-  ): Promise<
-    ApiEnvelope<{
-      id: string;
-      tenantId: string;
-      employeeNumber: string;
-      firstName: string;
-      lastName: string;
-    }>
-  > {
-    const employee = await this.prisma.scoped.employee.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        tenantId: true,
-        employeeNumber: true,
-        firstName: true,
-        lastName: true,
-      },
-    });
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['getEmployee']>>>> {
+    return { data: await this.employeesService.getEmployee(id) };
+  }
 
-    if (!employee) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: 'Employee not found',
-      });
-    }
+  @Post()
+  @RequirePermission('employee', 'create')
+  @ApiOperation({ summary: 'Create employee' })
+  async create(
+    @Body() dto: CreateEmployeeDto,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['createEmployee']>>>> {
+    return { data: await this.employeesService.createEmployee(dto) };
+  }
 
-    return { data: employee };
+  @Patch(':id')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Update employee profile' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateEmployeeDto,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['updateEmployee']>>>> {
+    return { data: await this.employeesService.updateEmployee(id, dto) };
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('employee', 'delete')
+  @ApiOperation({ summary: 'Soft-delete employee' })
+  async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.employeesService.deleteEmployee(id);
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft,
   TrendingUp,
@@ -8,446 +8,219 @@ import {
   Ban,
   LogOut,
   RotateCcw,
-  FileText,
-  Receipt,
+  Loader2,
 } from 'lucide-react';
+import type { EmployeeRecord, LifecycleEventType } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { useNav } from '@/context/NavContext';
-import { employees } from '@/data/mockData';
+import { useCompany } from '@/context/CompanyContext';
+import { getEmployee } from '@/lib/employees-api';
+import { createLifecycleEvent, listLifecycleEvents } from '@/lib/lifecycle-api';
+import {
+  listDepartments,
+  listDesignations,
+  listEmploymentTypes,
+} from '@/lib/organization-api';
+import { ApiError } from '@/lib/tenant-api-client';
 
-type ActionType = 'promotion' | 'transfer' | 'salary-revision' | 'probation' | 'suspension' | 'resignation' | 'rehire' | 'exit-interview' | 'settlement';
+type ActionKey =
+  | 'promotion'
+  | 'transfer'
+  | 'salary_revision'
+  | 'probation'
+  | 'confirmation'
+  | 'suspension'
+  | 'resignation'
+  | 'termination'
+  | 'rehire';
 
-const actions: { type: ActionType; label: string; description: string; icon: typeof TrendingUp; tone: string }[] = [
-  { type: 'promotion', label: 'Promotion', description: 'Promote employee to a higher role or grade', icon: TrendingUp, tone: 'accent' },
-  { type: 'transfer', label: 'Transfer', description: 'Move employee to a different department or location', icon: ArrowRightLeft, tone: 'accent' },
-  { type: 'salary-revision', label: 'Salary Revision', description: 'Adjust compensation — increase or decrease', icon: DollarSign, tone: 'success' },
-  { type: 'probation', label: 'Probation & Confirmation', description: 'Complete or extend probation period', icon: CheckCircle2, tone: 'success' },
-  { type: 'suspension', label: 'Suspension', description: 'Temporarily suspend employee with reason', icon: Ban, tone: 'warning' },
-  { type: 'resignation', label: 'Resignation / Termination', description: 'Process exit — voluntary or involuntary', icon: LogOut, tone: 'error' },
-  { type: 'rehire', label: 'Rehire', description: 'Re-engage a former employee', icon: RotateCcw, tone: 'accent' },
-  { type: 'exit-interview', label: 'Exit Interview', description: 'Conduct and record exit interview', icon: FileText, tone: 'neutral' },
-  { type: 'settlement', label: 'Full & Final Settlement', description: 'Calculate earnings vs deductions', icon: Receipt, tone: 'neutral' },
+const actions: {
+  type: ActionKey;
+  eventType: LifecycleEventType;
+  label: string;
+  description: string;
+  icon: typeof TrendingUp;
+}[] = [
+  { type: 'promotion', eventType: 'promotion', label: 'Promotion', description: 'Promote to a higher role', icon: TrendingUp },
+  { type: 'transfer', eventType: 'transfer', label: 'Transfer', description: 'Move department or location', icon: ArrowRightLeft },
+  { type: 'salary_revision', eventType: 'salary_revision', label: 'Salary Revision', description: 'Adjust compensation', icon: DollarSign },
+  { type: 'probation', eventType: 'probation', label: 'Extend Probation', description: 'Update probation end date', icon: CheckCircle2 },
+  { type: 'confirmation', eventType: 'confirmation', label: 'Confirmation', description: 'Confirm after probation', icon: CheckCircle2 },
+  { type: 'suspension', eventType: 'suspension', label: 'Suspension', description: 'Temporarily suspend employee', icon: Ban },
+  { type: 'resignation', eventType: 'resignation', label: 'Resignation', description: 'Voluntary exit', icon: LogOut },
+  { type: 'termination', eventType: 'termination', label: 'Termination', description: 'Involuntary exit', icon: LogOut },
+  { type: 'rehire', eventType: 'rehire', label: 'Rehire', description: 'Re-engage former employee', icon: RotateCcw },
 ];
 
-function PromotionForm({ onClose }: { onClose?: () => void } = {}) {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Current Designation</Label>
-          <Input defaultValue="Senior Engineering Manager" disabled />
-        </div>
-        <div>
-          <Label>New Designation</Label>
-          <Select>
-            <option>VP Engineering</option>
-            <option>Engineering Director</option>
-            <option>Principal Engineer</option>
-          </Select>
-        </div>
-        <div>
-          <Label>New Job Level</Label>
-          <Select><option>M2 — Director</option><option>L5 — Principal</option></Select>
-        </div>
-        <div>
-          <Label>New Salary Grade</Label>
-          <Select><option>G7</option><option>G8</option></Select>
-        </div>
-        <div>
-          <Label>Effective Date</Label>
-          <Input type="date" defaultValue="2024-09-01" />
-        </div>
-        <div>
-          <Label>New Department (if changed)</Label>
-          <Select><option value="">Same department</option><option>Engineering</option><option>Operations</option></Select>
-        </div>
-      </div>
-      <div>
-        <Label>Reason / Notes</Label>
-        <Textarea rows={3} placeholder="Promotion justification..." />
-      </div>
-    </div>
-  );
-}
-
-function TransferForm({ onClose }: { onClose?: () => void } = {}) {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Current Department</Label>
-          <Input defaultValue="Engineering" disabled />
-        </div>
-        <div>
-          <Label>New Department</Label>
-          <Select><option>Operations</option><option>Sales</option><option>Marketing</option></Select>
-        </div>
-        <div>
-          <Label>Current Location</Label>
-          <Input defaultValue="San Francisco HQ" disabled />
-        </div>
-        <div>
-          <Label>New Location</Label>
-          <Select><option>New York Office</option><option>London Branch</option><option>Singapore Hub</option></Select>
-        </div>
-        <div>
-          <Label>New Manager</Label>
-          <Select><option>John Smith</option><option>Marcus Johnson</option></Select>
-        </div>
-        <div>
-          <Label>Effective Date</Label>
-          <Input type="date" defaultValue="2024-09-15" />
-        </div>
-      </div>
-      <div>
-        <Label>Transfer Reason</Label>
-        <Textarea rows={3} placeholder="Business need, employee request..." />
-      </div>
-    </div>
-  );
-}
-
-function SalaryRevisionForm() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Current Salary</Label>
-          <Input defaultValue="$165,000" disabled />
-        </div>
-        <div>
-          <Label>New Salary</Label>
-          <Input type="number" placeholder="180000" />
-        </div>
-        <div>
-          <Label>Currency</Label>
-          <Select><option>USD</option><option>EUR</option><option>GBP</option></Select>
-        </div>
-        <div>
-          <Label>Pay Frequency</Label>
-          <Select><option>Monthly</option><option>Bi-weekly</option><option>Weekly</option></Select>
-        </div>
-        <div>
-          <Label>Change Type</Label>
-          <Select><option>Increase</option><option>Decrease</option><option>Adjustment</option></Select>
-        </div>
-        <div>
-          <Label>Effective Date</Label>
-          <Input type="date" defaultValue="2024-09-01" />
-        </div>
-      </div>
-      <div>
-        <Label>Justification</Label>
-        <Textarea rows={3} placeholder="Annual review, performance bonus..." />
-      </div>
-    </div>
-  );
-}
-
-function ProbationForm() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Probation Start</Label>
-          <Input type="date" defaultValue="2024-08-01" disabled />
-        </div>
-        <div>
-          <Label>Probation End</Label>
-          <Input type="date" defaultValue="2024-11-01" />
-        </div>
-        <div>
-          <Label>Action</Label>
-          <Select><option>Confirm Employment</option><option>Extend Probation</option><option>Terminate</option></Select>
-        </div>
-        <div>
-          <Label>Confirmation Date</Label>
-          <Input type="date" defaultValue="2024-11-01" />
-        </div>
-      </div>
-      <div>
-        <Label>Manager Assessment</Label>
-        <Textarea rows={4} placeholder="Performance during probation period..." />
-      </div>
-    </div>
-  );
-}
-
-function SuspensionForm() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Start Date</Label>
-          <Input type="date" />
-        </div>
-        <div>
-          <Label>End Date (if known)</Label>
-          <Input type="date" />
-        </div>
-        <div>
-          <Label>Duration</Label>
-          <Select><option>Indefinite</option><option>3 days</option><option>1 week</option><option>2 weeks</option><option>1 month</option></Select>
-        </div>
-        <div>
-          <Label>With Pay?</Label>
-          <Select><option>With Pay</option><option>Without Pay</option></Select>
-        </div>
-      </div>
-      <div>
-        <Label>Reason</Label>
-        <Textarea rows={4} placeholder="Detailed reason for suspension..." />
-      </div>
-    </div>
-  );
-}
-
-function ResignationForm() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Exit Type</Label>
-          <Select><option>Voluntary Resignation</option><option>Involuntary Termination</option><option>End of Contract</option><option>Retirement</option></Select>
-        </div>
-        <div>
-          <Label>Last Working Day</Label>
-          <Input type="date" />
-        </div>
-        <div>
-          <Label>Notice Period</Label>
-          <Select><option>60 days</option><option>30 days</option><option>15 days</option><option>Waived</option></Select>
-        </div>
-        <div>
-          <Label>Exit Interview Required?</Label>
-          <Select><option>Yes</option><option>No</option></Select>
-        </div>
-      </div>
-      <div>
-        <Label>Reason for Leaving</Label>
-        <Textarea rows={4} placeholder="Employee stated reason..." />
-      </div>
-    </div>
-  );
-}
-
-function RehireForm() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Former Employee</Label>
-          <Input defaultValue="Robert Lee (EMP-012)" disabled />
-        </div>
-        <div>
-          <Label>New Designation</Label>
-          <Select><option>Senior Software Engineer</option><option>Staff Engineer</option></Select>
-        </div>
-        <div>
-          <Label>Rehire Date</Label>
-          <Input type="date" />
-        </div>
-        <div>
-          <Label>Employment Type</Label>
-          <Select><option>Full-Time</option><option>Contract</option><option>Part-Time</option></Select>
-        </div>
-      </div>
-      <div>
-        <Label>Rehire Notes</Label>
-        <Textarea rows={3} placeholder="Previous tenure, performance..." />
-      </div>
-    </div>
-  );
-}
-
-function ExitInterviewForm() {
-  return (
-    <div className="space-y-4">
-    <div>
-      <Label>Primary reason for leaving?</Label>
-      <Select><option>Better opportunity</option><option>Career growth</option><option>Compensation</option><option>Work-life balance</option><option>Relocation</option><option>Other</option></Select>
-    </div>
-    <div>
-      <Label>How was your experience at the company?</Label>
-      <Select><option>Very Positive</option><option>Positive</option><option>Neutral</option><option>Negative</option><option>Very Negative</option></Select>
-    </div>
-    <div>
-      <Label>Would you recommend this company as a workplace?</Label>
-      <Select><option>Definitely</option><option>Probably</option><option>Not sure</option><option>Probably not</option><option>Definitely not</option></Select>
-    </div>
-    <div>
-      <Label>What did you like most about working here?</Label>
-      <Textarea rows={3} />
-    </div>
-    <div>
-      <Label>What could we improve?</Label>
-      <Textarea rows={3} />
-    </div>
-      <div>
-        <Label>Additional comments</Label>
-        <Textarea rows={2} />
-      </div>
-    </div>
-  );
-}
-
-function SettlementSummary() {
-  const earnings = [
-    { label: 'Salary (Aug 1-15)', amount: '$7,500' },
-    { label: 'Unused Leave Encashment (12 days)', amount: '$6,000' },
-    { label: 'Performance Bonus (Pro-rated)', amount: '$3,200' },
-    { label: 'Gratuity', amount: '$2,800' },
-  ];
-  const deductions = [
-    { label: 'Tax Withholding', amount: '$2,400' },
-    { label: 'Notice Period Recovery (5 days)', amount: '$2,500' },
-    { label: 'Asset Damage Deduction', amount: '$150' },
-    { label: 'Loan / Advance Recovery', amount: '$0' },
-  ];
-  const totalEarnings = 19500;
-  const totalDeductions = 5050;
-  const netPayable = totalEarnings - totalDeductions;
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="surface border border-base rounded-xl p-4">
-          <div className="text-sm font-semibold text-success-700 dark:text-success-300 mb-3 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" /> Earnings
-          </div>
-          <div className="space-y-2">
-            {earnings.map((e) => (
-              <div key={e.label} className="flex items-center justify-between text-sm">
-                <span className="text-secondary">{e.label}</span>
-                <span className="text-primary font-medium">{e.amount}</span>
-              </div>
-            ))}
-            <div className="pt-2 border-t border-base flex items-center justify-between">
-              <span className="text-sm font-semibold text-primary">Total Earnings</span>
-              <span className="text-success-600 font-bold">${totalEarnings.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-        <div className="surface border border-base rounded-xl p-4">
-          <div className="text-sm font-semibold text-error-700 dark:text-error-300 mb-3 flex items-center gap-2">
-            <ArrowRightLeft className="h-4 w-4" /> Deductions
-          </div>
-          <div className="space-y-2">
-            {deductions.map((d) => (
-              <div key={d.label} className="flex items-center justify-between text-sm">
-                <span className="text-secondary">{d.label}</span>
-                <span className="text-primary font-medium">{d.amount}</span>
-              </div>
-            ))}
-            <div className="pt-2 border-t border-base flex items-center justify-between">
-              <span className="text-sm font-semibold text-primary">Total Deductions</span>
-              <span className="text-error-600 font-bold">${totalDeductions.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="surface border-2 border-accent-500/30 rounded-xl p-4 flex items-center justify-between bg-accent-50/50 dark:bg-accent-950/20">
-        <div>
-          <div className="text-sm font-semibold text-primary">Net Payable Amount</div>
-          <div className="text-xs text-muted">To be transferred to employee's bank account</div>
-        </div>
-        <div className="text-2xl font-bold text-accent-600">${netPayable.toLocaleString()}</div>
-      </div>
-    </div>
-  );
-}
-
 export function LifecycleEventsPage() {
-  const { navigate } = useNav();
-  const [activeAction, setActiveAction] = useState<ActionType | null>(null);
-  const emp = employees[0];
+  const { navigate, selectedEmployeeId } = useNav();
+  const { companyId } = useCompany();
+  const [emp, setEmp] = useState<EmployeeRecord | null>(null);
+  const [events, setEvents] = useState<Awaited<ReturnType<typeof listLifecycleEvents>>>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
+  const [employmentTypes, setEmploymentTypes] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState('');
+  const [form, setForm] = useState<Record<string, string>>({});
 
-  const actionToneClasses: Record<string, string> = {
-    accent: 'bg-accent-50 dark:bg-accent-950/40 text-accent-600 dark:text-accent-400',
-    success: 'bg-success-50 dark:bg-success-950/40 text-success-600 dark:text-success-400',
-    warning: 'bg-warning-50 dark:bg-warning-950/40 text-warning-600 dark:text-warning-400',
-    error: 'bg-error-50 dark:bg-error-950/40 text-error-600 dark:text-error-400',
-    neutral: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400',
+  const load = useCallback(async () => {
+    if (!selectedEmployeeId || !companyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [employee, history, depts, desigs, types] = await Promise.all([
+        getEmployee(selectedEmployeeId),
+        listLifecycleEvents(selectedEmployeeId),
+        listDepartments(companyId),
+        listDesignations(companyId),
+        listEmploymentTypes(companyId),
+      ]);
+      setEmp(employee);
+      setEvents(history);
+      setDepartments(depts.map((d) => ({ id: d.id, name: d.name })));
+      setDesignations(desigs.map((d) => ({ id: d.id, name: d.name })));
+      setEmploymentTypes(types.map((t) => ({ id: t.id, name: t.name })));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEmployeeId, companyId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const buildDetails = (action: ActionKey): Record<string, unknown> => {
+    const base = notes ? { notes } : {};
+    switch (action) {
+      case 'promotion':
+        return { ...base, newDesignationId: form.newDesignationId, ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}) };
+      case 'transfer':
+        return {
+          ...base,
+          ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}),
+          ...(form.newManagerId ? { newManagerId: form.newManagerId } : {}),
+        };
+      case 'salary_revision':
+        return { ...base, previousAmount: Number(form.previousAmount), newAmount: Number(form.newAmount), currency: form.currency || 'AUD' };
+      case 'probation':
+        return { ...base, newProbationEndDate: form.newProbationEndDate };
+      case 'confirmation':
+        return { ...base, confirmationDate: form.confirmationDate || effectiveDate };
+      case 'suspension':
+        return { ...base, reason: form.reason };
+      case 'resignation':
+        return { ...base, ...(form.reason ? { reason: form.reason } : {}), ...(form.lastWorkingDate ? { lastWorkingDate: form.lastWorkingDate } : {}) };
+      case 'termination':
+        return { ...base, reason: form.reason, ...(form.lastWorkingDate ? { lastWorkingDate: form.lastWorkingDate } : {}) };
+      case 'rehire':
+        return {
+          ...base,
+          ...(form.newHireDate ? { newHireDate: form.newHireDate } : {}),
+          ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}),
+          ...(form.newDesignationId ? { newDesignationId: form.newDesignationId } : {}),
+        };
+      default:
+        return base;
+    }
   };
 
-  const formMap: Record<ActionType, () => JSX.Element> = {
-    promotion: PromotionForm,
-    transfer: TransferForm,
-    'salary-revision': SalaryRevisionForm,
-    probation: ProbationForm,
-    suspension: SuspensionForm,
-    resignation: ResignationForm,
-    rehire: RehireForm,
-    'exit-interview': ExitInterviewForm,
-    settlement: SettlementSummary,
+  const handleSubmit = async () => {
+    if (!selectedEmployeeId || !activeAction) return;
+    const actionMeta = actions.find((a) => a.type === activeAction);
+    if (!actionMeta) return;
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createLifecycleEvent(selectedEmployeeId, {
+        eventType: actionMeta.eventType,
+        effectiveDate,
+        details: buildDetails(activeAction),
+      });
+      setActiveAction(null);
+      setForm({});
+      setNotes('');
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Submit failed');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const modalConfig: Record<ActionType, { title: string; description: string; size: 'md' | 'lg' | 'xl'; cta: string }> = {
-    promotion: { title: 'Promote Employee', description: `Promote ${emp.name} to a new role`, size: 'lg', cta: 'Submit Promotion' },
-    transfer: { title: 'Transfer Employee', description: `Transfer ${emp.name} to a new department`, size: 'lg', cta: 'Submit Transfer' },
-    'salary-revision': { title: 'Salary Revision', description: `Adjust compensation for ${emp.name}`, size: 'lg', cta: 'Submit Revision' },
-    probation: { title: 'Probation & Confirmation', description: `Manage probation for ${emp.name}`, size: 'lg', cta: 'Submit Decision' },
-    suspension: { title: 'Suspend Employee', description: `Suspend ${emp.name}`, size: 'lg', cta: 'Submit Suspension' },
-    resignation: { title: 'Resignation / Termination', description: `Process exit for ${emp.name}`, size: 'lg', cta: 'Submit Exit' },
-    rehire: { title: 'Rehire Employee', description: 'Re-engage a former employee', size: 'lg', cta: 'Submit Rehire' },
-    'exit-interview': { title: 'Exit Interview', description: `Record exit interview for ${emp.name}`, size: 'lg', cta: 'Save Interview' },
-    settlement: { title: 'Full & Final Settlement', description: `Settlement summary for ${emp.name}`, size: 'xl', cta: 'Approve & Process' },
-  };
+  if (!selectedEmployeeId) {
+    return (
+      <div className="p-8 text-center text-secondary text-sm">
+        Select an employee from the directory first.
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => navigate('emp-directory')}>Go to Directory</Button>
+        </div>
+      </div>
+    );
+  }
 
-  const config = activeAction ? modalConfig[activeAction] : null;
-  const FormComponent = activeAction ? formMap[activeAction] : null;
+  if (loading || !emp) {
+    return (
+      <div className="p-8 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
-      <button onClick={() => navigate('emp-profile')} className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors">
+      <button type="button" onClick={() => navigate('emp-profile')} className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary">
         <ArrowLeft className="h-4 w-4" /> Back to Profile
       </button>
 
-      {/* Employee context */}
+      {error && (
+        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">{error}</div>
+      )}
+
       <Card>
         <CardBody className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 flex items-center justify-center text-base font-semibold">
-            {emp.name.split(' ').map((n) => n[0]).join('')}
+          <div className="h-12 w-12 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-700 flex items-center justify-center text-base font-semibold">
+            {emp.firstName[0]}{emp.lastName[0]}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-base font-semibold text-primary">{emp.name}</span>
-              <Badge tone="neutral">{emp.employeeId}</Badge>
+              <span className="text-base font-semibold text-primary">{emp.fullName}</span>
+              <Badge tone="neutral">{emp.employeeNumber}</Badge>
             </div>
-            <div className="text-sm text-secondary">{emp.designation} · {emp.department}</div>
+            <div className="text-sm text-secondary">{emp.designation?.name ?? '—'} · {emp.department?.name ?? '—'}</div>
           </div>
-          <Badge tone="success" dot>{emp.status}</Badge>
+          <Badge tone="success" dot>{emp.employmentStatus}</Badge>
         </CardBody>
       </Card>
 
       <div>
         <h2 className="text-lg font-bold text-primary mb-1">Lifecycle Actions</h2>
-        <p className="text-sm text-secondary">Choose an action to perform on this employee. Each action opens a dedicated form.</p>
+        <p className="text-sm text-secondary">Each action is recorded and written to the audit log.</p>
       </div>
 
-      {/* Action cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {actions.map((action) => {
           const Icon = action.icon;
           return (
-            <Card
-              key={action.type}
-              className="hover:shadow-card-hover transition-shadow cursor-pointer group"
-              onClick={() => setActiveAction(action.type)}
-            >
-              <CardBody>
-                <div className="flex items-start gap-3">
-                  <div className={`h-10 w-10 rounded-lg ${actionToneClasses[action.tone]} flex items-center justify-center shrink-0`}>
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-primary">{action.label}</div>
-                    <div className="text-xs text-secondary mt-0.5 leading-relaxed">{action.description}</div>
-                  </div>
+            <Card key={action.type} className="hover:shadow-card-hover cursor-pointer" onClick={() => { setActiveAction(action.type); setForm({}); }}>
+              <CardBody className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 flex items-center justify-center">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-primary">{action.label}</div>
+                  <div className="text-xs text-secondary mt-0.5">{action.description}</div>
                 </div>
               </CardBody>
             </Card>
@@ -455,23 +228,131 @@ export function LifecycleEventsPage() {
         })}
       </div>
 
-      {/* Action modal */}
+      <Card>
+        <CardHeader><CardTitle>Event History</CardTitle></CardHeader>
+        <CardBody className="p-0">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
+                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Date</th>
+                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Event</th>
+                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden md:table-cell">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[rgb(var(--border-base))]">
+              {events.map((ev) => (
+                <tr key={ev.id}>
+                  <td className="px-5 py-3 text-secondary">{ev.effectiveDate}</td>
+                  <td className="px-5 py-3 font-medium text-primary">{ev.eventType.replace('_', ' ')}</td>
+                  <td className="px-5 py-3 text-muted hidden md:table-cell truncate max-w-md">
+                    {JSON.stringify(ev.details)}
+                  </td>
+                </tr>
+              ))}
+              {events.length === 0 && (
+                <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No lifecycle events yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </CardBody>
+      </Card>
+
       <Modal
         open={activeAction !== null}
         onClose={() => setActiveAction(null)}
-        title={config?.title}
-        description={config?.description}
-        size={config?.size}
+        title={actions.find((a) => a.type === activeAction)?.label ?? 'Lifecycle Event'}
         footer={
           <>
             <Button variant="secondary" onClick={() => setActiveAction(null)}>Cancel</Button>
-            <Button variant={activeAction === 'resignation' || activeAction === 'suspension' ? 'danger' : 'primary'}>
-              {config?.cta}
+            <Button variant="primary" onClick={() => void handleSubmit()} disabled={submitting}>
+              {submitting ? 'Submitting…' : 'Submit'}
             </Button>
           </>
         }
       >
-        {FormComponent && <FormComponent />}
+        <div className="space-y-4">
+          <div>
+            <Label>Effective Date</Label>
+            <Input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
+          </div>
+
+          {activeAction === 'promotion' && (
+            <>
+              <div><Label>New Designation</Label>
+                <Select value={form.newDesignationId ?? ''} onChange={(e) => setForm({ ...form, newDesignationId: e.target.value })}>
+                  <option value="">Select…</option>
+                  {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </div>
+              <div><Label>New Department (optional)</Label>
+                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
+                  <option value="">Same</option>
+                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </div>
+            </>
+          )}
+
+          {activeAction === 'transfer' && (
+            <>
+              <div><Label>New Department</Label>
+                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
+                  <option value="">Select…</option>
+                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </div>
+            </>
+          )}
+
+          {activeAction === 'salary_revision' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Previous Amount</Label><Input type="number" value={form.previousAmount ?? ''} onChange={(e) => setForm({ ...form, previousAmount: e.target.value })} /></div>
+              <div><Label>New Amount</Label><Input type="number" value={form.newAmount ?? ''} onChange={(e) => setForm({ ...form, newAmount: e.target.value })} /></div>
+            </div>
+          )}
+
+          {activeAction === 'probation' && (
+            <div><Label>New Probation End Date</Label><Input type="date" value={form.newProbationEndDate ?? ''} onChange={(e) => setForm({ ...form, newProbationEndDate: e.target.value })} /></div>
+          )}
+
+          {activeAction === 'confirmation' && (
+            <div><Label>Confirmation Date</Label><Input type="date" value={form.confirmationDate ?? effectiveDate} onChange={(e) => setForm({ ...form, confirmationDate: e.target.value })} /></div>
+          )}
+
+          {(activeAction === 'suspension' || activeAction === 'termination') && (
+            <div><Label>Reason</Label><Input value={form.reason ?? ''} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
+          )}
+
+          {activeAction === 'resignation' && (
+            <>
+              <div><Label>Reason (optional)</Label><Input value={form.reason ?? ''} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
+              <div><Label>Last Working Date</Label><Input type="date" value={form.lastWorkingDate ?? ''} onChange={(e) => setForm({ ...form, lastWorkingDate: e.target.value })} /></div>
+            </>
+          )}
+
+          {activeAction === 'rehire' && (
+            <>
+              <div><Label>New Hire Date</Label><Input type="date" value={form.newHireDate ?? ''} onChange={(e) => setForm({ ...form, newHireDate: e.target.value })} /></div>
+              <div><Label>Department</Label>
+                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
+                  <option value="">Select…</option>
+                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </div>
+              <div><Label>Designation</Label>
+                <Select value={form.newDesignationId ?? ''} onChange={(e) => setForm({ ...form, newDesignationId: e.target.value })}>
+                  <option value="">Select…</option>
+                  {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </Select>
+              </div>
+            </>
+          )}
+
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
       </Modal>
     </div>
   );

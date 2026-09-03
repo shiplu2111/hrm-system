@@ -1,186 +1,211 @@
-import { useState } from 'react';
-import {
-  Plus,
-  Type,
-  Hash,
-  Calendar,
-  ChevronDown,
-  FileText,
-  PenLine,
-  GripVertical,
-  Trash2,
-  Settings2,
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Plus, Trash2, Loader2 } from 'lucide-react';
+import type { CustomFieldDefinitionRecord, CustomFieldEntityType, CustomFieldType } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { Toggle } from '@/components/ui/Toggle';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { OrgPageState } from '@/components/org/OrgPageState';
+import {
+  createCustomField,
+  deleteCustomField,
+  listCustomFields,
+} from '@/lib/documents-api';
+import { ApiError } from '@/lib/tenant-api-client';
 
-type FieldType = 'text' | 'number' | 'date' | 'dropdown' | 'file' | 'signature';
-
-interface CustomField {
-  id: string;
-  label: string;
-  type: FieldType;
-  entity: string;
-  required: boolean;
-  options?: string;
-}
-
-const fieldIcons: Record<FieldType, typeof Type> = {
-  text: Type, number: Hash, date: Calendar, dropdown: ChevronDown, file: FileText, signature: PenLine,
-};
-
-const fieldColors: Record<FieldType, string> = {
-  text: 'bg-accent-100 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300',
-  number: 'bg-success-100 text-success-700 dark:bg-success-950/40 dark:text-success-300',
-  date: 'bg-warning-100 text-warning-700 dark:bg-warning-950/40 dark:text-warning-300',
-  dropdown: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
-  file: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300',
-  signature: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
-};
-
-const entities = ['Employee', 'Company', 'Department', 'Designation', 'Contract', 'Candidate'];
-
-const initialFields: CustomField[] = [
-  { id: 'cf1', label: 'Blood Group', type: 'dropdown', entity: 'Employee', required: false, options: 'A+, A-, B+, B-, O+, O-, AB+, AB-' },
-  { id: 'cf2', label: 'Uniform Size', type: 'text', entity: 'Employee', required: false },
-  { id: 'cf3', label: 'T-Shirt Size', type: 'dropdown', entity: 'Employee', required: true, options: 'XS, S, M, L, XL, XXL' },
-  { id: 'cf4', label: 'Parking Slot', type: 'text', entity: 'Employee', required: false },
-  { id: 'cf5', label: 'Project Code', type: 'text', entity: 'Contract', required: true },
-  { id: 'cf6', label: 'Source Channel', type: 'dropdown', entity: 'Candidate', required: false, options: 'LinkedIn, Referral, Job Board, Direct' },
+const entities: CustomFieldEntityType[] = [
+  'employee', 'company', 'department', 'designation', 'contract', 'candidate',
 ];
 
-export function CustomFieldBuilderPage() {
-  const [fields, setFields] = useState(initialFields);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ label: '', type: 'text' as FieldType, entity: 'Employee', required: false, options: '' });
+const fieldTypes: CustomFieldType[] = [
+  'text', 'number', 'date', 'dropdown', 'checkbox', 'radio', 'file', 'image', 'signature',
+];
 
-  const addField = () => {
-    if (!form.label) return;
-    setFields((prev) => [...prev, { id: `cf${Date.now()}`, ...form }]);
-    setForm({ label: '', type: 'text', entity: 'Employee', required: false, options: '' });
-    setModalOpen(false);
+function CustomFieldBuilderContent({ companyId }: { companyId: string }) {
+  const [fields, setFields] = useState<CustomFieldDefinitionRecord[]>([]);
+  const [entityFilter, setEntityFilter] = useState<CustomFieldEntityType | 'all'>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({
+    label: '',
+    type: 'text' as CustomFieldType,
+    entity: 'employee' as CustomFieldEntityType,
+    required: false,
+    options: '',
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await listCustomFields(
+        companyId,
+        entityFilter === 'all' ? undefined : entityFilter,
+      );
+      setFields(rows.filter((f) => f.entityType !== 'document'));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, entityFilter]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const addField = async () => {
+    if (!form.label.trim()) return;
+    setError(null);
+    try {
+      await createCustomField(companyId, {
+        entityType: form.entity,
+        label: form.label.trim(),
+        fieldType: form.type,
+        required: form.required,
+        options: form.options
+          ? form.options.split(',').map((o) => o.trim()).filter(Boolean)
+          : [],
+      });
+      setModalOpen(false);
+      setForm({ label: '', type: 'text', entity: 'employee', required: false, options: '' });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Create failed');
+    }
   };
 
-  const removeField = (id: string) => setFields((prev) => prev.filter((f) => f.id !== id));
+  const removeField = async (id: string) => {
+    if (!window.confirm('Delete this custom field?')) return;
+    try {
+      await deleteCustomField(companyId, id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Delete failed');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1200px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-primary">Custom Field Builder</h1>
-          <p className="text-sm text-secondary mt-0.5">Create custom fields that can be applied to any entity in the system.</p>
+          <p className="text-sm text-secondary mt-0.5">
+            Generalized fields for Employee, Company, Department, and other entities.
+          </p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" /> Add Field
-        </Button>
+        <div className="flex items-center gap-2">
+          <CompanySelector />
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" /> Add Field
+          </Button>
+        </div>
       </div>
 
-      {/* Entity filter chips */}
+      {error && (
+        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">{error}</div>
+      )}
+
       <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setEntityFilter('all')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${entityFilter === 'all' ? 'border-accent-500 text-accent-600' : 'border-base text-secondary'}`}
+        >
+          All
+        </button>
         {entities.map((entity) => (
-          <button key={entity} className="px-3 py-1.5 rounded-lg text-xs font-medium border border-base surface text-secondary hover:border-accent-500 hover:text-accent-600 transition-colors">
+          <button
+            key={entity}
+            type="button"
+            onClick={() => setEntityFilter(entity)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border capitalize ${entityFilter === entity ? 'border-accent-500 text-accent-600' : 'border-base text-secondary'}`}
+          >
             {entity}
           </button>
         ))}
       </div>
 
-      {/* Field list */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
-          <CardTitle>Custom Fields ({fields.length})</CardTitle>
-          <Badge tone="neutral">Drag to reorder</Badge>
-        </CardHeader>
-        <CardBody className="p-0">
-          <div className="divide-y divide-[rgb(var(--border-base))]">
-            {fields.map((field) => {
-              const Icon = fieldIcons[field.type];
-              return (
-                <div key={field.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-[rgb(var(--bg-hover))] transition-colors group">
-                  <GripVertical className="h-4 w-4 text-muted opacity-0 group-hover:opacity-100 cursor-grab shrink-0" />
-                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${fieldColors[field.type]}`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-primary">{field.label}</div>
-                    {field.options && <div className="text-xs text-muted truncate">Options: {field.options}</div>}
-                  </div>
-                  <Badge tone="neutral">{field.entity}</Badge>
-                  {field.required ? <Badge tone="error">Required</Badge> : <Badge tone="neutral">Optional</Badge>}
-                  <button onClick={() => removeField(field.id)} className="text-muted hover:text-error-600 p-1.5 rounded-lg hover:bg-error-50 dark:hover:bg-error-950/40 transition-colors opacity-0 group-hover:opacity-100">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+        <CardHeader><CardTitle>Custom Fields ({fields.length})</CardTitle></CardHeader>
+        <CardBody className="p-0 divide-y divide-[rgb(var(--border-base))]">
+          {fields.map((field) => (
+            <div key={field.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-[rgb(var(--bg-hover))] group">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-primary">{field.label}</div>
+                <div className="text-xs text-muted">{field.fieldKey} · {field.fieldType}</div>
+              </div>
+              <Badge tone="neutral" className="capitalize">{field.entityType}</Badge>
+              {field.required ? <Badge tone="error">Required</Badge> : <Badge tone="neutral">Optional</Badge>}
+              <button type="button" onClick={() => void removeField(field.id)} className="text-muted hover:text-error-600 opacity-0 group-hover:opacity-100">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          {fields.length === 0 && (
+            <p className="px-5 py-8 text-sm text-muted text-center">No custom fields for this filter.</p>
+          )}
         </CardBody>
       </Card>
 
-      {/* Add field modal */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Add Custom Field"
-        description="Create a new custom field for any entity"
         footer={
           <>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={addField}>Create Field</Button>
+            <Button variant="primary" onClick={() => void addField()}>Create</Button>
           </>
         }
       >
         <div className="space-y-4">
           <div>
             <Label>Field Label</Label>
-            <Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. Blood Group" />
+            <Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
           </div>
           <div>
             <Label>Applies To</Label>
-            <Select value={form.entity} onChange={(e) => setForm({ ...form, entity: e.target.value })}>
-              {entities.map((ent) => <option key={ent}>{ent}</option>)}
+            <Select value={form.entity} onChange={(e) => setForm({ ...form, entity: e.target.value as CustomFieldEntityType })}>
+              {entities.map((ent) => <option key={ent} value={ent} className="capitalize">{ent}</option>)}
             </Select>
           </div>
           <div>
             <Label>Field Type</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {(Object.keys(fieldIcons) as FieldType[]).map((ft) => {
-                const Icon = fieldIcons[ft];
-                return (
-                  <button
-                    key={ft}
-                    onClick={() => setForm({ ...form, type: ft })}
-                    className={`flex items-center gap-2 p-2.5 rounded-lg border-2 transition-all capitalize text-sm ${
-                      form.type === ft ? 'border-accent-500 ring-2 ring-accent-500/20' : 'border-base hover:border-strong'
-                    }`}
-                  >
-                    <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${fieldColors[ft]}`}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </div>
-                    {ft}
-                  </button>
-                );
-              })}
-            </div>
+            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as CustomFieldType })}>
+              {fieldTypes.map((ft) => <option key={ft} value={ft}>{ft}</option>)}
+            </Select>
           </div>
-          {form.type === 'dropdown' && (
+          {(form.type === 'dropdown' || form.type === 'radio') && (
             <div>
               <Label>Options (comma-separated)</Label>
-              <Input value={form.options} onChange={(e) => setForm({ ...form, options: e.target.value })} placeholder="Option 1, Option 2, Option 3" />
+              <Input value={form.options} onChange={(e) => setForm({ ...form, options: e.target.value })} />
             </div>
           )}
           <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-            <div>
-              <div className="text-sm font-medium text-primary">Required Field</div>
-              <div className="text-xs text-muted">Users must fill this field</div>
-            </div>
+            <span className="text-sm">Required</span>
             <Toggle checked={form.required} onChange={(v) => setForm({ ...form, required: v })} />
           </div>
         </div>
       </Modal>
     </div>
+  );
+}
+
+export function CustomFieldBuilderPage() {
+  return (
+    <OrgPageState>{(companyId) => <CustomFieldBuilderContent companyId={companyId} />}</OrgPageState>
   );
 }

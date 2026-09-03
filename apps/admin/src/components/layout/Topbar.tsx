@@ -12,13 +12,9 @@ import {
   Settings,
   LogOut,
   HelpCircle,
-  Repeat2,
-  Shield,
 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
-import { useNav } from '@/context/NavContext';
 import { Dropdown, DropdownItem, DropdownSection, DropdownDivider, DropdownHeader } from '@/components/ui/Dropdown';
-import { PortalSwitcher } from '@/components/layout/PortalSwitcher';
 import { Avatar } from '@/components/ui/Toggle';
 const tenants = [
   { id: '1', name: 'Acme Corporation', plan: 'Enterprise', color: 'bg-accent-500' },
@@ -33,9 +29,14 @@ const notifications = [
   { id: 4, title: 'New employee onboarded: James Park', time: '5h ago', tone: 'neutral' as const },
 ];
 
-export function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
+export function Topbar({
+  onOpenMobile,
+  onLogout,
+}: {
+  onOpenMobile: () => void;
+  onLogout: () => void;
+}) {
   const { theme, toggleTheme } = useTheme();
-  const { navigate } = useNav();
   const [activeTenant, setActiveTenant] = useState(tenants[0]);
 
   return (
@@ -100,9 +101,6 @@ export function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
       </div>
 
       <div className="flex-1 md:hidden" />
-
-      {/* Portal switcher: Employee / Company Admin / Super Admin */}
-      <PortalSwitcher />
 
       {/* Theme toggle */}
       <button
@@ -171,31 +169,13 @@ export function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
           </div>
         </DropdownHeader>
         <DropdownDivider />
-        <DropdownSection label="Portal access">
-          <DropdownItem
-            icon={<Repeat2 className="h-4 w-4" />}
-            onClick={() => navigate('ess')}
-          >
-            <span>
-              <span className="block">Switch to Employee View</span>
-              <span className="block text-[10px] text-muted">Acme Corporation ESS</span>
-            </span>
-          </DropdownItem>
-          <DropdownItem
-            icon={<Shield className="h-4 w-4" />}
-            onClick={() => navigate('platform-admin')}
-          >
-            Platform Admin Console
-          </DropdownItem>
-        </DropdownSection>
-        <DropdownDivider />
         <DropdownSection label="Account">
           <DropdownItem icon={<User className="h-4 w-4" />}>My Profile</DropdownItem>
           <DropdownItem icon={<Settings className="h-4 w-4" />}>Preferences</DropdownItem>
         </DropdownSection>
         <DropdownDivider />
         <DropdownItem icon={<HelpCircle className="h-4 w-4" />}>Help & Support</DropdownItem>
-        <DropdownItem icon={<LogOut className="h-4 w-4" />}>Sign Out</DropdownItem>
+        <DropdownItem icon={<LogOut className="h-4 w-4" />} onClick={onLogout}>Sign Out</DropdownItem>
       </Dropdown>
     </header>
   );

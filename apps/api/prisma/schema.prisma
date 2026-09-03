@@ -191,6 +191,8 @@ model Company {
   leavePolicies   LeavePolicy[]
   payrollPeriods  PayrollPeriod[]
   companyRules    CompanyRule[]
+  documentTypes   DocumentType[]
+  customFieldDefinitions CustomFieldDefinition[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -337,6 +339,8 @@ enum LifecycleEventType {
   promotion
   transfer
   salary_revision
+  probation
+  confirmation
   suspension
   resignation
   termination
@@ -400,18 +404,101 @@ model Employee {
   @@map("employees")
 }
 
+// ---------------------------------------------------------------------------
+// §3b Custom Fields & Document Management (MODULES.md §09)
+// ---------------------------------------------------------------------------
+
+enum CustomFieldEntityType {
+  employee
+  company
+  department
+  designation
+  contract
+  candidate
+  document
+
+  @@map("custom_field_entity_type")
+}
+
+enum CustomFieldType {
+  text
+  number
+  date
+  dropdown
+  checkbox
+  radio
+  file
+  image
+  signature
+
+  @@map("custom_field_type")
+}
+
+enum DocumentScope {
+  employee
+  company
+
+  @@map("document_scope")
+}
+
+model CustomFieldDefinition {
+  id         String                @id @default(uuid()) @db.Uuid
+  companyId  String                @map("company_id") @db.Uuid
+  entityType CustomFieldEntityType @map("entity_type")
+  contextId  String?               @map("context_id") @db.Uuid
+  fieldKey   String                @map("field_key")
+  label      String
+  fieldType  CustomFieldType       @map("field_type")
+  required   Boolean               @default(false)
+  options    Json                  @default("[]")
+  sortOrder  Int                   @default(0) @map("sort_order")
+  isActive   Boolean               @default(true) @map("is_active")
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  documentType DocumentType? @relation(fields: [contextId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, entityType, contextId, fieldKey])
+  @@index([companyId, entityType])
+  @@index([contextId])
+  @@map("custom_field_definitions")
+}
+
+model DocumentType {
+  id                   String        @id @default(uuid()) @db.Uuid
+  companyId            String        @map("company_id") @db.Uuid
+  name                 String
+  description          String?
+  scope                DocumentScope @default(employee)
+  requiresVerification Boolean       @default(false) @map("requires_verification")
+  tracksExpiry         Boolean       @default(false) @map("tracks_expiry")
+  isActive             Boolean       @default(true) @map("is_active")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  company           Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fieldDefinitions  CustomFieldDefinition[]
+  employeeDocuments EmployeeDocument[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("document_types")
+}
+
 model EmployeeDocument {
   id             String    @id @default(uuid()) @db.Uuid
   employeeId     String    @map("employee_id") @db.Uuid
   documentTypeId String    @map("document_type_id") @db.Uuid
   fields         Json      @default("{}")
-  fileKey        String    @map("file_key")
+  fileKey        String?   @map("file_key")
   expiryDate     DateTime? @map("expiry_date") @db.Date
   verifiedAt     DateTime? @map("verified_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
 
   @@index([employeeId])
   @@index([documentTypeId])

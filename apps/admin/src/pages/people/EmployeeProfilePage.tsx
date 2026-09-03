@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Mail,
@@ -8,351 +8,470 @@ import {
   Briefcase,
   Building2,
   UserCog,
-  Banknote,
-  FileText,
-  History,
-  Check,
-  Clock,
-  X,
-  AlertCircle,
-  Upload,
-  Shield,
+  Loader2,
+  Save,
 } from 'lucide-react';
+import type { EmployeePersonalInfo, EmployeeRecord, EmploymentStatus } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Toggle';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { useNav } from '@/context/NavContext';
-import { employees, lifecycleStages, empDocuments } from '@/data/mockData';
+import { getEmployee, listEmployees, updateEmployee } from '@/lib/employees-api';
+import {
+  listCostCentres,
+  listDepartments,
+  listDesignations,
+  listEmploymentTypes,
+} from '@/lib/organization-api';
+import { useCompany } from '@/context/CompanyContext';
+import { ApiError } from '@/lib/tenant-api-client';
 
-type Tab = 'overview' | 'employment' | 'bank-tax' | 'documents' | 'history';
+type Tab = 'overview' | 'employment' | 'contact';
 
 const tabs: { key: Tab; label: string; icon: typeof Briefcase }[] = [
   { key: 'overview', label: 'Overview', icon: UserCog },
   { key: 'employment', label: 'Employment', icon: Briefcase },
-  { key: 'bank-tax', label: 'Bank & Tax', icon: Banknote },
-  { key: 'documents', label: 'Documents', icon: FileText },
-  { key: 'history', label: 'History', icon: History },
+  { key: 'contact', label: 'Contact & Address', icon: Mail },
 ];
 
-function LifecycleStepper({ currentStage }: { currentStage: number }) {
-  return (
-    <div className="flex items-center gap-1 flex-wrap">
-      {lifecycleStages.map((stage, i) => {
-        const completed = i < currentStage;
-        const current = i === currentStage;
-        const isLast = i === lifecycleStages.length - 1;
-        return (
-          <div key={stage} className="flex items-center gap-1">
-            <div className="flex items-center gap-2">
-              <div
-                className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 transition-colors ${
-                  completed
-                    ? 'bg-success-500 text-white'
-                    : current
-                    ? 'bg-accent-600 text-white ring-4 ring-accent-500/20'
-                    : 'bg-[rgb(var(--bg-muted))] text-muted border border-base'
-                }`}
-              >
-                {completed ? <Check className="h-3.5 w-3.5" /> : i + 1}
-              </div>
-              <span
-                className={`text-xs font-medium hidden sm:block ${
-                  completed ? 'text-success-600' : current ? 'text-accent-600' : 'text-muted'
-                }`}
-              >
-                {stage}
-              </span>
-            </div>
-            {!isLast && (
-              <div className={`h-px w-6 sm:w-8 ${completed ? 'bg-success-500' : 'bg-[rgb(var(--border-base))]'}`} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const statusLabel: Record<EmploymentStatus, string> = {
+  active: 'Active',
+  on_leave: 'On Leave',
+  inactive: 'Inactive',
+  terminated: 'Terminated',
+};
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs text-muted">{label}</span>
-      <span className="text-sm text-primary">{value}</span>
+      <span className="text-sm text-primary">{value || '—'}</span>
     </div>
   );
 }
 
 export function EmployeeProfilePage() {
-  const { navigate } = useNav();
+  const { navigate, selectedEmployeeId } = useNav();
+  const { companyId } = useCompany();
+  const [emp, setEmp] = useState<EmployeeRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const emp = employees[0]; // Sarah Chen
+  const [editMode, setEditMode] = useState(false);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
+  const [employmentTypes, setEmploymentTypes] = useState<{ id: string; name: string }[]>([]);
+  const [costCentres, setCostCentres] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [managers, setManagers] = useState<{ id: string; fullName: string }[]>([]);
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    employeeNumber: '',
+    employmentStatus: 'active' as EmploymentStatus,
+    departmentId: '',
+    designationId: '',
+    employmentTypeId: '',
+    managerId: '',
+    costCentreId: '',
+    hireDate: '',
+    probationEndDate: '',
+    confirmationDate: '',
+    email: '',
+    phone: '',
+    mobile: '',
+    emergencyName: '',
+    emergencyPhone: '',
+    emergencyRelationship: '',
+    addressLine1: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+  });
 
-  const docStatusTone: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
-    Verified: 'success',
-    Pending: 'warning',
-    Rejected: 'error',
-    'Expiring Soon': 'error',
+  const applyEmployeeToForm = useCallback((record: EmployeeRecord) => {
+    const pi = record.personalInfo ?? {};
+    const contact = pi.contact ?? {};
+    const emergency = pi.emergencyContact ?? {};
+    const address = pi.address ?? {};
+    setForm({
+      firstName: record.firstName,
+      lastName: record.lastName,
+      employeeNumber: record.employeeNumber,
+      employmentStatus: record.employmentStatus,
+      departmentId: record.departmentId ?? '',
+      designationId: record.designationId ?? '',
+      employmentTypeId: record.employmentTypeId ?? '',
+      managerId: record.managerId ?? '',
+      costCentreId: record.costCentreId ?? '',
+      hireDate: record.hireDate,
+      probationEndDate: record.probationEndDate ?? '',
+      confirmationDate: record.confirmationDate ?? '',
+      email: contact.email ?? '',
+      phone: contact.phone ?? '',
+      mobile: contact.mobile ?? '',
+      emergencyName: emergency.name ?? '',
+      emergencyPhone: emergency.phone ?? '',
+      emergencyRelationship: emergency.relationship ?? '',
+      addressLine1: address.line1 ?? '',
+      city: address.city ?? '',
+      state: address.state ?? '',
+      postalCode: address.postalCode ?? '',
+      country: address.country ?? '',
+    });
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!selectedEmployeeId || !companyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [record, depts, desigs, types, centres, allEmps] = await Promise.all([
+        getEmployee(selectedEmployeeId),
+        listDepartments(companyId),
+        listDesignations(companyId),
+        listEmploymentTypes(companyId),
+        listCostCentres(companyId),
+        listEmployees(companyId),
+      ]);
+      setEmp(record);
+      applyEmployeeToForm(record);
+      setDepartments(depts.map((d) => ({ id: d.id, name: d.name })));
+      setDesignations(desigs.map((d) => ({ id: d.id, name: d.name })));
+      setEmploymentTypes(types.map((t) => ({ id: t.id, name: t.name })));
+      setCostCentres(centres.map((c) => ({ id: c.id, name: c.name, code: c.code })));
+      setManagers(
+        allEmps
+          .filter((e) => e.id !== selectedEmployeeId)
+          .map((e) => ({ id: e.id, fullName: e.fullName })),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEmployeeId, companyId, applyEmployeeToForm]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const buildPersonalInfo = (): EmployeePersonalInfo => ({
+    contact: {
+      email: form.email || undefined,
+      phone: form.phone || undefined,
+      mobile: form.mobile || undefined,
+    },
+    emergencyContact: {
+      name: form.emergencyName || undefined,
+      phone: form.emergencyPhone || undefined,
+      relationship: form.emergencyRelationship || undefined,
+    },
+    address: {
+      line1: form.addressLine1 || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
+      postalCode: form.postalCode || undefined,
+      country: form.country || undefined,
+    },
+  });
+
+  const handleSave = async () => {
+    if (!selectedEmployeeId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await updateEmployee(selectedEmployeeId, {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        employeeNumber: form.employeeNumber.trim(),
+        employmentStatus: form.employmentStatus,
+        departmentId: form.departmentId || null,
+        designationId: form.designationId || null,
+        employmentTypeId: form.employmentTypeId || null,
+        managerId: form.managerId || null,
+        costCentreId: form.costCentreId || null,
+        hireDate: form.hireDate,
+        probationEndDate: form.probationEndDate || null,
+        confirmationDate: form.confirmationDate || null,
+        personalInfo: buildPersonalInfo(),
+      });
+      setEmp(updated);
+      applyEmployeeToForm(updated);
+      setEditMode(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const historyEvents = [
-    { id: 1, event: 'Salary Revision', detail: 'Salary increased from $165,000 to $180,000', date: '2024-01-15', user: 'Alex Morgan', icon: Banknote, tone: 'accent' as const },
-    { id: 2, event: 'Promotion', detail: 'Promoted from Senior Engineering Manager to VP Engineering', date: '2023-06-01', user: 'John Smith', icon: ArrowLeft, tone: 'success' as const },
-    { id: 3, event: 'Department Transfer', detail: 'Transferred from Backend to Engineering (Leadership)', date: '2023-06-01', user: 'Alex Morgan', icon: Building2, tone: 'accent' as const },
-    { id: 4, event: 'Confirmation', detail: 'Probation completed — confirmed as permanent employee', date: '2019-09-15', user: 'System', icon: Check, tone: 'success' as const },
-    { id: 5, event: 'Onboarding Completed', detail: 'All onboarding tasks completed', date: '2019-03-20', user: 'HR Team', icon: Check, tone: 'success' as const },
-    { id: 6, event: 'Hired', detail: 'Employment started — Software Engineer V', date: '2019-03-15', user: 'System', icon: Briefcase, tone: 'accent' as const },
-  ];
+  if (!selectedEmployeeId) {
+    return (
+      <div className="p-8 text-center text-secondary text-sm">
+        Select an employee from the directory.
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => navigate('emp-directory')}>
+            Go to Directory
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !emp) {
+    return (
+      <div className="p-8 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
-      {/* Back */}
-      <button onClick={() => navigate('emp-directory')} className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors">
+      <button
+        type="button"
+        onClick={() => navigate('emp-directory')}
+        className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors"
+      >
         <ArrowLeft className="h-4 w-4" /> Back to Directory
       </button>
 
-      {/* Profile header */}
+      {error && (
+        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">
+          {error}
+        </div>
+      )}
+
       <Card>
         <CardBody className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
-          <Avatar name={emp.name} size="lg" />
+          <Avatar name={emp.fullName} size="lg" />
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-primary">{emp.name}</h1>
-              <Badge tone="success" dot>{emp.status}</Badge>
-              <Badge tone="neutral">{emp.employeeId}</Badge>
+              <h1 className="text-xl font-bold text-primary">{emp.fullName}</h1>
+              <Badge tone="success" dot>{statusLabel[emp.employmentStatus]}</Badge>
             </div>
-            <div className="mt-1 text-sm text-secondary">{emp.designation} · {emp.department}</div>
-            <div className="mt-2 flex items-center gap-4 flex-wrap text-xs text-muted">
-              <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {emp.email}</span>
-              <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> {emp.phone}</span>
-              <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> Hired {emp.hireDate}</span>
-            </div>
+            <p className="text-sm text-secondary mt-1">
+              {emp.designation?.name ?? 'No designation'} · {emp.department?.name ?? 'No department'}
+            </p>
+            <p className="text-xs text-muted mt-1">{emp.employeeNumber}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="md" onClick={() => navigate('emp-lifecycle')}>Lifecycle Actions</Button>
-            <Button variant="primary" size="md">Edit Profile</Button>
+          <div className="flex gap-2">
+            {editMode ? (
+              <>
+                <Button variant="secondary" onClick={() => { setEditMode(false); applyEmployeeToForm(emp); }}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={() => void handleSave()} disabled={saving}>
+                  <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" onClick={() => setEditMode(true)}>Edit Profile</Button>
+            )}
           </div>
         </CardBody>
       </Card>
 
-      {/* Lifecycle stepper */}
-      <Card>
-        <CardBody>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-semibold text-primary">Employee Lifecycle</span>
-            <Badge tone="accent">Stage {emp.lifecycleStage + 1}: {lifecycleStages[emp.lifecycleStage]}</Badge>
-          </div>
-          <LifecycleStepper currentStage={emp.lifecycleStage} />
-        </CardBody>
-      </Card>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-base overflow-x-auto scrollbar-thin">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === tab.key
-                  ? 'border-accent-600 text-accent-600'
-                  : 'border-transparent text-secondary hover:text-primary'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="flex gap-1 border-b border-base">
+        {tabs.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === key
+                ? 'border-accent-600 text-accent-600'
+                : 'border-transparent text-secondary hover:text-primary'
+            }`}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab content */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
-            <CardHeader><CardTitle>Personal Information</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Personal</CardTitle></CardHeader>
             <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Full Name" value={emp.name} />
-              <InfoRow label="Employee ID" value={emp.employeeId} />
-              <InfoRow label="Date of Birth" value="1988-05-12" />
-              <InfoRow label="Gender" value="Female" />
-              <InfoRow label="Nationality" value="American" />
-              <InfoRow label="Marital Status" value="Married" />
+              {editMode ? (
+                <>
+                  <div><Label>First Name</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
+                  <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
+                  <div className="col-span-2"><Label>Employee Number</Label><Input value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} /></div>
+                </>
+              ) : (
+                <>
+                  <InfoRow label="Full Name" value={emp.fullName} />
+                  <InfoRow label="Employee Number" value={emp.employeeNumber} />
+                  <InfoRow label="Company" value={emp.company?.name ?? '—'} />
+                  <InfoRow label="Status" value={statusLabel[emp.employmentStatus]} />
+                </>
+              )}
             </CardBody>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Contact</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Email" value={emp.email} />
-              <InfoRow label="Phone" value={emp.phone} />
-              <div className="col-span-2">
-                <InfoRow label="Address" value="1234 Market St, San Francisco, CA 94103" />
-              </div>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Emergency Contact</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Name" value="David Chen" />
-              <InfoRow label="Relationship" value="Spouse" />
-              <InfoRow label="Phone" value="+1 415 555 0199" />
-              <InfoRow label="Email" value="david.chen@email.com" />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Family / Dependents</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Quick Contact</CardTitle></CardHeader>
             <CardBody className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-                <div>
-                  <div className="text-sm font-medium text-primary">Emma Chen</div>
-                  <div className="text-xs text-muted">Daughter · Age 8</div>
-                </div>
-                <Badge tone="neutral">Dependent</Badge>
+              <div className="flex items-center gap-2 text-sm">
+                <Mail className="h-4 w-4 text-muted" />
+                {emp.personalInfo?.contact?.email ? String(emp.personalInfo.contact.email) : '—'}
               </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-                <div>
-                  <div className="text-sm font-medium text-primary">Lucas Chen</div>
-                  <div className="text-xs text-muted">Son · Age 5</div>
-                </div>
-                <Badge tone="neutral">Dependent</Badge>
+              <div className="flex items-center gap-2 text-sm">
+                <Phone className="h-4 w-4 text-muted" />
+                {emp.personalInfo?.contact?.phone ? String(emp.personalInfo.contact.phone) : '—'}
               </div>
-              <Button variant="ghost" size="sm" className="w-full">+ Add Dependent</Button>
+              <div className="flex items-center gap-2 text-sm">
+                <MapPin className="h-4 w-4 text-muted" />
+                {emp.personalInfo?.address?.city ? String(emp.personalInfo.address.city) : '—'}
+              </div>
             </CardBody>
           </Card>
         </div>
       )}
 
       {activeTab === 'employment' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader><CardTitle>Job Details</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Job Title" value={emp.designation} />
-              <InfoRow label="Department" value={emp.department} />
-              <InfoRow label="Employment Type" value={emp.employmentType} />
-              <InfoRow label="Cost Centre" value={emp.costCentre} />
-              <InfoRow label="Manager" value={emp.manager} />
-              <InfoRow label="Work Location" value="San Francisco HQ" />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Hire & Probation</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Hire Date" value={emp.hireDate} />
-              <InfoRow label="Probation End" value="2019-09-15" />
-              <InfoRow label="Confirmation Date" value="2019-09-15" />
-              <InfoRow label="Tenure" value="5 years 5 months" />
-              <InfoRow label="Notice Period" value="60 days" />
-              <InfoRow label="Shift Pattern" value="Mon-Fri, 9AM-5PM" />
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {activeTab === 'bank-tax' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader><CardTitle>Bank Account</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Bank Name" value="First National Bank" />
-              <InfoRow label="Account Holder" value={emp.name} />
-              <InfoRow label="Account Number" value="**** **** 4521" />
-              <InfoRow label="Routing Number" value="**** 8890" />
-              <InfoRow label="Account Type" value="Checking" />
-              <InfoRow label="Currency" value="USD" />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Tax Information</CardTitle></CardHeader>
-            <CardBody className="grid grid-cols-2 gap-4">
-              <InfoRow label="Tax ID / SSN" value="***-**-4521" />
-              <InfoRow label="Tax Filing Status" value="Married Filing Jointly" />
-              <InfoRow label="Federal Allowances" value="3" />
-              <InfoRow label="State Tax" value="CA — 5%" />
-              <InfoRow label="Tax Exemptions" value="None" />
-              <InfoRow label="W-4 Filed" value="2024-01-10" />
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {activeTab === 'documents' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {empDocuments.map((doc) => (
-            <Card key={doc.id} className="hover:shadow-card-hover transition-shadow group">
-              <CardBody>
-                <div className="flex items-start justify-between">
-                  <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-accent-600 dark:text-accent-400" />
-                  </div>
-                  <Badge tone={docStatusTone[doc.status]} dot>{doc.status}</Badge>
-                </div>
-                <div className="mt-3 text-sm font-medium text-primary truncate">{doc.name}</div>
-                <div className="text-xs text-muted mt-0.5">{doc.type}</div>
-                <div className="mt-3 pt-3 border-t border-base space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted">Uploaded</span>
-                    <span className="text-secondary">{doc.uploadedDate}</span>
-                  </div>
-                  {doc.expiryDate && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted">Expires</span>
-                      <span className={doc.status === 'Expiring Soon' ? 'text-error-600 font-medium' : 'text-secondary'}>{doc.expiryDate}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted">Size</span>
-                    <span className="text-secondary">{doc.size}</span>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <Button variant="secondary" size="sm" className="flex-1">View</Button>
-                  <Button variant="ghost" size="sm" className="flex-1">Download</Button>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-          <button className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-strong rounded-xl p-5 text-secondary hover:border-accent-500 hover:text-accent-600 transition-colors min-h-[200px]">
-            <Upload className="h-6 w-6" />
-            <span className="text-sm font-medium">Upload Document</span>
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'history' && (
         <Card>
-          <CardHeader><CardTitle>Audit Timeline</CardTitle></CardHeader>
-          <CardBody className="p-0">
-            <div className="relative px-5 py-4">
-              {historyEvents.map((evt, i) => {
-                const Icon = evt.icon;
-                const isLast = i === historyEvents.length - 1;
-                return (
-                  <div key={evt.id} className="flex gap-3 pb-6 relative">
-                    {!isLast && <div className="absolute left-[15px] top-8 bottom-0 w-px bg-[rgb(var(--border-base))]" />}
-                    <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
-                      evt.tone === 'success' ? 'bg-success-100 text-success-700 dark:bg-success-950/40 dark:text-success-300' :
-                      'bg-accent-100 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300'
-                    }`}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-primary">{evt.event}</span>
-                        <span className="text-xs text-muted shrink-0">{evt.date}</span>
-                      </div>
-                      <p className="text-xs text-secondary mt-0.5">{evt.detail}</p>
-                      <span className="text-[11px] text-muted mt-1 block">by {evt.user}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          <CardHeader><CardTitle>Employment Details</CardTitle></CardHeader>
+          <CardBody className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {editMode ? (
+              <>
+                <div>
+                  <Label>Department</Label>
+                  <Select value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                    <option value="">None</option>
+                    {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Designation</Label>
+                  <Select value={form.designationId} onChange={(e) => setForm({ ...form, designationId: e.target.value })}>
+                    <option value="">None</option>
+                    {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Employment Type</Label>
+                  <Select value={form.employmentTypeId} onChange={(e) => setForm({ ...form, employmentTypeId: e.target.value })}>
+                    <option value="">None</option>
+                    {employmentTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Manager</Label>
+                  <Select value={form.managerId} onChange={(e) => setForm({ ...form, managerId: e.target.value })}>
+                    <option value="">None</option>
+                    {managers.map((m) => <option key={m.id} value={m.id}>{m.fullName}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Cost Centre</Label>
+                  <Select value={form.costCentreId} onChange={(e) => setForm({ ...form, costCentreId: e.target.value })}>
+                    <option value="">None</option>
+                    {costCentres.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Status</Label>
+                  <Select value={form.employmentStatus} onChange={(e) => setForm({ ...form, employmentStatus: e.target.value as EmploymentStatus })}>
+                    <option value="active">Active</option>
+                    <option value="on_leave">On Leave</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="terminated">Terminated</option>
+                  </Select>
+                </div>
+                <div><Label>Hire Date</Label><Input type="date" value={form.hireDate} onChange={(e) => setForm({ ...form, hireDate: e.target.value })} /></div>
+                <div><Label>Probation End</Label><Input type="date" value={form.probationEndDate} onChange={(e) => setForm({ ...form, probationEndDate: e.target.value })} /></div>
+                <div><Label>Confirmation Date</Label><Input type="date" value={form.confirmationDate} onChange={(e) => setForm({ ...form, confirmationDate: e.target.value })} /></div>
+              </>
+            ) : (
+              <>
+                <InfoRow label="Department" value={emp.department?.name ?? '—'} />
+                <InfoRow label="Designation" value={emp.designation?.name ?? '—'} />
+                <InfoRow label="Employment Type" value={emp.employmentType?.name ?? '—'} />
+                <InfoRow label="Manager" value={emp.manager?.fullName ?? '—'} />
+                <InfoRow label="Cost Centre" value={emp.costCentre ? `${emp.costCentre.code} — ${emp.costCentre.name}` : '—'} />
+                <InfoRow label="Work Location" value={emp.workLocation?.name ?? '—'} />
+                <InfoRow label="Hire Date" value={emp.hireDate} />
+                <InfoRow label="Probation End" value={emp.probationEndDate ?? '—'} />
+                <InfoRow label="Confirmation" value={emp.confirmationDate ?? '—'} />
+              </>
+            )}
           </CardBody>
         </Card>
       )}
+
+      {activeTab === 'contact' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader><CardTitle>Contact</CardTitle></CardHeader>
+            <CardBody className="space-y-4">
+              {editMode ? (
+                <>
+                  <div><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                  <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+                  <div><Label>Mobile</Label><Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
+                </>
+              ) : (
+                <>
+                  <InfoRow label="Email" value={String(emp.personalInfo?.contact?.email ?? '')} />
+                  <InfoRow label="Phone" value={String(emp.personalInfo?.contact?.phone ?? '')} />
+                  <InfoRow label="Mobile" value={String(emp.personalInfo?.contact?.mobile ?? '')} />
+                </>
+              )}
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Emergency & Address</CardTitle></CardHeader>
+            <CardBody className="space-y-4">
+              {editMode ? (
+                <>
+                  <div><Label>Emergency Contact</Label><Input value={form.emergencyName} onChange={(e) => setForm({ ...form, emergencyName: e.target.value })} /></div>
+                  <div><Label>Emergency Phone</Label><Input value={form.emergencyPhone} onChange={(e) => setForm({ ...form, emergencyPhone: e.target.value })} /></div>
+                  <div><Label>Relationship</Label><Input value={form.emergencyRelationship} onChange={(e) => setForm({ ...form, emergencyRelationship: e.target.value })} /></div>
+                  <div><Label>Address Line 1</Label><Input value={form.addressLine1} onChange={(e) => setForm({ ...form, addressLine1: e.target.value })} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+                    <div><Label>State</Label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Postal Code</Label><Input value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} /></div>
+                    <div><Label>Country</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <InfoRow label="Emergency Contact" value={String(emp.personalInfo?.emergencyContact?.name ?? '')} />
+                  <InfoRow label="Emergency Phone" value={String(emp.personalInfo?.emergencyContact?.phone ?? '')} />
+                  <InfoRow label="Relationship" value={String(emp.personalInfo?.emergencyContact?.relationship ?? '')} />
+                  <InfoRow label="Address" value={String(emp.personalInfo?.address?.line1 ?? '')} />
+                  <InfoRow label="City / State" value={[emp.personalInfo?.address?.city, emp.personalInfo?.address?.state].filter(Boolean).join(', ')} />
+                  <InfoRow label="Postal / Country" value={[emp.personalInfo?.address?.postalCode, emp.personalInfo?.address?.country].filter(Boolean).join(' ')} />
+                </>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted" />
+          <CardTitle>Record Metadata</CardTitle>
+        </CardHeader>
+        <CardBody className="grid grid-cols-2 gap-4 text-sm">
+          <InfoRow label="Created" value={new Date(emp.createdAt).toLocaleString()} />
+          <InfoRow label="Last Updated" value={new Date(emp.updatedAt).toLocaleString()} />
+          <InfoRow label="Company" value={emp.company?.name ?? '—'} />
+          <div className="flex items-center gap-2 text-muted">
+            <Building2 className="h-4 w-4" /> Tenant-scoped employee record
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }

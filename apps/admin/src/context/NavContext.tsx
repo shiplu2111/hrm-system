@@ -7,7 +7,10 @@ export type PageKey =
   | 'org-profile'
   | 'org-departments'
   | 'org-designations'
+  | 'org-job-levels'
   | 'org-employment-types'
+  | 'org-teams'
+  | 'org-cost-centres'
   | 'org-chart'
   | 'rbac-roles'
   | 'rbac-matrix'
@@ -77,14 +80,39 @@ export type PageKey =
 interface NavContextValue {
   current: PageKey;
   navigate: (p: PageKey) => void;
+  selectedEmployeeId: string | null;
+  openEmployee: (id: string) => void;
+  openLifecycle: (id: string) => void;
 }
 
 const NavContext = createContext<NavContextValue | undefined>(undefined);
 
 export function NavProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<PageKey>('dashboard');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
+    null,
+  );
+
+  const openEmployee = (id: string) => {
+    setSelectedEmployeeId(id);
+    setCurrent('emp-profile');
+  };
+
+  const openLifecycle = (id: string) => {
+    setSelectedEmployeeId(id);
+    setCurrent('emp-lifecycle');
+  };
+
   return (
-    <NavContext.Provider value={{ current, navigate: setCurrent }}>
+    <NavContext.Provider
+      value={{
+        current,
+        navigate: setCurrent,
+        selectedEmployeeId,
+        openEmployee,
+        openLifecycle,
+      }}
+    >
       {children}
     </NavContext.Provider>
   );

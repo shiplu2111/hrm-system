@@ -2,9 +2,14 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { AuditModule } from './audit/audit.module';
+import { LifecycleModule } from './lifecycle/lifecycle.module';
 import { CommonModule } from './common/common.module';
 import { PrismaModule } from './database/prisma.module';
+import { CustomFieldsModule } from './custom-fields/custom-fields.module';
+import { DocumentsModule } from './documents/documents.module';
 import { EmployeesModule } from './employees/employees.module';
+import { OrganizationModule } from './organization/organization.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RolesModule } from './roles/roles.module';
 import { PlatformModule } from './platform/platform.module';
@@ -18,7 +23,12 @@ import { TenantModule } from './tenant/tenant.module';
     TenantModule,
     RbacModule,
     AuthModule,
+    AuditModule,
+    OrganizationModule,
     EmployeesModule,
+    LifecycleModule,
+    CustomFieldsModule,
+    DocumentsModule,
     RolesModule,
     RuleResolverModule,
     PlatformModule,
