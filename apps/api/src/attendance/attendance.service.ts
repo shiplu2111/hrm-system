@@ -10,6 +10,11 @@ import {
   type Shift,
 } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationEngineService } from '../notifications/notification-engine.service';
+import {
+  buildAttendanceLateVariables,
+  formatNotificationClockTime,
+} from '../notifications/notification.helpers';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import {
   computeAttendanceMetrics,
@@ -24,7 +29,10 @@ type AttendanceWithBreaks = Prisma.AttendanceRecordGetPayload<{
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationEngine: NotificationEngineService,
+  ) {}
 
   async getDayRecord(employeeId: string, dateInput?: string) {
     await this.assertEmployee(employeeId);
@@ -96,6 +104,36 @@ export class AttendanceService {
           },
           include: { breaks: { orderBy: { startAt: 'asc' } } },
         });
+
+    if (status === AttendanceRecordStatus.late) {
+      const employee = await this.prisma.unscoped.employee.findUniqueOrThrow({
+        where: { id: employeeId },
+        select: {
+          tenantId: true,
+          companyId: true,
+          firstName: true,
+          lastName: true,
+        },
+      });
+
+      await this.notificationEngine.emit({
+        tenantId: employee.tenantId,
+        companyId: employee.companyId,
+        eventType: 'attendance.late',
+        subjectEmployeeId: employeeId,
+        variables: buildAttendanceLateVariables({
+          employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+          workDate: workDate.toISOString().slice(0, 10),
+          clockInTime: formatNotificationClockTime(at),
+        }),
+        payload: {
+          employeeId,
+          workDate: workDate.toISOString().slice(0, 10),
+          attendanceRecordId: record.id,
+          eventType: 'attendance.late',
+        },
+      });
+    }
 
     return this.toResponse(record, shift, workDate, at);
   }

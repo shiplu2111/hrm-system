@@ -7,6 +7,7 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "moduleNameMapper": {
-    "^@hrm/shared-types$": "<rootDir>/../../../packages/shared-types/src/index.ts"
+    "^@hrm/shared-types$": "<rootDir>/../../../packages/shared-types/src/index.ts",
+    "^@nestjs/websockets$": "<rootDir>/mocks/nest-websockets.mock.ts"
   }
 }

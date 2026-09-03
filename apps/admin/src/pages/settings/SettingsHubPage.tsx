@@ -41,6 +41,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
+import { SmtpSettingsPanel } from '@/components/settings/SmtpSettingsPanel';
+import { RealtimeNotificationSettingsPanel } from '@/components/settings/RealtimeNotificationSettingsPanel';
 import {
   notificationRules,
   notificationChannels,
@@ -233,6 +235,9 @@ export function SettingsHubPage() {
           {/* ================= GROUP 1: NOTIFICATION ENGINE (MODULE 34) ================= */}
           {activeGroup === 'notifications' && (
             <div className="space-y-6">
+              <SmtpSettingsPanel />
+              <RealtimeNotificationSettingsPanel />
+
               {/* Channel Provider Cards */}
               <div>
                 <h3 className="text-sm font-bold text-primary mb-3 flex items-center gap-2">

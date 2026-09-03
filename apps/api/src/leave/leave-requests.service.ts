@@ -21,6 +21,10 @@ import type {
 } from './dto/leave.dto';
 import { LeaveAttendanceService } from './leave-attendance.service';
 import { LeaveBalancesService } from './leave-balances.service';
+import { NotificationEngineService } from '../notifications/notification-engine.service';
+import {
+  buildLeaveNotificationVariables,
+} from '../notifications/notification.helpers';
 import {
   buildInitialApprovalChain,
   calculateLeaveDays,
@@ -39,6 +43,7 @@ export class LeaveRequestsService {
     private readonly companyScope: CompanyScopeService,
     private readonly balancesService: LeaveBalancesService,
     private readonly leaveAttendanceService: LeaveAttendanceService,
+    private readonly notificationEngine: NotificationEngineService,
   ) {}
 
   async list(
@@ -333,6 +338,10 @@ export class LeaveRequestsService {
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
 
+    if (status === LeaveRequestStatus.approved) {
+      await this.emitLeaveNotification('leave.approved', updated, employee);
+    }
+
     return this.toRecord(updated);
   }
 
@@ -383,6 +392,9 @@ export class LeaveRequestsService {
       },
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
+
+    const employee = await this.assertEmployee(row.employeeId);
+    await this.emitLeaveNotification('leave.rejected', updated, employee);
 
     return this.toRecord(updated);
   }
@@ -508,12 +520,44 @@ export class LeaveRequestsService {
     return row;
   }
 
+  private async emitLeaveNotification(
+    eventType: 'leave.approved' | 'leave.rejected',
+    row: LeaveRequest & { leaveType?: { name: string } },
+    employee: {
+      tenantId: string;
+      companyId: string;
+      firstName: string;
+      lastName: string;
+    },
+  ): Promise<void> {
+    await this.notificationEngine.emit({
+      tenantId: employee.tenantId,
+      companyId: employee.companyId,
+      eventType,
+      subjectEmployeeId: row.employeeId,
+      variables: buildLeaveNotificationVariables({
+        employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+        leaveTypeName: row.leaveType?.name ?? 'Leave',
+        startDate: formatDateValue(row.startDate),
+        endDate: formatDateValue(row.endDate),
+      }),
+      payload: {
+        leaveRequestId: row.id,
+        employeeId: row.employeeId,
+        eventType,
+      },
+    });
+  }
+
   private async assertEmployee(employeeId: string) {
     const row = await this.prisma.scoped.employee.findFirst({
       where: { id: employeeId, deletedAt: null },
       select: {
         id: true,
+        tenantId: true,
         companyId: true,
+        firstName: true,
+        lastName: true,
         probationEndDate: true,
       },
     });

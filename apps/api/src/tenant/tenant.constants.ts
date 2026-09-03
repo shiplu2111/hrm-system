@@ -6,6 +6,9 @@ export const TENANT_SCOPED_MODELS = new Set([
   'Role',
   'AuditLog',
   'TenantSetting',
+  'InAppNotification',
+  'NotificationDelivery',
+  'PushDeviceToken',
   'Holiday',
 ]);
 

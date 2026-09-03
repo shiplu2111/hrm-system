@@ -18,6 +18,7 @@ import { ensureLocationForClockIn } from '../permissions/location-permission';
 interface ClockScreenProps {
   user: AuthUser;
   onLogout: () => void;
+  onOpenNotifications: () => void;
 }
 
 const phaseLabels = {
@@ -27,7 +28,11 @@ const phaseLabels = {
   completed: 'Shift completed',
 } as const;
 
-export function ClockScreen({ user, onLogout }: ClockScreenProps) {
+export function ClockScreen({
+  user,
+  onLogout,
+  onOpenNotifications,
+}: ClockScreenProps) {
   const employeeId = user.employeeId;
   const [acting, setActing] = useState(false);
   const { phase, todayEvents, isOnline, syncNow, reload } = useSyncStatus();
@@ -90,9 +95,14 @@ export function ClockScreen({ user, onLogout }: ClockScreenProps) {
           <Text style={styles.title}>{phaseLabels[phase]}</Text>
           <Text style={styles.email}>{user.email}</Text>
         </View>
-        <Pressable onPress={onLogout}>
-          <Text style={styles.logout}>Sign out</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={onOpenNotifications} hitSlop={8}>
+            <Text style={styles.notificationsLink}>Notifications</Text>
+          </Pressable>
+          <Pressable onPress={onLogout}>
+            <Text style={styles.logout}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.actions}>
@@ -188,6 +198,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   email: { color: '#94a3b8', marginTop: 4, fontSize: 13 },
+  headerActions: { alignItems: 'flex-end', gap: 8 },
+  notificationsLink: { color: '#e2e8f0', fontWeight: '600' },
   logout: { color: '#38bdf8', fontWeight: '600' },
   actions: { gap: 10, marginBottom: 24 },
   primaryButton: {

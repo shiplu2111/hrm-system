@@ -26,6 +26,14 @@
         {
           "cameraPermission": "HRM uses the camera for face verification and document capture for HR records."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#38bdf8",
+          "sounds": []
+        }
       ]
     ],
     "ios": {
@@ -46,7 +54,8 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {

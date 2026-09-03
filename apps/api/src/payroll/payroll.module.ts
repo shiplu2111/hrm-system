@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { PayComponentsController } from './pay-components.controller';
 import { PayComponentsService } from './pay-components.service';
@@ -20,7 +21,7 @@ import { SalaryStructuresController } from './salary-structures.controller';
 import { SalaryStructuresService } from './salary-structures.service';
 
 @Module({
-  imports: [OrganizationModule, RbacModule],
+  imports: [OrganizationModule, RbacModule, NotificationsModule],
   controllers: [
     PayComponentsController,
     SalaryStructuresController,

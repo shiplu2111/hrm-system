@@ -2,8 +2,10 @@ import type {
   ApiResponse,
   AttendancePhase,
   AttendanceSyncBatchResponse,
+  InAppNotificationRecord,
   LoginRequest,
   LoginResponse,
+  RegisterPushTokenInput,
 } from '@hrm/shared-types';
 import { Platform } from 'react-native';
 import { getAccessToken } from '../db/session-repository';
@@ -82,6 +84,25 @@ export function syncAttendanceBatch(
   return request<AttendanceSyncBatchResponse>('/sync/attendance', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function registerPushToken(
+  input: RegisterPushTokenInput,
+): Promise<{ registered: true }> {
+  return request<{ registered: true }>('/notifications/push-tokens', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listNotifications(): Promise<InAppNotificationRecord[]> {
+  return request<InAppNotificationRecord[]>('/notifications');
+}
+
+export function markNotificationRead(id: string): Promise<InAppNotificationRecord> {
+  return request<InAppNotificationRecord>(`/notifications/${id}/read`, {
+    method: 'PATCH',
   });
 }
 

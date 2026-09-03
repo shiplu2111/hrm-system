@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
 import {
   LeaveBalancesController,
@@ -14,7 +15,7 @@ import { LeaveRequestsService } from './leave-requests.service';
 import { LeaveTypesService } from './leave-types.service';
 
 @Module({
-  imports: [PrismaModule, OrganizationModule],
+  imports: [PrismaModule, OrganizationModule, NotificationsModule],
   controllers: [
     LeaveTypesController,
     LeavePoliciesController,

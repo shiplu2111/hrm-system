@@ -28,6 +28,8 @@ import type {
 import { PayrollCalculationService } from './payroll-calculation.service';
 import { PayslipService } from './payslip.service';
 import { PermissionsService } from '../rbac/permissions.service';
+import { NotificationEngineService } from '../notifications/notification-engine.service';
+import { buildPayrollFinalizedVariables } from '../notifications/notification.helpers';
 import {
   assertPayrollRunTransition,
   auditActionForPayrollTransition,
@@ -59,6 +61,7 @@ export class PayrollRunsService {
     private readonly payrollCalculationService: PayrollCalculationService,
     private readonly permissionsService: PermissionsService,
     private readonly payslipService: PayslipService,
+    private readonly notificationEngine: NotificationEngineService,
   ) {}
 
   async listForPeriod(
@@ -281,6 +284,28 @@ export class PayrollRunsService {
         company.tenantId,
         user.id,
       );
+
+      const period = await this.prisma.unscoped.payrollPeriod.findUniqueOrThrow({
+        where: { id: row.payrollPeriodId },
+        select: { startDate: true, endDate: true },
+      });
+
+      await this.notificationEngine.emit({
+        tenantId: company.tenantId,
+        companyId,
+        eventType: 'payroll.finalized',
+        subjectEmployeeId: row.employeeId,
+        variables: buildPayrollFinalizedVariables({
+          employeeName: `${row.employee.firstName} ${row.employee.lastName}`.trim(),
+          periodName: `${formatDateOnly(period.startDate)} – ${formatDateOnly(period.endDate)}`,
+          netPay: formatMoney(row.netPay),
+        }),
+        payload: {
+          payrollRunId: runId,
+          employeeId: row.employeeId,
+          eventType: 'payroll.finalized',
+        },
+      });
     }
 
     return {

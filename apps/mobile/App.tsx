@@ -7,8 +7,10 @@ import { SyncStatusIndicator } from './src/components/SyncStatusIndicator';
 import { SyncStatusProvider } from './src/context/SyncStatusContext';
 import { getDatabase } from './src/db/database';
 import { clearSession, getStoredUser } from './src/db/session-repository';
+import { registerPushTokenIfPermitted } from './src/notifications/push-registration';
 import { ClockScreen } from './src/screens/ClockScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
 
 function AuthenticatedApp({
   user,
@@ -17,12 +19,26 @@ function AuthenticatedApp({
   user: AuthUser;
   onLogout: () => void;
 }) {
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  useEffect(() => {
+    void registerPushTokenIfPermitted();
+  }, []);
+
+  if (showNotifications) {
+    return <NotificationsScreen onBack={() => setShowNotifications(false)} />;
+  }
+
   return (
     <SyncStatusProvider employeeId={user.employeeId}>
       <View style={styles.authenticated}>
         <SyncStatusIndicator />
         <View style={styles.content}>
-          <ClockScreen user={user} onLogout={onLogout} />
+          <ClockScreen
+            user={user}
+            onLogout={onLogout}
+            onOpenNotifications={() => setShowNotifications(true)}
+          />
         </View>
       </View>
     </SyncStatusProvider>

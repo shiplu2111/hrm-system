@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
@@ -7,6 +8,7 @@ import { createGlobalValidationPipe } from './common/pipes/validation.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.setGlobalPrefix('api/v1', {
     exclude: ['', 'health'],
   });
@@ -50,6 +52,7 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`HRM API listening on http://localhost:${port}`);
   console.log(`Swagger UI: http://localhost:${port}/api/docs`);
+  console.log(`WebSocket: ws://localhost:${port}/realtime`);
 }
 
 bootstrap();

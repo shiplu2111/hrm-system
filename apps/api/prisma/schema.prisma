@@ -52,6 +52,9 @@ model Tenant {
   roles     Role[]
   tenantSettings TenantSetting[]
   users     User[]
+  inAppNotifications InAppNotification[]
+  notificationDeliveries NotificationDelivery[]
+  pushDeviceTokens PushDeviceToken[]
   companyRules CompanyRule[]
   employeeContractRules EmployeeContractRule[]
   holidays  Holiday[]
@@ -1307,6 +1310,8 @@ model User {
   employee      Employee?      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   role          Role           @relation(fields: [roleId], references: [id], onDelete: Restrict)
   refreshTokens RefreshToken[]
+  inAppNotifications InAppNotification[]
+  pushDeviceTokens PushDeviceToken[]
 
   @@index([tenantId])
   @@index([roleId])
@@ -1331,6 +1336,100 @@ model RefreshToken {
   @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (NOTIFICATION_LOGIC.md §1–§6)
+// ---------------------------------------------------------------------------
+
+enum NotificationChannelType {
+  in_app
+  email
+  push
+
+  @@map("notification_channel_type")
+}
+
+enum PushPlatform {
+  ios
+  android
+
+  @@map("push_platform")
+}
+
+enum NotificationDeliveryStatus {
+  pending
+  sent
+  failed
+
+  @@map("notification_delivery_status")
+}
+
+model InAppNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  eventType String    @map("event_type")
+  title     String
+  body      String
+  payload   Json      @default("{}")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([userId, readAt])
+  @@index([tenantId, userId, createdAt])
+  @@map("in_app_notifications")
+}
+
+model NotificationDelivery {
+  id              String                     @id @default(uuid()) @db.Uuid
+  tenantId        String                     @map("tenant_id") @db.Uuid
+  companyId       String                     @map("company_id") @db.Uuid
+  eventType       String                     @map("event_type")
+  channel         NotificationChannelType
+  recipientUserId String?                    @map("recipient_user_id") @db.Uuid
+  recipientEmail  String?                    @map("recipient_email")
+  recipientPushToken String?                 @map("recipient_push_token")
+  status          NotificationDeliveryStatus @default(pending)
+  attemptCount    Int                        @default(0) @map("attempt_count")
+  lastError       String?                    @map("last_error")
+  payload         Json                       @default("{}")
+  sentAt          DateTime?                  @map("sent_at")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, eventType])
+  @@map("notification_deliveries")
+}
+
+model PushDeviceToken {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  deviceId   String       @map("device_id")
+  token      String
+  platform   PushPlatform
+  lastSeenAt DateTime     @default(now()) @map("last_seen_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("push_device_tokens")
 }
 
 // ---------------------------------------------------------------------------
