@@ -328,6 +328,44 @@ export async function portalApiRequest<T>(
   return (payload as ApiEnvelope<T>).data;
 }
 
+function filenameFromContentDisposition(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const match = header.match(/filename="([^"]+)"/);
+  return match?.[1];
+}
+
+/** Download a binary API response with the portal JWT (local storage URLs are not browser-safe). */
+export async function portalDownload(
+  portal: PortalKind,
+  path: string,
+  fallbackFilename = 'download',
+): Promise<void> {
+  const token = getPortalToken(portal);
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as ApiErrorBody;
+    throw new ApiError(
+      payload.error?.message ?? `Download failed (${response.status})`,
+      response.status,
+      payload.error?.code,
+    );
+  }
+
+  const blob = await response.blob();
+  const filename =
+    filenameFromContentDisposition(response.headers.get('Content-Disposition')) ??
+    fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function ensurePortalLogin(
   portal: PortalKind,
   email: string,

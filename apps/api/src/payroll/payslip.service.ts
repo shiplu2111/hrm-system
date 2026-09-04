@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import type { FileMeta } from '../storage/storage.types';
 import { PayrollCalculationService } from './payroll-calculation.service';
 import { renderPayslipPdf } from './payslip-pdf.generator';
 import { formatDateOnly, formatMoney } from './payroll.utils';
@@ -50,6 +52,35 @@ export class PayslipService {
       });
     }
     return this.toRecord(row);
+  }
+
+  async downloadPayslipFile(
+    employeeId: string,
+    payslipId: string,
+    user: AuthenticatedUser,
+  ): Promise<{ buffer: Buffer; meta: FileMeta; filename: string }> {
+    await this.assertEmployee(employeeId);
+    this.assertCanAccessPayslip(employeeId, user);
+
+    const row = await this.prisma.unscoped.payslip.findFirst({
+      where: {
+        id: payslipId,
+        payrollRun: { employeeId, deletedAt: null },
+      },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Payslip not found',
+      });
+    }
+
+    const { buffer, meta } = await this.storageService.read(row.fileKey);
+    return {
+      buffer,
+      meta,
+      filename: meta.originalName ?? 'payslip.pdf',
+    };
   }
 
   /**
@@ -166,10 +197,10 @@ export class PayslipService {
   private async toRecord(
     row: Payslip & { payrollRun: { employeeId: string } },
   ): Promise<PayslipRecord> {
-    const downloadUrl = await this.storageService.getUrl(row.fileKey);
+    const employeeId = row.payrollRun.employeeId;
     return {
       ...this.toRecordSync(row),
-      downloadUrl,
+      downloadUrl: `/employees/${employeeId}/payslips/${row.id}/download`,
     };
   }
 
@@ -197,5 +228,29 @@ export class PayslipService {
         message: 'Employee not found',
       });
     }
+  }
+
+  private assertCanAccessPayslip(
+    employeeId: string,
+    user: AuthenticatedUser,
+  ): void {
+    if (
+      user.employeeId &&
+      user.employeeId !== employeeId &&
+      !this.canViewAnyEmployeePayslip(user)
+    ) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Cannot download another employee payslip',
+      });
+    }
+  }
+
+  private canViewAnyEmployeePayslip(user: AuthenticatedUser): boolean {
+    return user.permissions.some(
+      (permission) =>
+        permission.module === 'payroll' &&
+        ['create', 'edit', 'approve', 'finalize'].includes(permission.action),
+    );
   }
 }

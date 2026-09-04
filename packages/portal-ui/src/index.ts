@@ -11,6 +11,7 @@ export {
   isAdminPortalUser,
   isEmployeePortalUser,
   portalApiRequest,
+  portalDownload,
   portalLogin,
   setPortalToken,
   validatePortalSession,

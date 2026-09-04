@@ -1,6 +1,7 @@
 import type {
   AttendanceCaptureInput,
   AttendanceDayRecord,
+  EmployeeDashboardView,
   EmployeeRecord,
   LeaveBalanceRecord,
   LeaveRequestRecord,
@@ -124,6 +125,22 @@ export function listRosters(
   return portalApiRequest<RosterRecord[]>(
     PORTAL,
     `/companies/${companyId}/rosters?${params.toString()}`,
+  );
+}
+
+export function getEmployeeDashboard(
+  employeeId: string,
+): Promise<EmployeeDashboardView> {
+  return portalApiRequest<EmployeeDashboardView>(
+    PORTAL,
+    `/employees/${employeeId}/dashboard`,
+  );
+}
+
+export function listNotifications(limit = 8) {
+  return portalApiRequest<EmployeeDashboardView['notifications']>(
+    PORTAL,
+    `/notifications?limit=${limit}`,
   );
 }
 

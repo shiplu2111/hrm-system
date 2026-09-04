@@ -70,6 +70,7 @@ import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
 import { EmployeeEngagementPage } from '@/pages/talent/EmployeeEngagementPage';
 import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
+import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { useNav } from '@/context/NavContext';
 
 function PageRouter() {
@@ -136,6 +137,9 @@ function PageRouter() {
     case 'engagement': return <EmployeeEngagementPage />;
     case 'health-safety': return <HealthSafetyPage />;
     case 'vendors-contractors': return <VendorContractorPage />;
+    case 'reports-hub':
+    case 'reports-scheduled':
+      return <ReportsHubPage />;
     default: return <ConstructionPage />;
   }
 }

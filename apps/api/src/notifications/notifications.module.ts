@@ -22,6 +22,6 @@ import { PushDeviceTokensService } from './push-device-tokens.service';
     InAppNotificationsService,
     PushDeviceTokensService,
   ],
-  exports: [NotificationEngineService],
+  exports: [NotificationEngineService, InAppNotificationsService],
 })
 export class NotificationsModule {}

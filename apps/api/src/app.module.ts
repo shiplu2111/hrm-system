@@ -13,6 +13,8 @@ import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EmployeesModule } from './employees/employees.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ReportsModule } from './reports/reports.module';
 import { OrganizationModule } from './organization/organization.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RolesModule } from './roles/roles.module';
@@ -50,6 +52,8 @@ import { TenantModule } from './tenant/tenant.module';
     PlatformModule,
     SettingsModule,
     NotificationsModule,
+    DashboardModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

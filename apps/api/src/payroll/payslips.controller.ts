@@ -1,5 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Res,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { PayslipService } from './payslip.service';
 
@@ -16,6 +25,27 @@ export class PayslipsController {
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
   ) {
     return { data: await this.payslipService.listForEmployee(employeeId) };
+  }
+
+  @Get('employees/:employeeId/payslips/:payslipId/download')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({
+    summary: 'Download payslip PDF (authenticated — not a public storage URL)',
+  })
+  async downloadPayslip(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('payslipId', ParseUUIDPipe) payslipId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, meta, filename } =
+      await this.payslipService.downloadPayslipFile(employeeId, payslipId, user);
+    res.setHeader('Content-Type', meta.contentType ?? 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${filename.replace(/"/g, '')}"`,
+    );
+    res.send(buffer);
   }
 
   @Get('companies/:companyId/payroll-runs/:runId/payslip')

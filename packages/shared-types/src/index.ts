@@ -13,3 +13,5 @@ export * from './rules';
 export * from './country-config';
 export * from './settings';
 export * from './notifications';
+export * from './dashboard';
+export * from './reports';

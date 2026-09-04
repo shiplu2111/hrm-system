@@ -95,7 +95,14 @@ describe('Payslips & payment batches (MODULES.md §19)', () => {
       .expect(200);
 
     expect(payslip.body.data.fileKey).toMatch(/\/payslips\//);
-    expect(payslip.body.data.downloadUrl).toBeTruthy();
+    expect(payslip.body.data.downloadUrl).toContain('/download');
+
+    const download = await request(app.getHttpServer())
+      .get(`/api/v1${payslip.body.data.downloadUrl}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(download.headers['content-type']).toMatch(/pdf/);
+    expect(download.body.length).toBeGreaterThan(100);
 
     const stored = await prisma.payslip.findUnique({
       where: { payrollRunId: runId },

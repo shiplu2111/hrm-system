@@ -15,7 +15,7 @@ export class PushDeviceTokensService {
     const platform =
       input.platform === 'ios' ? PushPlatform.ios : PushPlatform.android;
 
-    await this.prisma.pushDeviceToken.upsert({
+    await this.prisma.unscoped.pushDeviceToken.upsert({
       where: {
         userId_deviceId: {
           userId: user.id,
@@ -41,7 +41,7 @@ export class PushDeviceTokensService {
   }
 
   async unregister(user: AuthenticatedUser, deviceId: string): Promise<void> {
-    await this.prisma.pushDeviceToken.deleteMany({
+    await this.prisma.unscoped.pushDeviceToken.deleteMany({
       where: { userId: user.id, deviceId },
     });
   }

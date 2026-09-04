@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { ReportDefinition, ReportResult } from '@hrm/shared-types';
 import {
   BarChart3,
   Calendar,
@@ -19,6 +20,7 @@ import {
   RefreshCw,
   Eye,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -26,53 +28,124 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { Toggle } from '@/components/ui/Toggle';
-import { LineChart, BarChart, DonutChart } from '@/components/charts/Charts';
+import { useCompany } from '@/context/CompanyContext';
+import { useNav } from '@/context/NavContext';
 import {
-  reportCards,
+  categoryLabel,
+  defaultReportPeriod,
+  downloadReportExport,
+  getReportCatalog,
+  runReport,
+} from '@/lib/reports-api';
+import {
   scheduledReports,
   exportTemplates,
-  type ReportCardItem,
   type ScheduledReport,
-  type ExportTemplate,
 } from '@/data/reportsData';
 
 export function ReportsHubPage() {
-  const [activeTab, setActiveTab] = useState<'catalog' | 'scheduled' | 'import' | 'export'>('catalog');
+  const { companyId } = useCompany();
+  const { current } = useNav();
+  const [activeTab, setActiveTab] = useState<'catalog' | 'scheduled' | 'import' | 'export'>(
+    current === 'reports-scheduled' ? 'scheduled' : 'catalog',
+  );
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'Payroll' | 'Attendance' | 'HR & People'>('All');
   const [search, setSearch] = useState('');
+  const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  // Report Modal Preview State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const [activeReport, setActiveReport] = useState<ReportCardItem | null>(null);
+  const [activeReport, setActiveReport] = useState<ReportDefinition | null>(null);
+  const [reportPeriod, setReportPeriod] = useState(defaultReportPeriod);
+  const [reportResult, setReportResult] = useState<ReportResult | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null);
 
-  // Schedule Modal State
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [schedList, setSchedList] = useState<ScheduledReport[]>(scheduledReports);
   const [schedFrequency, setSchedFrequency] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly'>('Monthly');
   const [schedRecipients, setSchedRecipients] = useState('cfo@acme.com, vp.hr@acme.com');
 
-  // Import Wizard State (4 Steps)
   const [importStep, setImportStep] = useState(1);
   const [importEntity, setImportEntity] = useState('Employee Master Records');
   const [uploadedFileName, setUploadedFileName] = useState('employee_batch_aug2024.csv');
   const [importValidated, setImportValidated] = useState(false);
   const [importSuccess, setImportSuccess] = useState(false);
 
-  const filteredReportCards = reportCards.filter((card) => {
-    const matchesCat = selectedCategory === 'All' || card.category === selectedCategory;
+  const loadCatalog = useCallback(async () => {
+    if (!companyId) return;
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const data = await getReportCatalog(companyId);
+      setCatalog(data.reports);
+    } catch (err) {
+      setCatalogError(err instanceof Error ? err.message : 'Failed to load reports');
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
+
+  const filteredReportCards = catalog.filter((card) => {
+    const label = categoryLabel(card.category);
+    const matchesCat = selectedCategory === 'All' || label === selectedCategory;
     const matchesSearch =
       card.title.toLowerCase().includes(search.toLowerCase()) ||
       card.description.toLowerCase().includes(search.toLowerCase());
     return matchesCat && matchesSearch;
   });
 
-  const openGeneratePreview = (card: ReportCardItem) => {
-    setActiveReport(card);
+  const openGeneratePreview = async (report: ReportDefinition) => {
+    if (!companyId) return;
+    setActiveReport(report);
     setPreviewModalOpen(true);
+    setReportResult(null);
+    setReportError(null);
+    setReportLoading(true);
+    try {
+      const result = await runReport(companyId, report.id, reportPeriod);
+      setReportResult(result);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to run report');
+    } finally {
+      setReportLoading(false);
+    }
   };
 
-  const openScheduleModal = (card: ReportCardItem) => {
-    setActiveReport(card);
+  const refreshPreview = async () => {
+    if (!companyId || !activeReport) return;
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      const result = await runReport(companyId, activeReport.id, reportPeriod);
+      setReportResult(result);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to run report');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleExport = async (format: 'csv' | 'xlsx') => {
+    if (!companyId || !activeReport) return;
+    setExporting(format);
+    try {
+      await downloadReportExport(companyId, activeReport.id, format, reportPeriod);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const openScheduleModal = (report: ReportDefinition) => {
+    setActiveReport(report);
     setScheduleModalOpen(true);
   };
 
@@ -81,11 +154,11 @@ export function ReportsHubPage() {
     const newSched: ScheduledReport = {
       id: `sr-${Date.now()}`,
       reportName: activeReport.title,
-      category: activeReport.category,
+      category: categoryLabel(activeReport.category),
       frequency: schedFrequency,
       recipients: schedRecipients.split(',').map((s) => s.trim()),
       nextRun: '2024-09-01 00:00',
-      format: activeReport.format,
+      format: 'CSV / Excel',
       status: 'Active',
     };
     setSchedList((prev) => [newSched, ...prev]);
@@ -189,8 +262,26 @@ export function ReportsHubPage() {
           </div>
 
           {/* Report Cards Grid */}
+          {catalogLoading && (
+            <div className="flex items-center justify-center py-16 text-secondary text-sm gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading report catalog…
+            </div>
+          )}
+          {catalogError && (
+            <Card>
+              <CardBody className="py-8 text-center space-y-3">
+                <p className="text-sm text-danger">{catalogError}</p>
+                <Button variant="secondary" size="sm" onClick={() => void loadCatalog()}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Retry
+                </Button>
+              </CardBody>
+            </Card>
+          )}
+          {!catalogLoading && !catalogError && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredReportCards.map((report) => (
+            {filteredReportCards.map((report) => {
+              const label = categoryLabel(report.category);
+              return (
               <Card
                 key={report.id}
                 className="hover:shadow-card-hover transition-shadow flex flex-col justify-between overflow-hidden"
@@ -200,15 +291,15 @@ export function ReportsHubPage() {
                     <div>
                       <Badge
                         tone={
-                          report.category === 'Payroll'
+                          label === 'Payroll'
                             ? 'success'
-                            : report.category === 'Attendance'
+                            : label === 'Attendance'
                             ? 'accent'
                             : 'warning'
                         }
                         className="text-[10px]"
                       >
-                        {report.category}
+                        {label}
                       </Badge>
                       <CardTitle className="text-sm font-bold mt-2 line-clamp-1">
                         {report.title}
@@ -217,37 +308,23 @@ export function ReportsHubPage() {
                   </CardHeader>
 
                   <CardBody className="pt-0 space-y-3">
-                    <p className="text-xs text-secondary line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-secondary line-clamp-3 leading-relaxed">
                       {report.description}
                     </p>
 
-                    {/* Miniature Chart Thumbnail Preview */}
-                    <div className="h-28 rounded-xl border border-base bg-[rgb(var(--bg-muted))]/40 p-2 flex items-center justify-center overflow-hidden">
-                      {report.chartType === 'line' && (
-                        <LineChart data={report.chartData} height={95} color="#2563eb" />
-                      )}
-                      {report.chartType === 'bar' && (
-                        <BarChart data={report.chartData} height={95} color="#16a34a" />
-                      )}
-                      {report.chartType === 'donut' && (
-                        <DonutChart data={report.chartData as any} size={90} />
-                      )}
-                    </div>
-
                     <div className="flex items-center justify-between text-[11px] text-muted pt-1">
-                      <span>Frequency: <strong className="text-secondary">{report.scheduleFrequency}</strong></span>
-                      <span>Format: <strong className="text-primary">{report.format}</strong></span>
+                      <span>Export: <strong className="text-primary">CSV · Excel</strong></span>
+                      <span className="font-mono text-[10px]">{report.id}</span>
                     </div>
                   </CardBody>
                 </div>
 
-                {/* Card Actions */}
                 <div className="p-4 pt-0 flex items-center gap-2 border-t border-base mt-2">
                   <Button
                     variant="primary"
                     size="sm"
                     className="flex-1"
-                    onClick={() => openGeneratePreview(report)}
+                    onClick={() => void openGeneratePreview(report)}
                   >
                     <Play className="h-3.5 w-3.5" /> Generate Now
                   </Button>
@@ -261,8 +338,9 @@ export function ReportsHubPage() {
                   </Button>
                 </div>
               </Card>
-            ))}
+            );})}
           </div>
+          )}
         </div>
       )}
 
@@ -276,7 +354,7 @@ export function ReportsHubPage() {
                 Recurring executive digests delivered via email on schedule.
               </p>
             </div>
-            <Button variant="primary" size="sm" onClick={() => openScheduleModal(reportCards[0])}>
+            <Button variant="primary" size="sm" onClick={() => openScheduleModal(catalog[0]!)} disabled={!catalog.length}>
               <Plus className="h-3.5 w-3.5" /> New Schedule
             </Button>
           </CardHeader>
@@ -646,59 +724,140 @@ export function ReportsHubPage() {
         </Card>
       )}
 
-      {/* Generate Report Preview Modal */}
       <Modal
         open={previewModalOpen}
         onClose={() => setPreviewModalOpen(false)}
-        title={activeReport ? `Generated: ${activeReport.title}` : 'Report Preview'}
-        description={`Category: ${activeReport?.category} · Format: ${activeReport?.format}`}
+        title={activeReport ? activeReport.title : 'Report Preview'}
+        description={
+          activeReport
+            ? `${categoryLabel(activeReport.category)} · ${reportResult?.rowCount ?? 0} rows`
+            : undefined
+        }
         footer={
           <>
             <Button variant="secondary" onClick={() => setPreviewModalOpen(false)}>
               Close
             </Button>
             <Button
-              variant="primary"
-              onClick={() => {
-                alert(`Downloading ${activeReport?.title} (${activeReport?.format})...`);
-                setPreviewModalOpen(false);
-              }}
+              variant="secondary"
+              disabled={!activeReport || exporting !== null}
+              onClick={() => void handleExport('csv')}
             >
-              <Download className="h-4 w-4" /> Download {activeReport?.format}
+              {exporting === 'csv' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}{' '}
+              Export CSV
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!activeReport || exporting !== null}
+              onClick={() => void handleExport('xlsx')}
+            >
+              {exporting === 'xlsx' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" />
+              )}{' '}
+              Export Excel
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <div className="surface border border-base rounded-xl p-4 bg-[rgb(var(--bg-muted))]/40 space-y-2 text-xs">
-            <div className="flex items-center justify-between text-secondary">
-              <span>Execution Time:</span>
-              <strong className="text-primary font-mono">142ms</strong>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <Label>From</Label>
+              <Input
+                type="date"
+                value={reportPeriod.from}
+                onChange={(e) =>
+                  setReportPeriod((prev) => ({ ...prev, from: e.target.value }))
+                }
+              />
             </div>
-            <div className="flex items-center justify-between text-secondary">
-              <span>Records Parsed:</span>
-              <strong className="text-primary font-mono">1,284 staff</strong>
+            <div>
+              <Label>To</Label>
+              <Input
+                type="date"
+                value={reportPeriod.to}
+                onChange={(e) =>
+                  setReportPeriod((prev) => ({ ...prev, to: e.target.value }))
+                }
+              />
             </div>
-            <div className="flex items-center justify-between text-secondary">
-              <span>Filter Scope:</span>
-              <strong className="text-primary">All Departments · YTD 2024</strong>
+            <div className="flex items-end">
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => void refreshPreview()}
+                disabled={reportLoading}
+              >
+                {reportLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}{' '}
+                Refresh
+              </Button>
             </div>
           </div>
 
-          <div className="surface border border-base rounded-xl p-3">
-            <div className="text-xs font-semibold text-primary mb-2">Visual Summary</div>
-            <div className="h-44 flex items-center justify-center">
-              {activeReport?.chartType === 'line' && (
-                <LineChart data={activeReport.chartData} height={160} color="#2563eb" />
-              )}
-              {activeReport?.chartType === 'bar' && (
-                <BarChart data={activeReport.chartData} height={160} color="#16a34a" />
-              )}
-              {activeReport?.chartType === 'donut' && (
-                <DonutChart data={activeReport.chartData as any} size={150} />
-              )}
+          {reportError && (
+            <div className="text-sm text-danger border border-danger/30 rounded-lg px-3 py-2">
+              {reportError}
             </div>
-          </div>
+          )}
+
+          {reportLoading && (
+            <div className="flex items-center justify-center py-12 text-secondary text-sm gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Running report…
+            </div>
+          )}
+
+          {!reportLoading && reportResult && (
+            <div className="surface border border-base rounded-xl overflow-hidden">
+              <div className="overflow-x-auto max-h-[420px]">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-[rgb(var(--bg-muted))]">
+                    <tr>
+                      {reportResult.columns.map((col) => (
+                        <th
+                          key={col.key}
+                          className="text-left px-3 py-2 font-semibold text-secondary whitespace-nowrap"
+                        >
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                    {reportResult.rows.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={reportResult.columns.length}
+                          className="px-3 py-8 text-center text-muted"
+                        >
+                          No records for the selected period.
+                        </td>
+                      </tr>
+                    ) : (
+                      reportResult.rows.map((row, index) => (
+                        <tr key={index} className="hover:bg-[rgb(var(--bg-hover))]">
+                          {reportResult.columns.map((col) => (
+                            <td key={col.key} className="px-3 py-2 whitespace-nowrap">
+                              {row[col.key] ?? '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 

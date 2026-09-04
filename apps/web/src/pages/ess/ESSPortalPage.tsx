@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Home,
   User,
@@ -46,13 +46,15 @@ import {
   clockOut,
   createLeaveRequest,
   formatAttendanceMinutes,
-  getAttendanceToday,
+  getEmployeeDashboard,
   getEmployeeProfile,
   getLeaveBalances,
   listLeaveRequests,
   listLeaveTypes,
   listRosters,
 } from '@/lib/ess-api';
+import { EmployeeDashboardHome } from '@/components/ess/EmployeeDashboardHome';
+import type { EmployeeDashboardView } from '@hrm/shared-types';
 
 type EssView = 'home' | 'profile' | 'attendance' | 'leave' | 'roster';
 
@@ -77,6 +79,7 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
   const [view, setView] = useState<EssView>('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profile, setProfile] = useState<EmployeeRecord | null>(null);
+  const [dashboard, setDashboard] = useState<EmployeeDashboardView | null>(null);
   const [attendance, setAttendance] = useState<AttendanceDayRecord | null>(null);
   const [balances, setBalances] = useState<LeaveBalanceRecord[]>([]);
   const [requests, setRequests] = useState<LeaveRequestRecord[]>([]);
@@ -101,21 +104,22 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
     setError(null);
     try {
       const emp = await getEmployeeProfile(employeeId);
-      setProfile(emp);
       const today = new Date().toISOString().slice(0, 10);
       const from = today;
       const toDate = new Date();
       toDate.setDate(toDate.getDate() + 14);
       const to = toDate.toISOString().slice(0, 10);
 
-      const [att, bal, reqs, types, rosterRows] = await Promise.all([
-        getAttendanceToday(employeeId),
+      const [dash, bal, reqs, types, rosterRows] = await Promise.all([
+        getEmployeeDashboard(employeeId),
         getLeaveBalances(employeeId),
         listLeaveRequests(emp.companyId, employeeId),
         listLeaveTypes(emp.companyId),
         listRosters(emp.companyId, employeeId, { from, to }),
       ]);
-      setAttendance(att);
+      setProfile(emp);
+      setDashboard(dash);
+      setAttendance(dash.attendance);
       setBalances(bal);
       setRequests(reqs);
       setLeaveTypes(types);
@@ -135,11 +139,6 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const pendingLeave = useMemo(
-    () => requests.filter((r) => r.status === 'pending').length,
-    [requests],
-  );
 
   async function runAttendanceAction(
     action: 'clock-in' | 'clock-out' | 'break-start' | 'break-end',
@@ -165,6 +164,9 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
           break;
       }
       setAttendance(record);
+      if (dashboard) {
+        setDashboard({ ...dashboard, attendance: record });
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Attendance action failed');
     } finally {
@@ -281,41 +283,23 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
             </div>
           ) : (
             <>
-              {view === 'home' && (
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader><CardTitle>Today&apos;s attendance</CardTitle></CardHeader>
-                    <CardBody className="text-sm space-y-1">
-                      <div>Status: <Badge tone="accent" className="capitalize">{attendance?.status ?? '—'}</Badge></div>
-                      <div>Clock in: {formatTime(attendance?.clockInAt ?? null)}</div>
-                      <div>Worked: {attendance ? formatAttendanceMinutes(attendance.metrics.netMinutes) : '—'}</div>
-                    </CardBody>
-                  </Card>
-                  <Card>
-                    <CardHeader><CardTitle>Leave</CardTitle></CardHeader>
-                    <CardBody className="text-sm space-y-1">
-                      <div>{pendingLeave} pending request{pendingLeave === 1 ? '' : 's'}</div>
-                      <div>{balances.length} balance type{balances.length === 1 ? '' : 's'} tracked</div>
-                    </CardBody>
-                  </Card>
-                  <Card className="sm:col-span-2">
-                    <CardHeader><CardTitle>Upcoming roster</CardTitle></CardHeader>
-                    <CardBody className="text-sm space-y-2">
-                      {rosters.length === 0 ? (
-                        <p className="text-muted">No roster assignments in the next two weeks.</p>
-                      ) : (
-                        rosters.slice(0, 5).map((r) => (
-                          <div key={r.id} className="flex justify-between">
-                            <span>{r.date}</span>
-                            <span className="text-secondary">{r.shift?.name ?? 'Shift'}</span>
-                          </div>
-                        ))
-                      )}
-                    </CardBody>
-                  </Card>
-                </div>
-              )}
+              {view === 'home' && dashboard ? (
+                <EmployeeDashboardHome
+                  dashboard={dashboard}
+                  actionLoading={actionLoading}
+                  onClockIn={() => void runAttendanceAction('clock-in')}
+                  onClockOut={() => void runAttendanceAction('clock-out')}
+                  onBreakStart={() => void runAttendanceAction('break-start')}
+                  onBreakEnd={() => void runAttendanceAction('break-end')}
+                />
+              ) : null}
 
+              {view === 'home' && !dashboard ? (
+                <p className="text-sm text-muted">Dashboard data is unavailable.</p>
+              ) : null}
+
+              {view === 'home' ? null : (
+                <>
               {view === 'profile' && profile && (
                 <Card>
                   <CardBody className="flex items-start gap-4">
@@ -423,6 +407,8 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
                     )}
                   </CardBody>
                 </Card>
+              )}
+                </>
               )}
             </>
           )}
