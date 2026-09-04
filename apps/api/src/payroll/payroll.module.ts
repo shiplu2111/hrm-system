@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
+import { EmployeeTaxProfilesController } from './employee-tax-profiles.controller';
+import { EmployeeTaxProfilesService } from './employee-tax-profiles.service';
 import { PayComponentsController } from './pay-components.controller';
 import { PayComponentsService } from './pay-components.service';
 import { PayrollCalculationController } from './payroll-calculation.controller';
@@ -31,9 +33,11 @@ import { SalaryStructuresService } from './salary-structures.service';
     PayrollAdjustmentsController,
     PayslipsController,
     PaymentBatchesController,
+    EmployeeTaxProfilesController,
   ],
   providers: [
     PayComponentsService,
+    EmployeeTaxProfilesService,
     SalaryStructuresService,
     PayrollCalculationService,
     PayrollContextService,
@@ -52,6 +56,7 @@ import { SalaryStructuresService } from './salary-structures.service';
     PayrollAdjustmentsService,
     PayslipService,
     PaymentBatchesService,
+    EmployeeTaxProfilesService,
   ],
 })
 export class PayrollModule {}

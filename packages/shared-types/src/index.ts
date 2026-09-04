@@ -15,3 +15,4 @@ export * from './settings';
 export * from './notifications';
 export * from './dashboard';
 export * from './reports';
+export * from './security';

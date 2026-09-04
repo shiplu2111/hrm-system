@@ -2,8 +2,26 @@ export const AUTH_CONSTANTS = {
   REFRESH_COOKIE_NAME: 'refresh_token',
   MAX_FAILED_LOGIN_ATTEMPTS: 5,
   LOCKOUT_DURATION_MS: 15 * 60 * 1000,
+  LOCKOUT_TIER_ATTEMPTS: 5,
+  MAX_LOCKOUT_MS: 2 * 60 * 60 * 1000,
   BCRYPT_ROUNDS: 12,
+  AUTH_RATE_LIMIT: 10,
+  AUTH_RATE_TTL_MS: 60 * 1000,
 } as const;
+
+/** Progressive lockout backoff after repeated failures — SECURITY.md §3. */
+export function lockoutDurationMs(failedAttempts: number): number {
+  if (failedAttempts < AUTH_CONSTANTS.MAX_FAILED_LOGIN_ATTEMPTS) {
+    return 0;
+  }
+  const tier = Math.floor(
+    (failedAttempts - AUTH_CONSTANTS.MAX_FAILED_LOGIN_ATTEMPTS) /
+      AUTH_CONSTANTS.LOCKOUT_TIER_ATTEMPTS,
+  );
+  const duration =
+    AUTH_CONSTANTS.LOCKOUT_DURATION_MS * Math.pow(2, Math.max(0, tier));
+  return Math.min(duration, AUTH_CONSTANTS.MAX_LOCKOUT_MS);
+}
 
 export const AUTH_ERROR_CODES = {
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
@@ -13,4 +31,6 @@ export const AUTH_ERROR_CODES = {
   ACCOUNT_INACTIVE: 'ACCOUNT_INACTIVE',
   INVALID_REFRESH_TOKEN: 'INVALID_REFRESH_TOKEN',
   REFRESH_TOKEN_REUSED: 'REFRESH_TOKEN_REUSED',
+  WEAK_PASSWORD: 'WEAK_PASSWORD',
+  SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
 } as const;

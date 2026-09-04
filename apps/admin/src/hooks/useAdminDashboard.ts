@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AdminDashboardView } from '@hrm/shared-types';
-import { ApiError } from './tenant-api-client';
-import { getAdminDashboard } from './dashboard-api';
+import { ApiError } from '@/lib/tenant-api-client';
+import { getAdminDashboard } from '@/lib/dashboard-api';
 
 export function useAdminDashboard(companyId: string | null) {
   const [data, setData] = useState<AdminDashboardView | null>(null);

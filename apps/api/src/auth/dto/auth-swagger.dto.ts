@@ -40,6 +40,18 @@ export class RefreshTokenDto {
   refreshToken?: string;
 }
 
+export class ChangePasswordDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(8)
+  currentPassword!: string;
+
+  @ApiProperty({ description: 'Must meet complexity policy (SECURITY.md §3)' })
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}
+
 export class PermissionClaimDto {
   @ApiProperty({ example: 'employee' })
   module!: string;

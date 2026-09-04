@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PayrollRunStatus, Prisma } from '@prisma/client';
 import type { ReportResult } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
+import { SensitiveFieldService } from '../crypto/sensitive-field.service';
 import { formatDateValue } from '../leave/leave.utils';
 import type { ReportDateRange } from './report-date.util';
 import { periodLabel } from './report-date.util';
@@ -14,7 +15,10 @@ function money(value: { toString(): string } | number | null | undefined): numbe
 
 @Injectable()
 export class PayrollReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sensitiveFields: SensitiveFieldService,
+  ) {}
 
   async generate(
     companyId: string,
@@ -331,7 +335,12 @@ export class PayrollReportsService {
       where: { employee: { companyId, deletedAt: null } },
       select: { employeeId: true, taxIdNumber: true },
     });
-    const taxByEmployee = new Map(taxProfiles.map((p) => [p.employeeId, p.taxIdNumber]));
+    const taxByEmployee = new Map(
+      taxProfiles.map((p) => [
+        p.employeeId,
+        this.sensitiveFields.mask(p.taxIdNumber) ?? '',
+      ]),
+    );
 
     const columns = [
       { key: 'employeeNumber', label: 'Employee #' },

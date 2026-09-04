@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import { Public } from './common/decorators/public.decorator';
 import { AppService } from './app.service';
@@ -7,6 +8,7 @@ import { AppService } from './app.service';
 @ApiTags('health')
 @Controller()
 @Public()
+@SkipThrottle()
 export class AppController {
   constructor(private readonly appService: AppService) {}
 

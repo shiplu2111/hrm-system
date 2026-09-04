@@ -783,11 +783,13 @@ async function main(): Promise<void> {
         id: emp.taxProfileId,
         employeeId: emp.id,
         taxIdNumber: `TFN-${emp.employeeNumber.replace('EMP-', '')}`,
+        bankAccountNumber: `1000${emp.employeeNumber.replace('EMP-', '').padStart(6, '0')}`,
         taxSettings: { taxFreeThreshold: true, helpDebt: false },
       },
       update: {
         employeeId: emp.id,
         taxIdNumber: `TFN-${emp.employeeNumber.replace('EMP-', '')}`,
+        bankAccountNumber: `1000${emp.employeeNumber.replace('EMP-', '').padStart(6, '0')}`,
         taxSettings: { taxFreeThreshold: true, helpDebt: false },
       },
     });

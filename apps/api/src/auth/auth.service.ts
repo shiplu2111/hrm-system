@@ -1,15 +1,17 @@
 import {
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { Permission, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { AUTH_CONSTANTS, AUTH_ERROR_CODES } from './auth.constants';
+import { AUTH_CONSTANTS, AUTH_ERROR_CODES, lockoutDurationMs } from './auth.constants';
 import type {
   AccessTokenPayload,
   AuthenticatedUser,
+  AuthSessionView,
   PermissionClaim,
 } from './auth.types';
 import {
@@ -20,6 +22,10 @@ import {
   parseDurationToSeconds,
 } from './auth.utils';
 import type { LoginDto } from './dto/auth-swagger.dto';
+import {
+  assertPasswordMeetsPolicy,
+  hashPassword,
+} from './password-policy.utils';
 
 type UserWithRole = User & {
   role: {
@@ -175,6 +181,123 @@ export class AuthService {
     await this.revokeRefreshToken(storedToken.id);
 
     return this.issueTokenBundle(user, context, storedToken.familyId);
+  }
+
+  async listSessions(
+    userId: string,
+    currentRefreshToken?: string,
+  ): Promise<AuthSessionView[]> {
+    const currentHash = currentRefreshToken
+      ? hashToken(currentRefreshToken)
+      : null;
+    const rows = await this.prisma.unscoped.refreshToken.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+      userAgent: row.userAgent,
+      ipAddress: row.ipAddress,
+      isCurrent: currentHash ? row.tokenHash === currentHash : false,
+      isRevoked: row.revokedAt !== null,
+      isExpired: row.expiresAt <= new Date(),
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const row = await this.prisma.unscoped.refreshToken.findFirst({
+      where: { id: sessionId, userId },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        code: AUTH_ERROR_CODES.SESSION_NOT_FOUND,
+        message: 'Session not found',
+      });
+    }
+    if (!row.revokedAt) {
+      await this.revokeRefreshToken(row.id);
+    }
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    const tokenHash = hashToken(refreshToken);
+    const stored = await this.prisma.unscoped.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+    if (stored && !stored.revokedAt) {
+      await this.revokeRefreshToken(stored.id);
+    }
+  }
+
+  async logoutAll(userId: string, exceptRefreshToken?: string): Promise<number> {
+    const exceptHash = exceptRefreshToken
+      ? hashToken(exceptRefreshToken)
+      : undefined;
+    const result = await this.prisma.unscoped.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(exceptHash ? { NOT: { tokenHash: exceptHash } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
+    return result.count;
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    context: RefreshContext,
+  ): Promise<AuthTokenBundle> {
+    assertPasswordMeetsPolicy(newPassword);
+
+    const user = await this.prisma.unscoped.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: { include: { permissions: true } },
+      },
+    });
+    if (!user) {
+      throw new UnauthorizedException({
+        code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
+        message: 'User not found',
+      });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException({
+        code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
+        message: 'Current password is incorrect',
+      });
+    }
+
+    const samePassword = await bcrypt.compare(newPassword, user.passwordHash);
+    if (samePassword) {
+      throw new UnauthorizedException({
+        code: AUTH_ERROR_CODES.WEAK_PASSWORD,
+        message: 'New password must differ from the current password',
+      });
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await this.prisma.unscoped.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+
+    await this.logoutAll(userId);
+
+    return this.issueTokenBundle(user, context, generateTokenFamilyId());
   }
 
   buildAuthenticatedUser(user: UserWithRole): AuthenticatedUser {
@@ -343,16 +466,14 @@ export class AuthService {
     currentAttempts: number,
   ): Promise<void> {
     const nextAttempts = currentAttempts + 1;
-    const shouldLock =
-      nextAttempts >= AUTH_CONSTANTS.MAX_FAILED_LOGIN_ATTEMPTS;
+    const lockMs = lockoutDurationMs(nextAttempts);
 
     await this.prisma.unscoped.user.update({
       where: { id: userId },
       data: {
         failedLoginAttempts: nextAttempts,
-        lockedUntil: shouldLock
-          ? new Date(Date.now() + AUTH_CONSTANTS.LOCKOUT_DURATION_MS)
-          : null,
+        lockedUntil:
+          lockMs > 0 ? new Date(Date.now() + lockMs) : null,
       },
     });
   }

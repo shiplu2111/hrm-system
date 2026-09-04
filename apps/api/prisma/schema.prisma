@@ -1180,10 +1180,11 @@ model TaxBracket {
 }
 
 model EmployeeTaxProfile {
-  id           String   @id @default(uuid()) @db.Uuid
-  employeeId   String   @map("employee_id") @db.Uuid
-  taxIdNumber  String?  @map("tax_id_number")
-  taxSettings  Json     @default("{}") @map("tax_settings")
+  id                String   @id @default(uuid()) @db.Uuid
+  employeeId        String   @map("employee_id") @db.Uuid
+  taxIdNumber       String?  @map("tax_id_number")
+  bankAccountNumber String?  @map("bank_account_number")
+  taxSettings       Json     @default("{}") @map("tax_settings")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

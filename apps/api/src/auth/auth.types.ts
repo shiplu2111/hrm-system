@@ -21,3 +21,14 @@ export interface AuthenticatedUser {
   email: string;
   permissions: PermissionClaim[];
 }
+
+export interface AuthSessionView {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  isCurrent: boolean;
+  isRevoked: boolean;
+  isExpired: boolean;
+}
