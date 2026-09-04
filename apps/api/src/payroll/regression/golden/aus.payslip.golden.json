@@ -1,0 +1,47 @@
+{
+  "countryCode": "AUS",
+  "periodEnd": "2024-06-30",
+  "grossPay": "7725.00",
+  "totalDeductions": "849.75",
+  "netPay": "6875.25",
+  "earnings": [
+    {
+      "componentName": "Basic Salary",
+      "calculationType": "fixed",
+      "amount": "6000.00"
+    },
+    {
+      "componentName": "House Rent Allowance",
+      "calculationType": "percentage",
+      "amount": "600.00"
+    },
+    {
+      "componentName": "Overtime",
+      "calculationType": "formula",
+      "amount": "1125.00"
+    }
+  ],
+  "deductions": [
+    {
+      "componentName": "Superannuation",
+      "calculationType": "percentage",
+      "amount": "849.75"
+    }
+  ],
+  "inputs": {
+    "attendance": {
+      "workedHours": "180",
+      "standardHours": "160",
+      "hourlyRate": "37.50",
+      "otMultiplier": "1.5",
+      "status": "present",
+      "unpaidDays": "0",
+      "workingDaysInPeriod": 21
+    },
+    "leave": {
+      "unpaidLeaveDays": 0,
+      "paidLeaveDays": 0
+    },
+    "basicSalary": "6000.00"
+  }
+}

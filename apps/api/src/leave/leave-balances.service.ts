@@ -10,16 +10,18 @@ import type { LeaveBalanceRecord } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import {
-  addMonths,
+  applyCarriedForwardExpiry,
+  computeMonthlyAccrual,
+  computeYearEndBalance,
+  deductLeaveDays,
+} from './leave-accrual.utils';
+import {
   decimal,
   decimalToNumber,
   formatDateValue,
   getFinancialYearStart,
   getLeaveYear,
-  maxDecimal,
-  minDecimal,
   parseDateString,
-  startOfMonth,
 } from './leave.utils';
 
 @Injectable()
@@ -122,25 +124,17 @@ export class LeaveBalancesService {
       leaveYear,
     );
 
-    let remaining = input.days;
-    let carried = decimal(balance.carriedForwardDays);
-    let pool = decimal(balance.balanceDays).minus(carried);
-
-    if (carried.greaterThan(0)) {
-      const fromCarried = minDecimal(carried, remaining);
-      carried = carried.minus(fromCarried);
-      remaining = remaining.minus(fromCarried);
-    }
-
-    if (remaining.greaterThan(0)) {
-      pool = pool.minus(remaining);
-    }
+    const deducted = deductLeaveDays({
+      balanceDays: decimal(balance.balanceDays),
+      carriedForwardDays: decimal(balance.carriedForwardDays),
+      days: input.days,
+    });
 
     return this.prisma.unscoped.leaveBalance.update({
       where: { id: balance.id },
       data: {
-        carriedForwardDays: carried,
-        balanceDays: carried.plus(pool),
+        carriedForwardDays: deducted.carriedForwardDays,
+        balanceDays: deducted.balanceDays,
       },
     });
   }
@@ -295,32 +289,26 @@ export class LeaveBalancesService {
     }
 
     if (policy.accrualType === LeaveAccrualType.monthly) {
-      const monthlyRate = entitlement.div(12);
-      let cursor = balance.lastAccrualAt
-        ? startOfMonth(addMonths(balance.lastAccrualAt, 1))
-        : startOfMonth(
-            employee.hireDate > fyStart ? employee.hireDate : fyStart,
-          );
-      let currentBalance = decimal(balance.balanceDays);
-      let lastProcessed = balance.lastAccrualAt;
+      const fyStart = getFinancialYearStart(company.financialYearStart, leaveYear);
+      const accrual = computeMonthlyAccrual({
+        entitlementDays: entitlement,
+        currentBalanceDays: decimal(balance.balanceDays),
+        carriedForwardDays: decimal(balance.carriedForwardDays),
+        lastAccrualAt: balance.lastAccrualAt,
+        hireDate: employee.hireDate,
+        fyStart,
+        asOfDate,
+      });
 
-      while (cursor <= startOfMonth(asOfDate)) {
-        currentBalance = currentBalance.plus(monthlyRate);
-        const carried = decimal(balance.carriedForwardDays);
-        const currentYearPool = currentBalance.minus(carried);
-        if (currentYearPool.greaterThan(entitlement)) {
-          currentBalance = carried.plus(entitlement);
-        }
-        lastProcessed = cursor;
-        cursor = addMonths(cursor, 1);
-      }
-
-      if (lastProcessed && lastProcessed !== balance.lastAccrualAt) {
+      if (
+        accrual.lastAccrualAt &&
+        accrual.lastAccrualAt !== balance.lastAccrualAt
+      ) {
         await this.prisma.unscoped.leaveBalance.update({
           where: { id: balance.id },
           data: {
-            balanceDays: currentBalance,
-            lastAccrualAt: lastProcessed,
+            balanceDays: accrual.balanceDays,
+            lastAccrualAt: accrual.lastAccrualAt,
           },
         });
       }
@@ -355,13 +343,15 @@ export class LeaveBalancesService {
     const carryMax = policy.carryForwardMax
       ? decimal(policy.carryForwardMax)
       : decimal(0);
-    const carried = minDecimal(remaining, carryMax);
     const entitlement = decimal(policy.entitlementDays);
 
-    const expiresAt =
-      policy.expiryMonths && carried.greaterThan(0)
-        ? addMonths(asOfDate, policy.expiryMonths)
-        : null;
+    const yearEnd = computeYearEndBalance({
+      remainingBalance: remaining,
+      carryForwardMax: carryMax,
+      entitlementDays: entitlement,
+      expiryMonths: policy.expiryMonths,
+      yearEndDate: asOfDate,
+    });
 
     await this.prisma.unscoped.leaveBalance.upsert({
       where: {
@@ -375,15 +365,15 @@ export class LeaveBalancesService {
         employeeId,
         leaveTypeId,
         asOfYear: leaveYear + 1,
-        balanceDays: entitlement.plus(carried),
-        carriedForwardDays: carried,
-        carriedForwardExpiresAt: expiresAt,
+        balanceDays: yearEnd.balanceDays,
+        carriedForwardDays: yearEnd.carriedForwardDays,
+        carriedForwardExpiresAt: yearEnd.carriedForwardExpiresAt,
         lastAccrualAt: null,
       },
       update: {
-        balanceDays: entitlement.plus(carried),
-        carriedForwardDays: carried,
-        carriedForwardExpiresAt: expiresAt,
+        balanceDays: yearEnd.balanceDays,
+        carriedForwardDays: yearEnd.carriedForwardDays,
+        carriedForwardExpiresAt: yearEnd.carriedForwardExpiresAt,
         lastAccrualAt: null,
       },
     });
@@ -406,18 +396,22 @@ export class LeaveBalancesService {
     );
     const balance = await this.getOrCreateBalance(employeeId, leaveTypeId, leaveYear);
 
+    const expired = applyCarriedForwardExpiry({
+      balanceDays: decimal(balance.balanceDays),
+      carriedForwardDays: decimal(balance.carriedForwardDays),
+      carriedForwardExpiresAt: balance.carriedForwardExpiresAt,
+      asOfDate,
+    });
+
     if (
-      balance.carriedForwardExpiresAt &&
-      balance.carriedForwardExpiresAt < asOfDate &&
-      decimal(balance.carriedForwardDays).greaterThan(0)
+      expired.carriedForwardDays.lessThan(decimal(balance.carriedForwardDays))
     ) {
-      const carried = decimal(balance.carriedForwardDays);
       await this.prisma.unscoped.leaveBalance.update({
         where: { id: balance.id },
         data: {
-          balanceDays: decimal(balance.balanceDays).minus(carried),
-          carriedForwardDays: decimal(0),
-          carriedForwardExpiresAt: null,
+          balanceDays: expired.balanceDays,
+          carriedForwardDays: expired.carriedForwardDays,
+          carriedForwardExpiresAt: expired.carriedForwardExpiresAt,
         },
       });
     }

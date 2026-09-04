@@ -1,36 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import {
-  PayComponentCalculationType,
-} from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
-  PayrollCalculationLine,
   PayrollCalculationPreview,
   PayrollSalaryStructureOverride,
   PayrollSimulationResult,
 } from '@hrm/shared-types';
+import { computePayrollFromStructures } from './payroll-calculation.core';
 import {
   applySalaryStructureOverrides,
   computePayrollDelta,
   type StructureRow,
 } from './payroll-calculation.helpers';
 import { PrismaService } from '../database/prisma.service';
-import { evaluatePayFormulaRule } from './formula/formula-interpreter';
-import {
-  PayrollContextService,
-  resolvePayrollPeriod,
-} from './payroll-context.service';
+import { PayrollContextService } from './payroll-context.service';
 import {
   formatDateOnly,
-  formatMoney,
   isEffectiveOn,
-  parseAmountConfig,
   parseDateOnly,
-  parseFormulaConfig,
-  parseFormulaRuleFromComponent,
-  parseMoney,
-  resolvePercentageBase,
-  resolvePercentageRate,
 } from './payroll.utils';
 
 export interface PayrollComputeOptions {
@@ -122,199 +107,12 @@ export class PayrollCalculationService {
     asOfDate: Date,
     active: StructureRow[],
   ): Promise<PayrollCalculationPreview> {
-    if (active.length === 0) {
-      return {
-        employeeId,
-        asOfDate: formatDateOnly(asOfDate),
-        grossPay: '0.00',
-        totalDeductions: '0.00',
-        netPay: '0.00',
-        earnings: [],
-        deductions: [],
-      };
-    }
-
-    const earnings = active.filter((row) => row.componentType === 'earning');
-    const deductions = active.filter((row) => row.componentType === 'deduction');
-
-    const earningLines: PayrollCalculationLine[] = [];
-    let gross = new Decimal(0);
-    let basic = new Decimal(0);
-
-    for (const row of earnings) {
-      if (row.component.calculationType === PayComponentCalculationType.fixed) {
-        const line = this.computeFixedLine(row);
-        earningLines.push(line);
-        const amount = parseMoney(line.amount);
-        gross = gross.plus(amount);
-        basic = basic.plus(amount);
-        continue;
-      }
-      if (
-        row.component.calculationType === PayComponentCalculationType.percentage
-      ) {
-        const line = this.computePercentageLine(row, basic, gross);
-        earningLines.push(line);
-        gross = gross.plus(parseMoney(line.amount));
-        continue;
-      }
-    }
-
-    const period = resolvePayrollPeriod(asOfDate);
-    let formulaContext = await this.payrollContext.buildContext({
+    return computePayrollFromStructures({
       employeeId,
       companyId,
-      period,
-      basicSalary: basic,
-      grossEarnings: gross,
+      asOfDate,
+      active,
+      buildContext: (opts) => this.payrollContext.buildContext(opts),
     });
-
-    for (const row of earnings) {
-      if (row.component.calculationType !== PayComponentCalculationType.formula) {
-        continue;
-      }
-
-      const amountConfig = parseAmountConfig(row.amountOrFormula);
-      formulaContext = await this.payrollContext.buildContext({
-        employeeId,
-        companyId,
-        period,
-        basicSalary: basic,
-        grossEarnings: gross,
-        overrides: amountConfig as Record<string, unknown>,
-      });
-
-      const line = this.computeFormulaLine(row, formulaContext);
-      earningLines.push(line);
-      gross = gross.plus(parseMoney(line.amount));
-    }
-
-    const deductionLines: PayrollCalculationLine[] = [];
-    let totalDeductions = new Decimal(0);
-
-    for (const row of deductions) {
-      if (row.component.calculationType === PayComponentCalculationType.fixed) {
-        const line = this.computeFixedLine(row);
-        deductionLines.push(line);
-        totalDeductions = totalDeductions.plus(parseMoney(line.amount));
-        continue;
-      }
-      if (
-        row.component.calculationType === PayComponentCalculationType.percentage
-      ) {
-        const line = this.computePercentageLine(row, basic, gross);
-        deductionLines.push(line);
-        totalDeductions = totalDeductions.plus(parseMoney(line.amount));
-        continue;
-      }
-    }
-
-    formulaContext = await this.payrollContext.buildContext({
-      employeeId,
-      companyId,
-      period,
-      basicSalary: basic,
-      grossEarnings: gross,
-    });
-
-    for (const row of deductions) {
-      if (row.component.calculationType !== PayComponentCalculationType.formula) {
-        continue;
-      }
-
-      const amountConfig = parseAmountConfig(row.amountOrFormula);
-      formulaContext = await this.payrollContext.buildContext({
-        employeeId,
-        companyId,
-        period,
-        basicSalary: basic,
-        grossEarnings: gross,
-        overrides: amountConfig as Record<string, unknown>,
-      });
-
-      const line = this.computeFormulaLine(row, formulaContext);
-      deductionLines.push(line);
-      totalDeductions = totalDeductions.plus(parseMoney(line.amount));
-    }
-
-    const net = gross.minus(totalDeductions);
-
-    return {
-      employeeId,
-      asOfDate: formatDateOnly(asOfDate),
-      grossPay: formatMoney(gross),
-      totalDeductions: formatMoney(totalDeductions),
-      netPay: formatMoney(net),
-      earnings: earningLines,
-      deductions: deductionLines,
-    };
-  }
-
-  private computeFixedLine(row: StructureRow): PayrollCalculationLine {
-    const config = parseAmountConfig(row.amountOrFormula);
-    if (!config.amount) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: `Fixed component "${row.component.name}" is missing amount`,
-      });
-    }
-    const amount = parseMoney(config.amount);
-    return {
-      salaryStructureId: row.id,
-      componentId: row.componentId,
-      componentName: row.component.name,
-      componentType: row.componentType,
-      calculationType: 'fixed',
-      baseAmount: null,
-      percentage: null,
-      amount: formatMoney(amount),
-    };
-  }
-
-  private computePercentageLine(
-    row: StructureRow,
-    basic: Decimal,
-    gross: Decimal,
-  ): PayrollCalculationLine {
-    const amountConfig = parseAmountConfig(row.amountOrFormula);
-    const formula = parseFormulaConfig(row.component.formula);
-    const baseKind = resolvePercentageBase(formula);
-    const baseAmount = baseKind === 'gross' ? gross : basic;
-    const rate = resolvePercentageRate(amountConfig, formula);
-    const amount = baseAmount.mul(rate).div(100);
-
-    return {
-      salaryStructureId: row.id,
-      componentId: row.componentId,
-      componentName: row.component.name,
-      componentType: row.componentType,
-      calculationType: 'percentage',
-      baseAmount: formatMoney(baseAmount),
-      percentage: rate.toNumber(),
-      amount: formatMoney(amount),
-    };
-  }
-
-  private computeFormulaLine(
-    row: StructureRow,
-    context: import('./formula/formula-interpreter').PayrollFormulaContext,
-  ): PayrollCalculationLine {
-    const rule = parseFormulaRuleFromComponent(row.component.formula);
-    const result = evaluatePayFormulaRule(rule, context);
-
-    return {
-      salaryStructureId: row.id,
-      componentId: row.componentId,
-      componentName: row.component.name,
-      componentType: row.componentType,
-      calculationType: 'formula',
-      baseAmount: null,
-      percentage: null,
-      amount: formatMoney(result.amount),
-      formulaApplied: result.branch === 'then',
-      formulaDescription: rule.when
-        ? `Condition ${result.conditionMet ? 'met' : 'not met'} (${result.branch})`
-        : 'Unconditional formula',
-    };
   }
 }

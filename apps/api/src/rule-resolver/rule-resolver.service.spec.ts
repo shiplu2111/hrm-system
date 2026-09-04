@@ -176,6 +176,66 @@ describe('RuleResolverService', () => {
     });
   });
 
+  describe('Australia (AUS) — payroll rule set', () => {
+    const ausPayrollRules: EffectiveDatedRule[] = [
+      rule({
+        id: 'global-payroll',
+        layer: 'global',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          currencyCode: 'AUD',
+          standardPayPeriod: 'fortnightly',
+        },
+      }),
+      rule({
+        id: 'aus-country-payroll',
+        layer: 'country',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          countryCode: 'AUS',
+          superannuationGuaranteeRate: 11.5,
+          minimumHourlyRateAud: 24.1,
+          overtimeWeekdayMultiplier: 1.5,
+        },
+      }),
+      rule({
+        id: 'company-payroll-aus',
+        layer: 'company',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          superannuationGuaranteeRate: 12,
+        },
+      }),
+    ];
+
+    it('merges AUS payroll rules with company override on super rate', async () => {
+      const service = createService(ausPayrollRules);
+
+      const resolved = await service.resolve(
+        context({
+          countryId: AUS,
+          calculationDate: parseDateOnly('2024-07-01'),
+        }),
+        'payroll',
+      );
+
+      expect(resolved.payload).toEqual({
+        currencyCode: 'AUD',
+        standardPayPeriod: 'fortnightly',
+        countryCode: 'AUS',
+        superannuationGuaranteeRate: 12,
+        minimumHourlyRateAud: 24.1,
+        overtimeWeekdayMultiplier: 1.5,
+      });
+    });
+  });
+
   describe('Bangladesh (BGD) — different statutory configuration', () => {
     const bgdRules: EffectiveDatedRule[] = [
       rule({
@@ -244,6 +304,70 @@ describe('RuleResolverService', () => {
         expect.objectContaining({ layer: 'company', applied: true }),
         expect.objectContaining({ layer: 'employee_contract', applied: false }),
       ]);
+    });
+  });
+
+  describe('Bangladesh (BGD) — payroll rule set', () => {
+    const bgdPayrollRules: EffectiveDatedRule[] = [
+      rule({
+        id: 'global-payroll',
+        layer: 'global',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          currencyCode: 'USD',
+          standardPayPeriod: 'monthly',
+        },
+      }),
+      rule({
+        id: 'bgd-country-payroll',
+        layer: 'country',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          countryCode: 'BGD',
+          incomeTaxSlabVersion: 'FY2024',
+          festivalBonusMonths: 2,
+          overtimeWeekdayMultiplier: 2,
+        },
+      }),
+      rule({
+        id: 'company-payroll-bgd',
+        layer: 'company',
+        ruleType: 'payroll',
+        effectiveFrom: parseDateOnly('2020-01-01'),
+        effectiveTo: null,
+        payload: {
+          festivalBonusMonths: 2.5,
+        },
+      }),
+    ];
+
+    it('resolves BGD payroll rules without state layer', async () => {
+      const service = createService(bgdPayrollRules);
+
+      const resolved = await service.resolve(
+        context({
+          countryId: BGD,
+          calculationDate: parseDateOnly('2024-07-01'),
+        }),
+        'payroll',
+      );
+
+      expect(resolved.payload).toEqual({
+        currencyCode: 'USD',
+        standardPayPeriod: 'monthly',
+        countryCode: 'BGD',
+        incomeTaxSlabVersion: 'FY2024',
+        festivalBonusMonths: 2.5,
+        overtimeWeekdayMultiplier: 2,
+      });
+
+      expect(resolved.layers.find((layer) => layer.layer === 'state')).toEqual(
+        expect.objectContaining({ applied: false }),
+      );
     });
   });
 

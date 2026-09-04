@@ -1,0 +1,47 @@
+{
+  "countryCode": "BGD",
+  "periodEnd": "2024-06-30",
+  "grossPay": "48000.00",
+  "totalDeductions": "6763.64",
+  "netPay": "41236.36",
+  "earnings": [
+    {
+      "componentName": "Basic Salary",
+      "calculationType": "fixed",
+      "amount": "45000.00"
+    },
+    {
+      "componentName": "Transport Allowance",
+      "calculationType": "fixed",
+      "amount": "3000.00"
+    }
+  ],
+  "deductions": [
+    {
+      "componentName": "Income Tax",
+      "calculationType": "percentage",
+      "amount": "2400.00"
+    },
+    {
+      "componentName": "Unpaid Leave Deduction",
+      "calculationType": "formula",
+      "amount": "4363.64"
+    }
+  ],
+  "inputs": {
+    "attendance": {
+      "workedHours": "168",
+      "standardHours": "176",
+      "hourlyRate": "255.68",
+      "otMultiplier": "2",
+      "status": "unpaid_leave",
+      "unpaidDays": "2",
+      "workingDaysInPeriod": 22
+    },
+    "leave": {
+      "unpaidLeaveDays": 2,
+      "paidLeaveDays": 0
+    },
+    "basicSalary": "45000.00"
+  }
+}
