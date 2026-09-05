@@ -40,9 +40,79 @@ export class NotificationRecipientsService {
         seenEmployeeIds.add(manager.id);
         resolved.push(this.toRecipient(manager, 'manager'));
       }
+
+      if (role === 'hr_admin') {
+        if (!subject.tenantId) continue;
+        const hrAdmins = await this.resolveHrAdminUsers(subject.tenantId);
+        for (const hr of hrAdmins) {
+          if (seenEmployeeIds.has(hr.employeeId)) continue;
+          seenEmployeeIds.add(hr.employeeId);
+          resolved.push(hr);
+        }
+      }
     }
 
     return resolved;
+  }
+
+  async resolveDirectUsers(
+    userIds: string[],
+  ): Promise<ResolvedNotificationRecipient[]> {
+    const uniqueIds = [...new Set(userIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return [];
+
+    const users = await this.prisma.unscoped.user.findMany({
+      where: { id: { in: uniqueIds }, isActive: true },
+      select: {
+        id: true,
+        email: true,
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            personalInfo: true,
+          },
+        },
+      },
+    });
+
+    return users.map((user) => ({
+      employeeId: user.employee?.id ?? user.id,
+      userId: user.id,
+      email: user.email,
+      displayName: user.employee
+        ? `${user.employee.firstName} ${user.employee.lastName}`.trim()
+        : user.email,
+      role: 'subject_employee' as const,
+    }));
+  }
+
+  async resolveHrAdminUsers(tenantId: string): Promise<ResolvedNotificationRecipient[]> {
+    const users = await this.prisma.unscoped.user.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        role: { name: 'HR Admin' },
+      },
+      select: {
+        id: true,
+        email: true,
+        employee: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    return users.map((user) => ({
+      employeeId: user.employee?.id ?? user.id,
+      userId: user.id,
+      email: user.email,
+      displayName: user.employee
+        ? `${user.employee.firstName} ${user.employee.lastName}`.trim()
+        : user.email,
+      role: 'hr_admin' as const,
+    }));
   }
 
   private async loadEmployee(employeeId: string) {
@@ -50,6 +120,7 @@ export class NotificationRecipientsService {
       where: { id: employeeId, deletedAt: null },
       select: {
         id: true,
+        tenantId: true,
         firstName: true,
         lastName: true,
         managerId: true,

@@ -3,9 +3,16 @@ export type NotificationEventType =
   | 'leave.approved'
   | 'leave.rejected'
   | 'payroll.finalized'
-  | 'attendance.late';
+  | 'attendance.late'
+  | 'contract.expiring'
+  | 'approval.pending'
+  | 'contract.renewal.approved'
+  | 'contract.renewal.rejected';
 
-export type NotificationRecipientRole = 'subject_employee' | 'manager';
+export type NotificationRecipientRole =
+  | 'subject_employee'
+  | 'manager'
+  | 'hr_admin';
 
 export type PushPlatform = 'ios' | 'android';
 
@@ -48,6 +55,8 @@ export interface NotificationEmitInput {
   subjectEmployeeId: string;
   variables: Record<string, string>;
   payload?: Record<string, unknown>;
+  /** When set, delivers only to these users (e.g. workflow approvers). */
+  directUserIds?: string[];
 }
 
 /** Per-event live WebSocket broadcast toggles (NOTIFICATION_LOGIC.md §10). */

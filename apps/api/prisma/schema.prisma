@@ -58,6 +58,10 @@ model Tenant {
   companyRules CompanyRule[]
   employeeContractRules EmployeeContractRule[]
   workflowInstances     WorkflowInstance[]
+  employmentContracts   EmploymentContract[]
+  employmentContractDocuments EmploymentContractDocument[]
+  employeeLoans               EmployeeLoan[]
+  loanInstallments            LoanInstallment[]
   holidays  Holiday[]
 
   @@map("tenants")
@@ -203,6 +207,8 @@ model Company {
   holidays        Holiday[]
   workflowDefinitions WorkflowDefinition[]
   workflowInstances   WorkflowInstance[]
+  employmentContracts EmploymentContract[]
+  employeeLoans       EmployeeLoan[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -405,6 +411,8 @@ model Employee {
   taxProfiles       EmployeeTaxProfile[]
   user              User?
   contractRules     EmployeeContractRule[]
+  employmentContracts EmploymentContract[]
+  employeeLoans       EmployeeLoan[]
   holidays          Holiday[]
 
   @@unique([tenantId, employeeNumber])
@@ -417,6 +425,98 @@ model Employee {
   @@index([workLocationId])
   @@index([costCentreId])
   @@map("employees")
+}
+
+// ---------------------------------------------------------------------------
+// §3a Employment Contracts (MODULES.md §06)
+// ---------------------------------------------------------------------------
+
+enum EmploymentContractType {
+  permanent
+  fixed_term
+  casual
+  project_based
+
+  @@map("employment_contract_type")
+}
+
+enum EmploymentContractStatus {
+  draft
+  active
+  terminated
+
+  @@map("employment_contract_status")
+}
+
+enum PayFrequency {
+  hourly
+  weekly
+  biweekly
+  monthly
+  annual
+
+  @@map("pay_frequency")
+}
+
+model EmploymentContract {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  tenantId              String                   @map("tenant_id") @db.Uuid
+  companyId             String                   @map("company_id") @db.Uuid
+  employeeId            String                   @map("employee_id") @db.Uuid
+  contractType          EmploymentContractType   @map("contract_type")
+  status                EmploymentContractStatus @default(draft)
+  startDate             DateTime                 @map("start_date") @db.Date
+  endDate               DateTime?                @map("end_date") @db.Date
+  probationEndDate      DateTime?                @map("probation_end_date") @db.Date
+  workingHoursPerWeek   Decimal?                 @map("working_hours_per_week") @db.Decimal(5, 2)
+  payRate               Decimal?                 @map("pay_rate") @db.Decimal(14, 2)
+  payFrequency          PayFrequency?            @map("pay_frequency")
+  currency              String                   @default("AUD")
+  leaveEntitlementDays  Decimal?                 @map("leave_entitlement_days") @db.Decimal(8, 2)
+  overtimeRule          Json?                    @map("overtime_rule")
+  noticePeriodDays      Int?                     @map("notice_period_days")
+  employerNoticeDays    Int?                     @map("employer_notice_days")
+  terminationConditions String?                  @map("termination_conditions")
+  renewedFromId         String?                  @map("renewed_from_id") @db.Uuid
+  signedAt              DateTime?                @map("signed_at")
+  expiryAlertSentAt     DateTime?                @map("expiry_alert_sent_at")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
+
+  tenant      Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee                     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  renewedFrom EmploymentContract?          @relation("ContractRenewal", fields: [renewedFromId], references: [id], onDelete: SetNull)
+  renewals    EmploymentContract[]         @relation("ContractRenewal")
+  documents   EmploymentContractDocument[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([endDate])
+  @@map("employment_contracts")
+}
+
+model EmploymentContractDocument {
+  id           String   @id @default(uuid()) @db.Uuid
+  contractId   String   @map("contract_id") @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  label        String
+  fileKey      String   @map("file_key")
+  originalName String   @map("original_name")
+  contentType  String   @map("content_type")
+  sizeBytes    Int      @map("size_bytes")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  contract EmploymentContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([contractId])
+  @@index([tenantId])
+  @@map("employment_contract_documents")
 }
 
 // ---------------------------------------------------------------------------
@@ -725,6 +825,7 @@ model PayComponent {
 
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   salaryStructures SalaryStructure[]
+  employeeLoans    EmployeeLoan[]
 
   @@index([companyId])
   @@map("pay_components")
@@ -1058,6 +1159,7 @@ model SalaryStructure {
 
   employee  Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   component PayComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+  employeeLoans EmployeeLoan[]
 
   @@index([employeeId])
   @@index([componentId])
@@ -1105,11 +1207,111 @@ model PayrollRun {
   superannuationContributions SuperannuationContribution[]
   adjustmentsAsOriginal      PayrollAdjustment[] @relation("OriginalPayrollRun")
   paymentBatchItem           PaymentBatchItem?
+  loanInstallments           LoanInstallment[]
 
   @@index([payrollPeriodId])
   @@index([employeeId])
   @@index([status])
   @@map("payroll_runs")
+}
+
+// ---------------------------------------------------------------------------
+// §7b Employee Loans & Salary Advances (MODULES.md §22)
+// ---------------------------------------------------------------------------
+
+enum EmployeeLoanKind {
+  loan
+  salary_advance
+
+  @@map("employee_loan_kind")
+}
+
+enum EmployeeLoanStatus {
+  pending_approval
+  active
+  fully_paid
+  rejected
+  cancelled
+
+  @@map("employee_loan_status")
+}
+
+enum LoanInstallmentStatus {
+  scheduled
+  paid
+  skipped
+
+  @@map("loan_installment_status")
+}
+
+model EmployeeLoan {
+  id                   String             @id @default(uuid()) @db.Uuid
+  tenantId             String             @map("tenant_id") @db.Uuid
+  companyId            String             @map("company_id") @db.Uuid
+  employeeId           String             @map("employee_id") @db.Uuid
+  referenceNumber      String             @map("reference_number")
+  loanKind             EmployeeLoanKind   @map("loan_kind")
+  purposeLabel         String?            @map("purpose_label")
+  principalAmount      Decimal            @map("principal_amount") @db.Decimal(14, 2)
+  interestRatePercent  Decimal            @default(0) @map("interest_rate_percent") @db.Decimal(8, 4)
+  tenorMonths          Int                @map("tenor_months")
+  monthlyInstallment   Decimal            @map("monthly_installment") @db.Decimal(14, 2)
+  totalRepayable       Decimal            @map("total_repayable") @db.Decimal(14, 2)
+  repaidAmount         Decimal            @default(0) @map("repaid_amount") @db.Decimal(14, 2)
+  remainingBalance     Decimal            @map("remaining_balance") @db.Decimal(14, 2)
+  installmentsPaid     Int                @default(0) @map("installments_paid")
+  deductFromPayroll    Boolean            @default(true) @map("deduct_from_payroll")
+  status               EmployeeLoanStatus @default(pending_approval)
+  firstDueDate         DateTime?          @map("first_due_date") @db.Date
+  disbursedAt          DateTime?          @map("disbursed_at")
+  approvedAt           DateTime?          @map("approved_at")
+  rejectedAt           DateTime?          @map("rejected_at")
+  payComponentId       String?            @map("pay_component_id") @db.Uuid
+  salaryStructureId    String?            @map("salary_structure_id") @db.Uuid
+  notes                String?
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee        Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  payComponent    PayComponent?     @relation(fields: [payComponentId], references: [id], onDelete: SetNull)
+  salaryStructure SalaryStructure?  @relation(fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  installments    LoanInstallment[]
+
+  @@unique([companyId, referenceNumber])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("employee_loans")
+}
+
+model LoanInstallment {
+  id                String                @id @default(uuid()) @db.Uuid
+  loanId            String                @map("loan_id") @db.Uuid
+  tenantId          String                @map("tenant_id") @db.Uuid
+  installmentNumber Int                   @map("installment_number")
+  dueDate           DateTime              @map("due_date") @db.Date
+  principalPortion  Decimal               @map("principal_portion") @db.Decimal(14, 2)
+  interestPortion   Decimal               @map("interest_portion") @db.Decimal(14, 2)
+  totalDue          Decimal               @map("total_due") @db.Decimal(14, 2)
+  status            LoanInstallmentStatus @default(scheduled)
+  paidAt            DateTime?             @map("paid_at")
+  payrollRunId      String?               @map("payroll_run_id") @db.Uuid
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  loan       EmployeeLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  payrollRun PayrollRun?  @relation(fields: [payrollRunId], references: [id], onDelete: SetNull)
+
+  @@unique([loanId, installmentNumber])
+  @@index([loanId])
+  @@index([tenantId])
+  @@index([dueDate, status])
+  @@index([payrollRunId])
+  @@map("loan_installments")
 }
 
 enum PayrollAdjustmentStatus {

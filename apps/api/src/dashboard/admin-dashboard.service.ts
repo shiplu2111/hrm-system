@@ -355,28 +355,29 @@ export class AdminDashboardService {
       });
     }
 
-    const contracts = await this.prisma.unscoped.employeeContractRule.findMany({
+    const contracts = await this.prisma.unscoped.employmentContract.findMany({
       where: {
         employee: { companyId, deletedAt: null },
-        effectiveTo: { gte: today, lte: windowEnd },
+        status: 'active',
+        endDate: { gte: today, lte: windowEnd },
       },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { effectiveTo: 'asc' },
+      orderBy: { endDate: 'asc' },
       take: 10,
     });
 
     for (const contract of contracts) {
-      if (!contract.effectiveTo) continue;
+      if (!contract.endDate) continue;
       items.push({
         id: contract.id,
         type: 'contract',
         employeeId: contract.employee.id,
         employeeName: `${contract.employee.firstName} ${contract.employee.lastName}`.trim(),
         label: 'Contract expiring',
-        expiryDate: formatDateValue(contract.effectiveTo),
-        daysUntil: this.daysUntil(today, contract.effectiveTo),
+        expiryDate: formatDateValue(contract.endDate),
+        daysUntil: this.daysUntil(today, contract.endDate),
       });
     }
 

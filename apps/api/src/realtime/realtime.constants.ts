@@ -21,6 +21,10 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'leave.rejected': false,
   'payroll.finalized': true,
   'attendance.late': true,
+  'contract.expiring': true,
+  'approval.pending': true,
+  'contract.renewal.approved': true,
+  'contract.renewal.rejected': false,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -87,6 +91,10 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'leave.rejected': 'Leave rejected',
   'payroll.finalized': 'Payroll finalized / payslip ready',
   'attendance.late': 'Late clock-in',
+  'contract.expiring': 'Contract expiring soon',
+  'approval.pending': 'Approval pending',
+  'contract.renewal.approved': 'Contract renewal approved',
+  'contract.renewal.rejected': 'Contract renewal rejected',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

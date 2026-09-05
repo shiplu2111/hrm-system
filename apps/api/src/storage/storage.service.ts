@@ -23,6 +23,14 @@ export class StorageService {
     return buildStorageKey(tenantId, 'payslips', payrollRunId, originalFilename);
   }
 
+  buildEmploymentContractKey(
+    tenantId: string,
+    contractId: string,
+    originalFilename: string,
+  ): string {
+    return buildStorageKey(tenantId, 'contracts', contractId, originalFilename);
+  }
+
   upload(key: string, file: Buffer, meta: FileMeta): Promise<string> {
     return this.driver.upload(key, file, meta);
   }

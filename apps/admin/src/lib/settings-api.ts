@@ -91,4 +91,24 @@ export const REALTIME_EVENT_OPTIONS: Array<{
     label: 'Late clock-in',
     description: 'Alert the employee and their manager on late arrival.',
   },
+  {
+    key: 'contract.expiring',
+    label: 'Contract expiring',
+    description: 'Alert employee, manager, and HR when a contract enters the expiry window.',
+  },
+  {
+    key: 'approval.pending',
+    label: 'Approval pending',
+    description: 'Notify the current approver when a renewal needs action.',
+  },
+  {
+    key: 'contract.renewal.approved',
+    label: 'Contract renewal approved',
+    description: 'Notify when a contract renewal completes all approval steps.',
+  },
+  {
+    key: 'contract.renewal.rejected',
+    label: 'Contract renewal rejected',
+    description: 'Notify when a contract renewal is rejected.',
+  },
 ];

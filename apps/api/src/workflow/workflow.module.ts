@@ -21,6 +21,7 @@ import { WorkflowInstancesService } from './workflow-instances.service';
     WorkflowInstancesService,
   ],
   exports: [
+    WorkflowAssigneeService,
     WorkflowDefinitionsService,
     WorkflowEngineService,
     WorkflowInstancesService,

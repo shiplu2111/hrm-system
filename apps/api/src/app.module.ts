@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -29,9 +30,12 @@ import { StorageModule } from './storage/storage.module';
 import { SyncModule } from './sync/sync.module';
 import { TenantModule } from './tenant/tenant.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { ContractsModule } from './contracts/contracts.module';
+import { LoansModule } from './loans/loans.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -65,6 +69,8 @@ import { WorkflowModule } from './workflow/workflow.module';
     DashboardModule,
     ReportsModule,
     WorkflowModule,
+    ContractsModule,
+    LoansModule,
   ],
   controllers: [AppController],
   providers: [

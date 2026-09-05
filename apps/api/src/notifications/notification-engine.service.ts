@@ -36,10 +36,13 @@ export class NotificationEngineService {
       );
       const payload = input.payload ?? {};
 
-      const recipients = await this.recipientsService.resolveRecipients(
-        input.subjectEmployeeId,
-        rule.recipients,
-      );
+      const recipients =
+        input.directUserIds?.length
+          ? await this.recipientsService.resolveDirectUsers(input.directUserIds)
+          : await this.recipientsService.resolveRecipients(
+              input.subjectEmployeeId,
+              rule.recipients,
+            );
 
       if (recipients.length === 0) {
         this.logger.warn(

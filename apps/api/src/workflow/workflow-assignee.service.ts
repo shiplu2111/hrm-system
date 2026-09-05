@@ -45,4 +45,50 @@ export class WorkflowAssigneeService {
       message: `You are not authorized for the ${input.step.roleName} approval step`,
     });
   }
+
+  /** Resolve user IDs who can act on the current workflow step (for approval.pending). */
+  async resolveApproverUserIds(input: {
+    step: WorkflowInstanceStep;
+    requesterEmployeeId: string;
+    tenantId: string;
+  }): Promise<string[]> {
+    if (input.step.assigneeType === 'direct_manager') {
+      const requester = await this.prisma.unscoped.employee.findFirst({
+        where: { id: input.requesterEmployeeId, deletedAt: null },
+        select: { managerId: true },
+      });
+      if (!requester?.managerId) return [];
+
+      const managerUser = await this.prisma.unscoped.user.findFirst({
+        where: {
+          employeeId: requester.managerId,
+          isActive: true,
+          tenantId: input.tenantId,
+        },
+        select: { id: true },
+      });
+      return managerUser ? [managerUser.id] : [];
+    }
+
+    const users = await this.prisma.unscoped.user.findMany({
+      where: {
+        tenantId: input.tenantId,
+        isActive: true,
+        role: { name: input.step.roleName },
+      },
+      select: { id: true },
+    });
+
+    if (users.length > 0) return users.map((u) => u.id);
+
+    if (input.step.roleName === 'Manager') {
+      return this.resolveApproverUserIds({
+        step: { ...input.step, assigneeType: 'direct_manager' },
+        requesterEmployeeId: input.requesterEmployeeId,
+        tenantId: input.tenantId,
+      });
+    }
+
+    return [];
+  }
 }

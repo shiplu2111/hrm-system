@@ -1,17 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   HandCoins,
   Plus,
   Search,
-  CheckCircle2,
-  AlertCircle,
   TrendingDown,
-  Building,
-  Calculator,
   Check,
   X,
   CreditCard,
+  Loader2,
 } from 'lucide-react';
+import type { EmployeeLoanKind, EmployeeLoanRecord } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -19,86 +17,204 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { Progress } from '@/components/ui/Progress';
 import { Avatar } from '@/components/ui/Toggle';
-import { loanRecords, type LoanRecord } from '@/data/payrollData';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { OrgPageState } from '@/components/org/OrgPageState';
+import { listEmployees } from '@/lib/employees-api';
+import {
+  LOAN_KIND_LABELS,
+  LOAN_STATUS_LABELS,
+  approveEmployeeLoan,
+  createEmployeeLoan,
+  listEmployeeLoans,
+  rejectEmployeeLoan,
+  type CreateEmployeeLoanInput,
+} from '@/lib/loans-api';
+import { ApiError } from '@/lib/tenant-api-client';
 
-export function LoansPage() {
-  const [loans, setLoans] = useState<LoanRecord[]>(loanRecords);
+const PURPOSE_OPTIONS: { label: string; kind: EmployeeLoanKind }[] = [
+  { label: 'Emergency Advance', kind: 'salary_advance' },
+  { label: 'Home / Relocation', kind: 'loan' },
+  { label: 'Education Assistance', kind: 'loan' },
+  { label: 'Device Purchase', kind: 'loan' },
+];
+
+function calculateEmi(
+  amount: number,
+  interest: number,
+  tenor: number,
+): number {
+  if (tenor <= 0) return 0;
+  const total = interest > 0 ? amount * (1 + interest / 100) : amount;
+  return Math.round((total / tenor) * 100) / 100;
+}
+
+function statusTone(
+  status: EmployeeLoanRecord['status'],
+): 'success' | 'warning' | 'error' | 'neutral' | 'accent' {
+  switch (status) {
+    case 'active':
+      return 'success';
+    case 'pending_approval':
+      return 'warning';
+    case 'fully_paid':
+      return 'accent';
+    case 'rejected':
+    case 'cancelled':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}
+
+function LoansContent({ companyId }: { companyId: string }) {
+  const [loans, setLoans] = useState<EmployeeLoanRecord[]>([]);
+  const [employees, setEmployees] = useState<
+    { id: string; fullName: string; employeeNumber: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [actionId, setActionId] = useState<string | null>(null);
 
-  // New Loan Form State
-  const [empName, setEmpName] = useState('Sarah Chen');
-  const [empId, setEmpId] = useState('EMP-001');
-  const [loanType, setLoanType] = useState<LoanRecord['loanType']>('Emergency Advance');
+  const [employeeId, setEmployeeId] = useState('');
+  const [purposeIndex, setPurposeIndex] = useState(0);
   const [amount, setAmount] = useState(3000);
   const [interest, setInterest] = useState(0);
   const [tenor, setTenor] = useState(6);
 
-  const calculatedEmi = Math.round(
-    interest > 0
-      ? (amount * (1 + interest / 100)) / tenor
-      : amount / tenor
-  );
+  const purpose = PURPOSE_OPTIONS[purposeIndex] ?? PURPOSE_OPTIONS[0];
+  const calculatedEmi = calculateEmi(amount, interest, tenor);
 
-  const handleCreateLoan = () => {
-    const newLoan: LoanRecord = {
-      id: `loan-${Date.now()}`,
-      loanId: `LN-2024-00${loans.length + 1}`,
-      employeeId: empId,
-      employeeName: empName,
-      loanType,
-      principalAmount: amount,
-      interestRate: interest,
-      tenorMonths: tenor,
-      monthlyEmi: calculatedEmi,
-      disbursedDate: new Date().toISOString().split('T')[0],
-      repaidAmount: 0,
-      remainingBalance: amount,
-      installmentsPaid: 0,
-      installmentsTotal: tenor,
-      deductFromPayroll: true,
-      status: 'Active',
-    };
-    setLoans((prev) => [newLoan, ...prev]);
-    setModalOpen(false);
-  };
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [loanRows, employeeRows] = await Promise.all([
+        listEmployeeLoans(companyId),
+        listEmployees(companyId),
+      ]);
+      setLoans(loanRows);
+      setEmployees(
+        employeeRows.map((e) => ({
+          id: e.id,
+          fullName: `${e.firstName} ${e.lastName}`.trim(),
+          employeeNumber: e.employeeNumber,
+        })),
+      );
+      setEmployeeId((current) => current || employeeRows[0]?.id || '');
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Failed to load loans',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
 
-  const handleApprove = (id: string) => {
-    setLoans((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, status: 'Active' } : l))
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const filteredLoans = useMemo(() => {
+    const q = search.toLowerCase();
+    return loans.filter(
+      (l) =>
+        (l.employeeName ?? '').toLowerCase().includes(q) ||
+        (l.employeeNumber ?? '').toLowerCase().includes(q) ||
+        (l.purposeLabel ?? '').toLowerCase().includes(q) ||
+        l.referenceNumber.toLowerCase().includes(q),
     );
-  };
-
-  const handleReject = (id: string) => {
-    setLoans((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, status: 'Rejected' } : l))
-    );
-  };
-
-  const filteredLoans = loans.filter(
-    (l) =>
-      l.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-      l.employeeId.toLowerCase().includes(search.toLowerCase()) ||
-      l.loanType.toLowerCase().includes(search.toLowerCase()) ||
-      l.loanId.toLowerCase().includes(search.toLowerCase())
-  );
+  }, [loans, search]);
 
   const totalOutstanding = loans
-    .filter((l) => l.status === 'Active')
+    .filter((l) => l.status === 'active')
     .reduce((s, l) => s + l.remainingBalance, 0);
 
   const monthlyRecovered = loans
-    .filter((l) => l.status === 'Active')
-    .reduce((s, l) => s + l.monthlyEmi, 0);
+    .filter((l) => l.status === 'active')
+    .reduce((s, l) => s + l.monthlyInstallment, 0);
+
+  const pendingCount = loans.filter(
+    (l) => l.status === 'pending_approval',
+  ).length;
+
+  const handleCreateLoan = async () => {
+    if (!employeeId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const input: CreateEmployeeLoanInput = {
+        employeeId,
+        loanKind: purpose.kind,
+        purposeLabel: purpose.label,
+        principalAmount: amount,
+        interestRatePercent: interest,
+        tenorMonths: tenor,
+        deductFromPayroll: true,
+      };
+      await createEmployeeLoan(companyId, input);
+      setModalOpen(false);
+      await loadData();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Failed to create loan request',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApprove = async (loanId: string) => {
+    setActionId(loanId);
+    setError(null);
+    try {
+      await approveEmployeeLoan(loanId);
+      await loadData();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Failed to approve loan',
+      );
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleReject = async (loanId: string) => {
+    setActionId(loanId);
+    setError(null);
+    try {
+      await rejectEmployeeLoan(loanId);
+      await loadData();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Failed to reject loan',
+      );
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12 text-secondary">
+        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+        Loading loans…
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">Loans & Salary Advances</h1>
+          <h1 className="text-xl font-bold text-primary">
+            Loans & Salary Advances
+          </h1>
           <p className="text-sm text-secondary mt-0.5">
-            Manage company loans, salary advance requests, and automatic monthly EMI payroll recoveries.
+            Manage company loans, salary advance requests, and automatic monthly
+            EMI payroll recoveries.
           </p>
         </div>
         <Button variant="primary" onClick={() => setModalOpen(true)}>
@@ -106,12 +222,21 @@ export function LoansPage() {
         </Button>
       </div>
 
-      {/* KPI Stats */}
+      {error && (
+        <div className="rounded-lg border border-error-200 bg-error-50 dark:bg-error-950/30 px-4 py-3 text-sm text-error-700 dark:text-error-300">
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
           <div>
-            <div className="text-2xl font-bold text-primary">${totalOutstanding.toLocaleString()}</div>
-            <div className="text-xs text-secondary mt-0.5">Total Outstanding Loan Balance</div>
+            <div className="text-2xl font-bold text-primary">
+              ${totalOutstanding.toLocaleString()}
+            </div>
+            <div className="text-xs text-secondary mt-0.5">
+              Total Outstanding Loan Balance
+            </div>
           </div>
           <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 dark:text-accent-400 flex items-center justify-center">
             <HandCoins className="h-5 w-5" />
@@ -123,7 +248,9 @@ export function LoansPage() {
             <div className="text-2xl font-bold text-success-600 dark:text-success-400">
               ${monthlyRecovered.toLocaleString()} / mo
             </div>
-            <div className="text-xs text-secondary mt-0.5">Scheduled Monthly Payroll Recovery</div>
+            <div className="text-xs text-secondary mt-0.5">
+              Scheduled Monthly Payroll Recovery
+            </div>
           </div>
           <div className="h-10 w-10 rounded-lg bg-success-50 dark:bg-success-950/40 text-success-600 dark:text-success-400 flex items-center justify-center">
             <TrendingDown className="h-5 w-5" />
@@ -133,9 +260,11 @@ export function LoansPage() {
         <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
           <div>
             <div className="text-2xl font-bold text-warning-600">
-              {loans.filter((l) => l.status === 'Pending Approval').length}
+              {pendingCount}
             </div>
-            <div className="text-xs text-secondary mt-0.5">Pending Advance Requests</div>
+            <div className="text-xs text-secondary mt-0.5">
+              Pending Advance Requests
+            </div>
           </div>
           <div className="h-10 w-10 rounded-lg bg-warning-50 dark:bg-warning-950/40 text-warning-600 dark:text-warning-400 flex items-center justify-center">
             <CreditCard className="h-5 w-5" />
@@ -143,7 +272,6 @@ export function LoansPage() {
         </div>
       </div>
 
-      {/* Loans Table */}
       <Card>
         <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <CardTitle>Active Loans & Installment Schedules</CardTitle>
@@ -166,7 +294,7 @@ export function LoansPage() {
                     Loan ID / Staff
                   </th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Loan Type
+                    Type
                   </th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
                     Principal & Interest
@@ -186,87 +314,151 @@ export function LoansPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {filteredLoans.map((loan) => {
-                  const progressPct = Math.round(
-                    (loan.installmentsPaid / loan.installmentsTotal) * 100
-                  );
-                  return (
-                    <tr key={loan.id} className="hover:bg-[rgb(var(--bg-hover))] transition-colors">
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={loan.employeeName} size="sm" />
-                          <div>
-                            <div className="font-semibold text-primary text-sm">{loan.employeeName}</div>
-                            <div className="text-xs text-muted font-mono">{loan.loanId} · {loan.employeeId}</div>
+                {filteredLoans.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-5 py-8 text-center text-secondary text-sm"
+                    >
+                      No loans found. Create a loan or advance request to get
+                      started.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLoans.map((loan) => {
+                    const progressPct =
+                      loan.installmentsTotal > 0
+                        ? Math.round(
+                            (loan.installmentsPaid / loan.installmentsTotal) *
+                              100,
+                          )
+                        : 0;
+                    const displayName =
+                      loan.employeeName ?? 'Unknown employee';
+                    const isBusy = actionId === loan.id;
+
+                    return (
+                      <tr
+                        key={loan.id}
+                        className="hover:bg-[rgb(var(--bg-hover))] transition-colors"
+                      >
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <Avatar name={displayName} size="sm" />
+                            <div>
+                              <div className="font-semibold text-primary text-sm">
+                                {displayName}
+                              </div>
+                              <div className="text-xs text-muted font-mono">
+                                {loan.referenceNumber} ·{' '}
+                                {loan.employeeNumber ?? loan.employeeId}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="px-5 py-3.5 text-xs text-primary font-medium">
-                        {loan.loanType}
-                      </td>
+                        <td className="px-5 py-3.5 text-xs text-primary font-medium">
+                          {loan.purposeLabel ??
+                            LOAN_KIND_LABELS[loan.loanKind]}
+                        </td>
 
-                      <td className="px-5 py-3.5 text-xs">
-                        <div className="font-bold text-primary">${loan.principalAmount.toLocaleString()}</div>
-                        <div className="text-[11px] text-muted">{loan.interestRate}% interest · {loan.tenorMonths} mo</div>
-                      </td>
-
-                      <td className="px-5 py-3.5 text-xs">
-                        <span className="font-semibold text-error-600">-${loan.monthlyEmi} / mo</span>
-                        <div className="text-[10px] text-success-600 font-medium">Auto-deducted</div>
-                      </td>
-
-                      <td className="px-5 py-3.5 w-48">
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="text-muted">{loan.installmentsPaid} of {loan.installmentsTotal} paid</span>
-                            <span className="font-semibold text-primary">${loan.remainingBalance} left</span>
+                        <td className="px-5 py-3.5 text-xs">
+                          <div className="font-bold text-primary">
+                            ${loan.principalAmount.toLocaleString()}
                           </div>
-                          <Progress value={progressPct} />
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-3.5">
-                        <Badge
-                          tone={
-                            loan.status === 'Active'
-                              ? 'success'
-                              : loan.status === 'Pending Approval'
-                              ? 'warning'
-                              : loan.status === 'Fully Paid'
-                              ? 'accent'
-                              : 'neutral'
-                          }
-                          dot
-                        >
-                          {loan.status}
-                        </Badge>
-                      </td>
-
-                      <td className="px-5 py-3.5 text-right">
-                        {loan.status === 'Pending Approval' ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="primary" size="sm" onClick={() => handleApprove(loan.id)}>
-                              <Check className="h-3.5 w-3.5" /> Approve
-                            </Button>
-                            <Button variant="danger" size="sm" onClick={() => handleReject(loan.id)}>
-                              <X className="h-3.5 w-3.5" /> Reject
-                            </Button>
+                          <div className="text-[11px] text-muted">
+                            {loan.interestRatePercent}% interest ·{' '}
+                            {loan.tenorMonths} mo
                           </div>
-                        ) : (
-                          <span className="text-xs text-muted font-mono">{loan.disbursedDate}</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+
+                        <td className="px-5 py-3.5 text-xs">
+                          {loan.status === 'active' ||
+                          loan.status === 'fully_paid' ? (
+                            <>
+                              <span className="font-semibold text-error-600">
+                                -${loan.monthlyInstallment} / mo
+                              </span>
+                              {loan.deductFromPayroll && (
+                                <div className="text-[10px] text-success-600 font-medium">
+                                  Auto-deducted
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-3.5 w-48">
+                          {loan.status === 'active' ||
+                          loan.status === 'fully_paid' ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-muted">
+                                  {loan.installmentsPaid} of{' '}
+                                  {loan.installmentsTotal} paid
+                                </span>
+                                <span className="font-semibold text-primary">
+                                  ${loan.remainingBalance.toLocaleString()} left
+                                </span>
+                              </div>
+                              <Progress value={progressPct} />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted">
+                              Schedule pending approval
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-3.5">
+                          <Badge tone={statusTone(loan.status)} dot>
+                            {LOAN_STATUS_LABELS[loan.status]}
+                          </Badge>
+                        </td>
+
+                        <td className="px-5 py-3.5 text-right">
+                          {loan.status === 'pending_approval' ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void handleApprove(loan.id)}
+                              >
+                                {isBusy ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}{' '}
+                                Approve
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void handleReject(loan.id)}
+                              >
+                                <X className="h-3.5 w-3.5" /> Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted font-mono">
+                              {loan.disbursedAt?.slice(0, 10) ?? '—'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </CardBody>
       </Card>
 
-      {/* Modal with Live EMI Calculator */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -277,8 +469,18 @@ export function LoansPage() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleCreateLoan}>
-              Disburse & Activate EMI
+            <Button
+              variant="primary"
+              disabled={saving || !employeeId}
+              onClick={() => void handleCreateLoan()}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Submitting…
+                </>
+              ) : (
+                'Submit Request'
+              )}
             </Button>
           </>
         }
@@ -288,27 +490,27 @@ export function LoansPage() {
             <div>
               <Label>Employee</Label>
               <Select
-                value={empName}
-                onChange={(e) => {
-                  setEmpName(e.target.value);
-                  setEmpId(e.target.value === 'Sarah Chen' ? 'EMP-001' : 'EMP-002');
-                }}
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
               >
-                <option value="Sarah Chen">Sarah Chen (EMP-001)</option>
-                <option value="Marcus Johnson">Marcus Johnson (EMP-002)</option>
-                <option value="Lisa Wang">Lisa Wang (EMP-005)</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.fullName} ({emp.employeeNumber})
+                  </option>
+                ))}
               </Select>
             </div>
             <div>
               <Label>Loan / Advance Type</Label>
               <Select
-                value={loanType}
-                onChange={(e) => setLoanType(e.target.value as LoanRecord['loanType'])}
+                value={String(purposeIndex)}
+                onChange={(e) => setPurposeIndex(Number(e.target.value))}
               >
-                <option value="Emergency Advance">Emergency Advance</option>
-                <option value="Home / Relocation">Home / Relocation</option>
-                <option value="Education Assistance">Education Assistance</option>
-                <option value="Device Purchase">Device Purchase</option>
+                {PURPOSE_OPTIONS.map((opt, idx) => (
+                  <option key={opt.label} value={idx}>
+                    {opt.label}
+                  </option>
+                ))}
               </Select>
             </div>
           </div>
@@ -319,15 +521,19 @@ export function LoansPage() {
               <Input
                 type="number"
                 value={amount}
-                onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  setAmount(parseFloat(e.target.value) || 0)
+                }
               />
             </div>
             <div>
-              <Label>Annual Interest (%)</Label>
+              <Label>Flat Interest (%)</Label>
               <Input
                 type="number"
                 value={interest}
-                onChange={(e) => setInterest(parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  setInterest(parseFloat(e.target.value) || 0)
+                }
               />
             </div>
             <div>
@@ -340,12 +546,16 @@ export function LoansPage() {
             </div>
           </div>
 
-          {/* Live Calculated Summary */}
           <div className="surface border border-base rounded-xl p-4 bg-accent-50/20 dark:bg-accent-950/20 text-center space-y-1">
-            <div className="text-xs text-secondary">Calculated Monthly Payroll Deduction (EMI)</div>
-            <div className="text-2xl font-bold text-primary">${calculatedEmi} / month</div>
+            <div className="text-xs text-secondary">
+              Calculated Monthly Payroll Deduction (EMI)
+            </div>
+            <div className="text-2xl font-bold text-primary">
+              ${calculatedEmi} / month
+            </div>
             <div className="text-[11px] text-muted">
-              Auto-linked to monthly payroll run over {tenor} installment cycles.
+              After approval, EMI is auto-linked to payroll via the Loan &
+              Advance Recovery deduction component.
             </div>
           </div>
         </div>
@@ -354,3 +564,17 @@ export function LoansPage() {
   );
 }
 
+export function LoansPage() {
+  return (
+    <OrgPageState>
+      {(companyId) => (
+        <>
+          <div className="px-4 lg:px-6 pt-4">
+            <CompanySelector />
+          </div>
+          <LoansContent companyId={companyId} />
+        </>
+      )}
+    </OrgPageState>
+  );
+}

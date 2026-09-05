@@ -9,6 +9,7 @@ import {
   PermissionAction,
   PrismaClient,
 } from '@prisma/client';
+import { PAY_FORMULA_LOAN_INSTALLMENT } from '@hrm/shared-types';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -27,9 +28,13 @@ const ID = {
   payComponentBasic: '10000000-0000-4000-8000-000000000080',
   payComponentHra: '10000000-0000-4000-8000-000000000081',
   payComponentTax: '10000000-0000-4000-8000-000000000082',
+  payComponentLoan: '10000000-0000-4000-8000-000000000083',
   salaryStructureBasic: '10000000-0000-4000-8000-000000000090',
   salaryStructureHra: '10000000-0000-4000-8000-000000000091',
   salaryStructureTax: '10000000-0000-4000-8000-000000000092',
+  salaryStructureLoan: '10000000-0000-4000-8000-000000000093',
+  employeeLoanStaff: '10000000-0000-4000-8000-0000000000a0',
+  employeeLoanPending: '10000000-0000-4000-8000-0000000000a1',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -904,6 +909,24 @@ async function main(): Promise<void> {
     },
   });
 
+  await prisma.payComponent.upsert({
+    where: { id: ID.payComponentLoan },
+    create: {
+      id: ID.payComponentLoan,
+      companyId: company.id,
+      name: 'Loan & Advance Recovery',
+      type: 'deduction',
+      calculationType: 'formula',
+      formula: PAY_FORMULA_LOAN_INSTALLMENT,
+    },
+    update: {
+      name: 'Loan & Advance Recovery',
+      type: 'deduction',
+      calculationType: 'formula',
+      formula: PAY_FORMULA_LOAN_INSTALLMENT,
+    },
+  });
+
   await prisma.salaryStructure.upsert({
     where: { id: ID.salaryStructureBasic },
     create: {
@@ -949,6 +972,108 @@ async function main(): Promise<void> {
     update: {
       amountOrFormula: { percentage: 15 },
       effectiveFrom: new Date('2023-02-01T00:00:00.000Z'),
+    },
+  });
+
+  const staffLoanFirstDue = new Date('2026-04-01T00:00:00.000Z');
+  await prisma.salaryStructure.upsert({
+    where: { id: ID.salaryStructureLoan },
+    create: {
+      id: ID.salaryStructureLoan,
+      employeeId: ID.empStaff,
+      componentType: 'deduction',
+      componentId: ID.payComponentLoan,
+      amountOrFormula: {},
+      effectiveFrom: staffLoanFirstDue,
+    },
+    update: {
+      componentId: ID.payComponentLoan,
+      effectiveFrom: staffLoanFirstDue,
+    },
+  });
+
+  await prisma.employeeLoan.upsert({
+    where: { id: ID.employeeLoanStaff },
+    create: {
+      id: ID.employeeLoanStaff,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      referenceNumber: 'LN-2026-001',
+      loanKind: 'salary_advance',
+      purposeLabel: 'Emergency Advance',
+      principalAmount: 6000,
+      interestRatePercent: 0,
+      tenorMonths: 6,
+      monthlyInstallment: 1000,
+      totalRepayable: 6000,
+      remainingBalance: 6000,
+      deductFromPayroll: true,
+      status: 'active',
+      firstDueDate: staffLoanFirstDue,
+      disbursedAt: new Date('2026-03-01T00:00:00.000Z'),
+      approvedAt: new Date('2026-03-01T00:00:00.000Z'),
+      payComponentId: ID.payComponentLoan,
+      salaryStructureId: ID.salaryStructureLoan,
+    },
+    update: {
+      status: 'active',
+      remainingBalance: 6000,
+      payComponentId: ID.payComponentLoan,
+      salaryStructureId: ID.salaryStructureLoan,
+    },
+  });
+
+  for (let i = 1; i <= 6; i += 1) {
+    const dueDate = new Date(staffLoanFirstDue);
+    dueDate.setUTCMonth(dueDate.getUTCMonth() + (i - 1));
+    await prisma.loanInstallment.upsert({
+      where: {
+        loanId_installmentNumber: {
+          loanId: ID.employeeLoanStaff,
+          installmentNumber: i,
+        },
+      },
+      create: {
+        loanId: ID.employeeLoanStaff,
+        tenantId: tenant.id,
+        installmentNumber: i,
+        dueDate,
+        principalPortion: 1000,
+        interestPortion: 0,
+        totalDue: 1000,
+        status: 'scheduled',
+      },
+      update: {
+        dueDate,
+        totalDue: 1000,
+        status: 'scheduled',
+      },
+    });
+  }
+
+  await prisma.employeeLoan.upsert({
+    where: { id: ID.employeeLoanPending },
+    create: {
+      id: ID.employeeLoanPending,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empManager,
+      referenceNumber: 'LN-2026-002',
+      loanKind: 'loan',
+      purposeLabel: 'Device Purchase',
+      principalAmount: 3000,
+      interestRatePercent: 0,
+      tenorMonths: 6,
+      monthlyInstallment: 500,
+      totalRepayable: 3000,
+      remainingBalance: 3000,
+      deductFromPayroll: true,
+      status: 'pending_approval',
+    },
+    update: {
+      status: 'pending_approval',
+      purposeLabel: 'Device Purchase',
     },
   });
 

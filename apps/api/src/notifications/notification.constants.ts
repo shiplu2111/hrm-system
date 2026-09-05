@@ -32,6 +32,26 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['subject_employee', 'manager'],
   },
+  'contract.expiring': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee', 'manager', 'hr_admin'],
+  },
+  'approval.pending': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee'],
+  },
+  'contract.renewal.approved': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee', 'manager'],
+  },
+  'contract.renewal.rejected': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee', 'manager'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -63,6 +83,26 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Late arrival recorded',
     body: '{employee_name} clocked in late on {work_date} at {clock_in_time}.',
     emailSubject: 'Late attendance — {work_date}',
+  },
+  'contract.expiring': {
+    title: 'Contract expiring soon',
+    body: 'The employment contract for {employee_name} expires on {expiry_date} ({days_until} days remaining).',
+    emailSubject: 'Contract expiring — {employee_name}',
+  },
+  'approval.pending': {
+    title: 'Approval required',
+    body: 'A {entity_label} for {employee_name} is awaiting your approval ({step_name}).',
+    emailSubject: 'Approval pending — {entity_label}',
+  },
+  'contract.renewal.approved': {
+    title: 'Contract renewal approved',
+    body: 'The contract renewal for {employee_name} ({start_date} to {end_date}) has been approved.',
+    emailSubject: 'Contract renewal approved — {employee_name}',
+  },
+  'contract.renewal.rejected': {
+    title: 'Contract renewal rejected',
+    body: 'The contract renewal for {employee_name} was rejected.',
+    emailSubject: 'Contract renewal rejected — {employee_name}',
   },
 };
 

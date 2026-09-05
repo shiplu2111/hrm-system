@@ -1,5 +1,6 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import {
+  PAY_FORMULA_LOAN_INSTALLMENT,
   PAY_FORMULA_OVERTIME_EXAMPLE,
   PAY_FORMULA_UNPAID_LEAVE_EXAMPLE,
 } from '@hrm/shared-types';
@@ -88,6 +89,20 @@ describe('Pay formula interpreter (PAYROLL_LOGIC.md §5)', () => {
 
     expect(result.conditionMet).toBe(false);
     expect(result.amount.toFixed(2)).toBe('0.00');
+  });
+
+  it('evaluates loan installment deduction from payroll context', () => {
+    const context = createPayrollFormulaContext({
+      loan: {
+        installment_amount: new Decimal(1000),
+        remaining_balance: new Decimal(6000),
+        active_count: new Decimal(1),
+      },
+    });
+
+    const result = evaluatePayFormulaRule(PAY_FORMULA_LOAN_INSTALLMENT, context);
+
+    expect(result.amount.toFixed(2)).toBe('1000.00');
   });
 
   it('rejects disallowed reference paths at validation time', () => {

@@ -81,8 +81,10 @@ interface NavContextValue {
   current: PageKey;
   navigate: (p: PageKey) => void;
   selectedEmployeeId: string | null;
+  selectedContractId: string | null;
   openEmployee: (id: string) => void;
   openLifecycle: (id: string) => void;
+  openContract: (id: string) => void;
 }
 
 const NavContext = createContext<NavContextValue | undefined>(undefined);
@@ -90,6 +92,9 @@ const NavContext = createContext<NavContextValue | undefined>(undefined);
 export function NavProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<PageKey>('dashboard');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
+    null,
+  );
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(
     null,
   );
 
@@ -103,14 +108,21 @@ export function NavProvider({ children }: { children: ReactNode }) {
     setCurrent('emp-lifecycle');
   };
 
+  const openContract = (id: string) => {
+    setSelectedContractId(id);
+    setCurrent('emp-contract-detail');
+  };
+
   return (
     <NavContext.Provider
       value={{
         current,
         navigate: setCurrent,
         selectedEmployeeId,
+        selectedContractId,
         openEmployee,
         openLifecycle,
+        openContract,
       }}
     >
       {children}

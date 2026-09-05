@@ -317,15 +317,15 @@ export class HrReportsService {
         },
         orderBy: { expiryDate: 'asc' },
       }),
-      this.prisma.unscoped.employeeContractRule.findMany({
+      this.prisma.unscoped.employmentContract.findMany({
         where: {
-          effectiveTo: { gte: range.from, lte: range.to },
+          endDate: { gte: range.from, lte: range.to },
           employee: this.employeeFilter(companyId),
         },
         include: {
           employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
         },
-        orderBy: { effectiveTo: 'asc' },
+        orderBy: { endDate: 'asc' },
       }),
     ]);
 
@@ -345,12 +345,12 @@ export class HrReportsService {
       expiryDate: doc.expiryDate ? formatDateValue(doc.expiryDate) : '',
     }));
 
-    const contractRows = contracts.map((rule) => ({
+    const contractRows = contracts.map((contract) => ({
       itemType: 'Contract',
-      employeeNumber: rule.employee.employeeNumber,
-      employeeName: `${rule.employee.firstName} ${rule.employee.lastName}`.trim(),
-      label: rule.ruleType,
-      expiryDate: rule.effectiveTo ? formatDateValue(rule.effectiveTo) : '',
+      employeeNumber: contract.employee.employeeNumber,
+      employeeName: `${contract.employee.firstName} ${contract.employee.lastName}`.trim(),
+      label: contract.contractType,
+      expiryDate: contract.endDate ? formatDateValue(contract.endDate) : '',
     }));
 
     const rows = [...docRows, ...contractRows];

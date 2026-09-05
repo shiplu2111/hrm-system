@@ -17,3 +17,5 @@ export * from './dashboard';
 export * from './reports';
 export * from './security';
 export * from './workflow';
+export * from './contract';
+export * from './loan';

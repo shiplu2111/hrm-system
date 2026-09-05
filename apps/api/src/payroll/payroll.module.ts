@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
+import { LoansModule } from '../loans/loans.module';
 import { EmployeeTaxProfilesController } from './employee-tax-profiles.controller';
 import { EmployeeTaxProfilesService } from './employee-tax-profiles.service';
 import { PayComponentsController } from './pay-components.controller';
@@ -23,7 +24,7 @@ import { SalaryStructuresController } from './salary-structures.controller';
 import { SalaryStructuresService } from './salary-structures.service';
 
 @Module({
-  imports: [OrganizationModule, RbacModule, NotificationsModule],
+  imports: [OrganizationModule, RbacModule, NotificationsModule, LoansModule],
   controllers: [
     PayComponentsController,
     SalaryStructuresController,

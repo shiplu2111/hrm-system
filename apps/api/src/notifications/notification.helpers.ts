@@ -41,3 +41,39 @@ export function buildAttendanceLateVariables(input: {
     clock_in_time: input.clockInTime,
   };
 }
+
+export function buildContractExpiringVariables(input: {
+  employeeName: string;
+  expiryDate: string;
+  daysUntil: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    employee_name: input.employeeName,
+    expiry_date: input.expiryDate,
+    days_until: input.daysUntil,
+  };
+}
+
+export function buildApprovalPendingVariables(input: {
+  employeeName: string;
+  entityLabel: string;
+  stepName: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    employee_name: input.employeeName,
+    entity_label: input.entityLabel,
+    step_name: input.stepName,
+  };
+}
+
+export function buildContractRenewalVariables(input: {
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    employee_name: input.employeeName,
+    start_date: input.startDate,
+    end_date: input.endDate,
+  };
+}

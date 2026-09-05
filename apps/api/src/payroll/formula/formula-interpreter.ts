@@ -27,6 +27,11 @@ export interface PayrollFormulaContext {
     gross_earnings: Decimal;
     working_days_in_period: Decimal;
   };
+  loan: {
+    installment_amount: Decimal;
+    remaining_balance: Decimal;
+    active_count: Decimal;
+  };
 }
 
 export interface PayFormulaEvaluationResult {
@@ -221,6 +226,13 @@ function resolveRef(
       if (field === 'working_days_in_period') return bucket.working_days_in_period;
       break;
     }
+    case 'loan': {
+      const bucket = context.loan;
+      if (field === 'installment_amount') return bucket.installment_amount;
+      if (field === 'remaining_balance') return bucket.remaining_balance;
+      if (field === 'active_count') return bucket.active_count;
+      break;
+    }
     default:
       break;
   }
@@ -241,6 +253,7 @@ export function createPayrollFormulaContext(
     shift: Partial<PayrollFormulaContext['shift']>;
     attendance: Partial<PayrollFormulaContext['attendance']>;
     payroll: Partial<PayrollFormulaContext['payroll']>;
+    loan: Partial<PayrollFormulaContext['loan']>;
   }>,
 ): PayrollFormulaContext {
   return {
@@ -261,6 +274,11 @@ export function createPayrollFormulaContext(
       gross_earnings: partial.payroll?.gross_earnings ?? ZERO,
       working_days_in_period:
         partial.payroll?.working_days_in_period ?? DEFAULT_WORKING_DAYS,
+    },
+    loan: {
+      installment_amount: partial.loan?.installment_amount ?? ZERO,
+      remaining_balance: partial.loan?.remaining_balance ?? ZERO,
+      active_count: partial.loan?.active_count ?? ZERO,
     },
   };
 }

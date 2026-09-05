@@ -53,6 +53,9 @@ export const PAY_FORMULA_REF_PATHS = [
   'payroll.basic_salary',
   'payroll.gross_earnings',
   'payroll.working_days_in_period',
+  'loan.installment_amount',
+  'loan.remaining_balance',
+  'loan.active_count',
 ] as const;
 
 export type PayFormulaRefPath = (typeof PAY_FORMULA_REF_PATHS)[number];
@@ -100,6 +103,12 @@ export const PAY_FORMULA_OVERTIME_EXAMPLE: PayFormulaRule = {
       { ref: 'shift.ot_multiplier' },
     ],
   },
+};
+
+/** Loan/advance installment deduction (MODULES.md §22). */
+export const PAY_FORMULA_LOAN_INSTALLMENT: PayFormulaRule = {
+  version: 1,
+  then: { ref: 'loan.installment_amount' },
 };
 
 /** Unpaid leave deduction example from PAYROLL_LOGIC.md §5. */

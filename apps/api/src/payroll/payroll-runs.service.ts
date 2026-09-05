@@ -30,6 +30,7 @@ import { PayslipService } from './payslip.service';
 import { PermissionsService } from '../rbac/permissions.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import { buildPayrollFinalizedVariables } from '../notifications/notification.helpers';
+import { LoanPayrollService } from '../loans/loan-payroll.service';
 import {
   assertPayrollRunTransition,
   auditActionForPayrollTransition,
@@ -62,6 +63,7 @@ export class PayrollRunsService {
     private readonly permissionsService: PermissionsService,
     private readonly payslipService: PayslipService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly loanPayrollService: LoanPayrollService,
   ) {}
 
   async listForPeriod(
@@ -288,6 +290,13 @@ export class PayrollRunsService {
       const period = await this.prisma.unscoped.payrollPeriod.findUniqueOrThrow({
         where: { id: row.payrollPeriodId },
         select: { startDate: true, endDate: true },
+      });
+
+      await this.loanPayrollService.settleDueInstallments({
+        employeeId: row.employeeId,
+        payrollRunId: runId,
+        periodFrom: period.startDate,
+        periodTo: period.endDate,
       });
 
       await this.notificationEngine.emit({

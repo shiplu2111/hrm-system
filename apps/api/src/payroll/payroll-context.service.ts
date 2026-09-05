@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { AttendanceRecordStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { buildShiftWindow } from '../attendance/attendance.utils';
 import { PrismaService } from '../database/prisma.service';
+import { LoanPayrollService } from '../loans/loan-payroll.service';
 import {
   createPayrollFormulaContext,
   type PayrollFormulaContext,
@@ -30,7 +31,10 @@ export interface PayrollFormulaContextOptions {
 
 @Injectable()
 export class PayrollContextService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly loanPayroll?: LoanPayrollService,
+  ) {}
 
   async buildContext(
     options: PayrollFormulaContextOptions,
@@ -157,6 +161,18 @@ export class PayrollContextService {
 
     const attendanceStatus = hasUnpaidLeave ? 'unpaid_leave' : 'present';
 
+    const loanSnapshot = this.loanPayroll
+      ? await this.loanPayroll.getFormulaSnapshot(
+          employeeId,
+          period.from,
+          period.to,
+        )
+      : {
+          installmentAmount: ZERO,
+          remainingBalance: ZERO,
+          activeCount: ZERO,
+        };
+
     return createPayrollFormulaContext({
       employee: {
         worked_hours: workedHours,
@@ -174,6 +190,11 @@ export class PayrollContextService {
         basic_salary: basicSalary,
         gross_earnings: grossEarnings,
         working_days_in_period: workingDaysInPeriod,
+      },
+      loan: {
+        installment_amount: loanSnapshot.installmentAmount,
+        remaining_balance: loanSnapshot.remainingBalance,
+        active_count: loanSnapshot.activeCount,
       },
     });
   }
