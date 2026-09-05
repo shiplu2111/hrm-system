@@ -158,7 +158,7 @@ export function ReportsHubPage() {
       frequency: schedFrequency,
       recipients: schedRecipients.split(',').map((s) => s.trim()),
       nextRun: '2024-09-01 00:00',
-      format: 'CSV / Excel',
+      format: 'CSV',
       status: 'Active',
     };
     setSchedList((prev) => [newSched, ...prev]);

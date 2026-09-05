@@ -4,16 +4,19 @@ interface ToggleProps {
   checked: boolean;
   onChange: (v: boolean) => void;
   size?: 'sm' | 'md';
+  disabled?: boolean;
 }
 
-export function Toggle({ checked, onChange, size = 'md' }: ToggleProps) {
+export function Toggle({ checked, onChange, size = 'md', disabled = false }: ToggleProps) {
   const dims = size === 'sm' ? { w: 'w-8', h: 'h-4', knob: 'h-3 w-3', translate: 'translate-x-4' } : { w: 'w-9', h: 'h-5', knob: 'h-4 w-4', translate: 'translate-x-4' };
   return (
     <button
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex ${dims.h} ${dims.w} shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-        checked ? 'bg-accent-600' : 'bg-slate-300 dark:bg-slate-600'
-      }`}
+      type="button"
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
+      className={`relative inline-flex ${dims.h} ${dims.w} shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+      } ${checked ? 'bg-accent-600' : 'bg-slate-300 dark:bg-slate-600'}`}
     >
       <span
         className={`pointer-events-none inline-block ${dims.knob} transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${

@@ -1,7 +1,11 @@
 import type {
   NotificationEventType,
   RealtimeNotificationSettingsView,
+  SendSmtpTestEmailInput,
+  SendSmtpTestEmailResult,
+  SmtpSettingsView,
   UpdateRealtimeNotificationSettingsInput,
+  UpdateSmtpSettingsInput,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -25,6 +29,38 @@ export function updateRealtimeNotificationSettings(
     companySettingsPath(companyId, 'notifications/realtime'),
     {
       method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getSmtpSettings(companyId: string): Promise<SmtpSettingsView> {
+  return tenantApiRequest<SmtpSettingsView>(
+    companySettingsPath(companyId, 'smtp'),
+  );
+}
+
+export function updateSmtpSettings(
+  companyId: string,
+  input: UpdateSmtpSettingsInput,
+): Promise<SmtpSettingsView> {
+  return tenantApiRequest<SmtpSettingsView>(
+    companySettingsPath(companyId, 'smtp'),
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function sendSmtpTestEmail(
+  companyId: string,
+  input: SendSmtpTestEmailInput,
+): Promise<SendSmtpTestEmailResult> {
+  return tenantApiRequest<SendSmtpTestEmailResult>(
+    companySettingsPath(companyId, 'smtp/test'),
+    {
+      method: 'POST',
       body: JSON.stringify(input),
     },
   );

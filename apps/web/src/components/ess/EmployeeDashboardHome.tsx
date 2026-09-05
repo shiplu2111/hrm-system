@@ -5,7 +5,6 @@ import {
   Coffee,
   Download,
   LogIn,
-  LogOut as LogOutIcon,
   Wallet,
 } from 'lucide-react';
 import type { EmployeeDashboardView } from '@hrm/shared-types';

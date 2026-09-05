@@ -25,14 +25,17 @@
     "docker:logs": "docker compose logs -f",
     "build": "npm run build -w @hrm/shared-types && npm run build -w @hrm/api && npm run build -w @hrm/admin && npm run build -w @hrm/web && npm run build -w @hrm/platform",
     "build:types": "npm run build -w @hrm/shared-types",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:ci": "npm run lint:ci -w @hrm/api && npm run lint:ci -w @hrm/web",
+    "typecheck": "npm run build -w @hrm/shared-types && npm run typecheck -w @hrm/api && npm run typecheck -w @hrm/web && npm run typecheck -w @hrm/admin && npm run typecheck -w @hrm/platform && npm run typecheck -w @hrm/shared-types",
+    "test": "npm run test:unit",
+    "test:unit": "npm run test -w @hrm/api",
+    "test:e2e": "npm run test:e2e -w @hrm/api",
     "migrate": "npm run migrate:dev -w @hrm/api",
     "migrate:deploy": "npm run migrate:deploy -w @hrm/api",
     "migrate:status": "npm run migrate:status -w @hrm/api",
     "seed": "npm run seed -w @hrm/api",
-    "test:e2e": "npm run test:e2e -w @hrm/api",
-    "test:unit": "npm run test -w @hrm/api",
-    "prisma:generate": "npm run prisma:generate -w @hrm/api",
-    "lint": "npm run lint --workspaces --if-present"
+    "prisma:generate": "npm run prisma:generate -w @hrm/api"
   },
   "engines": {
     "node": ">=22.13"
