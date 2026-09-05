@@ -71,6 +71,7 @@ import { EmployeeEngagementPage } from '@/pages/talent/EmployeeEngagementPage';
 import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
+import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
 import { useNav } from '@/context/NavContext';
 
 function PageRouter() {
@@ -140,6 +141,8 @@ function PageRouter() {
     case 'reports-hub':
     case 'reports-scheduled':
       return <ReportsHubPage />;
+    case 'settings-workflows':
+      return <WorkflowBuilderPage />;
     default: return <ConstructionPage />;
   }
 }

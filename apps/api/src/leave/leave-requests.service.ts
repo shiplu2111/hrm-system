@@ -21,17 +21,15 @@ import type {
 } from './dto/leave.dto';
 import { LeaveAttendanceService } from './leave-attendance.service';
 import { LeaveBalancesService } from './leave-balances.service';
+import { LeaveWorkflowService } from './leave-workflow.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import {
   buildLeaveNotificationVariables,
 } from '../notifications/notification.helpers';
 import {
-  buildInitialApprovalChain,
   calculateLeaveDays,
   decimal,
   formatDateValue,
-  getCurrentApprovalStep,
-  isApprovalComplete,
   parseApprovalChain,
   parseDateString,
 } from './leave.utils';
@@ -44,6 +42,7 @@ export class LeaveRequestsService {
     private readonly balancesService: LeaveBalancesService,
     private readonly leaveAttendanceService: LeaveAttendanceService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly leaveWorkflow: LeaveWorkflowService,
   ) {}
 
   async list(
@@ -188,10 +187,6 @@ export class LeaveRequestsService {
       });
     }
 
-    const approvalSteps = Array.isArray(policy.approvalSteps)
-      ? (policy.approvalSteps as Array<{ roleName: string }>)
-      : [{ roleName: 'Manager' }, { roleName: 'HR Admin' }];
-
     const row = await this.prisma.unscoped.leaveRequest.create({
       data: {
         employeeId,
@@ -202,13 +197,30 @@ export class LeaveRequestsService {
         totalDays,
         reason: dto.reason?.trim() ?? null,
         status: dto.submit ? LeaveRequestStatus.pending : LeaveRequestStatus.draft,
-        approvalChain: dto.submit
-          ? (buildInitialApprovalChain(approvalSteps) as unknown as Prisma.InputJsonValue)
-          : ([] as Prisma.InputJsonValue),
+        approvalChain: [] as Prisma.InputJsonValue,
         localId: dto.localId ?? null,
       },
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
+
+    if (dto.submit) {
+      const approvalChain = await this.leaveWorkflow.startForLeaveRequest({
+        companyId: employee.companyId,
+        tenantId: employee.tenantId,
+        requestId: row.id,
+        requesterEmployeeId: employeeId,
+        requesterUserId: user.id,
+        policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(policy),
+      });
+      const updated = await this.prisma.unscoped.leaveRequest.update({
+        where: { id: row.id },
+        data: {
+          approvalChain: approvalChain as unknown as Prisma.InputJsonValue,
+        },
+        include: { leaveType: { select: { name: true, isPaid: true } } },
+      });
+      return this.toRecord(updated, balanceWarning);
+    }
 
     return this.toRecord(row, balanceWarning);
   }
@@ -241,15 +253,20 @@ export class LeaveRequestsService {
       });
     }
 
-    const steps = Array.isArray(policy.approvalSteps)
-      ? (policy.approvalSteps as Array<{ roleName: string }>)
-      : [{ roleName: 'Manager' }, { roleName: 'HR Admin' }];
+    const approvalChain = await this.leaveWorkflow.startForLeaveRequest({
+      companyId: employee.companyId,
+      tenantId: employee.tenantId,
+      requestId,
+      requesterEmployeeId: row.employeeId,
+      requesterUserId: user.id,
+      policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(policy),
+    });
 
     const updated = await this.prisma.unscoped.leaveRequest.update({
       where: { id: requestId },
       data: {
         status: LeaveRequestStatus.pending,
-        approvalChain: buildInitialApprovalChain(steps) as unknown as Prisma.InputJsonValue,
+        approvalChain: approvalChain as unknown as Prisma.InputJsonValue,
       },
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
@@ -270,45 +287,47 @@ export class LeaveRequestsService {
       });
     }
 
-    const chain = parseApprovalChain(row.approvalChain);
-    const currentStep = getCurrentApprovalStep(chain);
-    if (!currentStep) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'No pending approval step',
-      });
-    }
-
-    await this.assertCanApproveStep(row.employeeId, currentStep.roleName, user);
-
-    const now = new Date().toISOString();
-    const updatedChain = chain.map((step) =>
-      step.roleName === currentStep.roleName && step.status === 'pending'
-        ? {
-            ...step,
-            status: 'approved' as const,
-            actedByUserId: user.id,
-            actedByEmployeeId: user.employeeId,
-            actedAt: now,
-            comment: dto.comment ?? null,
-          }
-        : step,
-    );
-
     const employee = await this.assertEmployee(row.employeeId);
-    const leaveType = await this.prisma.unscoped.leaveType.findUniqueOrThrow({
-      where: { id: row.leaveTypeId },
-    });
     const policy = await this.balancesService.findEffectivePolicy(
       employee.companyId,
       row.leaveTypeId,
       row.startDate,
     );
+    if (!policy) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'No effective leave policy',
+      });
+    }
+
+    const legacyChain = parseApprovalChain(row.approvalChain);
+    const transition = await this.leaveWorkflow.approve({
+      requestId,
+      user,
+      comment: dto.comment,
+      audit: {
+        tenantId: employee.tenantId,
+        module: 'leave',
+        recordId: requestId,
+      },
+      companyId: employee.companyId,
+      tenantId: employee.tenantId,
+      requesterEmployeeId: row.employeeId,
+      policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(policy),
+      legacyApprovalChain: legacyChain,
+    });
+
+    const updatedChain = this.leaveWorkflow.toLeaveApprovalChain(
+      transition.instance.steps,
+    );
+    const leaveType = await this.prisma.unscoped.leaveType.findUniqueOrThrow({
+      where: { id: row.leaveTypeId },
+    });
 
     let status: LeaveRequestStatus = LeaveRequestStatus.pending;
     let deductedAt: Date | null = null;
 
-    if (isApprovalComplete(updatedChain)) {
+    if (transition.fullyApproved) {
       status = LeaveRequestStatus.approved;
       if (leaveType.isPaid) {
         await this.balancesService.deductBalance({
@@ -358,30 +377,38 @@ export class LeaveRequestsService {
       });
     }
 
-    const chain = parseApprovalChain(row.approvalChain);
-    const currentStep = getCurrentApprovalStep(chain);
-    if (!currentStep) {
+    const employee = await this.assertEmployee(row.employeeId);
+    const policy = await this.balancesService.findEffectivePolicy(
+      employee.companyId,
+      row.leaveTypeId,
+      row.startDate,
+    );
+    if (!policy) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'No pending approval step',
+        message: 'No effective leave policy',
       });
     }
 
-    await this.assertCanApproveStep(row.employeeId, currentStep.roleName, user);
+    const legacyChain = parseApprovalChain(row.approvalChain);
+    const transition = await this.leaveWorkflow.reject({
+      requestId,
+      user,
+      comment: dto.comment,
+      audit: {
+        tenantId: employee.tenantId,
+        module: 'leave',
+        recordId: requestId,
+      },
+      companyId: employee.companyId,
+      tenantId: employee.tenantId,
+      requesterEmployeeId: row.employeeId,
+      policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(policy),
+      legacyApprovalChain: legacyChain,
+    });
 
-    const now = new Date().toISOString();
-    const updatedChain = chain.map((step) =>
-      step.status === 'pending'
-        ? {
-            ...step,
-            status: step.roleName === currentStep.roleName ? ('rejected' as const) : ('skipped' as const),
-            actedByUserId: step.roleName === currentStep.roleName ? user.id : step.actedByUserId,
-            actedByEmployeeId:
-              step.roleName === currentStep.roleName ? user.employeeId : step.actedByEmployeeId,
-            actedAt: step.roleName === currentStep.roleName ? now : step.actedAt,
-            comment: step.roleName === currentStep.roleName ? (dto.comment ?? null) : step.comment,
-          }
-        : step,
+    const updatedChain = this.leaveWorkflow.toLeaveApprovalChain(
+      transition.instance.steps,
     );
 
     const updated = await this.prisma.unscoped.leaveRequest.update({
@@ -393,7 +420,6 @@ export class LeaveRequestsService {
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
 
-    const employee = await this.assertEmployee(row.employeeId);
     await this.emitLeaveNotification('leave.rejected', updated, employee);
 
     return this.toRecord(updated);
@@ -420,39 +446,9 @@ export class LeaveRequestsService {
       include: { leaveType: { select: { name: true, isPaid: true } } },
     });
 
+    await this.leaveWorkflow.cancelForLeaveRequest(requestId);
+
     return this.toRecord(updated);
-  }
-
-  private async assertCanApproveStep(
-    employeeId: string,
-    roleName: string,
-    user: AuthenticatedUser,
-  ) {
-    const employee = await this.prisma.scoped.employee.findFirst({
-      where: { id: employeeId },
-      select: { managerId: true, companyId: true },
-    });
-    if (!employee) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Employee not found' });
-    }
-
-    const role = await this.prisma.unscoped.role.findUnique({
-      where: { id: user.roleId },
-      select: { name: true },
-    });
-
-    if (roleName === 'Manager') {
-      if (user.employeeId === employee.managerId) return;
-      if (role?.name === 'Company Owner' || role?.name === 'HR Admin') return;
-    }
-
-    if (role?.name === roleName) return;
-    if (role?.name === 'Company Owner') return;
-
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: `You are not authorized for the ${roleName} approval step`,
-    });
   }
 
   private validateProbation(

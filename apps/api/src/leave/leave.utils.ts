@@ -74,36 +74,9 @@ export function calculateLeaveDays(input: {
   return days;
 }
 
-export interface PolicyApprovalStepTemplate {
-  roleName: string;
-}
-
-export function buildInitialApprovalChain(
-  steps: PolicyApprovalStepTemplate[],
-): LeaveApprovalStep[] {
-  return steps.map((step) => ({
-    roleName: step.roleName,
-    status: 'pending',
-    actedByUserId: null,
-    actedByEmployeeId: null,
-    actedAt: null,
-    comment: null,
-  }));
-}
-
 export function parseApprovalChain(value: unknown): LeaveApprovalStep[] {
   if (!Array.isArray(value)) return [];
   return value as LeaveApprovalStep[];
-}
-
-export function getCurrentApprovalStep(
-  chain: LeaveApprovalStep[],
-): LeaveApprovalStep | null {
-  return chain.find((step) => step.status === 'pending') ?? null;
-}
-
-export function isApprovalComplete(chain: LeaveApprovalStep[]): boolean {
-  return chain.every((step) => step.status === 'approved' || step.status === 'skipped');
 }
 
 export function monthsBetween(start: Date, end: Date): number {

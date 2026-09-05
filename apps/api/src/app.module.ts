@@ -28,6 +28,7 @@ import { SettingsModule } from './settings/settings.module';
 import { StorageModule } from './storage/storage.module';
 import { SyncModule } from './sync/sync.module';
 import { TenantModule } from './tenant/tenant.module';
+import { WorkflowModule } from './workflow/workflow.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { TenantModule } from './tenant/tenant.module';
     NotificationsModule,
     DashboardModule,
     ReportsModule,
+    WorkflowModule,
   ],
   controllers: [AppController],
   providers: [

@@ -57,6 +57,7 @@ model Tenant {
   pushDeviceTokens PushDeviceToken[]
   companyRules CompanyRule[]
   employeeContractRules EmployeeContractRule[]
+  workflowInstances     WorkflowInstance[]
   holidays  Holiday[]
 
   @@map("tenants")
@@ -200,6 +201,8 @@ model Company {
   documentTypes   DocumentType[]
   customFieldDefinitions CustomFieldDefinition[]
   holidays        Holiday[]
+  workflowDefinitions WorkflowDefinition[]
+  workflowInstances   WorkflowInstance[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -930,6 +933,84 @@ model LeaveRequest {
   @@index([leaveTypeId])
   @@index([status])
   @@map("leave_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §6b Approval Workflow Engine (MODULES.md §35, ROLES_PERMISSIONS.md §6)
+// ---------------------------------------------------------------------------
+
+enum WorkflowEntityType {
+  leave_request
+  expense_claim
+  payroll_adjustment
+  contract
+
+  @@map("workflow_entity_type")
+}
+
+enum WorkflowAssigneeType {
+  role
+  direct_manager
+
+  @@map("workflow_assignee_type")
+}
+
+enum WorkflowInstanceStatus {
+  pending
+  approved
+  rejected
+  cancelled
+
+  @@map("workflow_instance_status")
+}
+
+model WorkflowDefinition {
+  id            String             @id @default(uuid()) @db.Uuid
+  companyId     String             @map("company_id") @db.Uuid
+  entityType    WorkflowEntityType   @map("entity_type")
+  name          String
+  description   String?
+  steps         Json               @default("[]")
+  triggerConfig Json?              @map("trigger_config")
+  isDefault     Boolean            @default(false) @map("is_default")
+  isActive      Boolean            @default(true) @map("is_active")
+  effectiveFrom DateTime           @map("effective_from") @db.Date
+  effectiveTo   DateTime?          @map("effective_to") @db.Date
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  instances WorkflowInstance[]
+
+  @@index([companyId, entityType])
+  @@index([companyId, entityType, isDefault, isActive])
+  @@map("workflow_definitions")
+}
+
+model WorkflowInstance {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  definitionId        String?                @map("definition_id") @db.Uuid
+  companyId           String                 @map("company_id") @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  entityType          WorkflowEntityType     @map("entity_type")
+  entityId            String                 @map("entity_id") @db.Uuid
+  requesterEmployeeId String                 @map("requester_employee_id") @db.Uuid
+  requesterUserId     String?                @map("requester_user_id") @db.Uuid
+  status              WorkflowInstanceStatus @default(pending)
+  steps               Json                   @default("[]")
+  currentStepOrder    Int                    @default(1) @map("current_step_order")
+  completedAt         DateTime?              @map("completed_at")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+
+  definition WorkflowDefinition? @relation(fields: [definitionId], references: [id], onDelete: SetNull)
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([entityType, entityId])
+  @@index([companyId, status])
+  @@index([requesterEmployeeId])
+  @@map("workflow_instances")
 }
 
 // ---------------------------------------------------------------------------
