@@ -6,6 +6,8 @@ import type {
   LoginRequest,
   LoginResponse,
   RegisterPushTokenInput,
+  TimesheetSyncBatchRequest,
+  TimesheetSyncBatchResponse,
 } from '@hrm/shared-types';
 import { Platform } from 'react-native';
 import { getAccessToken } from '../db/session-repository';
@@ -82,6 +84,15 @@ export function syncAttendanceBatch(
   payload: SyncAttendancePayload,
 ): Promise<AttendanceSyncBatchResponse> {
   return request<AttendanceSyncBatchResponse>('/sync/attendance', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function syncTimesheetBatch(
+  payload: TimesheetSyncBatchRequest,
+): Promise<TimesheetSyncBatchResponse> {
+  return request<TimesheetSyncBatchResponse>('/sync/timesheet', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

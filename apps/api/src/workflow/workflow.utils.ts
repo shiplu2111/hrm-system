@@ -184,3 +184,51 @@ export function resolveInstanceStatusFromSteps(
   }
   return 'pending';
 }
+
+/** Evaluate amount-based workflow trigger (MODULES.md §35). */
+export function matchesAmountTrigger(
+  amount: number,
+  config: {
+    type: 'always' | 'amount_threshold';
+    operator?: 'gt' | 'gte';
+    value?: number;
+  } | null,
+): boolean {
+  if (!config || config.type === 'always') return true;
+  if (config.type !== 'amount_threshold') return false;
+  const threshold = config.value ?? 0;
+  const operator = config.operator ?? 'gt';
+  return operator === 'gte' ? amount >= threshold : amount > threshold;
+}
+
+/** Pick the most specific matching workflow definition for a context. */
+export function pickMatchingWorkflowDefinition<
+  T extends {
+    triggerConfig: {
+      type: 'always' | 'amount_threshold';
+      operator?: 'gt' | 'gte';
+      value?: number;
+    } | null;
+    isDefault: boolean;
+  },
+>(definitions: T[], context: { amount?: number }): T | null {
+  if (definitions.length === 0) return null;
+
+  const amount = context.amount ?? 0;
+  const thresholdMatches = definitions
+    .filter((d) => d.triggerConfig?.type === 'amount_threshold')
+    .filter((d) => matchesAmountTrigger(amount, d.triggerConfig))
+    .sort(
+      (a, b) =>
+        (b.triggerConfig?.value ?? 0) - (a.triggerConfig?.value ?? 0),
+    );
+
+  if (thresholdMatches.length > 0) return thresholdMatches[0];
+
+  const alwaysMatches = definitions.filter(
+    (d) => !d.triggerConfig || d.triggerConfig.type === 'always',
+  );
+  return (
+    alwaysMatches.find((d) => d.isDefault) ?? alwaysMatches[0] ?? null
+  );
+}

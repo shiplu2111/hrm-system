@@ -25,6 +25,7 @@ export const ENTITY_TYPE_OPTIONS: Array<{
   { value: 'leave_request', label: 'Leave Request' },
   { value: 'expense_claim', label: 'Expense Claim' },
   { value: 'payroll_adjustment', label: 'Payroll Adjustment' },
+  { value: 'timesheet_entry', label: 'Timesheet Entry' },
   { value: 'contract', label: 'Contract' },
 ];
 
@@ -96,6 +97,20 @@ export function updateWorkflowDefinition(
   );
 }
 
+export const EXPENSE_STANDARD_TEMPLATE: SaveWorkflowDefinitionInput = {
+  entityType: 'expense_claim',
+  name: 'Standard Expense Approval',
+  description: 'Manager review followed by Finance approval for routine claims',
+  triggerConfig: { type: 'always' },
+  steps: [
+    { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+    { order: 2, assigneeType: 'role', roleName: 'Accountant' },
+  ],
+  isDefault: true,
+  isActive: true,
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+};
+
 export const EXPENSE_HIGH_VALUE_TEMPLATE: SaveWorkflowDefinitionInput = {
   entityType: 'expense_claim',
   name: 'High-Value Expense Approval',
@@ -111,7 +126,7 @@ export const EXPENSE_HIGH_VALUE_TEMPLATE: SaveWorkflowDefinitionInput = {
     { order: 2, assigneeType: 'role', roleName: 'Accountant' },
     { order: 3, assigneeType: 'role', roleName: 'Company Owner' },
   ],
-  isDefault: true,
+  isDefault: false,
   isActive: true,
   effectiveFrom: new Date().toISOString().slice(0, 10),
 };

@@ -12,7 +12,7 @@ import type {
   ListWorkflowDefinitionsQueryDto,
   UpdateWorkflowDefinitionDto,
 } from './dto/workflow.dto';
-import { parseDefinitionSteps, parseDateString } from './workflow.utils';
+import { parseDefinitionSteps, parseDateString, pickMatchingWorkflowDefinition } from './workflow.utils';
 
 function parseTriggerConfig(value: unknown): WorkflowDefinitionRecord['triggerConfig'] {
   if (value == null || typeof value !== 'object') return null;
@@ -178,6 +178,27 @@ export class WorkflowDefinitionsService {
       orderBy: { effectiveFrom: 'desc' },
     });
     return row ? this.toRecord(row) : null;
+  }
+
+  async findMatchingDefinition(
+    companyId: string,
+    entityType: WorkflowEntityType,
+    context: { amount?: number },
+    asOf: Date = new Date(),
+  ): Promise<WorkflowDefinitionRecord | null> {
+    const rows = await this.prisma.unscoped.workflowDefinition.findMany({
+      where: {
+        companyId,
+        entityType,
+        isActive: true,
+        effectiveFrom: { lte: asOf },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: asOf } }],
+      },
+      orderBy: [{ effectiveFrom: 'desc' }],
+    });
+
+    const records = rows.map((row) => this.toRecord(row));
+    return pickMatchingWorkflowDefinition(records, context);
   }
 
   private validateSteps(steps: CreateWorkflowDefinitionDto['steps']) {

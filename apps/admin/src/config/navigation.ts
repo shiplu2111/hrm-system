@@ -85,7 +85,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Holiday Calendar', page: 'holidays' },
       { label: 'Overtime', page: 'overtime', hidden: true },
       { label: 'OT Rules', page: 'ot-rules', hidden: true },
-      { label: 'Timesheet', page: 'timesheet', hidden: true },
+      { label: 'Timesheet', page: 'timesheet' },
       { label: 'Geofence', page: 'geofence', hidden: true },
       { label: 'Devices', page: 'devices', hidden: true },
       { label: 'Attendance Methods', page: 'attendance-methods', hidden: true },

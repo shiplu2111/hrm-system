@@ -32,6 +32,8 @@ import { TenantModule } from './tenant/tenant.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { LoansModule } from './loans/loans.module';
+import { ExpensesModule } from './expenses/expenses.module';
+import { TimesheetsModule } from './timesheets/timesheets.module';
 
 @Module({
   imports: [
@@ -71,6 +73,8 @@ import { LoansModule } from './loans/loans.module';
     WorkflowModule,
     ContractsModule,
     LoansModule,
+    ExpensesModule,
+    TimesheetsModule,
   ],
   controllers: [AppController],
   providers: [

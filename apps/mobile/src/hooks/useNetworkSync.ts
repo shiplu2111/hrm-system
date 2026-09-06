@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as Network from 'expo-network';
 import { processSyncQueue } from '../sync/sync-engine';
+import { processTimesheetSyncQueue } from '../sync/timesheet-sync-engine';
 
 export function useNetworkSync(onSyncComplete?: () => void): {
   isOnline: boolean;
@@ -14,6 +15,7 @@ export function useNetworkSync(onSyncComplete?: () => void): {
     setIsSyncing(true);
     try {
       await processSyncQueue();
+      await processTimesheetSyncQueue();
       onSyncComplete?.();
     } finally {
       setIsSyncing(false);

@@ -9,6 +9,11 @@ import {
   type AttendanceSyncItemResult,
 } from './attendance-sync.service';
 import { AttendanceSyncBatchDto } from './dto/attendance-sync.dto';
+import { TimesheetSyncBatchDto } from '../timesheets/dto/timesheet.dto';
+import {
+  TimesheetSyncService,
+  type TimesheetSyncItemResult,
+} from './timesheet-sync.service';
 
 @ApiTags('sync')
 @ApiBearerAuth('access-token')
@@ -28,6 +33,33 @@ export class AttendanceSyncController {
     return {
       data: {
         results: await this.attendanceSyncService.syncBatch(
+          dto.deviceId,
+          dto.events,
+          user,
+        ),
+      },
+    };
+  }
+}
+
+@ApiTags('sync')
+@ApiBearerAuth('access-token')
+@Controller('sync')
+export class TimesheetSyncController {
+  constructor(private readonly timesheetSyncService: TimesheetSyncService) {}
+
+  @Post('timesheet')
+  @RequirePermission('attendance', 'create')
+  @ApiOperation({
+    summary: 'Batch sync offline timesheet events (OFFLINE_SYNC.md §4)',
+  })
+  async syncTimesheet(
+    @Body() dto: TimesheetSyncBatchDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<{ results: TimesheetSyncItemResult[] }>> {
+    return {
+      data: {
+        results: await this.timesheetSyncService.syncBatch(
           dto.deviceId,
           dto.events,
           user,

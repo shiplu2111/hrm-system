@@ -52,6 +52,16 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['subject_employee', 'manager'],
   },
+  'expense.approved': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee'],
+  },
+  'expense.rejected': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -103,6 +113,16 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Contract renewal rejected',
     body: 'The contract renewal for {employee_name} was rejected.',
     emailSubject: 'Contract renewal rejected — {employee_name}',
+  },
+  'expense.approved': {
+    title: 'Expense claim approved',
+    body: 'Your expense claim {claim_id} for {amount} ({category_name}) has been approved and queued for reimbursement.',
+    emailSubject: 'Expense claim approved — {claim_id}',
+  },
+  'expense.rejected': {
+    title: 'Expense claim rejected',
+    body: 'Your expense claim {claim_id} for {amount} ({category_name}) has been rejected.',
+    emailSubject: 'Expense claim rejected — {claim_id}',
   },
 };
 

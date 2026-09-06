@@ -111,4 +111,14 @@ export const REALTIME_EVENT_OPTIONS: Array<{
     label: 'Contract renewal rejected',
     description: 'Notify when a contract renewal is rejected.',
   },
+  {
+    key: 'expense.approved',
+    label: 'Expense claim approved',
+    description: 'Notify employee when an expense claim is fully approved.',
+  },
+  {
+    key: 'expense.rejected',
+    label: 'Expense claim rejected',
+    description: 'Notify employee when an expense claim is rejected.',
+  },
 ];

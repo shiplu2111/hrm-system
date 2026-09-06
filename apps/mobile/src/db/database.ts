@@ -36,6 +36,32 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS sync_queue_status_created
       ON sync_queue (status, created_at);
 
+    CREATE TABLE IF NOT EXISTS timesheet_sync_queue (
+      id TEXT PRIMARY KEY NOT NULL,
+      local_id TEXT NOT NULL UNIQUE,
+      employee_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      timestamp_device TEXT NOT NULL,
+      entry_date TEXT,
+      project_id TEXT,
+      task_name TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      break_minutes INTEGER,
+      is_billable INTEGER,
+      notes TEXT,
+      entry_local_id TEXT,
+      offline_duration_seconds INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS timesheet_sync_queue_status_created
+      ON timesheet_sync_queue (status, created_at);
+
     CREATE TABLE IF NOT EXISTS app_session (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL

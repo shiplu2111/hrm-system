@@ -7,7 +7,9 @@ export type NotificationEventType =
   | 'contract.expiring'
   | 'approval.pending'
   | 'contract.renewal.approved'
-  | 'contract.renewal.rejected';
+  | 'contract.renewal.rejected'
+  | 'expense.approved'
+  | 'expense.rejected';
 
 export type NotificationRecipientRole =
   | 'subject_employee'

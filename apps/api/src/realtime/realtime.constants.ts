@@ -25,6 +25,8 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'approval.pending': true,
   'contract.renewal.approved': true,
   'contract.renewal.rejected': false,
+  'expense.approved': true,
+  'expense.rejected': false,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -95,6 +97,8 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'approval.pending': 'Approval pending',
   'contract.renewal.approved': 'Contract renewal approved',
   'contract.renewal.rejected': 'Contract renewal rejected',
+  'expense.approved': 'Expense claim approved',
+  'expense.rejected': 'Expense claim rejected',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

@@ -77,3 +77,18 @@ export function buildContractRenewalVariables(input: {
     end_date: input.endDate,
   };
 }
+
+export function buildExpenseOutcomeVariables(input: {
+  employeeName: string;
+  claimReference: string;
+  amount: string;
+  currency: string;
+  categoryName: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    employee_name: input.employeeName,
+    claim_id: input.claimReference,
+    amount: `${input.currency} ${input.amount}`,
+    category_name: input.categoryName,
+  };
+}

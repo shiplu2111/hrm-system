@@ -35,6 +35,20 @@ const ID = {
   salaryStructureLoan: '10000000-0000-4000-8000-000000000093',
   employeeLoanStaff: '10000000-0000-4000-8000-0000000000a0',
   employeeLoanPending: '10000000-0000-4000-8000-0000000000a1',
+  expenseCategoryTravel: '10000000-0000-4000-8000-0000000000b0',
+  expenseCategoryMeals: '10000000-0000-4000-8000-0000000000b1',
+  expenseCategorySoftware: '10000000-0000-4000-8000-0000000000b2',
+  workflowExpenseStandard: '10000000-0000-4000-8000-0000000000c0',
+  workflowExpenseHighValue: '10000000-0000-4000-8000-0000000000c1',
+  expenseClaimPending: '10000000-0000-4000-8000-0000000000d0',
+  expenseClaimApproved: '10000000-0000-4000-8000-0000000000d1',
+  expenseClaimWorkflowPending: '10000000-0000-4000-8000-0000000000e0',
+  timesheetProjectPlatform: '10000000-0000-4000-8000-0000000000f0',
+  timesheetProjectInternal: '10000000-0000-4000-8000-0000000000f1',
+  workflowTimesheetStandard: '10000000-0000-4000-8000-0000000000f2',
+  timesheetEntryPending: '10000000-0000-4000-8000-0000000000f3',
+  timesheetEntryApproved: '10000000-0000-4000-8000-0000000000f4',
+  timesheetEntryWorkflowPending: '10000000-0000-4000-8000-0000000000f5',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -128,7 +142,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'employee', actions: ['view', 'create', 'edit'] },
     { module: 'leave', actions: ['view', 'approve'] },
     { module: 'payroll', actions: ['view', 'create', 'edit'] },
-    { module: 'attendance', actions: ['view', 'create', 'edit', 'delete'] },
+    { module: 'attendance', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
   ],
   'Payroll Admin': [
@@ -140,7 +154,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
   Manager: [
     { module: 'employee', actions: ['view'] },
     { module: 'leave', actions: ['view', 'approve'] },
-    { module: 'attendance', actions: ['view'] },
+    { module: 'attendance', actions: ['view', 'approve'] },
   ],
   Employee: [
     { module: 'employee', actions: ['view', 'edit'] },
@@ -1075,6 +1089,309 @@ async function main(): Promise<void> {
       status: 'pending_approval',
       purposeLabel: 'Device Purchase',
     },
+  });
+
+  await prisma.expenseCategory.upsert({
+    where: { id: ID.expenseCategoryTravel },
+    create: {
+      id: ID.expenseCategoryTravel,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Travel & Accommodation',
+      description: 'Flights, hotels, and ground transport',
+      maxAmountPerClaim: 5000,
+      maxAmountPerMonth: 8000,
+      receiptRequired: true,
+    },
+    update: { name: 'Travel & Accommodation', isActive: true },
+  });
+
+  await prisma.expenseCategory.upsert({
+    where: { id: ID.expenseCategoryMeals },
+    create: {
+      id: ID.expenseCategoryMeals,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Meals & Entertainment',
+      description: 'Client meals and team events',
+      maxAmountPerClaim: 500,
+      maxAmountPerMonth: 1500,
+      receiptRequired: true,
+    },
+    update: { name: 'Meals & Entertainment', isActive: true },
+  });
+
+  await prisma.expenseCategory.upsert({
+    where: { id: ID.expenseCategorySoftware },
+    create: {
+      id: ID.expenseCategorySoftware,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Software & Subscriptions',
+      description: 'SaaS tools and licenses',
+      maxAmountPerClaim: 2000,
+      maxAmountPerMonth: 4000,
+      receiptRequired: true,
+    },
+    update: { name: 'Software & Subscriptions', isActive: true },
+  });
+
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowExpenseStandard },
+    create: {
+      id: ID.workflowExpenseStandard,
+      companyId: company.id,
+      entityType: 'expense_claim',
+      name: 'Standard Expense Approval',
+      description: 'Manager then Finance for routine claims',
+      triggerConfig: { type: 'always' },
+      steps: [
+        { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+        { order: 2, assigneeType: 'role', roleName: 'Accountant' },
+      ],
+      isDefault: true,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true, isDefault: true },
+  });
+
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowExpenseHighValue },
+    create: {
+      id: ID.workflowExpenseHighValue,
+      companyId: company.id,
+      entityType: 'expense_claim',
+      name: 'High-Value Expense Approval',
+      description: 'Extra owner sign-off above $1,000',
+      triggerConfig: {
+        type: 'amount_threshold',
+        operator: 'gt',
+        value: 1000,
+        currency: 'AUD',
+      },
+      steps: [
+        { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+        { order: 2, assigneeType: 'role', roleName: 'Accountant' },
+        { order: 3, assigneeType: 'role', roleName: 'Company Owner' },
+      ],
+      isDefault: false,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true },
+  });
+
+  await prisma.expenseClaim.upsert({
+    where: { id: ID.expenseClaimPending },
+    create: {
+      id: ID.expenseClaimPending,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      categoryId: ID.expenseCategoryMeals,
+      referenceNumber: 'EXP-2026-001',
+      expenseDate: new Date('2026-03-20T00:00:00.000Z'),
+      amount: 485.5,
+      currency: 'AUD',
+      description: 'Client dinner with procurement team',
+      status: 'pending_approval',
+      submittedAt: new Date('2026-03-21T00:00:00.000Z'),
+    },
+    update: {
+      status: 'pending_approval',
+      description: 'Client dinner with procurement team',
+    },
+  });
+
+  await prisma.workflowInstance.upsert({
+    where: {
+      entityType_entityId: {
+        entityType: 'expense_claim',
+        entityId: ID.expenseClaimPending,
+      },
+    },
+    create: {
+      id: ID.expenseClaimWorkflowPending,
+      definitionId: ID.workflowExpenseStandard,
+      companyId: company.id,
+      tenantId: tenant.id,
+      entityType: 'expense_claim',
+      entityId: ID.expenseClaimPending,
+      requesterEmployeeId: ID.empStaff,
+      requesterUserId: ID.userStaff,
+      status: 'pending',
+      currentStepOrder: 1,
+      steps: [
+        {
+          order: 1,
+          assigneeType: 'direct_manager',
+          roleName: 'Manager',
+          status: 'pending',
+          actedByUserId: null,
+          actedByEmployeeId: null,
+          actedAt: null,
+          comment: null,
+        },
+        {
+          order: 2,
+          assigneeType: 'role',
+          roleName: 'Accountant',
+          status: 'pending',
+          actedByUserId: null,
+          actedByEmployeeId: null,
+          actedAt: null,
+          comment: null,
+        },
+      ],
+    },
+    update: { status: 'pending', currentStepOrder: 1 },
+  });
+
+  await prisma.expenseClaim.upsert({
+    where: { id: ID.expenseClaimApproved },
+    create: {
+      id: ID.expenseClaimApproved,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empManager,
+      categoryId: ID.expenseCategorySoftware,
+      referenceNumber: 'EXP-2026-002',
+      expenseDate: new Date('2026-03-15T00:00:00.000Z'),
+      amount: 240,
+      currency: 'AUD',
+      description: 'JetBrains IDE license renewal',
+      status: 'approved',
+      submittedAt: new Date('2026-03-16T00:00:00.000Z'),
+      approvedAt: new Date('2026-03-18T00:00:00.000Z'),
+    },
+    update: { status: 'approved' },
+  });
+
+  await prisma.timesheetProject.upsert({
+    where: { id: ID.timesheetProjectPlatform },
+    create: {
+      id: ID.timesheetProjectPlatform,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Platform Redesign',
+      code: 'PLT',
+    },
+    update: { name: 'Platform Redesign', isActive: true },
+  });
+
+  await prisma.timesheetProject.upsert({
+    where: { id: ID.timesheetProjectInternal },
+    create: {
+      id: ID.timesheetProjectInternal,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Internal Tools',
+      code: 'INT',
+    },
+    update: { name: 'Internal Tools', isActive: true },
+  });
+
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowTimesheetStandard },
+    create: {
+      id: ID.workflowTimesheetStandard,
+      companyId: company.id,
+      entityType: 'timesheet_entry',
+      name: 'Timesheet Manager Approval',
+      description: 'Direct manager sign-off on submitted time entries',
+      triggerConfig: { type: 'always' },
+      steps: [
+        { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+      ],
+      isDefault: true,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true, isDefault: true },
+  });
+
+  await prisma.timesheetEntry.upsert({
+    where: { id: ID.timesheetEntryPending },
+    create: {
+      id: ID.timesheetEntryPending,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      projectId: ID.timesheetProjectPlatform,
+      entryDate: new Date('2026-03-24T00:00:00.000Z'),
+      taskName: 'Bug fixes',
+      startTime: new Date('2026-03-24T01:00:00.000Z'),
+      endTime: new Date('2026-03-24T07:00:00.000Z'),
+      breakMinutes: 30,
+      totalHours: 5.5,
+      isBillable: true,
+      billableHours: 5.5,
+      nonBillableHours: 0,
+      status: 'pending_approval',
+      submittedAt: new Date('2026-03-24T08:00:00.000Z'),
+      source: 'manual',
+    },
+    update: { status: 'pending_approval' },
+  });
+
+  await prisma.workflowInstance.upsert({
+    where: {
+      entityType_entityId: {
+        entityType: 'timesheet_entry',
+        entityId: ID.timesheetEntryPending,
+      },
+    },
+    create: {
+      id: ID.timesheetEntryWorkflowPending,
+      definitionId: ID.workflowTimesheetStandard,
+      companyId: company.id,
+      tenantId: tenant.id,
+      entityType: 'timesheet_entry',
+      entityId: ID.timesheetEntryPending,
+      requesterEmployeeId: ID.empStaff,
+      requesterUserId: ID.userStaff,
+      status: 'pending',
+      currentStepOrder: 1,
+      steps: [
+        {
+          order: 1,
+          assigneeType: 'direct_manager',
+          roleName: 'Manager',
+          status: 'pending',
+          actedByUserId: null,
+          actedByEmployeeId: null,
+          actedAt: null,
+          comment: null,
+        },
+      ],
+    },
+    update: { status: 'pending', currentStepOrder: 1 },
+  });
+
+  await prisma.timesheetEntry.upsert({
+    where: { id: ID.timesheetEntryApproved },
+    create: {
+      id: ID.timesheetEntryApproved,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      projectId: ID.timesheetProjectInternal,
+      entryDate: new Date('2026-03-23T00:00:00.000Z'),
+      taskName: 'Code review',
+      startTime: new Date('2026-03-23T02:00:00.000Z'),
+      endTime: new Date('2026-03-23T04:00:00.000Z'),
+      breakMinutes: 0,
+      totalHours: 2,
+      isBillable: false,
+      billableHours: 0,
+      nonBillableHours: 2,
+      status: 'approved',
+      submittedAt: new Date('2026-03-23T05:00:00.000Z'),
+      approvedAt: new Date('2026-03-23T06:00:00.000Z'),
+      source: 'manual',
+    },
+    update: { status: 'approved' },
   });
 
   await prisma.holiday.upsert({
