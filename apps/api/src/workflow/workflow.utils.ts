@@ -13,9 +13,22 @@ export function parseDateString(value: string): Date {
 }
 
 const DIRECT_MANAGER_LABELS = new Set(['Manager', 'Direct Manager']);
+const SKIP_LEVEL_MANAGER_LABELS = new Set(['Skip-level Manager', 'Skip Level Manager']);
 
 export function isDirectManagerLabel(roleName: string): boolean {
   return DIRECT_MANAGER_LABELS.has(roleName);
+}
+
+export function isSkipLevelManagerLabel(roleName: string): boolean {
+  return SKIP_LEVEL_MANAGER_LABELS.has(roleName);
+}
+
+export function resolveWorkflowAssigneeType(
+  roleName: string,
+): WorkflowDefinitionStep['assigneeType'] {
+  if (isDirectManagerLabel(roleName)) return 'direct_manager';
+  if (isSkipLevelManagerLabel(roleName)) return 'skip_level_manager';
+  return 'role';
 }
 
 export function policyStepsToDefinitionSteps(
@@ -23,7 +36,7 @@ export function policyStepsToDefinitionSteps(
 ): WorkflowDefinitionStep[] {
   return steps.map((step, index) => ({
     order: index + 1,
-    assigneeType: isDirectManagerLabel(step.roleName) ? 'direct_manager' : 'role',
+    assigneeType: resolveWorkflowAssigneeType(step.roleName),
     roleName: step.roleName,
   }));
 }
@@ -163,7 +176,7 @@ export function leaveChainToRuntimeSteps(
 ): WorkflowInstanceStep[] {
   return chain.map((step, index) => ({
     order: index + 1,
-    assigneeType: isDirectManagerLabel(step.roleName) ? 'direct_manager' : 'role',
+    assigneeType: resolveWorkflowAssigneeType(step.roleName),
     roleName: step.roleName,
     status: step.status,
     actedByUserId: step.actedByUserId,

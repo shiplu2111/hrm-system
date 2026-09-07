@@ -29,6 +29,7 @@ export const ENTITY_TYPE_OPTIONS: Array<{
   { value: 'contract', label: 'Contract' },
   { value: 'job_requisition', label: 'Job Requisition' },
   { value: 'offer_letter', label: 'Offer Letter' },
+  { value: 'performance_review', label: 'Performance Review' },
 ];
 
 export function entityTypeLabel(entityType: WorkflowEntityType): string {
@@ -143,6 +144,21 @@ export const STANDARD_LEAVE_TEMPLATE: SaveWorkflowDefinitionInput = {
     { order: 2, assigneeType: 'role', roleName: 'HR Admin' },
   ],
   isDefault: false,
+  isActive: true,
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+};
+
+export const PERFORMANCE_REVIEW_TEMPLATE: SaveWorkflowDefinitionInput = {
+  entityType: 'performance_review',
+  name: 'Performance Review Sign-off',
+  description: 'Manager, skip-level manager, then HR Admin',
+  triggerConfig: { type: 'always' },
+  steps: [
+    { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+    { order: 2, assigneeType: 'skip_level_manager', roleName: 'Skip-level Manager' },
+    { order: 3, assigneeType: 'role', roleName: 'HR Admin' },
+  ],
+  isDefault: true,
   isActive: true,
   effectiveFrom: new Date().toISOString().slice(0, 10),
 };

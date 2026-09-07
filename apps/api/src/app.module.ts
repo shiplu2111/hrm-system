@@ -45,6 +45,7 @@ import { BillingModule } from './billing/billing.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SupportModule } from './support/support.module';
 import { CurrencyModule } from './currency/currency.module';
+import { PerformanceModule } from './performance/performance.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { CurrencyModule } from './currency/currency.module';
     WebhooksModule,
     SupportModule,
     CurrencyModule,
+    PerformanceModule,
   ],
   controllers: [AppController],
   providers: [

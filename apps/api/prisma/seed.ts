@@ -166,6 +166,16 @@ const ID = {
   kbArticleClockIn: '10000000-0000-4000-8000-000000000212',
   exchangeRateUsdAudH1: '10000000-0000-4000-8000-000000000220',
   exchangeRateUsdAudH2: '10000000-0000-4000-8000-000000000221',
+  reviewCycleH2: '10000000-0000-4000-8000-000000000230',
+  kpiActivation: '10000000-0000-4000-8000-000000000231',
+  kpiSupportSla: '10000000-0000-4000-8000-000000000232',
+  kpiAssignmentStaffActivation: '10000000-0000-4000-8000-000000000233',
+  kpiAssignmentManagerSupport: '10000000-0000-4000-8000-000000000234',
+  workflowPerformanceReview: '10000000-0000-4000-8000-000000000240',
+  performanceReviewStaff: '10000000-0000-4000-8000-000000000241',
+  performanceReviewManager: '10000000-0000-4000-8000-000000000242',
+  feedback360HrForStaff: '10000000-0000-4000-8000-000000000243',
+  feedback360PayrollForStaff: '10000000-0000-4000-8000-000000000244',
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
@@ -201,6 +211,7 @@ const MODULES = [
   'audit',
   'platform',
   'support',
+  'performance',
 ] as const;
 
 const ALL_ACTIONS: PermissionAction[] = [
@@ -229,6 +240,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
     { module: 'support', actions: ['view', 'create', 'edit'] },
+    { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
@@ -240,6 +252,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'employee', actions: ['view'] },
     { module: 'leave', actions: ['view', 'approve'] },
     { module: 'attendance', actions: ['view', 'approve'] },
+    { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
   ],
   Employee: [
     { module: 'employee', actions: ['view', 'edit'] },
@@ -247,6 +260,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'payroll', actions: ['view'] },
     { module: 'attendance', actions: ['view', 'create'] },
     { module: 'support', actions: ['view', 'create'] },
+    { module: 'performance', actions: ['view'] },
   ],
   Accountant: [
     { module: 'employee', actions: ['view'] },
@@ -3088,6 +3102,279 @@ async function main(): Promise<void> {
       effectiveFrom: new Date('2026-07-01'),
       effectiveTo: null,
     },
+  });
+
+  await prisma.performanceReviewCycle.upsert({
+    where: { id: ID.reviewCycleH2 },
+    create: {
+      id: ID.reviewCycleH2,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'H2 2026 Performance Review',
+      description: 'Company-wide mid-year performance cycle',
+      periodStart: new Date('2026-07-01'),
+      periodEnd: new Date('2026-12-31'),
+      measurementPeriod: 'semi_annual',
+      reviewDueDate: new Date('2026-12-18'),
+      status: 'active',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      status: 'active',
+      reviewDueDate: new Date('2026-12-18'),
+    },
+  });
+
+  await prisma.kpiDefinition.upsert({
+    where: { id: ID.kpiActivation },
+    create: {
+      id: ID.kpiActivation,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'Enterprise activation rate',
+      description: 'Percentage of new enterprise accounts activated within 30 days',
+      category: 'Growth',
+      unit: 'percentage',
+      direction: 'higher_is_better',
+      defaultTargetValue: '80',
+      isActive: true,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { isActive: true, defaultTargetValue: '80' },
+  });
+
+  await prisma.kpiDefinition.upsert({
+    where: { id: ID.kpiSupportSla },
+    create: {
+      id: ID.kpiSupportSla,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'Support resolution time',
+      description: 'Median hours to resolve priority support tickets',
+      category: 'Customer experience',
+      unit: 'hours',
+      direction: 'lower_is_better',
+      defaultTargetValue: '4',
+      isActive: true,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { isActive: true, defaultTargetValue: '4' },
+  });
+
+  await prisma.employeeKpiAssignment.upsert({
+    where: { id: ID.kpiAssignmentStaffActivation },
+    create: {
+      id: ID.kpiAssignmentStaffActivation,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewCycleId: ID.reviewCycleH2,
+      kpiDefinitionId: ID.kpiActivation,
+      employeeId: ID.empStaff,
+      assignedByUserId: ID.userManager,
+      title: 'Enterprise activation rate',
+      unit: 'percentage',
+      direction: 'higher_is_better',
+      targetValue: '80',
+      currentValue: '72',
+      measurementPeriod: 'semi_annual',
+      measurementPeriodStart: new Date('2026-07-01'),
+      measurementPeriodEnd: new Date('2026-12-31'),
+      weightPercent: '40',
+      status: 'active',
+    },
+    update: { currentValue: '72', status: 'active' },
+  });
+
+  await prisma.employeeKpiAssignment.upsert({
+    where: { id: ID.kpiAssignmentManagerSupport },
+    create: {
+      id: ID.kpiAssignmentManagerSupport,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewCycleId: ID.reviewCycleH2,
+      kpiDefinitionId: ID.kpiSupportSla,
+      employeeId: ID.empManager,
+      assignedByUserId: ID.userHrAdmin,
+      title: 'Support resolution time',
+      unit: 'hours',
+      direction: 'lower_is_better',
+      targetValue: '4',
+      currentValue: '5.8',
+      measurementPeriod: 'semi_annual',
+      measurementPeriodStart: new Date('2026-07-01'),
+      measurementPeriodEnd: new Date('2026-12-31'),
+      weightPercent: '30',
+      status: 'active',
+    },
+    update: { currentValue: '5.8', status: 'active' },
+  });
+
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowPerformanceReview },
+    create: {
+      id: ID.workflowPerformanceReview,
+      companyId: ID.company,
+      entityType: 'performance_review',
+      name: 'Performance Review Sign-off',
+      description: 'Manager, skip-level manager, then HR Admin',
+      triggerConfig: { type: 'always' },
+      steps: [
+        { order: 1, assigneeType: 'direct_manager', roleName: 'Manager' },
+        { order: 2, assigneeType: 'skip_level_manager', roleName: 'Skip-level Manager' },
+        { order: 3, assigneeType: 'role', roleName: 'HR Admin' },
+      ],
+      isDefault: true,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true, isDefault: true },
+  });
+
+  await prisma.performanceReviewParticipant.upsert({
+    where: {
+      reviewCycleId_employeeId: {
+        reviewCycleId: ID.reviewCycleH2,
+        employeeId: ID.empStaff,
+      },
+    },
+    create: {
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewCycleId: ID.reviewCycleH2,
+      employeeId: ID.empStaff,
+    },
+    update: {},
+  });
+
+  await prisma.performanceReviewParticipant.upsert({
+    where: {
+      reviewCycleId_employeeId: {
+        reviewCycleId: ID.reviewCycleH2,
+        employeeId: ID.empManager,
+      },
+    },
+    create: {
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewCycleId: ID.reviewCycleH2,
+      employeeId: ID.empManager,
+    },
+    update: {},
+  });
+
+  const staffSelfAssessment = {
+    competencies: [
+      { key: 'impact', label: 'Business impact', selfRating: 4 },
+      { key: 'ownership', label: 'Ownership', selfRating: 5 },
+      { key: 'collaboration', label: 'Collaboration', selfRating: 4 },
+      { key: 'craft', label: 'Functional excellence', selfRating: 4 },
+    ],
+    kpiAssessments: [
+      {
+        kpiAssignmentId: ID.kpiAssignmentStaffActivation,
+        title: 'Enterprise activation rate',
+        unit: 'percentage',
+        targetValue: 80,
+        currentValue: 72,
+        progressPercent: 90,
+        selfRating: 4,
+      },
+    ],
+    overallSelfComment:
+      'Strong progress on activation; partnering with CS on onboarding friction.',
+  };
+
+  await prisma.employeePerformanceReview.upsert({
+    where: { id: ID.performanceReviewStaff },
+    create: {
+      id: ID.performanceReviewStaff,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewCycleId: ID.reviewCycleH2,
+      employeeId: ID.empStaff,
+      managerEmployeeId: ID.empManager,
+      status: 'manager_review',
+      selfAssessment: staffSelfAssessment,
+      managerAssessment: {
+        competencies: staffSelfAssessment.competencies.map((item) => ({
+          ...item,
+          managerRating: item.selfRating,
+        })),
+        kpiAssessments: staffSelfAssessment.kpiAssessments.map((item) => ({
+          ...item,
+          managerRating: 4,
+        })),
+        overallManagerComment: 'Delivered consistently; activation KPI needs one more push.',
+      },
+      selfSubmittedAt: new Date('2026-12-08'),
+    },
+    update: {
+      status: 'manager_review',
+      selfAssessment: staffSelfAssessment,
+    },
+  });
+
+  await prisma.performanceReviewCycle.update({
+    where: { id: ID.reviewCycleH2 },
+    data: {
+      requiresWorkflowApproval: true,
+      launchedAt: new Date('2026-11-01'),
+      status: 'active',
+    },
+  });
+
+  await prisma.performance360Feedback.upsert({
+    where: {
+      reviewId_reviewerEmployeeId: {
+        reviewId: ID.performanceReviewStaff,
+        reviewerEmployeeId: ID.empHrAdmin,
+      },
+    },
+    create: {
+      id: ID.feedback360HrForStaff,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewId: ID.performanceReviewStaff,
+      reviewerEmployeeId: ID.empHrAdmin,
+      relationship: 'cross_functional',
+      status: 'submitted',
+      competencyRatings: [
+        { key: 'impact', rating: 4 },
+        { key: 'ownership', rating: 5 },
+        { key: 'collaboration', rating: 4 },
+        { key: 'craft', rating: 4 },
+      ],
+      comment: 'Dependable partner who connects product choices to customer evidence.',
+      submittedAt: new Date('2026-12-10'),
+    },
+    update: { status: 'submitted' },
+  });
+
+  await prisma.performance360Feedback.upsert({
+    where: {
+      reviewId_reviewerEmployeeId: {
+        reviewId: ID.performanceReviewStaff,
+        reviewerEmployeeId: ID.empPayrollAdmin,
+      },
+    },
+    create: {
+      id: ID.feedback360PayrollForStaff,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      reviewId: ID.performanceReviewStaff,
+      reviewerEmployeeId: ID.empPayrollAdmin,
+      relationship: 'peer',
+      status: 'submitted',
+      competencyRatings: [
+        { key: 'impact', rating: 4 },
+        { key: 'ownership', rating: 4 },
+        { key: 'collaboration', rating: 5 },
+        { key: 'craft', rating: 4 },
+      ],
+      comment: 'Creates clarity quickly and makes space for dissent before decisions.',
+      submittedAt: new Date('2026-12-11'),
+    },
+    update: { status: 'submitted' },
   });
 
   console.log('Seed complete.');

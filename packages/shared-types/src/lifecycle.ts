@@ -9,7 +9,8 @@ export type LifecycleEventType =
   | 'suspension'
   | 'resignation'
   | 'termination'
-  | 'rehire';
+  | 'rehire'
+  | 'performance_review';
 
 export interface LifecycleEventRecord {
   id: string;

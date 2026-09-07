@@ -5,9 +5,10 @@ export type WorkflowEntityType =
   | 'contract'
   | 'timesheet_entry'
   | 'job_requisition'
-  | 'offer_letter';
+  | 'offer_letter'
+  | 'performance_review';
 
-export type WorkflowAssigneeType = 'role' | 'direct_manager';
+export type WorkflowAssigneeType = 'role' | 'direct_manager' | 'skip_level_manager';
 
 export type WorkflowInstanceStatus =
   | 'pending'

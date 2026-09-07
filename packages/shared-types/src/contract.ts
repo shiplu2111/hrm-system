@@ -23,7 +23,7 @@ export interface EmploymentContractRenewalWorkflow {
   currentStep: {
     order: number;
     roleName: string;
-    assigneeType: 'role' | 'direct_manager';
+    assigneeType: import('./workflow').WorkflowAssigneeType;
   } | null;
 }
 

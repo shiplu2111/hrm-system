@@ -99,6 +99,12 @@ model Tenant {
   supportTicketMessages       SupportTicketMessage[]
   exchangeRates               ExchangeRate[]
   holidays                    Holiday[]
+  performanceReviewCycles     PerformanceReviewCycle[]
+  kpiDefinitions              KpiDefinition[]
+  employeeKpiAssignments      EmployeeKpiAssignment[]
+  performanceReviewParticipants PerformanceReviewParticipant[]
+  employeePerformanceReviews  EmployeePerformanceReview[]
+  performance360Feedbacks     Performance360Feedback[]
 
   @@map("tenants")
 }
@@ -271,6 +277,12 @@ model Company {
   payrollJournalExports       PayrollJournalExport[]
   accountingConnections       AccountingConnection[]
   accountingSyncJobs          AccountingSyncJob[]
+  performanceReviewCycles     PerformanceReviewCycle[]
+  kpiDefinitions              KpiDefinition[]
+  employeeKpiAssignments      EmployeeKpiAssignment[]
+  performanceReviewParticipants PerformanceReviewParticipant[]
+  employeePerformanceReviews    EmployeePerformanceReview[]
+  performance360Feedbacks       Performance360Feedback[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -359,6 +371,7 @@ model Designation {
   employees  Employee[]
   jobRequisitions JobRequisition[]
   offerLetters    OfferLetter[]
+  performanceReviewRecommendations EmployeePerformanceReview[]
 
   @@index([companyId])
   @@index([departmentId])
@@ -434,6 +447,7 @@ enum LifecycleEventType {
   resignation
   termination
   rehire
+  performance_review
 
   @@map("lifecycle_event_type")
 }
@@ -498,6 +512,11 @@ model Employee {
   benefitEnrollments  BenefitEnrollment[]
   exitInterviewsConducted ExitInterviewRecord[] @relation("ExitInterviewInterviewer")
   exitInterviewRecords ExitInterviewRecord[]
+  employeeKpiAssignments EmployeeKpiAssignment[]
+  performanceReviewParticipants PerformanceReviewParticipant[]
+  employeePerformanceReviews EmployeePerformanceReview[] @relation("ReviewSubject")
+  managedPerformanceReviews EmployeePerformanceReview[] @relation("ReviewManager")
+  performance360FeedbackGiven Performance360Feedback[] @relation("360FeedbackReviewer")
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -718,6 +737,8 @@ model EmployeeLifecycleEvent {
   updatedAt     DateTime           @updatedAt @map("updated_at")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  performanceReviewOutcome EmployeePerformanceReview? @relation("ReviewPerformanceLifecycle")
+  promotionReviewOutcome   EmployeePerformanceReview? @relation("ReviewPromotionLifecycle")
 
   @@index([employeeId])
   @@index([eventType])
@@ -1966,6 +1987,7 @@ enum WorkflowEntityType {
   timesheet_entry
   job_requisition
   offer_letter
+  performance_review
 
   @@map("workflow_entity_type")
 }
@@ -1973,6 +1995,7 @@ enum WorkflowEntityType {
 enum WorkflowAssigneeType {
   role
   direct_manager
+  skip_level_manager
 
   @@map("workflow_assignee_type")
 }
@@ -3195,7 +3218,288 @@ model SupportTicketMessage {
 }
 
 // ---------------------------------------------------------------------------
-// §8f Multi-Currency Payroll (MODULES.md §46, RULES.md §4)
+// §8f Performance Management — KPI & Goals (MODULES.md §25)
+// ---------------------------------------------------------------------------
+
+enum PerformanceReviewCycleStatus {
+  draft
+  active
+  closed
+  archived
+
+  @@map("performance_review_cycle_status")
+}
+
+enum KpiMeasurementPeriod {
+  monthly
+  quarterly
+  semi_annual
+  annual
+  custom
+
+  @@map("kpi_measurement_period")
+}
+
+enum KpiUnit {
+  percentage
+  count
+  currency
+  hours
+  days
+  score
+  other
+
+  @@map("kpi_unit")
+}
+
+enum KpiDirection {
+  higher_is_better
+  lower_is_better
+
+  @@map("kpi_direction")
+}
+
+enum EmployeeKpiAssignmentStatus {
+  draft
+  active
+  completed
+  cancelled
+
+  @@map("employee_kpi_assignment_status")
+}
+
+enum EmployeePerformanceReviewStatus {
+  not_started
+  self_assessment_draft
+  self_submitted
+  manager_review
+  pending_approval
+  approved
+  returned
+  cancelled
+
+  @@map("employee_performance_review_status")
+}
+
+enum Performance360Relationship {
+  peer
+  direct_report
+  cross_functional
+
+  @@map("performance_360_relationship")
+}
+
+enum Performance360FeedbackStatus {
+  pending
+  submitted
+
+  @@map("performance_360_feedback_status")
+}
+
+enum PromotionRecommendationStatus {
+  none
+  draft
+  submitted
+  approved
+  rejected
+  executed
+
+  @@map("promotion_recommendation_status")
+}
+
+/// Company-wide performance review cycle — anchors KPI measurement windows.
+model PerformanceReviewCycle {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  tenantId                 String                       @map("tenant_id") @db.Uuid
+  companyId                String                       @map("company_id") @db.Uuid
+  name                     String
+  description              String?
+  periodStart              DateTime                     @map("period_start") @db.Date
+  periodEnd                DateTime                     @map("period_end") @db.Date
+  measurementPeriod        KpiMeasurementPeriod         @map("measurement_period")
+  reviewDueDate            DateTime                     @map("review_due_date") @db.Date
+  status                   PerformanceReviewCycleStatus @default(draft)
+  requiresWorkflowApproval Boolean                      @default(true) @map("requires_workflow_approval")
+  launchedAt               DateTime?                    @map("launched_at")
+  createdByUserId          String                       @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+
+  tenant         Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company        Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  kpiAssignments EmployeeKpiAssignment[]
+  participants   PerformanceReviewParticipant[]
+  reviews        EmployeePerformanceReview[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("performance_review_cycles")
+}
+
+model PerformanceReviewParticipant {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  reviewCycleId String   @map("review_cycle_id") @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reviewCycle PerformanceReviewCycle @relation(fields: [reviewCycleId], references: [id], onDelete: Cascade)
+  employee    Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewCycleId, employeeId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@map("performance_review_participants")
+}
+
+model EmployeePerformanceReview {
+  id                          String                          @id @default(uuid()) @db.Uuid
+  tenantId                    String                          @map("tenant_id") @db.Uuid
+  companyId                   String                          @map("company_id") @db.Uuid
+  reviewCycleId               String                          @map("review_cycle_id") @db.Uuid
+  employeeId                  String                          @map("employee_id") @db.Uuid
+  managerEmployeeId           String?                         @map("manager_employee_id") @db.Uuid
+  status                      EmployeePerformanceReviewStatus @default(not_started)
+  selfAssessment              Json                            @default("{}") @map("self_assessment")
+  managerAssessment           Json                            @default("{}") @map("manager_assessment")
+  selfSubmittedAt             DateTime?                       @map("self_submitted_at")
+  managerSubmittedAt          DateTime?                       @map("manager_submitted_at")
+  approvedAt                  DateTime?                       @map("approved_at")
+  returnedAt                  DateTime?                       @map("returned_at")
+  returnReason                String?                         @map("return_reason")
+  overallRating               Decimal?                        @map("overall_rating") @db.Decimal(3, 2)
+  overallRatingLabel          String?                         @map("overall_rating_label")
+  performance360Summary       Json?                           @map("performance_360_summary")
+  promotionRecommended        Boolean                         @default(false) @map("promotion_recommended")
+  recommendedDesignationId    String?                         @map("recommended_designation_id") @db.Uuid
+  promotionRecommendationNote String?                         @map("promotion_recommendation_note")
+  promotionRecommendationStatus PromotionRecommendationStatus @default(none) @map("promotion_recommendation_status")
+  performanceLifecycleEventId String?                         @unique @map("performance_lifecycle_event_id") @db.Uuid
+  promotionLifecycleEventId   String?                         @unique @map("promotion_lifecycle_event_id") @db.Uuid
+  createdAt                   DateTime                        @default(now()) @map("created_at")
+  updatedAt                   DateTime                        @updatedAt @map("updated_at")
+
+  tenant                    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company                   Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reviewCycle               PerformanceReviewCycle @relation(fields: [reviewCycleId], references: [id], onDelete: Restrict)
+  employee                  Employee               @relation("ReviewSubject", fields: [employeeId], references: [id], onDelete: Restrict)
+  manager                   Employee?              @relation("ReviewManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  recommendedDesignation    Designation?           @relation(fields: [recommendedDesignationId], references: [id], onDelete: SetNull)
+  performanceLifecycleEvent EmployeeLifecycleEvent? @relation("ReviewPerformanceLifecycle", fields: [performanceLifecycleEventId], references: [id], onDelete: SetNull)
+  promotionLifecycleEvent   EmployeeLifecycleEvent? @relation("ReviewPromotionLifecycle", fields: [promotionLifecycleEventId], references: [id], onDelete: SetNull)
+  feedback360               Performance360Feedback[]
+
+  @@unique([reviewCycleId, employeeId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([reviewCycleId])
+  @@index([employeeId])
+  @@index([managerEmployeeId])
+  @@index([status])
+  @@map("employee_performance_reviews")
+}
+
+/// Anonymous peer / report / cross-functional input for a performance review.
+model Performance360Feedback {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  tenantId           String                       @map("tenant_id") @db.Uuid
+  companyId          String                       @map("company_id") @db.Uuid
+  reviewId           String                       @map("review_id") @db.Uuid
+  reviewerEmployeeId String                       @map("reviewer_employee_id") @db.Uuid
+  relationship       Performance360Relationship
+  status             Performance360FeedbackStatus @default(pending)
+  competencyRatings  Json                         @default("[]") @map("competency_ratings")
+  comment            String?
+  isAnonymous        Boolean                      @default(true) @map("is_anonymous")
+  submittedAt        DateTime?                    @map("submitted_at")
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
+
+  tenant   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  review   EmployeePerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reviewer Employee                  @relation("360FeedbackReviewer", fields: [reviewerEmployeeId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewId, reviewerEmployeeId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([reviewId])
+  @@index([reviewerEmployeeId])
+  @@map("performance_360_feedback")
+}
+
+/// Admin/manager-defined KPI template assignable to employees.
+model KpiDefinition {
+  id                 String       @id @default(uuid()) @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  companyId          String       @map("company_id") @db.Uuid
+  name               String
+  description        String?
+  category           String?
+  unit               KpiUnit
+  direction          KpiDirection @default(higher_is_better)
+  defaultTargetValue Decimal?     @map("default_target_value") @db.Decimal(14, 4)
+  isActive           Boolean      @default(true) @map("is_active")
+  createdByUserId    String       @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  assignments EmployeeKpiAssignment[]
+
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId, isActive])
+  @@map("kpi_definitions")
+}
+
+/// KPI goal assigned to an employee for a review cycle with target and progress.
+model EmployeeKpiAssignment {
+  id                     String                      @id @default(uuid()) @db.Uuid
+  tenantId               String                      @map("tenant_id") @db.Uuid
+  companyId              String                      @map("company_id") @db.Uuid
+  reviewCycleId          String                      @map("review_cycle_id") @db.Uuid
+  kpiDefinitionId        String?                     @map("kpi_definition_id") @db.Uuid
+  employeeId             String                      @map("employee_id") @db.Uuid
+  assignedByUserId       String                      @map("assigned_by_user_id") @db.Uuid
+  title                  String
+  description            String?
+  unit                   KpiUnit
+  direction              KpiDirection                @default(higher_is_better)
+  targetValue            Decimal                     @map("target_value") @db.Decimal(14, 4)
+  currentValue           Decimal?                    @map("current_value") @db.Decimal(14, 4)
+  measurementPeriod      KpiMeasurementPeriod        @map("measurement_period")
+  measurementPeriodStart DateTime                    @map("measurement_period_start") @db.Date
+  measurementPeriodEnd   DateTime                    @map("measurement_period_end") @db.Date
+  weightPercent          Decimal?                    @map("weight_percent") @db.Decimal(5, 2)
+  status                 EmployeeKpiAssignmentStatus @default(active)
+  notes                  String?
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reviewCycle   PerformanceReviewCycle @relation(fields: [reviewCycleId], references: [id], onDelete: Restrict)
+  kpiDefinition KpiDefinition?         @relation(fields: [kpiDefinitionId], references: [id], onDelete: SetNull)
+  employee      Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([reviewCycleId])
+  @@index([employeeId])
+  @@index([kpiDefinitionId])
+  @@index([status])
+  @@map("employee_kpi_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// §8g Multi-Currency Payroll (MODULES.md §46, RULES.md §4)
 // ---------------------------------------------------------------------------
 
 /// Tenant-scoped FX rates — effective-dated; payroll locks the rate active on period end date.

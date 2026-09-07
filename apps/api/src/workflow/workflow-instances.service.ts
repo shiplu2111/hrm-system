@@ -99,6 +99,23 @@ export class WorkflowInstancesService {
         continue;
       }
 
+      if (current.assigneeType === 'skip_level_manager') {
+        const manager = requester?.managerId
+          ? await this.prisma.unscoped.employee.findFirst({
+              where: { id: requester.managerId, deletedAt: null },
+              select: { managerId: true },
+            })
+          : null;
+        if (user.employeeId && user.employeeId === manager?.managerId) {
+          filtered.push(row);
+          continue;
+        }
+        if (roleName === 'Company Owner' || roleName === 'HR Admin') {
+          filtered.push(row);
+        }
+        continue;
+      }
+
       if (roleName === current.roleName || roleName === 'Company Owner') {
         filtered.push(row);
       }

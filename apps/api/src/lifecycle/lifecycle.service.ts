@@ -419,6 +419,22 @@ export class LifecycleService {
         return { employeeUpdate: update, enrichedDetails: enriched };
       }
 
+      case LifecycleEventType.performance_review: {
+        if (details.reviewId) enriched.reviewId = String(details.reviewId);
+        if (details.reviewCycleId) enriched.reviewCycleId = String(details.reviewCycleId);
+        if (details.reviewCycleName) enriched.reviewCycleName = String(details.reviewCycleName);
+        if (details.overallRating != null) {
+          enriched.overallRating = this.requireNumber(details.overallRating, 'overallRating');
+        }
+        if (details.overallRatingLabel) {
+          enriched.overallRatingLabel = String(details.overallRatingLabel);
+        }
+        if (details.promotionRecommended != null) {
+          enriched.promotionRecommended = Boolean(details.promotionRecommended);
+        }
+        return { employeeUpdate: null, enrichedDetails: enriched };
+      }
+
       default:
         throw new BadRequestException({
           code: 'VALIDATION_ERROR',

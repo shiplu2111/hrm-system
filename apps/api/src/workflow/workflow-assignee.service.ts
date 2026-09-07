@@ -36,6 +36,16 @@ export class WorkflowAssigneeService {
       if (roleName === 'Company Owner' || roleName === 'HR Admin') {
         return;
       }
+    } else if (input.step.assigneeType === 'skip_level_manager') {
+      const skipLevelManagerId = await this.getSkipLevelManagerId(
+        input.requesterEmployeeId,
+      );
+      if (input.user.employeeId && input.user.employeeId === skipLevelManagerId) {
+        return;
+      }
+      if (roleName === 'Company Owner' || roleName === 'HR Admin') {
+        return;
+      }
     } else if (roleName === input.step.roleName || roleName === 'Company Owner') {
       return;
     }
@@ -70,6 +80,23 @@ export class WorkflowAssigneeService {
       return managerUser ? [managerUser.id] : [];
     }
 
+    if (input.step.assigneeType === 'skip_level_manager') {
+      const skipLevelManagerId = await this.getSkipLevelManagerId(
+        input.requesterEmployeeId,
+      );
+      if (!skipLevelManagerId) return [];
+
+      const skipUser = await this.prisma.unscoped.user.findFirst({
+        where: {
+          employeeId: skipLevelManagerId,
+          isActive: true,
+          tenantId: input.tenantId,
+        },
+        select: { id: true },
+      });
+      return skipUser ? [skipUser.id] : [];
+    }
+
     const users = await this.prisma.unscoped.user.findMany({
       where: {
         tenantId: input.tenantId,
@@ -90,5 +117,19 @@ export class WorkflowAssigneeService {
     }
 
     return [];
+  }
+
+  private async getSkipLevelManagerId(employeeId: string): Promise<string | null> {
+    const employee = await this.prisma.unscoped.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
+      select: { managerId: true },
+    });
+    if (!employee?.managerId) return null;
+
+    const manager = await this.prisma.unscoped.employee.findFirst({
+      where: { id: employee.managerId, deletedAt: null },
+      select: { managerId: true },
+    });
+    return manager?.managerId ?? null;
   }
 }

@@ -78,7 +78,12 @@ export function WorkflowStepList({ steps, roles, onChange }: WorkflowStepListPro
         const updated = { ...step, ...patch };
         if (patch.assigneeType === 'direct_manager') {
           updated.roleName = 'Manager';
-        } else if (patch.assigneeType === 'role' && step.assigneeType === 'direct_manager') {
+        } else if (patch.assigneeType === 'skip_level_manager') {
+          updated.roleName = 'Skip-level Manager';
+        } else if (
+          patch.assigneeType === 'role' &&
+          (step.assigneeType === 'direct_manager' || step.assigneeType === 'skip_level_manager')
+        ) {
           updated.roleName =
             roles.find((r) => r.name === 'HR Admin')?.name ?? roles[0]?.name ?? 'HR Admin';
         }
@@ -151,16 +156,26 @@ export function WorkflowStepList({ steps, roles, onChange }: WorkflowStepListPro
                     }
                   >
                     <option value="direct_manager">Requester&apos;s direct manager</option>
+                    <option value="skip_level_manager">Skip-level manager</option>
                     <option value="role">Specific role</option>
                   </Select>
                 </div>
 
                 <div>
-                  <Label>{step.assigneeType === 'direct_manager' ? 'Step label' : 'Role'}</Label>
+                  <Label>
+                    {step.assigneeType === 'direct_manager' || step.assigneeType === 'skip_level_manager'
+                      ? 'Step label'
+                      : 'Role'}
+                  </Label>
                   {step.assigneeType === 'direct_manager' ? (
                     <div className="flex items-center gap-2 h-[38px] px-3 rounded-lg border border-base bg-[rgb(var(--bg-muted))] text-sm text-secondary">
                       <Users className="h-4 w-4 shrink-0" />
                       Direct Manager (reporting line)
+                    </div>
+                  ) : step.assigneeType === 'skip_level_manager' ? (
+                    <div className="flex items-center gap-2 h-[38px] px-3 rounded-lg border border-base bg-[rgb(var(--bg-muted))] text-sm text-secondary">
+                      <Users className="h-4 w-4 shrink-0" />
+                      Skip-level Manager (manager&apos;s manager)
                     </div>
                   ) : (
                     <Select
@@ -213,6 +228,11 @@ export function WorkflowStepList({ steps, roles, onChange }: WorkflowStepListPro
                 <>
                   <Users className="h-3 w-3" />
                   Resolved from employee manager_id at runtime
+                </>
+              ) : step.assigneeType === 'skip_level_manager' ? (
+                <>
+                  <Users className="h-3 w-3" />
+                  Resolved from the requester&apos;s manager&apos;s manager at runtime
                 </>
               ) : (
                 <>
