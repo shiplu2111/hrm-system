@@ -49,6 +49,45 @@ const ID = {
   timesheetEntryPending: '10000000-0000-4000-8000-0000000000f3',
   timesheetEntryApproved: '10000000-0000-4000-8000-0000000000f4',
   timesheetEntryWorkflowPending: '10000000-0000-4000-8000-0000000000f5',
+  jobRequisitionEngineer: '10000000-0000-4000-8000-000000000100',
+  jobRequisitionDesigner: '10000000-0000-4000-8000-000000000101',
+  jobPostingEngineer: '10000000-0000-4000-8000-000000000102',
+  workflowJobRequisitionStandard: '10000000-0000-4000-8000-000000000103',
+  candidateJennifer: '10000000-0000-4000-8000-000000000110',
+  candidateCarlos: '10000000-0000-4000-8000-000000000111',
+  candidateAisha: '10000000-0000-4000-8000-000000000112',
+  candidateMei: '10000000-0000-4000-8000-000000000113',
+  candidateHannah: '10000000-0000-4000-8000-000000000114',
+  candidateOliver: '10000000-0000-4000-8000-000000000115',
+  applicationJennifer: '10000000-0000-4000-8000-000000000120',
+  applicationCarlos: '10000000-0000-4000-8000-000000000121',
+  applicationAisha: '10000000-0000-4000-8000-000000000122',
+  applicationMei: '10000000-0000-4000-8000-000000000123',
+  applicationHannah: '10000000-0000-4000-8000-000000000124',
+  applicationOliver: '10000000-0000-4000-8000-000000000125',
+  interviewRoundMeiTechnical: '10000000-0000-4000-8000-000000000130',
+  interviewRoundMeiHr: '10000000-0000-4000-8000-000000000131',
+  interviewRoundMeiManagement: '10000000-0000-4000-8000-000000000132',
+  interviewRoundMeiFinal: '10000000-0000-4000-8000-000000000133',
+  interviewRoundHannahTechnical: '10000000-0000-4000-8000-000000000134',
+  interviewRoundHannahHr: '10000000-0000-4000-8000-000000000135',
+  interviewRoundHannahManagement: '10000000-0000-4000-8000-000000000136',
+  interviewRoundHannahFinal: '10000000-0000-4000-8000-000000000137',
+  workflowOfferLetterStandard: '10000000-0000-4000-8000-000000000140',
+  offerLetterHannah: '10000000-0000-4000-8000-000000000141',
+  documentTypeNationalId: '10000000-0000-4000-8000-000000000150',
+  documentTypeBankDetails: '10000000-0000-4000-8000-000000000151',
+  documentTypeHandbook: '10000000-0000-4000-8000-000000000152',
+  documentTypeCodeOfConduct: '10000000-0000-4000-8000-000000000153',
+  onboardingTemplateDefault: '10000000-0000-4000-8000-000000000160',
+  onboardingTemplateItemId: '10000000-0000-4000-8000-000000000161',
+  onboardingTemplateItemBank: '10000000-0000-4000-8000-000000000162',
+  onboardingTemplateItemHandbook: '10000000-0000-4000-8000-000000000163',
+  onboardingTemplateItemConduct: '10000000-0000-4000-8000-000000000164',
+  onboardingTemplateItemLaptop: '10000000-0000-4000-8000-000000000165',
+  onboardingTemplateItemEmail: '10000000-0000-4000-8000-000000000166',
+  employeeOnboardingStaff: '10000000-0000-4000-8000-000000000170',
+  employeeDocumentStaffId: '10000000-0000-4000-8000-000000000171',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -115,6 +154,7 @@ const MODULES = [
   'leave',
   'payroll',
   'attendance',
+  'recruitment',
   'settings',
   'audit',
   'platform',
@@ -143,6 +183,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'leave', actions: ['view', 'approve'] },
     { module: 'payroll', actions: ['view', 'create', 'edit'] },
     { module: 'attendance', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
+    { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
   ],
   'Payroll Admin': [
@@ -167,6 +208,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'payroll', actions: ['view', 'approve'] },
   ],
   Recruiter: [
+    { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'employee', actions: ['view', 'create', 'edit'] },
   ],
 };
@@ -1394,6 +1436,375 @@ async function main(): Promise<void> {
     update: { status: 'approved' },
   });
 
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowJobRequisitionStandard },
+    create: {
+      id: ID.workflowJobRequisitionStandard,
+      companyId: company.id,
+      entityType: 'job_requisition',
+      name: 'Job Requisition Approval',
+      description: 'HR Admin sign-off before a requisition can be opened',
+      triggerConfig: { type: 'always' },
+      steps: [{ order: 1, assigneeType: 'role', roleName: 'HR Admin' }],
+      isDefault: true,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true, isDefault: true },
+  });
+
+  await prisma.jobRequisition.upsert({
+    where: { id: ID.jobRequisitionEngineer },
+    create: {
+      id: ID.jobRequisitionEngineer,
+      tenantId: tenant.id,
+      companyId: company.id,
+      referenceNumber: 'REQ-2026-001',
+      title: 'Senior Frontend Engineer',
+      departmentId: ID.departmentEng,
+      designationId: ID.designationEngineer,
+      jobLevelId: ID.jobLevelStaff,
+      employmentTypeId: ID.employmentTypeFullTime,
+      locationId: ID.location,
+      description:
+        'Build and maintain customer-facing web applications using React and TypeScript. Collaborate with design and backend teams on the platform redesign.',
+      headcount: 2,
+      status: 'open',
+      requestedByEmployeeId: ID.empManager,
+      openedAt: new Date('2026-02-01T00:00:00.000Z'),
+    },
+    update: { status: 'open', title: 'Senior Frontend Engineer' },
+  });
+
+  await prisma.jobRequisition.upsert({
+    where: { id: ID.jobRequisitionDesigner },
+    create: {
+      id: ID.jobRequisitionDesigner,
+      tenantId: tenant.id,
+      companyId: company.id,
+      referenceNumber: 'REQ-2026-002',
+      title: 'Product Designer',
+      departmentId: ID.departmentEng,
+      description:
+        'Own end-to-end product design for internal HR tools and employee experiences.',
+      headcount: 1,
+      status: 'draft',
+      requestedByEmployeeId: ID.empHrAdmin,
+    },
+    update: { title: 'Product Designer' },
+  });
+
+  await prisma.jobPosting.upsert({
+    where: { id: ID.jobPostingEngineer },
+    create: {
+      id: ID.jobPostingEngineer,
+      tenantId: tenant.id,
+      companyId: company.id,
+      requisitionId: ID.jobRequisitionEngineer,
+      title: 'Senior Frontend Engineer',
+      summary: 'Join our engineering team to ship modern HR experiences.',
+      description:
+        'We are hiring a Senior Frontend Engineer to lead UI delivery on our platform redesign. You will work with React, TypeScript, and our design system.',
+      status: 'published',
+      publishedAt: new Date('2026-02-05T00:00:00.000Z'),
+    },
+    update: { status: 'published' },
+  });
+
+  const candidateSeeds = [
+    {
+      id: ID.candidateJennifer,
+      firstName: 'Jennifer',
+      lastName: 'Wu',
+      email: 'jwu@example.com',
+      yearsExperience: 6,
+    },
+    {
+      id: ID.candidateCarlos,
+      firstName: 'Carlos',
+      lastName: 'Mendez',
+      email: 'cmendez@example.com',
+      yearsExperience: 4,
+      source: 'linkedin' as const,
+    },
+    {
+      id: ID.candidateAisha,
+      firstName: 'Aisha',
+      lastName: 'Khan',
+      email: 'akhan@example.com',
+      yearsExperience: 5,
+      source: 'referral' as const,
+    },
+    {
+      id: ID.candidateMei,
+      firstName: 'Mei',
+      lastName: 'Lin',
+      email: 'meilin@example.com',
+      yearsExperience: 8,
+    },
+    {
+      id: ID.candidateHannah,
+      firstName: 'Hannah',
+      lastName: 'Schmidt',
+      email: 'hschmidt@example.com',
+      yearsExperience: 9,
+    },
+    {
+      id: ID.candidateOliver,
+      firstName: 'Oliver',
+      lastName: 'Brown',
+      email: 'obrown@example.com',
+      yearsExperience: 2,
+    },
+  ];
+
+  for (const candidate of candidateSeeds) {
+    await prisma.candidate.upsert({
+      where: { id: candidate.id },
+      create: {
+        id: candidate.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        email: candidate.email,
+        source: candidate.source ?? 'website',
+        yearsExperience: candidate.yearsExperience,
+      },
+      update: {
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+      },
+    });
+  }
+
+  const applicationSeeds = [
+    {
+      id: ID.applicationJennifer,
+      candidateId: ID.candidateJennifer,
+      stage: 'applied' as const,
+      rating: null,
+    },
+    {
+      id: ID.applicationCarlos,
+      candidateId: ID.candidateCarlos,
+      stage: 'applied' as const,
+      rating: null,
+    },
+    {
+      id: ID.applicationAisha,
+      candidateId: ID.candidateAisha,
+      stage: 'screening' as const,
+      rating: 4,
+    },
+    {
+      id: ID.applicationMei,
+      candidateId: ID.candidateMei,
+      stage: 'interview' as const,
+      rating: 5,
+    },
+    {
+      id: ID.applicationHannah,
+      candidateId: ID.candidateHannah,
+      stage: 'offer' as const,
+      rating: 5,
+    },
+    {
+      id: ID.applicationOliver,
+      candidateId: ID.candidateOliver,
+      stage: 'hired' as const,
+      rating: 4,
+    },
+  ];
+
+  for (const application of applicationSeeds) {
+    await prisma.jobApplication.upsert({
+      where: { id: application.id },
+      create: {
+        id: application.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        candidateId: application.candidateId,
+        requisitionId: ID.jobRequisitionEngineer,
+        postingId: ID.jobPostingEngineer,
+        stage: application.stage,
+        rating: application.rating,
+        appliedAt: new Date('2026-02-10T00:00:00.000Z'),
+        stageUpdatedAt: new Date('2026-03-01T00:00:00.000Z'),
+      },
+      update: { stage: application.stage, rating: application.rating },
+    });
+  }
+
+  const meiInterviewRounds = [
+    {
+      id: ID.interviewRoundMeiTechnical,
+      roundType: 'technical' as const,
+      roundOrder: 1,
+      status: 'completed' as const,
+      score: 4.5,
+      recommendation: 'yes' as const,
+      feedback: 'Strong React and TypeScript fundamentals.',
+      scheduledStartAt: new Date('2026-02-20T02:00:00.000Z'),
+      scheduledEndAt: new Date('2026-02-20T03:00:00.000Z'),
+      interviewerEmployeeId: ID.empManager,
+      completedAt: new Date('2026-02-20T03:30:00.000Z'),
+      completedByUserId: ID.userManager,
+    },
+    {
+      id: ID.interviewRoundMeiHr,
+      roundType: 'hr' as const,
+      roundOrder: 2,
+      status: 'scheduled' as const,
+      scheduledStartAt: new Date('2026-02-25T01:00:00.000Z'),
+      scheduledEndAt: new Date('2026-02-25T02:00:00.000Z'),
+      location: 'Sydney HQ — Room 3',
+      interviewerEmployeeId: ID.empHrAdmin,
+    },
+    {
+      id: ID.interviewRoundMeiManagement,
+      roundType: 'management' as const,
+      roundOrder: 3,
+      status: 'pending' as const,
+    },
+    {
+      id: ID.interviewRoundMeiFinal,
+      roundType: 'final_decision' as const,
+      roundOrder: 4,
+      status: 'pending' as const,
+    },
+  ];
+
+  for (const round of meiInterviewRounds) {
+    await prisma.jobApplicationInterviewRound.upsert({
+      where: { id: round.id },
+      create: {
+        id: round.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        applicationId: ID.applicationMei,
+        roundType: round.roundType,
+        roundOrder: round.roundOrder,
+        status: round.status,
+        score: round.score ?? null,
+        recommendation: round.recommendation ?? null,
+        feedback: round.feedback ?? null,
+        scheduledStartAt: round.scheduledStartAt ?? null,
+        scheduledEndAt: round.scheduledEndAt ?? null,
+        location: round.location ?? null,
+        interviewerEmployeeId: round.interviewerEmployeeId ?? null,
+        completedAt: round.completedAt ?? null,
+        completedByUserId: round.completedByUserId ?? null,
+      },
+      update: {
+        status: round.status,
+        score: round.score ?? null,
+        recommendation: round.recommendation ?? null,
+      },
+    });
+  }
+
+  const hannahInterviewRounds = [
+    {
+      id: ID.interviewRoundHannahTechnical,
+      roundType: 'technical' as const,
+      roundOrder: 1,
+      score: 5,
+      recommendation: 'strong_yes' as const,
+    },
+    {
+      id: ID.interviewRoundHannahHr,
+      roundType: 'hr' as const,
+      roundOrder: 2,
+      score: 4.5,
+      recommendation: 'yes' as const,
+    },
+    {
+      id: ID.interviewRoundHannahManagement,
+      roundType: 'management' as const,
+      roundOrder: 3,
+      score: 5,
+      recommendation: 'strong_yes' as const,
+    },
+    {
+      id: ID.interviewRoundHannahFinal,
+      roundType: 'final_decision' as const,
+      roundOrder: 4,
+      score: 5,
+      recommendation: 'strong_yes' as const,
+      feedback: 'Unanimous hire — extend offer.',
+    },
+  ];
+
+  for (const round of hannahInterviewRounds) {
+    await prisma.jobApplicationInterviewRound.upsert({
+      where: { id: round.id },
+      create: {
+        id: round.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        applicationId: ID.applicationHannah,
+        roundType: round.roundType,
+        roundOrder: round.roundOrder,
+        status: 'completed',
+        score: round.score,
+        recommendation: round.recommendation,
+        feedback: round.feedback ?? null,
+        completedAt: new Date('2026-02-28T00:00:00.000Z'),
+        completedByUserId: ID.userHrAdmin,
+      },
+      update: { status: 'completed', score: round.score },
+    });
+  }
+
+  await prisma.workflowDefinition.upsert({
+    where: { id: ID.workflowOfferLetterStandard },
+    create: {
+      id: ID.workflowOfferLetterStandard,
+      companyId: company.id,
+      entityType: 'offer_letter',
+      name: 'Offer Letter Approval',
+      description: 'HR Admin then Company Owner sign-off before sending offers',
+      triggerConfig: { type: 'always' },
+      steps: [
+        { order: 1, assigneeType: 'role', roleName: 'HR Admin' },
+        { order: 2, assigneeType: 'role', roleName: 'Company Owner' },
+      ],
+      isDefault: true,
+      isActive: true,
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: { isActive: true, isDefault: true },
+  });
+
+  await prisma.offerLetter.upsert({
+    where: { id: ID.offerLetterHannah },
+    create: {
+      id: ID.offerLetterHannah,
+      tenantId: tenant.id,
+      companyId: company.id,
+      applicationId: ID.applicationHannah,
+      status: 'accepted',
+      template: 'senior',
+      jobTitle: 'Senior Frontend Engineer',
+      departmentId: ID.departmentEng,
+      designationId: ID.designationEngineer,
+      employmentTypeId: ID.employmentTypeFullTime,
+      workLocationId: ID.location,
+      annualSalary: 145000,
+      currency: 'AUD',
+      startDate: new Date('2026-04-15T00:00:00.000Z'),
+      reportingTo: 'Alex Thompson, Engineering Manager',
+      signingBonus: 10000,
+      equityNotes: '5,000 stock options (4-year vesting)',
+      probationMonths: 3,
+      expiryDate: new Date('2026-03-15T00:00:00.000Z'),
+      sentAt: new Date('2026-03-01T00:00:00.000Z'),
+      acceptedAt: new Date('2026-03-05T00:00:00.000Z'),
+    },
+    update: { status: 'accepted' },
+  });
+
   await prisma.holiday.upsert({
     where: { id: ID.companyHoliday },
     create: {
@@ -1428,6 +1839,310 @@ async function main(): Promise<void> {
       locationId: ID.location,
     },
   });
+
+  const documentTypeSeeds = [
+    {
+      id: ID.documentTypeNationalId,
+      name: 'National ID',
+      description: 'Government-issued photo identification',
+      requiresVerification: true,
+      tracksExpiry: true,
+    },
+    {
+      id: ID.documentTypeBankDetails,
+      name: 'Bank Account Details',
+      description: 'Bank account information for payroll direct deposit',
+      requiresVerification: true,
+      tracksExpiry: false,
+    },
+    {
+      id: ID.documentTypeHandbook,
+      name: 'Employee Handbook Acknowledgment',
+      description: 'Signed acknowledgment of the employee handbook',
+      requiresVerification: true,
+      tracksExpiry: false,
+    },
+    {
+      id: ID.documentTypeCodeOfConduct,
+      name: 'Code of Conduct Agreement',
+      description: 'Signed code of conduct and confidentiality agreement',
+      requiresVerification: false,
+      tracksExpiry: false,
+    },
+  ];
+
+  for (const docType of documentTypeSeeds) {
+    await prisma.documentType.upsert({
+      where: { id: docType.id },
+      create: {
+        id: docType.id,
+        companyId: company.id,
+        name: docType.name,
+        description: docType.description,
+        requiresVerification: docType.requiresVerification,
+        tracksExpiry: docType.tracksExpiry,
+        isActive: true,
+      },
+      update: {
+        name: docType.name,
+        description: docType.description,
+        requiresVerification: docType.requiresVerification,
+        tracksExpiry: docType.tracksExpiry,
+        isActive: true,
+      },
+    });
+  }
+
+  await prisma.onboardingChecklistTemplate.upsert({
+    where: { id: ID.onboardingTemplateDefault },
+    create: {
+      id: ID.onboardingTemplateDefault,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Standard New Hire',
+      description: 'Default onboarding checklist for all new employees',
+      isDefault: true,
+      isActive: true,
+    },
+    update: {
+      name: 'Standard New Hire',
+      description: 'Default onboarding checklist for all new employees',
+      isDefault: true,
+      isActive: true,
+    },
+  });
+
+  const templateItemSeeds = [
+    {
+      id: ID.onboardingTemplateItemId,
+      title: 'Collect National ID',
+      description: 'Receive verified government photo ID',
+      category: 'document_collection' as const,
+      taskType: 'document_collection' as const,
+      documentTypeId: ID.documentTypeNationalId,
+      assigneeLabel: 'HR Admin',
+      dueDaysOffset: 3,
+      sortOrder: 1,
+    },
+    {
+      id: ID.onboardingTemplateItemBank,
+      title: 'Bank Account Details',
+      description: 'Collect bank info for payroll setup',
+      category: 'document_collection' as const,
+      taskType: 'document_collection' as const,
+      documentTypeId: ID.documentTypeBankDetails,
+      assigneeLabel: 'HR Admin',
+      dueDaysOffset: 5,
+      sortOrder: 2,
+    },
+    {
+      id: ID.onboardingTemplateItemHandbook,
+      title: 'Employee Handbook Acknowledgment',
+      description: 'Read and sign employee handbook',
+      category: 'policy_acceptance' as const,
+      taskType: 'policy_acceptance' as const,
+      documentTypeId: ID.documentTypeHandbook,
+      assigneeLabel: 'New Hire',
+      dueDaysOffset: 5,
+      sortOrder: 3,
+    },
+    {
+      id: ID.onboardingTemplateItemConduct,
+      title: 'Code of Conduct Agreement',
+      description: 'Sign code of conduct and NDA',
+      category: 'policy_acceptance' as const,
+      taskType: 'policy_acceptance' as const,
+      documentTypeId: ID.documentTypeCodeOfConduct,
+      assigneeLabel: 'New Hire',
+      dueDaysOffset: 5,
+      sortOrder: 4,
+    },
+    {
+      id: ID.onboardingTemplateItemLaptop,
+      title: 'IT Equipment Setup',
+      description: 'Provision laptop, monitor, and accessories',
+      category: 'equipment_provisioning' as const,
+      taskType: 'provisioning' as const,
+      assigneeLabel: 'IT Team',
+      dueDaysOffset: 7,
+      sortOrder: 5,
+    },
+    {
+      id: ID.onboardingTemplateItemEmail,
+      title: 'Email & System Access',
+      description: 'Create email account and core system access',
+      category: 'system_access' as const,
+      taskType: 'provisioning' as const,
+      assigneeLabel: 'IT Team',
+      dueDaysOffset: 1,
+      sortOrder: 6,
+    },
+  ];
+
+  for (const item of templateItemSeeds) {
+    await prisma.onboardingChecklistTemplateItem.upsert({
+      where: { id: item.id },
+      create: {
+        id: item.id,
+        templateId: ID.onboardingTemplateDefault,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        taskType: item.taskType,
+        documentTypeId: item.documentTypeId ?? null,
+        assigneeLabel: item.assigneeLabel,
+        dueDaysOffset: item.dueDaysOffset,
+        sortOrder: item.sortOrder,
+        isRequired: true,
+      },
+      update: {
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        taskType: item.taskType,
+        documentTypeId: item.documentTypeId ?? null,
+        assigneeLabel: item.assigneeLabel,
+        dueDaysOffset: item.dueDaysOffset,
+        sortOrder: item.sortOrder,
+      },
+    });
+  }
+
+  await prisma.employeeDocument.upsert({
+    where: { id: ID.employeeDocumentStaffId },
+    create: {
+      id: ID.employeeDocumentStaffId,
+      employeeId: ID.empStaff,
+      documentTypeId: ID.documentTypeNationalId,
+      fields: {},
+      verifiedAt: new Date('2023-02-05T00:00:00.000Z'),
+    },
+    update: {
+      verifiedAt: new Date('2023-02-05T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.employeeOnboarding.upsert({
+    where: { id: ID.employeeOnboardingStaff },
+    create: {
+      id: ID.employeeOnboardingStaff,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      templateId: ID.onboardingTemplateDefault,
+      status: 'in_progress',
+      startedAt: new Date('2023-02-01T00:00:00.000Z'),
+      welcomeSentAt: new Date('2023-02-01T09:00:00.000Z'),
+    },
+    update: {
+      status: 'in_progress',
+      templateId: ID.onboardingTemplateDefault,
+    },
+  });
+
+  const onboardingTaskSeeds = [
+    {
+      id: '10000000-0000-4000-8000-000000000180',
+      templateItemId: ID.onboardingTemplateItemId,
+      title: 'Collect National ID',
+      category: 'document_collection' as const,
+      taskType: 'document_collection' as const,
+      documentTypeId: ID.documentTypeNationalId,
+      employeeDocumentId: ID.employeeDocumentStaffId,
+      assigneeLabel: 'HR Admin',
+      dueDate: new Date('2023-02-04T00:00:00.000Z'),
+      status: 'completed' as const,
+      completedAt: new Date('2023-02-05T00:00:00.000Z'),
+      sortOrder: 1,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000181',
+      templateItemId: ID.onboardingTemplateItemBank,
+      title: 'Bank Account Details',
+      category: 'document_collection' as const,
+      taskType: 'document_collection' as const,
+      documentTypeId: ID.documentTypeBankDetails,
+      assigneeLabel: 'HR Admin',
+      dueDate: new Date('2023-02-06T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 2,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000182',
+      templateItemId: ID.onboardingTemplateItemHandbook,
+      title: 'Employee Handbook Acknowledgment',
+      category: 'policy_acceptance' as const,
+      taskType: 'policy_acceptance' as const,
+      documentTypeId: ID.documentTypeHandbook,
+      assigneeLabel: 'New Hire',
+      dueDate: new Date('2023-02-06T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 3,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000183',
+      templateItemId: ID.onboardingTemplateItemConduct,
+      title: 'Code of Conduct Agreement',
+      category: 'policy_acceptance' as const,
+      taskType: 'policy_acceptance' as const,
+      documentTypeId: ID.documentTypeCodeOfConduct,
+      assigneeLabel: 'New Hire',
+      dueDate: new Date('2023-02-06T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 4,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000184',
+      templateItemId: ID.onboardingTemplateItemLaptop,
+      title: 'IT Equipment Setup',
+      category: 'equipment_provisioning' as const,
+      taskType: 'provisioning' as const,
+      assigneeLabel: 'IT Team',
+      dueDate: new Date('2023-02-08T00:00:00.000Z'),
+      status: 'completed' as const,
+      completedAt: new Date('2023-02-03T00:00:00.000Z'),
+      sortOrder: 5,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000185',
+      templateItemId: ID.onboardingTemplateItemEmail,
+      title: 'Email & System Access',
+      category: 'system_access' as const,
+      taskType: 'provisioning' as const,
+      assigneeLabel: 'IT Team',
+      dueDate: new Date('2023-02-02T00:00:00.000Z'),
+      status: 'completed' as const,
+      completedAt: new Date('2023-02-01T00:00:00.000Z'),
+      sortOrder: 6,
+    },
+  ];
+
+  for (const task of onboardingTaskSeeds) {
+    await prisma.employeeOnboardingTask.upsert({
+      where: { id: task.id },
+      create: {
+        id: task.id,
+        onboardingId: ID.employeeOnboardingStaff,
+        templateItemId: task.templateItemId,
+        title: task.title,
+        category: task.category,
+        taskType: task.taskType,
+        documentTypeId: task.documentTypeId ?? null,
+        employeeDocumentId: task.employeeDocumentId ?? null,
+        assigneeLabel: task.assigneeLabel,
+        dueDate: task.dueDate ?? null,
+        status: task.status,
+        completedAt: task.completedAt ?? null,
+        sortOrder: task.sortOrder,
+        isRequired: true,
+      },
+      update: {
+        status: task.status,
+        completedAt: task.completedAt ?? null,
+        employeeDocumentId: task.employeeDocumentId ?? null,
+      },
+    });
+  }
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
 

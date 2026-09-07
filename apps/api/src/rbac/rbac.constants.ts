@@ -17,6 +17,7 @@ export const PERMISSION_MODULES = [
   'leave',
   'payroll',
   'attendance',
+  'recruitment',
   'settings',
   'audit',
   'platform',

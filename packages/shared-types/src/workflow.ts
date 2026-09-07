@@ -3,7 +3,9 @@ export type WorkflowEntityType =
   | 'expense_claim'
   | 'payroll_adjustment'
   | 'contract'
-  | 'timesheet_entry';
+  | 'timesheet_entry'
+  | 'job_requisition'
+  | 'offer_letter';
 
 export type WorkflowAssigneeType = 'role' | 'direct_manager';
 

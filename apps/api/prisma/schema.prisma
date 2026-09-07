@@ -67,6 +67,15 @@ model Tenant {
   expenseClaimReceipts        ExpenseClaimReceipt[]
   timesheetProjects           TimesheetProject[]
   timesheetEntries            TimesheetEntry[]
+  jobRequisitions             JobRequisition[]
+  jobPostings                 JobPosting[]
+  candidates                  Candidate[]
+  jobApplications             JobApplication[]
+  jobApplicationResumes       JobApplicationResume[]
+  jobApplicationInterviewRounds JobApplicationInterviewRound[]
+  offerLetters                OfferLetter[]
+  onboardingChecklistTemplates OnboardingChecklistTemplate[]
+  employeeOnboardings         EmployeeOnboarding[]
   holidays  Holiday[]
 
   @@map("tenants")
@@ -218,6 +227,14 @@ model Company {
   expenseClaims       ExpenseClaim[]
   timesheetProjects   TimesheetProject[]
   timesheetEntries    TimesheetEntry[]
+  jobRequisitions     JobRequisition[]
+  jobPostings         JobPosting[]
+  candidates          Candidate[]
+  jobApplications     JobApplication[]
+  jobApplicationInterviewRounds JobApplicationInterviewRound[]
+  offerLetters                OfferLetter[]
+  onboardingChecklistTemplates OnboardingChecklistTemplate[]
+  employeeOnboardings         EmployeeOnboarding[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -239,6 +256,8 @@ model Location {
   employees Employee[] @relation("EmployeeWorkLocation")
   rosters   Roster[]
   holidays  Holiday[]
+  jobRequisitions JobRequisition[]
+  offerLetters    OfferLetter[]
 
   @@index([companyId])
   @@map("locations")
@@ -261,6 +280,8 @@ model Department {
   childDepartments   Department[] @relation("DepartmentHierarchy")
   designations       Designation[]
   employees          Employee[]
+  jobRequisitions    JobRequisition[]
+  offerLetters       OfferLetter[]
 
   @@index([companyId])
   @@index([parentDepartmentId])
@@ -278,6 +299,7 @@ model JobLevel {
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   designations Designation[]
+  jobRequisitions JobRequisition[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -298,6 +320,8 @@ model Designation {
   department Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   jobLevel   JobLevel?   @relation(fields: [jobLevelId], references: [id], onDelete: Restrict)
   employees  Employee[]
+  jobRequisitions JobRequisition[]
+  offerLetters    OfferLetter[]
 
   @@index([companyId])
   @@index([departmentId])
@@ -314,6 +338,8 @@ model EmploymentType {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employees Employee[]
+  jobRequisitions JobRequisition[]
+  offerLetters    OfferLetter[]
 
   @@index([companyId])
   @@map("employment_types")
@@ -425,7 +451,11 @@ model Employee {
   expenseClaims       ExpenseClaim[]
   timesheetEntries    TimesheetEntry[]
   timesheetSyncEvents TimesheetSyncEvent[]
+  requestedJobRequisitions JobRequisition[] @relation("RequisitionRequester")
+  hiredApplications JobApplication[] @relation("HiredApplication")
+  interviewRoundsConducted JobApplicationInterviewRound[] @relation("InterviewInterviewer")
   holidays          Holiday[]
+  employeeOnboarding EmployeeOnboarding?
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -607,6 +637,8 @@ model DocumentType {
   company           Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
   fieldDefinitions  CustomFieldDefinition[]
   employeeDocuments EmployeeDocument[]
+  onboardingTemplateItems OnboardingChecklistTemplateItem[]
+  onboardingTasks         EmployeeOnboardingTask[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -626,6 +658,7 @@ model EmployeeDocument {
 
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+  onboardingTasks EmployeeOnboardingTask[]
 
   @@index([employeeId])
   @@index([documentTypeId])
@@ -881,6 +914,467 @@ model TimesheetSyncEvent {
   @@unique([employeeId, localId])
   @@index([timesheetEntryId])
   @@map("timesheet_sync_events")
+}
+
+// ---------------------------------------------------------------------------
+// §07 Recruitment / ATS (MODULES.md §07)
+// ---------------------------------------------------------------------------
+
+enum JobRequisitionStatus {
+  draft
+  pending_approval
+  open
+  closed
+  cancelled
+
+  @@map("job_requisition_status")
+}
+
+enum JobPostingStatus {
+  draft
+  published
+  closed
+
+  @@map("job_posting_status")
+}
+
+enum CandidateSource {
+  referral
+  linkedin
+  job_board
+  agency
+  website
+  other
+
+  @@map("candidate_source")
+}
+
+enum ApplicationStage {
+  applied
+  screening
+  interview
+  offer
+  hired
+  rejected
+  withdrawn
+
+  @@map("application_stage")
+}
+
+enum InterviewRoundType {
+  technical
+  hr
+  management
+  final_decision
+
+  @@map("interview_round_type")
+}
+
+enum InterviewRoundStatus {
+  pending
+  scheduled
+  completed
+  cancelled
+  skipped
+
+  @@map("interview_round_status")
+}
+
+enum InterviewRecommendation {
+  strong_yes
+  yes
+  neutral
+  no
+  strong_no
+
+  @@map("interview_recommendation")
+}
+
+model JobRequisition {
+  id                    String               @id @default(uuid()) @db.Uuid
+  tenantId              String               @map("tenant_id") @db.Uuid
+  companyId             String               @map("company_id") @db.Uuid
+  referenceNumber       String               @map("reference_number")
+  title                 String
+  departmentId          String?              @map("department_id") @db.Uuid
+  designationId         String?              @map("designation_id") @db.Uuid
+  jobLevelId            String?              @map("job_level_id") @db.Uuid
+  employmentTypeId      String?              @map("employment_type_id") @db.Uuid
+  locationId            String?              @map("location_id") @db.Uuid
+  description           String
+  headcount             Int                  @default(1)
+  status                JobRequisitionStatus @default(draft)
+  requestedByEmployeeId String?              @map("requested_by_employee_id") @db.Uuid
+  openedAt              DateTime?            @map("opened_at")
+  closedAt              DateTime?            @map("closed_at")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department    Department?     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  designation   Designation?    @relation(fields: [designationId], references: [id], onDelete: Restrict)
+  jobLevel      JobLevel?       @relation(fields: [jobLevelId], references: [id], onDelete: Restrict)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: Restrict)
+  location      Location?       @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  requestedBy   Employee?       @relation("RequisitionRequester", fields: [requestedByEmployeeId], references: [id], onDelete: Restrict)
+  posting       JobPosting?
+  applications  JobApplication[]
+
+  @@unique([companyId, referenceNumber])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([departmentId])
+  @@index([status])
+  @@map("job_requisitions")
+}
+
+model JobPosting {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  companyId     String           @map("company_id") @db.Uuid
+  requisitionId String           @unique @map("requisition_id") @db.Uuid
+  title         String
+  summary       String?
+  description   String
+  status        JobPostingStatus @default(draft)
+  publishedAt   DateTime?        @map("published_at")
+  closedAt      DateTime?        @map("closed_at")
+  expiresAt     DateTime?        @map("expires_at") @db.Date
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requisition  JobRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([status])
+  @@map("job_postings")
+}
+
+model Candidate {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  companyId       String          @map("company_id") @db.Uuid
+  firstName       String          @map("first_name")
+  lastName        String          @map("last_name")
+  email           String
+  phone           String?
+  source          CandidateSource @default(other)
+  yearsExperience Int?            @map("years_experience")
+  notes           String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  applications JobApplication[]
+
+  @@unique([companyId, email])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("candidates")
+}
+
+model JobApplication {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  companyId       String           @map("company_id") @db.Uuid
+  candidateId     String           @map("candidate_id") @db.Uuid
+  requisitionId   String           @map("requisition_id") @db.Uuid
+  postingId       String?          @map("posting_id") @db.Uuid
+  stage           ApplicationStage @default(applied)
+  rating          Decimal?         @db.Decimal(3, 1)
+  coverLetter     String?          @map("cover_letter")
+  appliedAt       DateTime         @default(now()) @map("applied_at")
+  stageUpdatedAt  DateTime         @default(now()) @map("stage_updated_at")
+  hiredEmployeeId String?          @map("hired_employee_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  candidate     Candidate             @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  requisition   JobRequisition        @relation(fields: [requisitionId], references: [id], onDelete: Restrict)
+  posting       JobPosting?           @relation(fields: [postingId], references: [id], onDelete: SetNull)
+  hiredEmployee Employee?             @relation("HiredApplication", fields: [hiredEmployeeId], references: [id], onDelete: SetNull)
+  resume        JobApplicationResume?
+  interviewRounds JobApplicationInterviewRound[]
+  offerLetter     OfferLetter?
+
+  @@unique([candidateId, requisitionId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([candidateId])
+  @@index([requisitionId])
+  @@index([postingId])
+  @@index([stage])
+  @@map("job_applications")
+}
+
+model JobApplicationResume {
+  id            String   @id @default(uuid()) @db.Uuid
+  applicationId String   @unique @map("application_id") @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  fileKey       String   @map("file_key")
+  originalName  String   @map("original_name")
+  contentType   String   @map("content_type")
+  sizeBytes     Int      @map("size_bytes")
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  application JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("job_application_resumes")
+}
+
+model JobApplicationInterviewRound {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tenantId              String                  @map("tenant_id") @db.Uuid
+  companyId             String                  @map("company_id") @db.Uuid
+  applicationId         String                  @map("application_id") @db.Uuid
+  roundType             InterviewRoundType      @map("round_type")
+  roundOrder            Int                     @map("round_order")
+  status                InterviewRoundStatus    @default(pending)
+  scheduledStartAt      DateTime?               @map("scheduled_start_at")
+  scheduledEndAt        DateTime?               @map("scheduled_end_at")
+  location              String?
+  meetingUrl            String?                 @map("meeting_url")
+  interviewerEmployeeId String?                 @map("interviewer_employee_id") @db.Uuid
+  score                 Decimal?                @db.Decimal(3, 1)
+  recommendation        InterviewRecommendation?
+  feedback              String?
+  completedAt           DateTime?               @map("completed_at")
+  completedByUserId     String?                 @map("completed_by_user_id") @db.Uuid
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewer   Employee?      @relation("InterviewInterviewer", fields: [interviewerEmployeeId], references: [id], onDelete: SetNull)
+  completedBy   User?          @relation("InterviewCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, roundType])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([applicationId])
+  @@index([status])
+  @@map("job_application_interview_rounds")
+}
+
+enum OfferLetterStatus {
+  draft
+  pending_approval
+  approved
+  sent
+  accepted
+  declined
+  cancelled
+
+  @@map("offer_letter_status")
+}
+
+enum OfferLetterTemplate {
+  standard
+  senior
+  contract
+  remote
+
+  @@map("offer_letter_template")
+}
+
+model OfferLetter {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  companyId         String              @map("company_id") @db.Uuid
+  applicationId     String              @unique @map("application_id") @db.Uuid
+  status            OfferLetterStatus   @default(draft)
+  template          OfferLetterTemplate @default(standard)
+  jobTitle          String              @map("job_title")
+  departmentId      String?             @map("department_id") @db.Uuid
+  designationId     String?             @map("designation_id") @db.Uuid
+  employmentTypeId  String?             @map("employment_type_id") @db.Uuid
+  workLocationId    String?             @map("work_location_id") @db.Uuid
+  annualSalary      Decimal?            @map("annual_salary") @db.Decimal(12, 2)
+  currency          String              @default("AUD") @db.VarChar(3)
+  startDate         DateTime            @map("start_date") @db.Date
+  reportingTo       String?             @map("reporting_to")
+  signingBonus      Decimal?            @map("signing_bonus") @db.Decimal(12, 2)
+  equityNotes       String?             @map("equity_notes")
+  probationMonths   Int?                @map("probation_months")
+  expiryDate        DateTime?           @map("expiry_date") @db.Date
+  additionalTerms   String?             @map("additional_terms")
+  fileKey           String?             @map("file_key")
+  generatedAt       DateTime?           @map("generated_at")
+  sentAt            DateTime?           @map("sent_at")
+  acceptedAt        DateTime?           @map("accepted_at")
+  declinedAt        DateTime?           @map("declined_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  department    Department?    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  designation   Designation?   @relation(fields: [designationId], references: [id], onDelete: Restrict)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: Restrict)
+  workLocation  Location?      @relation(fields: [workLocationId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([status])
+  @@map("offer_letters")
+}
+
+// ---------------------------------------------------------------------------
+// §08 Onboarding (MODULES.md)
+// ---------------------------------------------------------------------------
+
+enum OnboardingTaskCategory {
+  document_collection
+  policy_acceptance
+  equipment_provisioning
+  system_access
+  general
+
+  @@map("onboarding_task_category")
+}
+
+enum OnboardingTaskType {
+  document_collection
+  policy_acceptance
+  manual_task
+  provisioning
+
+  @@map("onboarding_task_type")
+}
+
+enum OnboardingStatus {
+  in_progress
+  completed
+  cancelled
+
+  @@map("onboarding_status")
+}
+
+enum OnboardingTaskStatus {
+  pending
+  completed
+  skipped
+
+  @@map("onboarding_task_status")
+}
+
+model OnboardingChecklistTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  description String?
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  items       OnboardingChecklistTemplateItem[]
+  onboardings EmployeeOnboarding[]
+
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("onboarding_checklist_templates")
+}
+
+model OnboardingChecklistTemplateItem {
+  id               String                 @id @default(uuid()) @db.Uuid
+  templateId       String                 @map("template_id") @db.Uuid
+  title            String
+  description      String?
+  category         OnboardingTaskCategory
+  taskType         OnboardingTaskType     @map("task_type")
+  documentTypeId   String?                @map("document_type_id") @db.Uuid
+  policyDocumentUrl String?               @map("policy_document_url")
+  assigneeLabel    String?                @map("assignee_label")
+  dueDaysOffset    Int?                   @map("due_days_offset")
+  sortOrder        Int                    @default(0) @map("sort_order")
+  isRequired       Boolean                @default(true) @map("is_required")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  template     OnboardingChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  documentType DocumentType?               @relation(fields: [documentTypeId], references: [id], onDelete: SetNull)
+  tasks        EmployeeOnboardingTask[]
+
+  @@index([templateId])
+  @@index([documentTypeId])
+  @@map("onboarding_checklist_template_items")
+}
+
+model EmployeeOnboarding {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  companyId     String           @map("company_id") @db.Uuid
+  employeeId    String           @unique @map("employee_id") @db.Uuid
+  templateId    String?          @map("template_id") @db.Uuid
+  status        OnboardingStatus @default(in_progress)
+  startedAt     DateTime         @default(now()) @map("started_at")
+  completedAt   DateTime?        @map("completed_at")
+  welcomeSentAt DateTime?        @map("welcome_sent_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  tenant   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee                    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  template OnboardingChecklistTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  tasks    EmployeeOnboardingTask[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([status])
+  @@map("employee_onboardings")
+}
+
+model EmployeeOnboardingTask {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  onboardingId       String                 @map("onboarding_id") @db.Uuid
+  templateItemId     String?                @map("template_item_id") @db.Uuid
+  title              String
+  description        String?
+  category           OnboardingTaskCategory
+  taskType           OnboardingTaskType     @map("task_type")
+  documentTypeId     String?                @map("document_type_id") @db.Uuid
+  employeeDocumentId String?                @map("employee_document_id") @db.Uuid
+  policyDocumentUrl  String?                @map("policy_document_url")
+  policyAcceptedAt   DateTime?              @map("policy_accepted_at")
+  assigneeLabel      String?                @map("assignee_label")
+  dueDate            DateTime?              @map("due_date") @db.Date
+  status             OnboardingTaskStatus   @default(pending)
+  completedAt        DateTime?              @map("completed_at")
+  completedByUserId  String?                @map("completed_by_user_id") @db.Uuid
+  sortOrder          Int                    @default(0) @map("sort_order")
+  isRequired         Boolean                @default(true) @map("is_required")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  onboarding       EmployeeOnboarding              @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  templateItem     OnboardingChecklistTemplateItem? @relation(fields: [templateItemId], references: [id], onDelete: SetNull)
+  documentType     DocumentType?                   @relation(fields: [documentTypeId], references: [id], onDelete: SetNull)
+  employeeDocument EmployeeDocument?               @relation(fields: [employeeDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([onboardingId])
+  @@index([documentTypeId])
+  @@index([employeeDocumentId])
+  @@map("employee_onboarding_tasks")
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,6 +1654,8 @@ enum WorkflowEntityType {
   payroll_adjustment
   contract
   timesheet_entry
+  job_requisition
+  offer_letter
 
   @@map("workflow_entity_type")
 }
@@ -1805,6 +2301,7 @@ model User {
   refreshTokens RefreshToken[]
   inAppNotifications InAppNotification[]
   pushDeviceTokens PushDeviceToken[]
+  completedInterviewRounds JobApplicationInterviewRound[] @relation("InterviewCompletedBy")
 
   @@index([tenantId])
   @@index([roleId])

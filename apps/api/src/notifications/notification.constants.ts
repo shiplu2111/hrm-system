@@ -62,6 +62,11 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['subject_employee'],
   },
+  'onboarding.welcome': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: false },
+    recipients: ['subject_employee'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -123,6 +128,11 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Expense claim rejected',
     body: 'Your expense claim {claim_id} for {amount} ({category_name}) has been rejected.',
     emailSubject: 'Expense claim rejected — {claim_id}',
+  },
+  'onboarding.welcome': {
+    title: 'Welcome to {company_name}',
+    body: 'Hi {employee_name}, welcome aboard! Your onboarding checklist is ready — {pending_task_count} tasks to complete before {start_date}.',
+    emailSubject: 'Welcome to {company_name}',
   },
 };
 

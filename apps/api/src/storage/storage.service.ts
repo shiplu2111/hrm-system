@@ -39,6 +39,22 @@ export class StorageService {
     return buildStorageKey(tenantId, 'expenses', claimId, originalFilename);
   }
 
+  buildApplicationResumeKey(
+    tenantId: string,
+    applicationId: string,
+    originalFilename: string,
+  ): string {
+    return buildStorageKey(tenantId, 'recruitment', applicationId, originalFilename);
+  }
+
+  buildOfferLetterKey(
+    tenantId: string,
+    offerLetterId: string,
+    originalFilename = 'offer-letter.pdf',
+  ): string {
+    return buildStorageKey(tenantId, 'offer-letters', offerLetterId, originalFilename);
+  }
+
   upload(key: string, file: Buffer, meta: FileMeta): Promise<string> {
     return this.driver.upload(key, file, meta);
   }

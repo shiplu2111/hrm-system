@@ -8,5 +8,6 @@ import { EmployeesService } from './employees.service';
   imports: [PrismaModule, OrganizationModule],
   controllers: [EmployeesController],
   providers: [EmployeesService],
+  exports: [EmployeesService],
 })
 export class EmployeesModule {}

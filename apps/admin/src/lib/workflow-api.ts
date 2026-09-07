@@ -27,6 +27,8 @@ export const ENTITY_TYPE_OPTIONS: Array<{
   { value: 'payroll_adjustment', label: 'Payroll Adjustment' },
   { value: 'timesheet_entry', label: 'Timesheet Entry' },
   { value: 'contract', label: 'Contract' },
+  { value: 'job_requisition', label: 'Job Requisition' },
+  { value: 'offer_letter', label: 'Offer Letter' },
 ];
 
 export function entityTypeLabel(entityType: WorkflowEntityType): string {

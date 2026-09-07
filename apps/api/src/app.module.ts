@@ -34,6 +34,8 @@ import { ContractsModule } from './contracts/contracts.module';
 import { LoansModule } from './loans/loans.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 @Module({
   imports: [
@@ -75,6 +77,8 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
     LoansModule,
     ExpensesModule,
     TimesheetsModule,
+    RecruitmentModule,
+    OnboardingModule,
   ],
   controllers: [AppController],
   providers: [

@@ -27,6 +27,7 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'contract.renewal.rejected': false,
   'expense.approved': true,
   'expense.rejected': false,
+  'onboarding.welcome': true,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -99,6 +100,7 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'contract.renewal.rejected': 'Contract renewal rejected',
   'expense.approved': 'Expense claim approved',
   'expense.rejected': 'Expense claim rejected',
+  'onboarding.welcome': 'Onboarding welcome',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

@@ -10,6 +10,7 @@ import { validateCustomFieldValues } from '../custom-fields/field-validation.uti
 import { PrismaService } from '../database/prisma.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
+import { OnboardingTaskSyncService } from '../onboarding/onboarding-task-sync.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import type {
   CreateEmployeeDocumentDto,
@@ -22,6 +23,7 @@ export class EmployeeDocumentsService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
+    private readonly onboardingTaskSync: OnboardingTaskSyncService,
   ) {}
 
   async listDocuments(employeeId: string) {
@@ -120,6 +122,8 @@ export class EmployeeDocumentsService {
       ipAddress: meta?.ipAddress,
       device: meta?.device,
     });
+
+    await this.onboardingTaskSync.syncAfterDocumentChange(employeeId, created.id);
 
     return this.toResponse(created);
   }
@@ -258,6 +262,8 @@ export class EmployeeDocumentsService {
       device: meta?.device,
     });
 
+    await this.onboardingTaskSync.syncAfterDocumentChange(employeeId, documentId);
+
     return this.toResponse(updated);
   }
 
@@ -315,6 +321,8 @@ export class EmployeeDocumentsService {
       ipAddress: meta?.ipAddress,
       device: meta?.device,
     });
+
+    await this.onboardingTaskSync.syncAfterDocumentChange(employeeId, documentId);
 
     return this.toResponse(updated);
   }

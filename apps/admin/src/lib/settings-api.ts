@@ -121,4 +121,9 @@ export const REALTIME_EVENT_OPTIONS: Array<{
     label: 'Expense claim rejected',
     description: 'Notify employee when an expense claim is rejected.',
   },
+  {
+    key: 'onboarding.welcome',
+    label: 'Onboarding welcome',
+    description: 'Send a welcome message when a new employee onboarding starts.',
+  },
 ];

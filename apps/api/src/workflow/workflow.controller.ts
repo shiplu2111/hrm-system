@@ -30,6 +30,8 @@ const ENTITY_AUDIT_MODULE: Record<WorkflowEntityType, string> = {
   payroll_adjustment: 'payroll',
   contract: 'employee',
   timesheet_entry: 'attendance',
+  job_requisition: 'recruitment',
+  offer_letter: 'recruitment',
 };
 
 @ApiTags('workflow-definitions')

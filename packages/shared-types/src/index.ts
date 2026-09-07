@@ -21,3 +21,5 @@ export * from './contract';
 export * from './loan';
 export * from './expense';
 export * from './timesheet';
+export * from './recruitment';
+export * from './onboarding';
