@@ -31,7 +31,11 @@ export class PermissionsService {
     module: string,
     action: PermissionAction,
   ): Promise<void> {
-    const mustReload = SENSITIVE_PERMISSION_ACTIONS.has(action);
+    const isIntegrationAuth =
+      user.authMethod === 'api_key' || user.authMethod === 'oauth';
+
+    const mustReload =
+      !isIntegrationAuth && SENSITIVE_PERMISSION_ACTIONS.has(action);
 
     const permissions = mustReload
       ? await this.loadPermissionsFromDb(user.roleId)

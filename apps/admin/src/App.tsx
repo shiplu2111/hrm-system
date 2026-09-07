@@ -72,6 +72,7 @@ import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
+import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
 import { useNav } from '@/context/NavContext';
 
 function PageRouter() {
@@ -143,6 +144,13 @@ function PageRouter() {
       return <ReportsHubPage />;
     case 'settings-workflows':
       return <WorkflowBuilderPage />;
+    case 'settings-hub':
+    case 'settings-integrations':
+    case 'settings-notifications':
+    case 'settings-security':
+    case 'settings-backup':
+    case 'settings-general':
+      return <SettingsHubPage />;
     default: return <ConstructionPage />;
   }
 }

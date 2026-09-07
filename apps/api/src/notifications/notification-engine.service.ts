@@ -7,6 +7,8 @@ import {
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationRecipientsService } from './notification-recipients.service';
 import { NotificationRulesService } from './notification-rules.service';
+import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
+import { isWebhookEventType } from '../webhooks/webhook.constants';
 
 @Injectable()
 export class NotificationEngineService {
@@ -16,6 +18,7 @@ export class NotificationEngineService {
     private readonly deliveryService: NotificationDeliveryService,
     private readonly recipientsService: NotificationRecipientsService,
     private readonly rulesService: NotificationRulesService,
+    private readonly webhookEmitter: WebhookEmitterService,
   ) {}
 
   /** Event → rule → channel → recipient (NOTIFICATION_LOGIC.md §1). */
@@ -35,6 +38,15 @@ export class NotificationEngineService {
         input.variables,
       );
       const payload = input.payload ?? {};
+
+      if (isWebhookEventType(input.eventType)) {
+        void this.webhookEmitter.emit({
+          tenantId: input.tenantId,
+          companyId: input.companyId,
+          eventType: input.eventType,
+          data: payload,
+        });
+      }
 
       const recipients =
         input.directUserIds?.length

@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
-import { PushModule } from '../push/push.module';
-import { RealtimeModule } from '../realtime/realtime.module';
 import { SettingsModule } from '../settings/settings.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { PushModule } from '../push/push.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
 import { InAppNotificationsService } from './in-app-notifications.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationEngineService } from './notification-engine.service';
@@ -12,7 +13,7 @@ import { NotificationsController } from './notifications.controller';
 import { PushDeviceTokensService } from './push-device-tokens.service';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, RealtimeModule, PushModule],
+  imports: [PrismaModule, SettingsModule, RealtimeModule, PushModule, WebhooksModule],
   controllers: [NotificationsController],
   providers: [
     NotificationRulesService,

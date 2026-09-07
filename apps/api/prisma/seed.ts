@@ -274,10 +274,11 @@ async function main(): Promise<void> {
       id: ID.tenant,
       name: 'Demo Corp',
       subdomain: 'demo',
+      planId: 'enterprise',
       status: 'active',
       storageDriver: 'local',
     },
-    update: { name: 'Demo Corp', status: 'active' },
+    update: { name: 'Demo Corp', status: 'active', planId: 'enterprise' },
   });
 
   const country = await prisma.country.upsert({

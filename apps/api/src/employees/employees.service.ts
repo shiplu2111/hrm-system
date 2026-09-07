@@ -8,6 +8,7 @@ import { EmploymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
+import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import type { CreateEmployeeDto, UpdateEmployeeDto } from '../organization/dto/organization.dto';
 
 const employeeInclude = {
@@ -27,6 +28,7 @@ export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
+    private readonly webhookEmitter: WebhookEmitterService,
   ) {}
 
   async listEmployees(companyId?: string) {
@@ -109,6 +111,22 @@ export class EmployeesService {
           costCentreId: dto.costCentreId ?? null,
         },
         include: employeeInclude,
+      });
+
+      void this.webhookEmitter.emit({
+        tenantId,
+        companyId: dto.companyId,
+        eventType: 'employee.created',
+        eventId: created.id,
+        data: {
+          employeeId: created.id,
+          employeeNumber: created.employeeNumber,
+          companyId: created.companyId,
+          firstName: created.firstName,
+          lastName: created.lastName,
+          hireDate: created.hireDate?.toISOString().slice(0, 10) ?? null,
+          employmentStatus: created.employmentStatus,
+        },
       });
 
       return this.toEmployeeResponse(created);

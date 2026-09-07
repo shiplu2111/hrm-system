@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Settings,
   Bell,
@@ -43,6 +43,8 @@ import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
 import { SmtpSettingsPanel } from '@/components/settings/SmtpSettingsPanel';
 import { RealtimeNotificationSettingsPanel } from '@/components/settings/RealtimeNotificationSettingsPanel';
+import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
+import { WebhookSettingsPanel } from '@/components/settings/WebhookSettingsPanel';
 import {
   notificationRules,
   notificationChannels,
@@ -51,7 +53,6 @@ import {
   loginHistory,
   auditLogs,
   apiKeys,
-  webhooksList,
   integrationConnectors,
   backupRecords,
   currenciesList,
@@ -60,16 +61,31 @@ import {
   type WorkflowItem,
   type AuditLogItem,
   type ApiKeyItem,
-  type WebhookItem,
   type IntegrationConnector,
   type BackupRecord,
   type CurrencyItem,
 } from '@/data/settingsData';
+import { useNav } from '@/context/NavContext';
 
 export function SettingsHubPage() {
+  const { current } = useNav();
   const [activeGroup, setActiveGroup] = useState<
     'general' | 'notifications' | 'workflows' | 'security' | 'integrations' | 'backup-i18n'
   >('notifications');
+
+  useEffect(() => {
+    if (current === 'settings-integrations') {
+      setActiveGroup('integrations');
+    } else if (current === 'settings-notifications') {
+      setActiveGroup('notifications');
+    } else if (current === 'settings-security') {
+      setActiveGroup('security');
+    } else if (current === 'settings-backup') {
+      setActiveGroup('backup-i18n');
+    } else if (current === 'settings-general') {
+      setActiveGroup('general');
+    }
+  }, [current]);
 
   // ---------------- MODULE 34: NOTIFICATION ENGINE STATE ----------------
   const [rules, setRules] = useState<NotificationRule[]>(notificationRules);
@@ -103,12 +119,10 @@ export function SettingsHubPage() {
 
   // ---------------- MODULE 43: INTEGRATIONS & API KEYS STATE ----------------
   const [keysList, setKeysList] = useState<ApiKeyItem[]>(apiKeys);
-  const [webhooks, setWebhooks] = useState<WebhookItem[]>(webhooksList);
   const [connectors, setConnectors] = useState<IntegrationConnector[]>(integrationConnectors);
   const [newKeyModalOpen, setNewKeyModalOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
-  const [webhookPingStatus, setWebhookPingStatus] = useState<string | null>(null);
 
   // ---------------- MODULE 46 & 47: BACKUP & MULTI-CURRENCY STATE ----------------
   const [backups, setBackups] = useState<BackupRecord[]>(backupRecords);
@@ -137,14 +151,6 @@ export function SettingsHubPage() {
     setKeysList((prev) =>
       prev.map((k) => (k.id === id ? { ...k, status: 'Revoked' } : k))
     );
-  };
-
-  const handlePingWebhook = (url: string) => {
-    setWebhookPingStatus(`Testing ${url}...`);
-    setTimeout(() => {
-      setWebhookPingStatus('✓ HTTP 200 OK — Handshake Verified in 118ms');
-      setTimeout(() => setWebhookPingStatus(null), 3000);
-    }, 800);
   };
 
   const handleRunBackupNow = () => {
@@ -819,102 +825,9 @@ export function SettingsHubPage() {
           {/* ================= GROUP 4: INTEGRATIONS, APIS & WEBHOOKS (MODULE 43) ================= */}
           {activeGroup === 'integrations' && (
             <div className="space-y-6">
-              {/* API Keys Table */}
-              <Card>
-                <CardHeader className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>REST API Keys</CardTitle>
-                    <p className="text-xs text-secondary mt-0.5">
-                      Bearer tokens for server-to-server automated HRMS integrations.
-                    </p>
-                  </div>
-                  <Button variant="primary" size="sm" onClick={() => { setNewKeyName(''); setGeneratedSecret(null); setNewKeyModalOpen(true); }}>
-                    <Plus className="h-3.5 w-3.5" /> Generate Key
-                  </Button>
-                </CardHeader>
-                <CardBody className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-[rgb(var(--bg-muted))] border-b border-base text-xs">
-                        <tr>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Key Identifier</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Token Value</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Scopes</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Status</th>
-                          <th className="text-right px-5 py-2.5 font-semibold text-secondary">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[rgb(var(--border-base))] text-xs">
-                        {keysList.map((k) => (
-                          <tr key={k.id} className="hover:bg-[rgb(var(--bg-hover))]">
-                            <td className="px-5 py-3 font-semibold text-primary">{k.name}</td>
-                            <td className="px-5 py-3 font-mono text-muted">{k.keyMasked}</td>
-                            <td className="px-5 py-3">
-                              <div className="flex flex-wrap gap-1">
-                                {k.scopes.map((s) => (
-                                  <span key={s} className="px-1.5 py-0.5 rounded bg-[rgb(var(--bg-muted))] font-mono text-[10px]">
-                                    {s}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-5 py-3">
-                              <Badge tone={k.status === 'Active' ? 'success' : 'neutral'} dot>{k.status}</Badge>
-                            </td>
-                            <td className="px-5 py-3 text-right">
-                              {k.status === 'Active' ? (
-                                <Button variant="danger" size="sm" onClick={() => handleRevokeKey(k.id)}>
-                                  Revoke
-                                </Button>
-                              ) : (
-                                <span className="text-muted">Revoked</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardBody>
-              </Card>
+              <ApiAccessSettingsPanel />
 
-              {/* Webhooks Section */}
-              <Card>
-                <CardHeader className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Outgoing Webhooks</CardTitle>
-                    <p className="text-xs text-secondary mt-0.5">Real-time HTTP POST payload dispatchers.</p>
-                  </div>
-                  {webhookPingStatus && (
-                    <span className="text-xs text-success-600 font-semibold animate-fadeIn">
-                      {webhookPingStatus}
-                    </span>
-                  )}
-                </CardHeader>
-                <CardBody className="p-0">
-                  <div className="divide-y divide-[rgb(var(--border-base))] text-xs">
-                    {webhooks.map((wh) => (
-                      <div key={wh.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <div className="font-mono font-semibold text-primary">{wh.url}</div>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {wh.events.map((e) => (
-                              <Badge key={e} tone="accent" className="text-[10px] font-mono">{e}</Badge>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-muted font-mono">{wh.lastTriggered}</span>
-                          <Button variant="secondary" size="sm" onClick={() => handlePingWebhook(wh.url)}>
-                            <Play className="h-3 w-3" /> Test Ping
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardBody>
-              </Card>
+              <WebhookSettingsPanel />
 
               {/* Third-Party Connectors Grid */}
               <div>

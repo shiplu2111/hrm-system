@@ -88,6 +88,11 @@ model Tenant {
   payrollJournalExports       PayrollJournalExport[]
   accountingConnections       AccountingConnection[]
   accountingSyncJobs          AccountingSyncJob[]
+  tenantApiKeys               TenantApiKey[]
+  tenantOAuthClients          TenantOAuthClient[]
+  tenantOAuthAccessTokens     TenantOAuthAccessToken[]
+  tenantWebhooks              TenantWebhook[]
+  webhookDeliveries           WebhookDelivery[]
   holidays                    Holiday[]
 
   @@map("tenants")
@@ -2893,6 +2898,176 @@ model AccountingSyncJob {
   @@index([companyId, status])
   @@index([payrollPeriodId, provider])
   @@map("accounting_sync_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// §8c Enterprise API Access (MODULES.md §43, BILLING_SUBSCRIPTION.md §3)
+// ---------------------------------------------------------------------------
+
+enum TenantApiKeyStatus {
+  active
+  revoked
+
+  @@map("tenant_api_key_status")
+}
+
+enum TenantOAuthClientStatus {
+  active
+  revoked
+
+  @@map("tenant_oauth_client_status")
+}
+
+model TenantApiKey {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  name            String
+  prefix          String             @unique
+  keyHash         String             @map("key_hash")
+  scopes          String[]
+  status          TenantApiKeyStatus @default(active)
+  expiresAt       DateTime?          @map("expires_at")
+  lastUsedAt      DateTime?          @map("last_used_at")
+  createdByUserId String             @map("created_by_user_id") @db.Uuid
+  revokedAt       DateTime?          @map("revoked_at")
+  revokedByUserId String?            @map("revoked_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status])
+  @@index([keyHash])
+  @@map("tenant_api_keys")
+}
+
+model TenantOAuthClient {
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  name             String
+  description      String?
+  clientSecretHash String                  @map("client_secret_hash")
+  redirectUris     String[]                @map("redirect_uris")
+  scopes           String[]
+  status           TenantOAuthClientStatus @default(active)
+  createdByUserId  String                  @map("created_by_user_id") @db.Uuid
+  revokedAt        DateTime?               @map("revoked_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  authorizationCodes TenantOAuthAuthorizationCode[]
+  accessTokens      TenantOAuthAccessToken[]
+
+  @@index([tenantId, status])
+  @@map("tenant_oauth_clients")
+}
+
+model TenantOAuthAuthorizationCode {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique
+  clientId    String    @map("client_id") @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  scopes      String[]
+  redirectUri String    @map("redirect_uri")
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  client TenantOAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([expiresAt])
+  @@map("tenant_oauth_authorization_codes")
+}
+
+model TenantOAuthAccessToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  clientId  String?   @map("client_id") @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  scopes    String[]
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  client TenantOAuthClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([expiresAt])
+  @@map("tenant_oauth_access_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// §8d Outbound Webhooks (API_GUIDELINES.md §9, MODULES.md §43)
+// ---------------------------------------------------------------------------
+
+enum TenantWebhookStatus {
+  active
+  disabled
+
+  @@map("tenant_webhook_status")
+}
+
+enum WebhookDeliveryStatus {
+  queued
+  processing
+  delivered
+  failed
+
+  @@map("webhook_delivery_status")
+}
+
+model TenantWebhook {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  companyId       String?             @map("company_id") @db.Uuid
+  name            String
+  url             String
+  secretEncrypted String              @map("secret_encrypted")
+  events          String[]
+  status          TenantWebhookStatus @default(active)
+  description     String?
+  createdByUserId String              @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, status])
+  @@map("tenant_webhooks")
+}
+
+model WebhookDelivery {
+  id            String                @id @default(uuid()) @db.Uuid
+  tenantId      String                @map("tenant_id") @db.Uuid
+  webhookId     String                @map("webhook_id") @db.Uuid
+  eventType     String                @map("event_type")
+  eventId       String                @map("event_id")
+  schemaVersion String                @map("schema_version")
+  payload       Json
+  status        WebhookDeliveryStatus @default(queued)
+  attempts      Int                   @default(0)
+  httpStatus    Int?                  @map("http_status")
+  errorMessage  String?               @map("error_message")
+  bullJobId     String?               @map("bull_job_id")
+  queuedAt      DateTime              @default(now()) @map("queued_at")
+  deliveredAt   DateTime?             @map("delivered_at")
+  failedAt      DateTime?             @map("failed_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  webhook TenantWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@unique([webhookId, eventId])
+  @@index([tenantId, status])
+  @@index([webhookId, createdAt])
+  @@map("webhook_deliveries")
 }
 
 // ---------------------------------------------------------------------------

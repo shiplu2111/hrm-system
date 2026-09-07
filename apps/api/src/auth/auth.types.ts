@@ -20,6 +20,9 @@ export interface AuthenticatedUser {
   employeeId: string | null;
   email: string;
   permissions: PermissionClaim[];
+  authMethod?: 'jwt' | 'api_key' | 'oauth';
+  apiKeyId?: string;
+  oauthClientId?: string;
 }
 
 export interface AuthSessionView {

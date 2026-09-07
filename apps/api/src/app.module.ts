@@ -40,6 +40,9 @@ import { OffboardingModule } from './offboarding/offboarding.module';
 import { AssetsModule } from './assets/assets.module';
 import { BenefitsModule } from './benefits/benefits.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { ApiAccessModule } from './api-access/api-access.module';
+import { BillingModule } from './billing/billing.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -87,6 +90,9 @@ import { AccountingModule } from './accounting/accounting.module';
     AssetsModule,
     BenefitsModule,
     AccountingModule,
+    ApiAccessModule,
+    BillingModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [
