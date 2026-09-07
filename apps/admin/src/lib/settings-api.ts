@@ -126,4 +126,9 @@ export const REALTIME_EVENT_OPTIONS: Array<{
     label: 'Onboarding welcome',
     description: 'Send a welcome message when a new employee onboarding starts.',
   },
+  {
+    key: 'certification.expiring',
+    label: 'Certification expiring',
+    description: 'Alert employee, manager, and HR when a certification enters the expiry window.',
+  },
 ];

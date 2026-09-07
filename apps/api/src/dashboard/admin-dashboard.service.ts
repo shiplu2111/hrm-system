@@ -381,6 +381,33 @@ export class AdminDashboardService {
       });
     }
 
+    const certifications = await this.prisma.unscoped.employeeCertification.findMany({
+      where: {
+        companyId,
+        status: 'active',
+        expiryDate: { gte: today, lte: windowEnd },
+      },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { expiryDate: 'asc' },
+      take: 10,
+    });
+
+    for (const certification of certifications) {
+      if (!certification.expiryDate) continue;
+      items.push({
+        id: certification.id,
+        type: 'certification',
+        employeeId: certification.employee.id,
+        employeeName:
+          `${certification.employee.firstName} ${certification.employee.lastName}`.trim(),
+        label: certification.name,
+        expiryDate: formatDateValue(certification.expiryDate),
+        daysUntil: this.daysUntil(today, certification.expiryDate),
+      });
+    }
+
     return items
       .sort((a, b) => a.daysUntil - b.daysUntil)
       .slice(0, 15);

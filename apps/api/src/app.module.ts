@@ -46,6 +46,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { SupportModule } from './support/support.module';
 import { CurrencyModule } from './currency/currency.module';
 import { PerformanceModule } from './performance/performance.module';
+import { TrainingModule } from './training/training.module';
+import { EmployeeRelationsModule } from './employee-relations/employee-relations.module';
+import { EngagementModule } from './engagement/engagement.module';
 
 @Module({
   imports: [
@@ -99,6 +102,9 @@ import { PerformanceModule } from './performance/performance.module';
     SupportModule,
     CurrencyModule,
     PerformanceModule,
+    TrainingModule,
+    EmployeeRelationsModule,
+    EngagementModule,
   ],
   controllers: [AppController],
   providers: [

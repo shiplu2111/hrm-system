@@ -9,6 +9,9 @@ import { AttendanceService } from '../attendance/attendance.service';
 import { LeaveBalancesService } from '../leave/leave-balances.service';
 import { LeaveRequestsService } from '../leave/leave-requests.service';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
+import { AnnouncementsService } from '../engagement/announcements.service';
+import { EngagementSurveysService } from '../engagement/engagement-surveys.service';
+import { KudosService } from '../engagement/kudos.service';
 import { PayslipService } from '../payroll/payslip.service';
 import { PrismaService } from '../database/prisma.service';
 import { LocaleContextService } from '../locale/locale-context.service';
@@ -26,6 +29,9 @@ export class EmployeeDashboardService {
     private readonly payslipService: PayslipService,
     private readonly inAppNotificationsService: InAppNotificationsService,
     private readonly localeContext: LocaleContextService,
+    private readonly announcementsService: AnnouncementsService,
+    private readonly engagementSurveysService: EngagementSurveysService,
+    private readonly kudosService: KudosService,
   ) {}
 
   async getEmployeeDashboard(
@@ -56,6 +62,9 @@ export class EmployeeDashboardService {
       payslips,
       notifications,
       unreadNotificationCount,
+      announcements,
+      activeSurveys,
+      kudosFeed,
     ] = await Promise.all([
       this.attendanceService.getDayRecord(employeeId),
       this.leaveBalancesService.listForEmployee(employeeId),
@@ -76,6 +85,12 @@ export class EmployeeDashboardService {
       this.prisma.unscoped.inAppNotification.count({
         where: { userId: user.id, readAt: null },
       }),
+      this.announcementsService.listPublishedForCompany(employee.companyId),
+      this.engagementSurveysService.listActiveForEmployee(
+        employee.companyId,
+        employeeId,
+      ),
+      this.kudosService.listFeed(employee.companyId, { limit: 15 }),
     ]);
 
     const todayDate = new Date(`${today}T00:00:00.000Z`);
@@ -96,6 +111,9 @@ export class EmployeeDashboardService {
       latestPayslip: payslips[0] ?? null,
       notifications,
       unreadNotificationCount,
+      announcements,
+      activeSurveys: activeSurveys.filter((s) => !s.alreadySubmitted),
+      kudosFeed,
     };
   }
 

@@ -2,7 +2,10 @@ import type {
   AttendanceCaptureInput,
   AttendanceDayRecord,
   EmployeeDashboardView,
+  EmployeeKudosRecord,
   EmployeeRecord,
+  EngagementSurveyAnswerInput,
+  EngagementSurveyRecord,
   LeaveBalanceRecord,
   LeaveRequestRecord,
   LeaveTypeRecord,
@@ -134,6 +137,46 @@ export function getEmployeeDashboard(
   return portalApiRequest<EmployeeDashboardView>(
     PORTAL,
     `/employees/${employeeId}/dashboard`,
+  );
+}
+
+export function getEngagementSurvey(
+  employeeId: string,
+  surveyId: string,
+): Promise<EngagementSurveyRecord> {
+  return portalApiRequest<EngagementSurveyRecord>(
+    PORTAL,
+    `/employees/${employeeId}/engagement/surveys/${surveyId}`,
+  );
+}
+
+export function submitEngagementSurveyResponse(
+  employeeId: string,
+  surveyId: string,
+  answers: EngagementSurveyAnswerInput[],
+): Promise<{ submitted: true }> {
+  return portalApiRequest<{ submitted: true }>(
+    PORTAL,
+    `/employees/${employeeId}/engagement/surveys/${surveyId}/responses`,
+    { method: 'POST', body: JSON.stringify({ answers }) },
+  );
+}
+
+export function createEmployeeKudos(
+  employeeId: string,
+  input: { toEmployeeId: string; message: string },
+): Promise<EmployeeKudosRecord> {
+  return portalApiRequest<EmployeeKudosRecord>(
+    PORTAL,
+    `/employees/${employeeId}/engagement/kudos`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function listCompanyEmployees(companyId: string): Promise<EmployeeRecord[]> {
+  return portalApiRequest<EmployeeRecord[]>(
+    PORTAL,
+    `/employees?companyId=${encodeURIComponent(companyId)}`,
   );
 }
 

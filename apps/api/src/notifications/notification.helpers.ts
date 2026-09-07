@@ -78,6 +78,34 @@ export function buildContractRenewalVariables(input: {
   };
 }
 
+export function buildCertificationExpiringVariables(input: {
+  employeeName: string;
+  certificationName: string;
+  expiryDate: string;
+  daysUntil: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    employee_name: input.employeeName,
+    certification_name: input.certificationName,
+    expiry_date: input.expiryDate,
+    days_until: input.daysUntil,
+  };
+}
+
+export function buildKudosReceivedVariables(input: {
+  fromEmployeeName: string;
+  toEmployeeName: string;
+  kudosMessage: string;
+  kudosType: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    from_employee_name: input.fromEmployeeName,
+    to_employee_name: input.toEmployeeName,
+    kudos_message: input.kudosMessage,
+    kudos_type: input.kudosType,
+  };
+}
+
 export function buildExpenseOutcomeVariables(input: {
   employeeName: string;
   claimReference: string;

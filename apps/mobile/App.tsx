@@ -16,6 +16,7 @@ import {
 import { registerPushTokenIfPermitted } from './src/notifications/push-registration';
 import { ClockScreen } from './src/screens/ClockScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
+import { KudosScreen } from './src/screens/KudosScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 
@@ -28,6 +29,7 @@ function AuthenticatedApp({
 }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showKudos, setShowKudos] = useState(false);
 
   useEffect(() => {
     void registerPushTokenIfPermitted();
@@ -35,6 +37,10 @@ function AuthenticatedApp({
 
   if (showHelp) {
     return <HelpScreen onBack={() => setShowHelp(false)} />;
+  }
+
+  if (showKudos) {
+    return <KudosScreen user={user} onBack={() => setShowKudos(false)} />;
   }
 
   if (showNotifications) {
@@ -51,6 +57,7 @@ function AuthenticatedApp({
             onLogout={onLogout}
             onOpenNotifications={() => setShowNotifications(true)}
             onOpenHelp={() => setShowHelp(true)}
+            onOpenKudos={() => setShowKudos(true)}
           />
         </View>
       </View>

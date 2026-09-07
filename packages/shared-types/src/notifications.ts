@@ -10,7 +10,9 @@ export type NotificationEventType =
   | 'contract.renewal.rejected'
   | 'expense.approved'
   | 'expense.rejected'
-  | 'onboarding.welcome';
+  | 'onboarding.welcome'
+  | 'certification.expiring'
+  | 'kudos.received';
 
 export type NotificationRecipientRole =
   | 'subject_employee'

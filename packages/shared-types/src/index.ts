@@ -34,3 +34,6 @@ export * from './support';
 export * from './currency';
 export * from './locale';
 export * from './performance';
+export * from './training';
+export * from './employee-relations';
+export * from './engagement';

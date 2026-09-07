@@ -329,11 +329,14 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
               {view === 'home' && dashboard ? (
                 <EmployeeDashboardHome
                   dashboard={dashboard}
+                  employeeId={employeeId}
+                  companyId={profile?.companyId ?? ''}
                   actionLoading={actionLoading}
                   onClockIn={() => void runAttendanceAction('clock-in')}
                   onClockOut={() => void runAttendanceAction('clock-out')}
                   onBreakStart={() => void runAttendanceAction('break-start')}
                   onBreakEnd={() => void runAttendanceAction('break-end')}
+                  onSurveySubmitted={() => void refresh()}
                 />
               ) : null}
 

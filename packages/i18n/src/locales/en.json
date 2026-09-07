@@ -62,7 +62,9 @@
     "loadHelpShort": "Failed to load help",
     "loginFailed": "Login failed",
     "recordPunch": "Could not record punch",
-    "loadNotifications": "Could not load notifications"
+    "loadNotifications": "Could not load notifications",
+    "loadKudos": "Failed to load recognition feed",
+    "sendKudos": "Failed to send recognition"
   },
   "alerts": {
     "notLinkedTitle": "Not linked",
@@ -259,5 +261,21 @@
     "online": "Online",
     "readyAutoSync": "Ready — punches sync automatically",
     "offlineCanClockIn": "You can clock in — punches save on device"
+  },
+  "engagement": {
+    "nav": "Recognition",
+    "recognitionTitle": "Recognition",
+    "recognitionSubtitle": "Celebrate colleagues with peer or manager kudos.",
+    "giveKudos": "Give kudos",
+    "sendRecognition": "Send recognition",
+    "kudosSent": "Recognition sent — your colleague will be notified.",
+    "recipient": "Colleague",
+    "message": "Message",
+    "messagePlaceholder": "What did they do well?",
+    "companyFeed": "Company feed",
+    "emptyFeed": "No recognition posts yet.",
+    "noRecipients": "No colleagues available.",
+    "typePeer": "Peer recognition",
+    "typeManager": "Manager recognition"
   }
 }

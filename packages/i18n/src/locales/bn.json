@@ -62,7 +62,9 @@
     "loadHelpShort": "সাহায্য লোড করতে ব্যর্থ",
     "loginFailed": "লগইন ব্যর্থ",
     "recordPunch": "পাঞ্চ রেকর্ড করা যায়নি",
-    "loadNotifications": "বিজ্ঞপ্তি লোড করা যায়নি"
+    "loadNotifications": "বিজ্ঞপ্তি লোড করা যায়নি",
+    "loadKudos": "স্বীকৃতি ফিড লোড করা যায়নি",
+    "sendKudos": "স্বীকৃতি পাঠানো যায়নি"
   },
   "alerts": {
     "notLinkedTitle": "যুক্ত নয়",
@@ -259,5 +261,21 @@
     "online": "অনলাইন",
     "readyAutoSync": "প্রস্তুত — পাঞ্চ স্বয়ংক্রিয় সিঙ্ক হয়",
     "offlineCanClockIn": "আপনি ক্লক ইন করতে পারেন — পাঞ্চ ডিভাইসে সংরক্ষিত হয়"
+  },
+  "engagement": {
+    "nav": "স্বীকৃতি",
+    "recognitionTitle": "স্বীকৃতি",
+    "recognitionSubtitle": "সহকর্মীদের পিয়ার বা ম্যানেজার কুডোস দিয়ে উদযাপন করুন।",
+    "giveKudos": "কুডোস দিন",
+    "sendRecognition": "স্বীকৃতি পাঠান",
+    "kudosSent": "স্বীকৃতি পাঠানো হয়েছে — সহকর্মীকে জানানো হবে।",
+    "recipient": "সহকর্মী",
+    "message": "বার্তা",
+    "messagePlaceholder": "তারা কী ভালো করেছে?",
+    "companyFeed": "কোম্পানি ফিড",
+    "emptyFeed": "এখনও কোনো স্বীকৃতি পোস্ট নেই।",
+    "noRecipients": "কোনো সহকর্মী উপলব্ধ নেই।",
+    "typePeer": "পিয়ার স্বীকৃতি",
+    "typeManager": "ম্যানেজার স্বীকৃতি"
   }
 }

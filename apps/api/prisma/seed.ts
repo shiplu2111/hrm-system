@@ -176,6 +176,31 @@ const ID = {
   performanceReviewManager: '10000000-0000-4000-8000-000000000242',
   feedback360HrForStaff: '10000000-0000-4000-8000-000000000243',
   feedback360PayrollForStaff: '10000000-0000-4000-8000-000000000244',
+  trainingCoursePrivacy: '10000000-0000-4000-8000-000000000250',
+  trainingCourseLeadership: '10000000-0000-4000-8000-000000000251',
+  trainingSessionPrivacy: '10000000-0000-4000-8000-000000000252',
+  trainingCostPrivacyVenue: '10000000-0000-4000-8000-000000000253',
+  trainingAttendanceStaff: '10000000-0000-4000-8000-000000000254',
+  trainingAttendanceManager: '10000000-0000-4000-8000-000000000255',
+  skillTypeScript: '10000000-0000-4000-8000-000000000256',
+  skillLeadership: '10000000-0000-4000-8000-000000000257',
+  skillDataPrivacy: '10000000-0000-4000-8000-000000000258',
+  employeeSkillStaffPrivacy: '10000000-0000-4000-8000-000000000259',
+  employeeSkillManagerLeadership: '10000000-0000-4000-8000-000000000260',
+  certPrivacyStaff: '10000000-0000-4000-8000-000000000261',
+  certFirstAidHr: '10000000-0000-4000-8000-000000000262',
+  hrCaseGrievance: '10000000-0000-4000-8000-000000000270',
+  hrCaseConduct: '10000000-0000-4000-8000-000000000271',
+  hrCasePartyWitness: '10000000-0000-4000-8000-000000000272',
+  hrCaseNoteConduct: '10000000-0000-4000-8000-000000000273',
+  hrCaseDisciplinaryAction: '10000000-0000-4000-8000-000000000274',
+  hrCaseInvestigationRecord: '10000000-0000-4000-8000-000000000275',
+  engagementAnnouncement: '10000000-0000-4000-8000-000000000280',
+  engagementPulseSurvey: '10000000-0000-4000-8000-000000000281',
+  engagementEnpsSurvey: '10000000-0000-4000-8000-000000000282',
+  engagementPulseQuestion: '10000000-0000-4000-8000-000000000283',
+  engagementEnpsQuestion: '10000000-0000-4000-8000-000000000284',
+  engagementKudosManager: '10000000-0000-4000-8000-000000000285',
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
@@ -212,6 +237,9 @@ const MODULES = [
   'platform',
   'support',
   'performance',
+  'training',
+  'employee_relations',
+  'engagement',
 ] as const;
 
 const ALL_ACTIONS: PermissionAction[] = [
@@ -241,6 +269,9 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
     { module: 'support', actions: ['view', 'create', 'edit'] },
     { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
+    { module: 'training', actions: ['view', 'create', 'edit', 'approve'] },
+    { module: 'employee_relations', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
+    { module: 'engagement', actions: ['view', 'create', 'edit', 'approve'] },
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
@@ -253,6 +284,8 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'leave', actions: ['view', 'approve'] },
     { module: 'attendance', actions: ['view', 'approve'] },
     { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
+    { module: 'training', actions: ['view', 'create', 'edit'] },
+    { module: 'engagement', actions: ['view'] },
   ],
   Employee: [
     { module: 'employee', actions: ['view', 'edit'] },
@@ -261,6 +294,8 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'attendance', actions: ['view', 'create'] },
     { module: 'support', actions: ['view', 'create'] },
     { module: 'performance', actions: ['view'] },
+    { module: 'training', actions: ['view'] },
+    { module: 'engagement', actions: ['view', 'create'] },
   ],
   Accountant: [
     { module: 'employee', actions: ['view'] },
@@ -3375,6 +3410,422 @@ async function main(): Promise<void> {
       submittedAt: new Date('2026-12-11'),
     },
     update: { status: 'submitted' },
+  });
+
+  await prisma.trainingCourse.upsert({
+    where: { id: ID.trainingCoursePrivacy },
+    create: {
+      id: ID.trainingCoursePrivacy,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      title: 'Data Privacy Essentials',
+      description: 'Mandatory privacy and data handling for all staff.',
+      category: 'Compliance',
+      deliveryMode: 'virtual',
+      durationMinutes: 45,
+      isMandatory: true,
+      status: 'active',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.trainingCourse.upsert({
+    where: { id: ID.trainingCourseLeadership },
+    create: {
+      id: ID.trainingCourseLeadership,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      title: 'Leading Through Change',
+      description: 'Leadership skills for managers navigating organizational change.',
+      category: 'Leadership',
+      deliveryMode: 'instructor_led',
+      durationMinutes: 150,
+      isMandatory: false,
+      status: 'active',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.trainingSession.upsert({
+    where: { id: ID.trainingSessionPrivacy },
+    create: {
+      id: ID.trainingSessionPrivacy,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      courseId: ID.trainingCoursePrivacy,
+      scheduledStart: new Date('2026-09-15T09:00:00.000Z'),
+      scheduledEnd: new Date('2026-09-15T10:00:00.000Z'),
+      location: 'Virtual — Teams',
+      instructor: 'Elena Rossi',
+      status: 'completed',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'completed' },
+  });
+
+  await prisma.trainingSessionCost.upsert({
+    where: { id: ID.trainingCostPrivacyVenue },
+    create: {
+      id: ID.trainingCostPrivacyVenue,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      sessionId: ID.trainingSessionPrivacy,
+      category: 'technology',
+      description: 'Virtual classroom platform license',
+      amount: 450,
+      currency: 'AUD',
+    },
+    update: {},
+  });
+
+  await prisma.trainingAttendance.upsert({
+    where: {
+      sessionId_employeeId: {
+        sessionId: ID.trainingSessionPrivacy,
+        employeeId: ID.empStaff,
+      },
+    },
+    create: {
+      id: ID.trainingAttendanceStaff,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      sessionId: ID.trainingSessionPrivacy,
+      employeeId: ID.empStaff,
+      status: 'completed',
+      attendedAt: new Date('2026-09-15T09:05:00.000Z'),
+      completedAt: new Date('2026-09-15T10:00:00.000Z'),
+      score: 96,
+    },
+    update: { status: 'completed', score: 96 },
+  });
+
+  await prisma.trainingAttendance.upsert({
+    where: {
+      sessionId_employeeId: {
+        sessionId: ID.trainingSessionPrivacy,
+        employeeId: ID.empManager,
+      },
+    },
+    create: {
+      id: ID.trainingAttendanceManager,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      sessionId: ID.trainingSessionPrivacy,
+      employeeId: ID.empManager,
+      status: 'completed',
+      attendedAt: new Date('2026-09-15T09:05:00.000Z'),
+      completedAt: new Date('2026-09-15T10:00:00.000Z'),
+      score: 91,
+    },
+    update: { status: 'completed', score: 91 },
+  });
+
+  await prisma.skill.upsert({
+    where: { id: ID.skillTypeScript },
+    create: {
+      id: ID.skillTypeScript,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'TypeScript',
+      category: 'Engineering',
+      description: 'Typed JavaScript for application development.',
+    },
+    update: {},
+  });
+
+  await prisma.skill.upsert({
+    where: { id: ID.skillLeadership },
+    create: {
+      id: ID.skillLeadership,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'Leadership',
+      category: 'Management',
+      description: 'People leadership, coaching, and change management.',
+    },
+    update: {},
+  });
+
+  await prisma.skill.upsert({
+    where: { id: ID.skillDataPrivacy },
+    create: {
+      id: ID.skillDataPrivacy,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      name: 'Data Privacy Compliance',
+      category: 'Compliance',
+      description: 'Privacy regulations, data handling, and breach response.',
+    },
+    update: {},
+  });
+
+  await prisma.employeeSkill.upsert({
+    where: {
+      employeeId_skillId: {
+        employeeId: ID.empStaff,
+        skillId: ID.skillDataPrivacy,
+      },
+    },
+    create: {
+      id: ID.employeeSkillStaffPrivacy,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      employeeId: ID.empStaff,
+      skillId: ID.skillDataPrivacy,
+      level: 'advanced',
+      assessedAt: new Date('2026-09-15'),
+    },
+    update: { level: 'advanced' },
+  });
+
+  await prisma.employeeSkill.upsert({
+    where: {
+      employeeId_skillId: {
+        employeeId: ID.empManager,
+        skillId: ID.skillLeadership,
+      },
+    },
+    create: {
+      id: ID.employeeSkillManagerLeadership,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      employeeId: ID.empManager,
+      skillId: ID.skillLeadership,
+      level: 'expert',
+      assessedAt: new Date('2026-06-01'),
+    },
+    update: { level: 'expert' },
+  });
+
+  await prisma.employeeCertification.upsert({
+    where: { id: ID.certPrivacyStaff },
+    create: {
+      id: ID.certPrivacyStaff,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      employeeId: ID.empStaff,
+      courseId: ID.trainingCoursePrivacy,
+      name: 'Data Privacy Essentials Certificate',
+      issuer: 'Demo Corp Learning',
+      certificateNumber: 'DP-2025-0044',
+      issuedAt: new Date('2025-09-15'),
+      expiryDate: new Date('2026-09-15'),
+      status: 'active',
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.employeeCertification.upsert({
+    where: { id: ID.certFirstAidHr },
+    create: {
+      id: ID.certFirstAidHr,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      employeeId: ID.empHrAdmin,
+      name: 'First Aid at Work',
+      issuer: 'St John Ambulance',
+      certificateNumber: 'FA-2024-0041',
+      issuedAt: new Date('2024-09-18'),
+      expiryDate: new Date('2026-09-18'),
+      status: 'active',
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.hrCase.upsert({
+    where: { id: ID.hrCaseGrievance },
+    create: {
+      id: ID.hrCaseGrievance,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      caseNumber: 'ER-2026-001',
+      title: 'Formal workload grievance',
+      caseType: 'grievance',
+      status: 'open',
+      priority: 'high',
+      reportingEmployeeId: ID.empStaff,
+      assignedOfficerEmployeeId: ID.empHrAdmin,
+      detailsEncrypted:
+        'Formal grievance concerning sustained workload allocation and manager communication. Employee reports repeated overtime without compensation review.',
+      createdByUserId: ID.userHrAdmin,
+      isRestricted: true,
+    },
+    update: { status: 'open' },
+  });
+
+  await prisma.hrCase.upsert({
+    where: { id: ID.hrCaseConduct },
+    create: {
+      id: ID.hrCaseConduct,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      caseNumber: 'ER-2026-002',
+      title: 'Workplace conduct concern',
+      caseType: 'investigation',
+      status: 'investigating',
+      priority: 'critical',
+      subjectEmployeeId: ID.empManager,
+      assignedOfficerEmployeeId: ID.empHrAdmin,
+      detailsEncrypted:
+        'Confidential report regarding repeated conduct concerns within the Commercial team. Witness interviews scheduled.',
+      resolutionNotesEncrypted: 'Pending investigation findings and legal review.',
+      createdByUserId: ID.userHrAdmin,
+      isRestricted: true,
+    },
+    update: { status: 'investigating' },
+  });
+
+  await prisma.hrCaseParty.upsert({
+    where: { id: ID.hrCasePartyWitness },
+    create: {
+      id: ID.hrCasePartyWitness,
+      tenantId: ID.tenant,
+      caseId: ID.hrCaseConduct,
+      employeeId: ID.empStaff,
+      partyRole: 'witness',
+      isAnonymized: true,
+      anonymizedLabel: 'Witness A',
+    },
+    update: {},
+  });
+
+  await prisma.hrCaseNote.upsert({
+    where: { id: ID.hrCaseNoteConduct },
+    create: {
+      id: ID.hrCaseNoteConduct,
+      tenantId: ID.tenant,
+      caseId: ID.hrCaseConduct,
+      contentEncrypted:
+        'Witness interview completed. Notes restricted to the assigned investigation team.',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {},
+  });
+
+  await prisma.hrCaseDisciplinaryAction.upsert({
+    where: { id: ID.hrCaseDisciplinaryAction },
+    create: {
+      id: ID.hrCaseDisciplinaryAction,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      caseId: ID.hrCaseGrievance,
+      actionType: 'verbal_warning',
+      effectiveDate: new Date('2026-08-20'),
+      letterReference: 'VW-2026-014',
+      detailsEncrypted: 'Informal counseling regarding attendance patterns prior to formal grievance.',
+      issuedByUserId: ID.userHrAdmin,
+    },
+    update: {},
+  });
+
+  await prisma.hrCaseInvestigationRecord.upsert({
+    where: { id: ID.hrCaseInvestigationRecord },
+    create: {
+      id: ID.hrCaseInvestigationRecord,
+      tenantId: ID.tenant,
+      caseId: ID.hrCaseConduct,
+      recordType: 'interview',
+      title: 'Witness A interview',
+      contentEncrypted:
+        'Witness confirmed timeline of events on 12 Aug. Statement recorded under confidentiality protocol.',
+      recordedAt: new Date('2026-08-22T10:00:00.000Z'),
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {},
+  });
+
+  await prisma.companyAnnouncement.upsert({
+    where: { id: ID.engagementAnnouncement },
+    create: {
+      id: ID.engagementAnnouncement,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      title: 'Q3 all-hands recap & benefits update',
+      body:
+        'Thank you to everyone who joined the Q3 all-hands. Reminder: open enrollment for health benefits closes 30 September. See HR for the updated flexible working policy.',
+      status: 'published',
+      isPinned: true,
+      publishedAt: new Date('2026-09-01T09:00:00.000Z'),
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'published' },
+  });
+
+  await prisma.engagementSurvey.upsert({
+    where: { id: ID.engagementEnpsSurvey },
+    create: {
+      id: ID.engagementEnpsSurvey,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      title: 'September eNPS pulse',
+      description: 'How likely are you to recommend Demo Corp as a place to work?',
+      surveyType: 'enps',
+      isAnonymous: true,
+      status: 'published',
+      publishedAt: new Date('2026-09-05T08:00:00.000Z'),
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'published' },
+  });
+
+  await prisma.engagementSurveyQuestion.upsert({
+    where: { id: ID.engagementEnpsQuestion },
+    create: {
+      id: ID.engagementEnpsQuestion,
+      surveyId: ID.engagementEnpsSurvey,
+      sortOrder: 0,
+      questionType: 'enps',
+      prompt: 'On a scale of 0–10, how likely are you to recommend Demo Corp as a place to work?',
+      isRequired: true,
+    },
+    update: {},
+  });
+
+  await prisma.engagementSurvey.upsert({
+    where: { id: ID.engagementPulseSurvey },
+    create: {
+      id: ID.engagementPulseSurvey,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      title: 'Quarterly engagement pulse (draft)',
+      description: 'Manager support and workload check-in.',
+      surveyType: 'pulse',
+      isAnonymous: true,
+      status: 'draft',
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {},
+  });
+
+  await prisma.engagementSurveyQuestion.upsert({
+    where: { id: ID.engagementPulseQuestion },
+    create: {
+      id: ID.engagementPulseQuestion,
+      surveyId: ID.engagementPulseSurvey,
+      sortOrder: 0,
+      questionType: 'rating',
+      prompt: 'How satisfied are you with your experience at the company?',
+      isRequired: true,
+    },
+    update: {},
+  });
+
+  await prisma.employeeKudos.upsert({
+    where: { id: ID.engagementKudosManager },
+    create: {
+      id: ID.engagementKudosManager,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      fromEmployeeId: ID.empManager,
+      toEmployeeId: ID.empStaff,
+      kudosType: 'manager',
+      message:
+        'Outstanding collaboration on the Q3 client deliverable — your attention to detail made the difference.',
+      createdByUserId: ID.userManager,
+    },
+    update: {},
   });
 
   console.log('Seed complete.');

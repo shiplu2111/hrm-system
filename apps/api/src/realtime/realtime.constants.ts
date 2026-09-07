@@ -28,6 +28,8 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'expense.approved': true,
   'expense.rejected': false,
   'onboarding.welcome': true,
+  'certification.expiring': true,
+  'kudos.received': true,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -101,6 +103,8 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'expense.approved': 'Expense claim approved',
   'expense.rejected': 'Expense claim rejected',
   'onboarding.welcome': 'Onboarding welcome',
+  'certification.expiring': 'Certification expiring soon',
+  'kudos.received': 'Kudos received',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

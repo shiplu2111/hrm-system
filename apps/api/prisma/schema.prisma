@@ -105,6 +105,22 @@ model Tenant {
   performanceReviewParticipants PerformanceReviewParticipant[]
   employeePerformanceReviews  EmployeePerformanceReview[]
   performance360Feedbacks     Performance360Feedback[]
+  trainingCourses             TrainingCourse[]
+  trainingSessions            TrainingSession[]
+  trainingSessionCosts        TrainingSessionCost[]
+  trainingAttendances         TrainingAttendance[]
+  skills                      Skill[]
+  employeeSkills              EmployeeSkill[]
+  employeeCertifications      EmployeeCertification[]
+  hrCases                     HrCase[]
+  hrCaseNotes                 HrCaseNote[]
+  hrCaseParties               HrCaseParty[]
+  hrCaseDisciplinaryActions   HrCaseDisciplinaryAction[]
+  hrCaseInvestigationRecords  HrCaseInvestigationRecord[]
+  companyAnnouncements        CompanyAnnouncement[]
+  engagementSurveys           EngagementSurvey[]
+  engagementSurveyResponses   EngagementSurveyResponse[]
+  employeeKudos               EmployeeKudos[]
 
   @@map("tenants")
 }
@@ -283,6 +299,18 @@ model Company {
   performanceReviewParticipants PerformanceReviewParticipant[]
   employeePerformanceReviews    EmployeePerformanceReview[]
   performance360Feedbacks       Performance360Feedback[]
+  trainingCourses               TrainingCourse[]
+  trainingSessions              TrainingSession[]
+  trainingSessionCosts          TrainingSessionCost[]
+  trainingAttendances           TrainingAttendance[]
+  skills                        Skill[]
+  employeeSkills                EmployeeSkill[]
+  employeeCertifications        EmployeeCertification[]
+  hrCases                       HrCase[]
+  hrCaseDisciplinaryActions     HrCaseDisciplinaryAction[]
+  companyAnnouncements          CompanyAnnouncement[]
+  engagementSurveys             EngagementSurvey[]
+  employeeKudos                 EmployeeKudos[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -517,6 +545,16 @@ model Employee {
   employeePerformanceReviews EmployeePerformanceReview[] @relation("ReviewSubject")
   managedPerformanceReviews EmployeePerformanceReview[] @relation("ReviewManager")
   performance360FeedbackGiven Performance360Feedback[] @relation("360FeedbackReviewer")
+  trainingAttendances         TrainingAttendance[]
+  employeeSkills              EmployeeSkill[]
+  employeeCertifications      EmployeeCertification[]
+  hrCasesAsSubject            HrCase[] @relation("HrCaseSubject")
+  hrCasesAsReporter           HrCase[] @relation("HrCaseReporter")
+  hrCasesAssigned             HrCase[] @relation("HrCaseOfficer")
+  hrCaseParties               HrCaseParty[]
+  engagementSurveyResponses   EngagementSurveyResponse[]
+  kudosGiven                  EmployeeKudos[] @relation("KudosGiven")
+  kudosReceived               EmployeeKudos[] @relation("KudosReceived")
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -3499,7 +3537,646 @@ model EmployeeKpiAssignment {
 }
 
 // ---------------------------------------------------------------------------
-// §8g Multi-Currency Payroll (MODULES.md §46, RULES.md §4)
+// §8g Training & Certification (MODULES.md §26)
+// ---------------------------------------------------------------------------
+
+enum TrainingCourseDeliveryMode {
+  self_paced
+  instructor_led
+  virtual
+  blended
+
+  @@map("training_course_delivery_mode")
+}
+
+enum TrainingCourseStatus {
+  draft
+  active
+  archived
+
+  @@map("training_course_status")
+}
+
+enum TrainingSessionStatus {
+  scheduled
+  in_progress
+  completed
+  cancelled
+
+  @@map("training_session_status")
+}
+
+enum TrainingAttendanceStatus {
+  registered
+  attended
+  completed
+  no_show
+  cancelled
+
+  @@map("training_attendance_status")
+}
+
+enum TrainingCostCategory {
+  venue
+  instructor
+  materials
+  travel
+  catering
+  technology
+  other
+
+  @@map("training_cost_category")
+}
+
+/// Admin-managed course catalog entry.
+model TrainingCourse {
+  id              String                     @id @default(uuid()) @db.Uuid
+  tenantId        String                     @map("tenant_id") @db.Uuid
+  companyId       String                     @map("company_id") @db.Uuid
+  title           String
+  description     String?
+  category        String?
+  deliveryMode    TrainingCourseDeliveryMode @default(instructor_led) @map("delivery_mode")
+  durationMinutes Int?                       @map("duration_minutes")
+  isMandatory     Boolean                    @default(false) @map("is_mandatory")
+  status          TrainingCourseStatus       @default(active)
+  createdByUserId String                     @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sessions        TrainingSession[]
+  certifications  EmployeeCertification[]
+
+  @@unique([companyId, title])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@map("training_courses")
+}
+
+/// Scheduled delivery of a catalog course — costs and attendance attach here.
+model TrainingSession {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  companyId       String                @map("company_id") @db.Uuid
+  courseId        String                @map("course_id") @db.Uuid
+  title           String?
+  scheduledStart  DateTime              @map("scheduled_start")
+  scheduledEnd    DateTime?             @map("scheduled_end")
+  location        String?
+  instructor      String?
+  status          TrainingSessionStatus @default(scheduled)
+  notes           String?
+  createdByUserId String                @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  course      TrainingCourse         @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  attendances TrainingAttendance[]
+  costs       TrainingSessionCost[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([courseId])
+  @@index([scheduledStart])
+  @@map("training_sessions")
+}
+
+/// Cost line item for a training session.
+model TrainingSessionCost {
+  id          String               @id @default(uuid()) @db.Uuid
+  tenantId    String               @map("tenant_id") @db.Uuid
+  companyId   String               @map("company_id") @db.Uuid
+  sessionId   String               @map("session_id") @db.Uuid
+  category    TrainingCostCategory
+  description String?
+  amount      Decimal              @db.Decimal(14, 2)
+  currency    String               @default("AUD") @db.VarChar(3)
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  session TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([sessionId])
+  @@map("training_session_costs")
+}
+
+/// Employee attendance for a training session.
+model TrainingAttendance {
+  id           String                   @id @default(uuid()) @db.Uuid
+  tenantId     String                   @map("tenant_id") @db.Uuid
+  companyId    String                   @map("company_id") @db.Uuid
+  sessionId    String                   @map("session_id") @db.Uuid
+  employeeId   String                   @map("employee_id") @db.Uuid
+  status       TrainingAttendanceStatus @default(registered)
+  registeredAt DateTime                 @default(now()) @map("registered_at")
+  attendedAt   DateTime?                @map("attended_at")
+  completedAt  DateTime?                @map("completed_at")
+  score        Int?
+  notes        String?
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  session  TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  employee Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([sessionId, employeeId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([sessionId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("training_attendances")
+}
+
+enum SkillProficiencyLevel {
+  none
+  beginner
+  intermediate
+  advanced
+  expert
+
+  @@map("skill_proficiency_level")
+}
+
+enum EmployeeCertificationStatus {
+  active
+  expired
+  revoked
+
+  @@map("employee_certification_status")
+}
+
+/// Company skill catalog entry for the skill matrix.
+model Skill {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  category    String?
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employeeSkills EmployeeSkill[]
+
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([category])
+  @@map("skills")
+}
+
+/// Employee proficiency for a catalog skill (skill matrix cell).
+model EmployeeSkill {
+  id         String                @id @default(uuid()) @db.Uuid
+  tenantId   String                @map("tenant_id") @db.Uuid
+  companyId  String                @map("company_id") @db.Uuid
+  employeeId String                @map("employee_id") @db.Uuid
+  skillId    String                @map("skill_id") @db.Uuid
+  level      SkillProficiencyLevel @default(beginner)
+  assessedAt DateTime?             @map("assessed_at") @db.Date
+  notes      String?
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  skill    Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, skillId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([skillId])
+  @@index([level])
+  @@map("employee_skills")
+}
+
+/// Employee-held certification with optional expiry tracking.
+model EmployeeCertification {
+  id                String                      @id @default(uuid()) @db.Uuid
+  tenantId          String                      @map("tenant_id") @db.Uuid
+  companyId         String                      @map("company_id") @db.Uuid
+  employeeId        String                      @map("employee_id") @db.Uuid
+  courseId          String?                     @map("course_id") @db.Uuid
+  name              String
+  issuer            String?
+  certificateNumber String?                     @map("certificate_number")
+  issuedAt          DateTime?                   @map("issued_at") @db.Date
+  expiryDate        DateTime?                   @map("expiry_date") @db.Date
+  status            EmployeeCertificationStatus @default(active)
+  expiryAlertSentAt DateTime?                   @map("expiry_alert_sent_at")
+  notes             String?
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  course   TrainingCourse? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([courseId])
+  @@index([status])
+  @@index([expiryDate])
+  @@map("employee_certifications")
+}
+
+// ---------------------------------------------------------------------------
+// §8h Employee Relations / Case Management (MODULES.md §28)
+// ---------------------------------------------------------------------------
+
+enum HrCaseType {
+  grievance
+  complaint
+  disciplinary
+  investigation
+
+  @@map("hr_case_type")
+}
+
+enum HrCaseStatus {
+  open
+  investigating
+  resolved
+  closed
+
+  @@map("hr_case_status")
+}
+
+enum HrCasePriority {
+  low
+  medium
+  high
+  critical
+
+  @@map("hr_case_priority")
+}
+
+enum HrCaseOutcome {
+  not_determined
+  substantiated
+  partially_substantiated
+  unsubstantiated
+  resolved_informally
+
+  @@map("hr_case_outcome")
+}
+
+enum HrCasePartyRole {
+  reporting_employee
+  subject_employee
+  witness
+  investigator
+  other
+
+  @@map("hr_case_party_role")
+}
+
+enum DisciplinaryActionType {
+  verbal_warning
+  written_warning
+  final_warning
+  suspension
+  termination
+  other
+
+  @@map("disciplinary_action_type")
+}
+
+enum HrInvestigationRecordType {
+  interview
+  evidence_review
+  finding
+  legal_review
+  other
+
+  @@map("hr_investigation_record_type")
+}
+
+/// Confidential HR case — grievance, complaint, disciplinary, or investigation.
+model HrCase {
+  id                        String         @id @default(uuid()) @db.Uuid
+  tenantId                  String         @map("tenant_id") @db.Uuid
+  companyId                 String         @map("company_id") @db.Uuid
+  caseNumber                String         @map("case_number")
+  title                     String
+  caseType                  HrCaseType     @map("case_type")
+  status                    HrCaseStatus   @default(open)
+  priority                  HrCasePriority @default(medium)
+  outcome                   HrCaseOutcome  @default(not_determined)
+  subjectEmployeeId         String?        @map("subject_employee_id") @db.Uuid
+  reportingEmployeeId       String?        @map("reporting_employee_id") @db.Uuid
+  assignedOfficerEmployeeId String?        @map("assigned_officer_employee_id") @db.Uuid
+  /// Field-level encrypted narrative (SECURITY.md §1).
+  detailsEncrypted          String?        @map("details_encrypted")
+  resolutionNotesEncrypted  String?        @map("resolution_notes_encrypted")
+  isRestricted              Boolean        @default(true) @map("is_restricted")
+  openedAt                  DateTime       @default(now()) @map("opened_at")
+  closedAt                  DateTime?      @map("closed_at")
+  createdByUserId           String         @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
+
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company          Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  subjectEmployee  Employee?                  @relation("HrCaseSubject", fields: [subjectEmployeeId], references: [id], onDelete: SetNull)
+  reportingEmployee Employee?                 @relation("HrCaseReporter", fields: [reportingEmployeeId], references: [id], onDelete: SetNull)
+  assignedOfficer  Employee?                  @relation("HrCaseOfficer", fields: [assignedOfficerEmployeeId], references: [id], onDelete: SetNull)
+  notes                 HrCaseNote[]
+  parties               HrCaseParty[]
+  disciplinaryActions   HrCaseDisciplinaryAction[]
+  investigationRecords  HrCaseInvestigationRecord[]
+
+  @@unique([companyId, caseNumber])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([status])
+  @@index([caseType])
+  @@index([priority])
+  @@index([assignedOfficerEmployeeId])
+  @@map("hr_cases")
+}
+
+/// Encrypted timeline note on a confidential case.
+model HrCaseNote {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  caseId           String   @map("case_id") @db.Uuid
+  contentEncrypted String   @map("content_encrypted")
+  createdByUserId  String   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hrCase HrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([caseId])
+  @@map("hr_case_notes")
+}
+
+/// Involved party on a case — supports anonymized display.
+model HrCaseParty {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  caseId          String          @map("case_id") @db.Uuid
+  employeeId      String?         @map("employee_id") @db.Uuid
+  partyRole       HrCasePartyRole @map("party_role")
+  anonymizedLabel String?         @map("anonymized_label")
+  isAnonymized    Boolean         @default(false) @map("is_anonymized")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hrCase   HrCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([caseId])
+  @@index([employeeId])
+  @@map("hr_case_parties")
+}
+
+/// Disciplinary action linked to a case (verbal/written warnings, etc.).
+model HrCaseDisciplinaryAction {
+  id               String                 @id @default(uuid()) @db.Uuid
+  tenantId         String                 @map("tenant_id") @db.Uuid
+  companyId        String                 @map("company_id") @db.Uuid
+  caseId           String                 @map("case_id") @db.Uuid
+  actionType       DisciplinaryActionType @map("action_type")
+  effectiveDate    DateTime               @map("effective_date") @db.Date
+  letterReference  String?                @map("letter_reference")
+  detailsEncrypted String?                @map("details_encrypted")
+  issuedByUserId   String?                @map("issued_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  hrCase  HrCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([caseId])
+  @@index([actionType])
+  @@map("hr_case_disciplinary_actions")
+}
+
+/// Structured investigation record (interviews, evidence, findings).
+model HrCaseInvestigationRecord {
+  id               String                    @id @default(uuid()) @db.Uuid
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  caseId           String                    @map("case_id") @db.Uuid
+  recordType       HrInvestigationRecordType @map("record_type")
+  title            String
+  contentEncrypted String                    @map("content_encrypted")
+  recordedAt       DateTime                  @map("recorded_at")
+  createdByUserId  String                    @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hrCase HrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([caseId])
+  @@index([recordType])
+  @@map("hr_case_investigation_records")
+}
+
+// ---------------------------------------------------------------------------
+// §8j Employee Engagement (MODULES.md §29)
+// ---------------------------------------------------------------------------
+
+enum CompanyAnnouncementStatus {
+  draft
+  published
+  archived
+
+  @@map("company_announcement_status")
+}
+
+model CompanyAnnouncement {
+  id              String                    @id @default(uuid()) @db.Uuid
+  tenantId        String                    @map("tenant_id") @db.Uuid
+  companyId       String                    @map("company_id") @db.Uuid
+  title           String
+  body            String                    @db.Text
+  status          CompanyAnnouncementStatus @default(draft)
+  isPinned        Boolean                   @default(false) @map("is_pinned")
+  publishedAt     DateTime?                 @map("published_at")
+  expiresAt       DateTime?                 @map("expires_at")
+  createdByUserId String                    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, status, publishedAt])
+  @@map("company_announcements")
+}
+
+enum EngagementSurveyStatus {
+  draft
+  published
+  closed
+
+  @@map("engagement_survey_status")
+}
+
+enum EngagementSurveyType {
+  pulse
+  enps
+
+  @@map("engagement_survey_type")
+}
+
+enum EngagementQuestionType {
+  multiple_choice
+  rating
+  text
+  enps
+
+  @@map("engagement_question_type")
+}
+
+model EngagementSurvey {
+  id              String                 @id @default(uuid()) @db.Uuid
+  tenantId        String                 @map("tenant_id") @db.Uuid
+  companyId       String                 @map("company_id") @db.Uuid
+  title           String
+  description     String?                @db.Text
+  surveyType      EngagementSurveyType   @default(pulse) @map("survey_type")
+  isAnonymous     Boolean                @default(true) @map("is_anonymous")
+  status          EngagementSurveyStatus @default(draft)
+  publishedAt     DateTime?              @map("published_at")
+  closedAt        DateTime?              @map("closed_at")
+  createdByUserId String                 @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  tenant    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company   Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  questions EngagementSurveyQuestion[]
+  responses EngagementSurveyResponse[]
+
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, surveyType])
+  @@map("engagement_surveys")
+}
+
+model EngagementSurveyQuestion {
+  id           String                 @id @default(uuid()) @db.Uuid
+  surveyId     String                 @map("survey_id") @db.Uuid
+  sortOrder    Int                    @map("sort_order")
+  questionType EngagementQuestionType @map("question_type")
+  prompt       String
+  isRequired   Boolean                @default(false) @map("is_required")
+  /// Multiple-choice option labels.
+  options      Json?
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+
+  survey  EngagementSurvey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  answers EngagementSurveyAnswer[]
+
+  @@unique([surveyId, sortOrder])
+  @@index([surveyId])
+  @@map("engagement_survey_questions")
+}
+
+model EngagementSurveyResponse {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  surveyId            String   @map("survey_id") @db.Uuid
+  /// One-way hash for anonymous duplicate prevention (employeeId + surveyId).
+  responseFingerprint String?  @map("response_fingerprint")
+  /// Populated only when the survey is not anonymous.
+  employeeId          String?  @map("employee_id") @db.Uuid
+  submittedAt         DateTime @default(now()) @map("submitted_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  survey   EngagementSurvey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  employee Employee?                @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  answers  EngagementSurveyAnswer[]
+
+  @@unique([surveyId, responseFingerprint])
+  @@unique([surveyId, employeeId])
+  @@index([tenantId])
+  @@index([surveyId])
+  @@map("engagement_survey_responses")
+}
+
+model EngagementSurveyAnswer {
+  id             String  @id @default(uuid()) @db.Uuid
+  responseId     String  @map("response_id") @db.Uuid
+  questionId     String  @map("question_id") @db.Uuid
+  textValue      String? @map("text_value") @db.Text
+  numericValue   Int?    @map("numeric_value")
+  selectedOption String? @map("selected_option")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  response EngagementSurveyResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question EngagementSurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, questionId])
+  @@index([questionId])
+  @@map("engagement_survey_answers")
+}
+
+enum EmployeeKudosType {
+  peer
+  manager
+
+  @@map("employee_kudos_type")
+}
+
+/// Peer or manager recognition post on the company feed (MODULES.md §29).
+model EmployeeKudos {
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  companyId       String            @map("company_id") @db.Uuid
+  fromEmployeeId  String            @map("from_employee_id") @db.Uuid
+  toEmployeeId  String            @map("to_employee_id") @db.Uuid
+  kudosType       EmployeeKudosType @map("kudos_type")
+  message         String            @db.Text
+  createdByUserId String            @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fromEmployee Employee @relation("KudosGiven", fields: [fromEmployeeId], references: [id], onDelete: Restrict)
+  toEmployee   Employee @relation("KudosReceived", fields: [toEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, createdAt])
+  @@index([toEmployeeId])
+  @@index([fromEmployeeId])
+  @@map("employee_kudos")
+}
+
+// ---------------------------------------------------------------------------
+// §8i Multi-Currency Payroll (MODULES.md §46, RULES.md §4)
 // ---------------------------------------------------------------------------
 
 /// Tenant-scoped FX rates — effective-dated; payroll locks the rate active on period end date.

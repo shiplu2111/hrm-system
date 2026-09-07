@@ -1,4 +1,5 @@
 import type { AttendanceDayRecord } from './attendance';
+import type { CompanyAnnouncementRecord, EmployeeKudosRecord, EngagementSurveyListItem } from './engagement';
 import type { InAppNotificationRecord } from './notifications';
 import type { LeaveBalanceRecord, LeaveRequestRecord } from './leave';
 import type { PayslipRecord } from './payroll';
@@ -37,7 +38,7 @@ export interface AdminPendingApprovalItem {
 
 export interface AdminExpiryItem {
   id: string;
-  type: 'document' | 'probation' | 'contract';
+  type: 'document' | 'probation' | 'contract' | 'certification';
   employeeId: string;
   employeeName: string;
   label: string;
@@ -64,4 +65,7 @@ export interface EmployeeDashboardView {
   latestPayslip: PayslipRecord | null;
   notifications: InAppNotificationRecord[];
   unreadNotificationCount: number;
+  announcements: CompanyAnnouncementRecord[];
+  activeSurveys: EngagementSurveyListItem[];
+  kudosFeed: EmployeeKudosRecord[];
 }

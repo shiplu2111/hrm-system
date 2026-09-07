@@ -302,7 +302,7 @@ export function DashboardPage() {
               <CardBody className="p-0">
                 {(data?.expiryItems.length ?? 0) === 0 ? (
                   <p className="text-sm text-muted px-5 py-8 text-center">
-                    No documents or contracts expiring soon.
+                    No documents, certifications, or contracts expiring soon.
                   </p>
                 ) : (
                   <div className="divide-y divide-[rgb(var(--border-base))]">
@@ -310,6 +310,8 @@ export function DashboardPage() {
                       const Icon =
                         item.type === 'document'
                           ? FileText
+                          : item.type === 'certification'
+                            ? Award
                           : item.type === 'probation'
                             ? Award
                             : FileText;

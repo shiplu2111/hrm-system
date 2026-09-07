@@ -1,0 +1,14 @@
+-- RenameForeignKey
+ALTER TABLE "employee_performance_reviews" RENAME CONSTRAINT "employee_performance_reviews_performance_lifecycle_event_id_fke" TO "employee_performance_reviews_performance_lifecycle_event_i_fkey";
+
+-- RenameIndex
+ALTER INDEX "benefit_open_enrollment_plans_open_enrollment_period_id_benefit" RENAME TO "benefit_open_enrollment_plans_open_enrollment_period_id_ben_key";
+
+-- RenameIndex
+ALTER INDEX "custom_field_definitions_company_id_entity_type_context_id_fiel" RENAME TO "custom_field_definitions_company_id_entity_type_context_id__key";
+
+-- RenameIndex
+ALTER INDEX "exchange_rates_tenant_id_base_currency_quote_currency_effective" RENAME TO "exchange_rates_tenant_id_base_currency_quote_currency_effec_idx";
+
+-- RenameIndex
+ALTER INDEX "workflow_definitions_company_id_entity_type_is_default_is_activ" RENAME TO "workflow_definitions_company_id_entity_type_is_default_is_a_idx";

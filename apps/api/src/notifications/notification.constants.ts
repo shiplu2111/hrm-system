@@ -67,6 +67,16 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: false },
     recipients: ['subject_employee'],
   },
+  'certification.expiring': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee', 'manager', 'hr_admin'],
+  },
+  'kudos.received': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -133,6 +143,16 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Welcome to {company_name}',
     body: 'Hi {employee_name}, welcome aboard! Your onboarding checklist is ready — {pending_task_count} tasks to complete before {start_date}.',
     emailSubject: 'Welcome to {company_name}',
+  },
+  'certification.expiring': {
+    title: 'Certification expiring soon',
+    body: 'The certification "{certification_name}" for {employee_name} expires on {expiry_date} ({days_until} days remaining).',
+    emailSubject: 'Certification expiring — {certification_name}',
+  },
+  'kudos.received': {
+    title: 'You received kudos!',
+    body: '{from_employee_name} recognized you: "{kudos_message}"',
+    emailSubject: 'Kudos from {from_employee_name}',
   },
 };
 
