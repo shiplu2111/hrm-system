@@ -65,6 +65,7 @@ export class CountriesService {
         currency: country.currency,
         timezone: country.timezone,
         dateFormat: country.dateFormat,
+        numberFormat: country.numberFormat,
         tenantCount: new Set(country.companies.map((company) => company.tenantId))
           .size,
         lastRuleUpdate: lastRuleUpdate?.toISOString() ?? null,
@@ -83,6 +84,7 @@ export class CountriesService {
           currency: dto.currency.trim().toUpperCase(),
           timezone: dto.timezone.trim(),
           dateFormat: dto.dateFormat.trim(),
+          numberFormat: dto.numberFormat?.trim() ?? '1,234.56',
         },
       });
 
@@ -93,6 +95,7 @@ export class CountriesService {
         currency: country.currency,
         timezone: country.timezone,
         dateFormat: country.dateFormat,
+        numberFormat: country.numberFormat,
         tenantCount: 0,
         lastRuleUpdate: null,
       };
@@ -125,6 +128,9 @@ export class CountriesService {
           : {}),
         ...(dto.timezone != null ? { timezone: dto.timezone.trim() } : {}),
         ...(dto.dateFormat != null ? { dateFormat: dto.dateFormat.trim() } : {}),
+        ...(dto.numberFormat != null
+          ? { numberFormat: dto.numberFormat.trim() }
+          : {}),
       },
       include: {
         companies: { select: { tenantId: true } },
@@ -151,6 +157,7 @@ export class CountriesService {
       currency: country.currency,
       timezone: country.timezone,
       dateFormat: country.dateFormat,
+      numberFormat: country.numberFormat,
       tenantCount: new Set(country.companies.map((company) => company.tenantId))
         .size,
       lastRuleUpdate: (latestRule ?? latestTax)?.toISOString() ?? null,
@@ -186,6 +193,7 @@ export class CountriesService {
         currency: country.currency,
         timezone: country.timezone,
         dateFormat: country.dateFormat,
+        numberFormat: country.numberFormat,
       },
       taxBrackets: country.taxBrackets.map((row) => this.toTaxBracket(row)),
       rules: country.countryRules.map((row) => this.toCountryRule(row)),

@@ -1,4 +1,5 @@
 import type { SyncableRecord } from './common';
+import type { AttendanceDisplayFields, LocaleContext } from './locale';
 
 export type AttendanceStatus =
   | 'present'
@@ -77,6 +78,10 @@ export interface AttendanceDayRecord {
   shift: AttendanceShiftInfo;
   breaks: AttendanceBreakRecord[];
   metrics: AttendanceMetrics;
+  /** Resolved branch locale (timezone + country formatting). */
+  locale?: LocaleContext;
+  /** Human-readable timestamps in the employee's branch timezone. */
+  display?: AttendanceDisplayFields;
 }
 
 export interface AttendanceCaptureInput {

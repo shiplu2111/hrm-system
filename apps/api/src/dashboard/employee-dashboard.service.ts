@@ -11,9 +11,9 @@ import { LeaveRequestsService } from '../leave/leave-requests.service';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { PayslipService } from '../payroll/payslip.service';
 import { PrismaService } from '../database/prisma.service';
+import { LocaleContextService } from '../locale/locale-context.service';
 import { RostersService } from '../roster/rosters.service';
-import { formatDateValue } from '../leave/leave.utils';
-import { startOfUtcDay } from '../attendance/attendance.utils';
+import { localDateKey } from '@hrm/shared-types';
 
 @Injectable()
 export class EmployeeDashboardService {
@@ -25,6 +25,7 @@ export class EmployeeDashboardService {
     private readonly rostersService: RostersService,
     private readonly payslipService: PayslipService,
     private readonly inAppNotificationsService: InAppNotificationsService,
+    private readonly localeContext: LocaleContextService,
   ) {}
 
   async getEmployeeDashboard(
@@ -44,7 +45,8 @@ export class EmployeeDashboardService {
       });
     }
 
-    const today = formatDateValue(startOfUtcDay());
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const today = localDateKey(new Date(), locale.timezone);
 
     const [
       attendance,
@@ -76,7 +78,7 @@ export class EmployeeDashboardService {
       }),
     ]);
 
-    const todayDate = startOfUtcDay();
+    const todayDate = new Date(`${today}T00:00:00.000Z`);
     const upcomingLeave = leaveRows.data
       .filter(
         (req) =>

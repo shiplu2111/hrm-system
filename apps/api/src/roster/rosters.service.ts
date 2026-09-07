@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { RosterRecord } from '@hrm/shared-types';
+import { buildRosterDisplay } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
+import { LocaleContextService } from '../locale/locale-context.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type {
   CreateRosterDto,
@@ -20,6 +22,7 @@ export class RostersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
+    private readonly localeContext: LocaleContextService,
   ) {}
 
   async list(
@@ -63,14 +66,14 @@ export class RostersService {
           shift: {
             select: { id: true, name: true, startTime: true, endTime: true },
           },
-          location: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true, timezone: true } },
         },
       }),
       this.prisma.unscoped.roster.count({ where }),
     ]);
 
     return {
-      data: rows.map((row) => this.toRecord(row)),
+      data: await Promise.all(rows.map((row) => this.toRecord(row))),
       total,
     };
   }
@@ -172,7 +175,7 @@ export class RostersService {
       shift: {
         select: { id: true, name: true, startTime: true, endTime: true },
       },
-      location: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, timezone: true } },
     } as const;
   }
 
@@ -233,16 +236,31 @@ export class RostersService {
     }
   }
 
-  private toRecord(
+  private async toRecord(
     row: Prisma.RosterGetPayload<{
       include: ReturnType<RostersService['includeRelations']>;
     }>,
-  ): RosterRecord {
+  ): Promise<RosterRecord> {
+    const locale = await this.localeContext.forRosterEntry({
+      employeeId: row.employeeId,
+      rosterLocationId: row.locationId,
+    });
+
+    const date = formatDateValue(row.date);
+    const shift = row.shift
+      ? {
+          id: row.shift.id,
+          name: row.shift.name,
+          startTime: row.shift.startTime.toISOString().slice(11, 16),
+          endTime: row.shift.endTime.toISOString().slice(11, 16),
+        }
+      : undefined;
+
     return {
       id: row.id,
       employeeId: row.employeeId,
       shiftId: row.shiftId,
-      date: formatDateValue(row.date),
+      date,
       locationId: row.locationId,
       employee: row.employee
         ? {
@@ -252,19 +270,18 @@ export class RostersService {
             employeeNumber: row.employee.employeeNumber,
           }
         : undefined,
-      shift: row.shift
-        ? {
-            id: row.shift.id,
-            name: row.shift.name,
-            startTime: row.shift.startTime.toISOString().slice(11, 16),
-            endTime: row.shift.endTime.toISOString().slice(11, 16),
-          }
-        : undefined,
+      shift,
       location: row.location
-        ? { id: row.location.id, name: row.location.name }
+        ? {
+            id: row.location.id,
+            name: row.location.name,
+            timezone: row.location.timezone,
+          }
         : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      locale,
+      display: buildRosterDisplay({ date, shift }, locale),
     };
   }
 }

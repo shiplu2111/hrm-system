@@ -159,6 +159,13 @@ const ID = {
   taxProfileStaff: '10000000-0000-4000-8000-000000000054',
   userOwner: '10000000-0000-4000-8000-000000000060',
   userHrAdmin: '10000000-0000-4000-8000-000000000061',
+  kbCategoryPayroll: '10000000-0000-4000-8000-000000000200',
+  kbCategoryLeave: '10000000-0000-4000-8000-000000000201',
+  kbArticlePayrollRun: '10000000-0000-4000-8000-000000000210',
+  kbArticleLeaveRequest: '10000000-0000-4000-8000-000000000211',
+  kbArticleClockIn: '10000000-0000-4000-8000-000000000212',
+  exchangeRateUsdAudH1: '10000000-0000-4000-8000-000000000220',
+  exchangeRateUsdAudH2: '10000000-0000-4000-8000-000000000221',
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
@@ -193,6 +200,7 @@ const MODULES = [
   'settings',
   'audit',
   'platform',
+  'support',
 ] as const;
 
 const ALL_ACTIONS: PermissionAction[] = [
@@ -220,6 +228,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'attendance', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
     { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
+    { module: 'support', actions: ['view', 'create', 'edit'] },
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
@@ -237,6 +246,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'leave', actions: ['view', 'create'] },
     { module: 'payroll', actions: ['view'] },
     { module: 'attendance', actions: ['view', 'create'] },
+    { module: 'support', actions: ['view', 'create'] },
   ],
   Accountant: [
     { module: 'employee', actions: ['view'] },
@@ -290,12 +300,14 @@ async function main(): Promise<void> {
       currency: 'AUD',
       timezone: 'Australia/Sydney',
       dateFormat: 'DD/MM/YYYY',
+      numberFormat: '1,234.56',
     },
     update: {
       name: 'Australia',
       currency: 'AUD',
       timezone: 'Australia/Sydney',
       dateFormat: 'DD/MM/YYYY',
+      numberFormat: '1,234.56',
     },
   });
 
@@ -503,6 +515,7 @@ async function main(): Promise<void> {
       companyId: company.id,
       name: 'Sydney HQ',
       address: '100 George Street, Sydney NSW 2000',
+      timezone: 'Australia/Sydney',
       lat: -33.8688,
       lng: 151.2093,
       geofenceRadiusM: 200,
@@ -510,6 +523,7 @@ async function main(): Promise<void> {
     update: {
       name: 'Sydney HQ',
       address: '100 George Street, Sydney NSW 2000',
+      timezone: 'Australia/Sydney',
     },
   });
 
@@ -2922,6 +2936,157 @@ async function main(): Promise<void> {
       isActive: true,
       failedLoginAttempts: 0,
       lockedUntil: null,
+    },
+  });
+
+  await prisma.kbCategory.upsert({
+    where: { id: ID.kbCategoryPayroll },
+    create: {
+      id: ID.kbCategoryPayroll,
+      tenantId: ID.tenant,
+      name: 'Payroll',
+      slug: 'payroll',
+      description: 'Runs, payslips, and tax profiles.',
+      sortOrder: 1,
+    },
+    update: {
+      name: 'Payroll',
+      slug: 'payroll',
+      description: 'Runs, payslips, and tax profiles.',
+      sortOrder: 1,
+    },
+  });
+
+  await prisma.kbCategory.upsert({
+    where: { id: ID.kbCategoryLeave },
+    create: {
+      id: ID.kbCategoryLeave,
+      tenantId: ID.tenant,
+      name: 'Leave',
+      slug: 'leave',
+      description: 'Balances, policies, and requests.',
+      sortOrder: 2,
+    },
+    update: {
+      name: 'Leave',
+      slug: 'leave',
+      description: 'Balances, policies, and requests.',
+      sortOrder: 2,
+    },
+  });
+
+  await prisma.kbArticle.upsert({
+    where: { id: ID.kbArticlePayrollRun },
+    create: {
+      id: ID.kbArticlePayrollRun,
+      tenantId: ID.tenant,
+      categoryId: ID.kbCategoryPayroll,
+      title: 'Start and lock a monthly payroll run',
+      slug: 'start-monthly-payroll-run',
+      summary:
+        'Walk through validation, exceptions, and approval before funds move.',
+      body:
+        'Open Payroll → Runs, select the pay period, review exceptions, then lock the register. Once locked, submit for approval before finalizing.',
+      published: true,
+      viewCount: 0,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      title: 'Start and lock a monthly payroll run',
+      summary:
+        'Walk through validation, exceptions, and approval before funds move.',
+      body:
+        'Open Payroll → Runs, select the pay period, review exceptions, then lock the register. Once locked, submit for approval before finalizing.',
+      published: true,
+      updatedByUserId: ID.userHrAdmin,
+    },
+  });
+
+  await prisma.kbArticle.upsert({
+    where: { id: ID.kbArticleLeaveRequest },
+    create: {
+      id: ID.kbArticleLeaveRequest,
+      tenantId: ID.tenant,
+      categoryId: ID.kbCategoryLeave,
+      title: 'Submit a leave request',
+      slug: 'submit-leave-request',
+      summary: 'Employees can request leave from ESS or the mobile app.',
+      body:
+        'Go to Leave, choose a leave type, pick start and end dates, add a reason, and submit. Your manager receives a notification for approval.',
+      published: true,
+      viewCount: 0,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      title: 'Submit a leave request',
+      summary: 'Employees can request leave from ESS or the mobile app.',
+      body:
+        'Go to Leave, choose a leave type, pick start and end dates, add a reason, and submit. Your manager receives a notification for approval.',
+      published: true,
+      updatedByUserId: ID.userHrAdmin,
+    },
+  });
+
+  await prisma.kbArticle.upsert({
+    where: { id: ID.kbArticleClockIn },
+    create: {
+      id: ID.kbArticleClockIn,
+      tenantId: ID.tenant,
+      categoryId: ID.kbCategoryLeave,
+      title: 'Fix a missed clock-in',
+      slug: 'fix-missed-clock-in',
+      summary: 'Use regularization when a device punch is missing.',
+      body:
+        'From Attendance, open the day record and submit a regularization request with the correct time and optional notes.',
+      published: true,
+      viewCount: 0,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      title: 'Fix a missed clock-in',
+      summary: 'Use regularization when a device punch is missing.',
+      body:
+        'From Attendance, open the day record and submit a regularization request with the correct time and optional notes.',
+      published: true,
+      updatedByUserId: ID.userHrAdmin,
+    },
+  });
+
+  await prisma.exchangeRate.upsert({
+    where: { id: ID.exchangeRateUsdAudH1 },
+    create: {
+      id: ID.exchangeRateUsdAudH1,
+      tenantId: ID.tenant,
+      baseCurrency: 'AUD',
+      quoteCurrency: 'USD',
+      rate: '1.40000000',
+      effectiveFrom: new Date('2026-01-01'),
+      effectiveTo: new Date('2026-06-30'),
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      rate: '1.40000000',
+      effectiveFrom: new Date('2026-01-01'),
+      effectiveTo: new Date('2026-06-30'),
+    },
+  });
+
+  await prisma.exchangeRate.upsert({
+    where: { id: ID.exchangeRateUsdAudH2 },
+    create: {
+      id: ID.exchangeRateUsdAudH2,
+      tenantId: ID.tenant,
+      baseCurrency: 'AUD',
+      quoteCurrency: 'USD',
+      rate: '1.48000000',
+      effectiveFrom: new Date('2026-07-01'),
+      effectiveTo: null,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      rate: '1.48000000',
+      effectiveFrom: new Date('2026-07-01'),
+      effectiveTo: null,
     },
   });
 

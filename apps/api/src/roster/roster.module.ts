@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
+import { LocaleModule } from '../locale/locale.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { HolidaysController } from './holidays.controller';
 import { HolidaysService } from './holidays.service';
@@ -9,7 +10,7 @@ import { ShiftsController } from './shifts.controller';
 import { ShiftsService } from './shifts.service';
 
 @Module({
-  imports: [PrismaModule, OrganizationModule],
+  imports: [PrismaModule, OrganizationModule, LocaleModule],
   controllers: [ShiftsController, RostersController, HolidaysController],
   providers: [ShiftsService, RostersService, HolidaysService],
   exports: [ShiftsService, RostersService, HolidaysService],

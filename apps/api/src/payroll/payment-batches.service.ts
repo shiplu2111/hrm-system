@@ -96,7 +96,7 @@ export class PaymentBatchesService {
     }
 
     const totalAmount = runs.reduce(
-      (sum, run) => sum.plus(run.netPay),
+      (sum, run) => sum.plus(run.netPayBase ?? run.netPay),
       new Decimal(0),
     );
 

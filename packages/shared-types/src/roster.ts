@@ -1,3 +1,5 @@
+import type { LocaleContext, RosterDisplayFields } from './locale';
+
 export type ShiftType =
   | 'fixed'
   | 'rotating'
@@ -41,9 +43,11 @@ export interface RosterRecord {
   locationId: string | null;
   employee?: { id: string; firstName: string; lastName: string; employeeNumber: string };
   shift?: Pick<ShiftRecord, 'id' | 'name' | 'startTime' | 'endTime'>;
-  location?: { id: string; name: string } | null;
+  location?: { id: string; name: string; timezone?: string | null } | null;
   createdAt: string;
   updatedAt: string;
+  locale?: LocaleContext;
+  display?: RosterDisplayFields;
 }
 
 export type HolidayCalendarScope =

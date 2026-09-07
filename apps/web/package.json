@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hrm/i18n": "*",
     "@hrm/portal-ui": "*",
     "@hrm/shared-types": "*",
     "lucide-react": "^0.446.0",

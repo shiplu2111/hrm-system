@@ -8,6 +8,7 @@ const KEYS = {
   userJson: 'user_json',
   geofencePolicy: 'geofence_policy',
   workLocation: 'work_location_json',
+  uiLanguage: 'ui_language',
 } as const;
 
 async function set(key: string, value: string): Promise<void> {
@@ -81,4 +82,12 @@ export async function setCachedWorkLocation(
   location: CachedWorkLocation,
 ): Promise<void> {
   await set(KEYS.workLocation, JSON.stringify(location));
+}
+
+export async function getStoredLanguage(): Promise<string | null> {
+  return get(KEYS.uiLanguage);
+}
+
+export async function setStoredLanguage(language: string): Promise<void> {
+  await set(KEYS.uiLanguage, language);
 }

@@ -64,6 +64,10 @@ import { ConstructionPage } from '@/pages/ConstructionPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
 import { HelpCenterPage } from '@/pages/support/HelpCenterPage';
+import {
+  KnowledgeBaseAdminPage,
+  SupportTicketsAdminPage,
+} from '@/pages/support/SupportPages';
 import { PerformanceManagementPage } from '@/pages/talent/PerformanceManagementPage';
 import { TrainingCertificationPage } from '@/pages/talent/TrainingCertificationPage';
 import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
@@ -133,6 +137,8 @@ function PageRouter() {
     case 'assets': return <AssetManagementPage />;
     case 'accounting': return <AccountingIntegrationPage />;
     case 'help-center': return <HelpCenterPage />;
+    case 'support-kb-admin': return <KnowledgeBaseAdminPage />;
+    case 'support-tickets': return <SupportTicketsAdminPage />;
     case 'performance': return <PerformanceManagementPage />;
     case 'training': return <TrainingCertificationPage />;
     case 'employee-relations': return <EmployeeRelationsPage />;

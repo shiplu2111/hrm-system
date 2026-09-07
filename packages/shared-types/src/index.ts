@@ -30,3 +30,6 @@ export * from './accounting';
 export * from './billing';
 export * from './api-access';
 export * from './webhooks';
+export * from './support';
+export * from './currency';
+export * from './locale';

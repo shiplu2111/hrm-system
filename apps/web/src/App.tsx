@@ -1,11 +1,11 @@
 import {
   AuthProvider,
-  PortalLoginPage,
   ThemeProvider,
   isEmployeePortalUser,
   useAuth,
 } from '@hrm/portal-ui';
 import { useEffect } from 'react';
+import { EmployeeLoginPage } from '@/pages/auth/EmployeeLoginPage';
 import { ESSPortalPage } from '@/pages/ess/ESSPortalPage';
 
 function EmployeeApp() {
@@ -18,7 +18,7 @@ function EmployeeApp() {
   }, [isAuthenticated, user, logout]);
 
   if (!isAuthenticated) {
-    return <PortalLoginPage portal="employee" onLogin={login} />;
+    return <EmployeeLoginPage onLogin={login} />;
   }
 
   return <ESSPortalPage onLogout={logout} />;

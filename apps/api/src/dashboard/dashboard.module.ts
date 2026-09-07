@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { LeaveModule } from '../leave/leave.module';
+import { LocaleModule } from '../locale/locale.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { PayrollModule } from '../payroll/payroll.module';
@@ -14,6 +15,7 @@ import { EmployeeDashboardService } from './employee-dashboard.service';
     OrganizationModule,
     AttendanceModule,
     LeaveModule,
+    LocaleModule,
     RosterModule,
     PayrollModule,
     NotificationsModule,

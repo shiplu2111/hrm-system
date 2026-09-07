@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type { AttendancePhase } from '@hrm/shared-types';
 import type { QueueItemStatus, SyncQueueItem } from '../db/types';
 
@@ -20,17 +21,22 @@ function latestTodayEvent(events: SyncQueueItem[]): SyncQueueItem | null {
   return events[events.length - 1];
 }
 
-function eventLabel(type: SyncQueueItem['eventType']): string {
-  return type.replace(/_/g, ' ');
+function eventLabel(type: SyncQueueItem['eventType'], t: TFunction): string {
+  return t(`attendance.event.${type}`, {
+    defaultValue: type.replace(/_/g, ' '),
+  });
 }
 
-export function deriveSyncIndicatorState(input: {
-  isOnline: boolean;
-  isSyncing: boolean;
-  counts: Record<QueueItemStatus, number>;
-  todayEvents: SyncQueueItem[];
-  phase: AttendancePhase;
-}): SyncIndicatorState {
+export function deriveSyncIndicatorState(
+  input: {
+    isOnline: boolean;
+    isSyncing: boolean;
+    counts: Record<QueueItemStatus, number>;
+    todayEvents: SyncQueueItem[];
+    phase: AttendancePhase;
+  },
+  t: TFunction,
+): SyncIndicatorState {
   const { isOnline, isSyncing, counts, todayEvents, phase } = input;
   const latest = latestTodayEvent(todayEvents);
   const pendingTotal = counts.pending + counts.syncing;
@@ -39,10 +45,10 @@ export function deriveSyncIndicatorState(input: {
   if (isSyncing || counts.syncing > 0) {
     return {
       tone: 'info',
-      title: 'Syncing…',
+      title: t('sync.syncing'),
       subtitle: latest
-        ? `${eventLabel(latest.eventType)} saved on device · uploading`
-        : 'Uploading queued punches',
+        ? t('sync.savedUploading', { event: eventLabel(latest.eventType, t) })
+        : t('sync.uploadingQueued'),
       showRetry: false,
       showSpinner: true,
     };
@@ -51,10 +57,14 @@ export function deriveSyncIndicatorState(input: {
   if (hasFailed) {
     return {
       tone: 'danger',
-      title: 'Sync failed',
+      title: t('sync.syncFailed'),
       subtitle: latest
-        ? `${eventLabel(latest.eventType)} at ${formatTime(latest.timestampDevice)} · ${counts.failed} need retry`
-        : `${counts.failed} punch(es) could not sync`,
+        ? t('sync.eventAtNeedRetry', {
+            event: eventLabel(latest.eventType, t),
+            time: formatTime(latest.timestampDevice),
+            count: counts.failed,
+          })
+        : t('sync.punchesCouldNotSync', { count: counts.failed }),
       showRetry: isOnline,
       showSpinner: false,
     };
@@ -63,10 +73,14 @@ export function deriveSyncIndicatorState(input: {
   if (pendingTotal > 0) {
     return {
       tone: 'warning',
-      title: isOnline ? 'Waiting to sync' : 'Offline',
+      title: isOnline ? t('sync.waitingToSync') : t('sync.offline'),
       subtitle: latest
-        ? `${eventLabel(latest.eventType)} recorded at ${formatTime(latest.timestampDevice)} · ${pendingTotal} queued`
-        : `${pendingTotal} punch(es) saved on device`,
+        ? t('sync.eventRecordedQueued', {
+            event: eventLabel(latest.eventType, t),
+            time: formatTime(latest.timestampDevice),
+            count: pendingTotal,
+          })
+        : t('sync.punchesSavedOnDevice', { count: pendingTotal }),
       showRetry: isOnline,
       showSpinner: false,
     };
@@ -75,8 +89,11 @@ export function deriveSyncIndicatorState(input: {
   if (latest && latest.status === 'synced') {
     return {
       tone: 'success',
-      title: isOnline ? 'Synced' : 'Offline · saved locally',
-      subtitle: `${eventLabel(latest.eventType)} at ${formatTime(latest.timestampDevice)} · on server`,
+      title: isOnline ? t('sync.synced') : t('sync.offlineSavedLocally'),
+      subtitle: t('sync.eventOnServer', {
+        event: eventLabel(latest.eventType, t),
+        time: formatTime(latest.timestampDevice),
+      }),
       showRetry: false,
       showSpinner: false,
     };
@@ -85,8 +102,8 @@ export function deriveSyncIndicatorState(input: {
   if (phase !== 'not_started') {
     return {
       tone: isOnline ? 'success' : 'warning',
-      title: isOnline ? 'Recorded' : 'Offline · recorded',
-      subtitle: 'Today\'s punches saved on this device',
+      title: isOnline ? t('sync.recorded') : t('sync.offlineRecorded'),
+      subtitle: t('sync.punchesSavedToday'),
       showRetry: false,
       showSpinner: false,
     };
@@ -94,10 +111,8 @@ export function deriveSyncIndicatorState(input: {
 
   return {
     tone: isOnline ? 'neutral' : 'warning',
-    title: isOnline ? 'Online' : 'Offline',
-    subtitle: isOnline
-      ? 'Ready — punches sync automatically'
-      : 'You can clock in — punches save on device',
+    title: isOnline ? t('sync.online') : t('sync.offline'),
+    subtitle: isOnline ? t('sync.readyAutoSync') : t('sync.offlineCanClockIn'),
     showRetry: false,
     showSpinner: false,
   };

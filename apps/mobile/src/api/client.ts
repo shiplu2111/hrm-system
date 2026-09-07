@@ -23,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

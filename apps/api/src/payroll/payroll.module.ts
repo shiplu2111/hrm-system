@@ -5,6 +5,7 @@ import { OrganizationModule } from '../organization/organization.module';
 import { LoansModule } from '../loans/loans.module';
 import { RuleResolverModule } from '../rule-resolver/rule-resolver.module';
 import { AccountingModule } from '../accounting/accounting.module';
+import { CurrencyModule } from '../currency/currency.module';
 import { EmployeeTaxProfilesController } from './employee-tax-profiles.controller';
 import { EmployeeTaxProfilesService } from './employee-tax-profiles.service';
 import { PayComponentsController } from './pay-components.controller';
@@ -34,6 +35,7 @@ import { SuperannuationPayrollService } from './superannuation-payroll.service';
     LoansModule,
     RuleResolverModule,
     forwardRef(() => AccountingModule),
+    CurrencyModule,
   ],
   controllers: [
     PayComponentsController,

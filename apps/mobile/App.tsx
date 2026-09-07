@@ -3,12 +3,19 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { AuthUser } from '@hrm/shared-types';
+import { I18nProvider } from '@hrm/i18n';
 import { SyncStatusIndicator } from './src/components/SyncStatusIndicator';
 import { SyncStatusProvider } from './src/context/SyncStatusContext';
 import { getDatabase } from './src/db/database';
-import { clearSession, getStoredUser } from './src/db/session-repository';
+import {
+  clearSession,
+  getStoredLanguage,
+  getStoredUser,
+  setStoredLanguage,
+} from './src/db/session-repository';
 import { registerPushTokenIfPermitted } from './src/notifications/push-registration';
 import { ClockScreen } from './src/screens/ClockScreen';
+import { HelpScreen } from './src/screens/HelpScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 
@@ -20,10 +27,15 @@ function AuthenticatedApp({
   onLogout: () => void;
 }) {
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     void registerPushTokenIfPermitted();
   }, []);
+
+  if (showHelp) {
+    return <HelpScreen onBack={() => setShowHelp(false)} />;
+  }
 
   if (showNotifications) {
     return <NotificationsScreen onBack={() => setShowNotifications(false)} />;
@@ -38,6 +50,7 @@ function AuthenticatedApp({
             user={user}
             onLogout={onLogout}
             onOpenNotifications={() => setShowNotifications(true)}
+            onOpenHelp={() => setShowHelp(true)}
           />
         </View>
       </View>
@@ -75,14 +88,16 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.root}>
-        {user ? (
-          <AuthenticatedApp user={user} onLogout={() => void handleLogout()} />
-        ) : (
-          <LoginScreen onLoggedIn={setUser} />
-        )}
-        <StatusBar style="light" />
-      </View>
+      <I18nProvider readStored={getStoredLanguage} persist={setStoredLanguage}>
+        <View style={styles.root}>
+          {user ? (
+            <AuthenticatedApp user={user} onLogout={() => void handleLogout()} />
+          ) : (
+            <LoginScreen onLoggedIn={setUser} />
+          )}
+          <StatusBar style="light" />
+        </View>
+      </I18nProvider>
     </SafeAreaProvider>
   );
 }

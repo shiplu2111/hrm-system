@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AttendancePhase } from '@hrm/shared-types';
+import { useAppTranslation } from '@hrm/i18n';
 import { useAttendanceState } from '../hooks/useAttendanceState';
 import { useNetworkSync } from '../hooks/useNetworkSync';
 import type { QueueItemStatus, SyncQueueItem } from '../db/types';
@@ -33,6 +34,7 @@ export function SyncStatusProvider({
   employeeId: string | null;
   children: ReactNode;
 }) {
+  const { t } = useAppTranslation();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const bump = useCallback(() => {
@@ -59,14 +61,17 @@ export function SyncStatusProvider({
 
   const indicator = useMemo(
     () =>
-      deriveSyncIndicatorState({
-        isOnline,
-        isSyncing,
-        counts,
-        todayEvents,
-        phase,
-      }),
-    [isOnline, isSyncing, counts, todayEvents, phase],
+      deriveSyncIndicatorState(
+        {
+          isOnline,
+          isSyncing,
+          counts,
+          todayEvents,
+          phase,
+        },
+        t,
+      ),
+    [isOnline, isSyncing, counts, todayEvents, phase, t],
   );
 
   const value = useMemo(

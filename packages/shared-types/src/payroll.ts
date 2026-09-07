@@ -1,3 +1,5 @@
+import type { PayrollCurrencySnapshot } from './currency';
+
 export type PayrollRunStatus =
   | 'draft'
   | 'calculated'
@@ -101,6 +103,7 @@ export interface PayrollCalculationPreview {
   earnings: PayrollCalculationLine[];
   deductions: PayrollCalculationLine[];
   superannuation?: SuperannuationContributionPreview | null;
+  currency?: PayrollCurrencySnapshot;
 }
 
 export interface SuperannuationContributionPreview {
@@ -151,6 +154,14 @@ export interface PayrollRunRecord {
   finalizedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  payCurrency?: string;
+  baseCurrency?: string;
+  exchangeRate?: string | null;
+  exchangeRateId?: string | null;
+  exchangeRateDate?: string | null;
+  grossPayBase?: string | null;
+  totalDeductionsBase?: string | null;
+  netPayBase?: string | null;
 }
 
 export interface PayrollRunTransitionResult {

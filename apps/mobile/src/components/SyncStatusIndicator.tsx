@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppTranslation } from '@hrm/i18n';
 import { useSyncStatus } from '../context/SyncStatusContext';
 import type { SyncIndicatorTone } from '../sync/sync-status';
 
@@ -51,6 +52,7 @@ const toneStyles: Record<
 };
 
 export function SyncStatusIndicator() {
+  const { t } = useAppTranslation();
   const { indicator, syncNow, isSyncing } = useSyncStatus();
   const palette = toneStyles[indicator.tone];
   const insets = useSafeAreaInsets();
@@ -88,9 +90,9 @@ export function SyncStatusIndicator() {
             disabled={isSyncing}
             onPress={() => void syncNow()}
             accessibilityRole="button"
-            accessibilityLabel="Retry sync"
+            accessibilityLabel={t('common.retrySync')}
           >
-            <Text style={[styles.retryText, { color: palette.text }]}>Retry</Text>
+            <Text style={[styles.retryText, { color: palette.text }]}>{t('common.retry')}</Text>
           </Pressable>
         ) : null}
       </View>

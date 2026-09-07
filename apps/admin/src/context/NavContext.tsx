@@ -57,6 +57,8 @@ export type PageKey =
   | 'assets'
   | 'accounting'
   | 'help-center'
+  | 'support-kb-admin'
+  | 'support-tickets'
   | 'performance'
   | 'training'
   | 'employee-relations'

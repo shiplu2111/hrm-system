@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { InAppNotificationRecord } from '@hrm/shared-types';
+import { i18n } from '@hrm/i18n';
 import { listNotifications, markNotificationRead } from '../api/client';
 import {
   addNotificationReceivedListener,
@@ -19,7 +20,7 @@ export function useNotificationsCenter() {
       const data = await listNotifications();
       setItems(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load notifications');
+      setError(e instanceof Error ? e.message : i18n.t('errors.loadNotifications'));
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import { Alert, Linking, Platform } from 'react-native';
+import type { TFunction } from 'i18next';
 import { getConsent, recordConsent } from '../db/consent-repository';
 import type { GeofencePolicy } from '../db/types';
 import { getCachedWorkLocation, getGeofencePolicy } from '../db/session-repository';
@@ -12,6 +13,7 @@ export interface LocationCapture {
 }
 
 export async function ensureLocationForClockIn(
+  t: TFunction,
   policyOverride?: GeofencePolicy,
 ): Promise<LocationCapture | null> {
   const policy = policyOverride ?? (await getGeofencePolicy());
@@ -24,19 +26,22 @@ export async function ensureLocationForClockIn(
     if (requested.status !== Location.PermissionStatus.GRANTED) {
       if (policy === 'block') {
         Alert.alert(
-          'Location required',
-          'Your company requires location for clock-in. Enable location in Settings or contact your manager.',
+          t('alerts.locationRequiredTitle'),
+          t('alerts.locationRequiredBody'),
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+            { text: t('common.cancel'), style: 'cancel' },
+            {
+              text: t('alerts.openSettings'),
+              onPress: () => void Linking.openSettings(),
+            },
           ],
         );
         return null;
       }
 
       Alert.alert(
-        'Clock-in without location',
-        'Location was denied. Your punch will be recorded and flagged for manager review when it syncs.',
+        t('alerts.clockInWithoutLocationTitle'),
+        t('alerts.clockInWithoutLocationBody'),
       );
       return null;
     }
@@ -61,8 +66,8 @@ export async function ensureLocationForClockIn(
     if (!lastKnown) {
       if (policy === 'allow_with_warning') {
         Alert.alert(
-          'GPS unavailable',
-          'Using last-known location failed. Clock-in will proceed without GPS and may be flagged at sync.',
+          t('alerts.gpsUnavailableTitle'),
+          t('alerts.gpsUnavailableBody'),
         );
       }
       return null;
@@ -84,10 +89,10 @@ export async function hasAskedLocationBefore(): Promise<boolean> {
   return consent != null;
 }
 
-export function locationUsageDescription(): string {
+export function locationUsageDescription(t: TFunction): string {
   return Platform.select({
-    ios: 'HRM uses your location to validate geofenced clock-in/out for attendance.',
-    android: 'HRM uses your location to validate geofenced clock-in/out for attendance.',
-    default: 'Location is used for geofenced attendance.',
+    ios: t('permissions.locationUsageIos'),
+    android: t('permissions.locationUsageAndroid'),
+    default: t('permissions.locationUsageDefault'),
   }) as string;
 }

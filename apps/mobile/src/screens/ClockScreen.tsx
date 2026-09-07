@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import type { AttendanceEventType, AuthUser } from '@hrm/shared-types';
+import { useAppTranslation } from '@hrm/i18n';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useSyncStatus } from '../context/SyncStatusContext';
 import { recordAttendanceAction } from '../attendance/attendance-actions';
 import { getGeofencePolicy } from '../db/session-repository';
@@ -19,20 +21,16 @@ interface ClockScreenProps {
   user: AuthUser;
   onLogout: () => void;
   onOpenNotifications: () => void;
+  onOpenHelp: () => void;
 }
-
-const phaseLabels = {
-  not_started: 'Ready to clock in',
-  working: 'On the clock',
-  on_break: 'On break',
-  completed: 'Shift completed',
-} as const;
 
 export function ClockScreen({
   user,
   onLogout,
   onOpenNotifications,
+  onOpenHelp,
 }: ClockScreenProps) {
+  const { t } = useAppTranslation();
   const employeeId = user.employeeId;
   const [acting, setActing] = useState(false);
   const { phase, todayEvents, isOnline, syncNow, reload } = useSyncStatus();
@@ -42,7 +40,7 @@ export function ClockScreen({
     needsLocation: boolean,
   ) {
     if (!employeeId) {
-      Alert.alert('Not linked', 'Your user account is not linked to an employee profile.');
+      Alert.alert(t('alerts.notLinkedTitle'), t('alerts.notLinkedBody'));
       return;
     }
 
@@ -50,7 +48,7 @@ export function ClockScreen({
     try {
       let location = null as Awaited<ReturnType<typeof ensureLocationForClockIn>>;
       if (needsLocation) {
-        location = await ensureLocationForClockIn();
+        location = await ensureLocationForClockIn(t);
         if (location === null) {
           const policy = await getGeofencePolicy();
           if (policy === 'block') {
@@ -69,19 +67,19 @@ export function ClockScreen({
         await syncNow();
       }
     } catch (e) {
-      Alert.alert('Could not record punch', e instanceof Error ? e.message : 'Unknown error');
+      Alert.alert(
+        t('alerts.recordPunchTitle'),
+        e instanceof Error ? e.message : t('common.unknownError'),
+      );
     } finally {
       setActing(false);
     }
   }
 
   async function handleFaceVerify() {
-    const granted = await requestCameraForFaceVerify();
+    const granted = await requestCameraForFaceVerify(t);
     if (granted) {
-      Alert.alert(
-        'Face verify',
-        'Face recognition attendance will connect to your company device policy. For now, use Clock In after verification.',
-      );
+      Alert.alert(t('alerts.faceVerifyTitle'), t('alerts.faceVerifyBody'));
     }
   }
 
@@ -91,16 +89,20 @@ export function ClockScreen({
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>Attendance</Text>
-          <Text style={styles.title}>{phaseLabels[phase]}</Text>
+          <Text style={styles.eyebrow}>{t('attendance.title')}</Text>
+          <Text style={styles.title}>{t(`attendance.phase.${phase}`)}</Text>
           <Text style={styles.email}>{user.email}</Text>
+          <LanguageSwitcher />
         </View>
         <View style={styles.headerActions}>
+          <Pressable onPress={onOpenHelp} hitSlop={8}>
+            <Text style={styles.notificationsLink}>{t('nav.help')}</Text>
+          </Pressable>
           <Pressable onPress={onOpenNotifications} hitSlop={8}>
-            <Text style={styles.notificationsLink}>Notifications</Text>
+            <Text style={styles.notificationsLink}>{t('notifications.title')}</Text>
           </Pressable>
           <Pressable onPress={onLogout}>
-            <Text style={styles.logout}>Sign out</Text>
+            <Text style={styles.logout}>{t('common.signOut')}</Text>
           </Pressable>
         </View>
       </View>
@@ -111,8 +113,8 @@ export function ClockScreen({
           disabled={phase !== 'not_started' || busy}
           onPress={() => void performAction('clock_in', true)}
         >
-          <Text style={styles.primaryButtonText}>Clock In</Text>
-          <Text style={styles.hint}>Requests location on first use</Text>
+          <Text style={styles.primaryButtonText}>{t('dashboard.clockInAction')}</Text>
+          <Text style={styles.hint}>{t('attendance.locationHint')}</Text>
         </Pressable>
 
         <Pressable
@@ -120,7 +122,7 @@ export function ClockScreen({
           disabled={phase !== 'working' || busy}
           onPress={() => void performAction('break_start', false)}
         >
-          <Text style={styles.secondaryButtonText}>Start Break</Text>
+          <Text style={styles.secondaryButtonText}>{t('dashboard.startBreak')}</Text>
         </Pressable>
 
         <Pressable
@@ -128,7 +130,7 @@ export function ClockScreen({
           disabled={phase !== 'on_break' || busy}
           onPress={() => void performAction('break_end', false)}
         >
-          <Text style={styles.secondaryButtonText}>End Break</Text>
+          <Text style={styles.secondaryButtonText}>{t('dashboard.endBreak')}</Text>
         </Pressable>
 
         <Pressable
@@ -136,25 +138,28 @@ export function ClockScreen({
           disabled={phase !== 'working' || busy}
           onPress={() => void performAction('clock_out', true)}
         >
-          <Text style={styles.primaryButtonText}>Clock Out</Text>
+          <Text style={styles.primaryButtonText}>{t('dashboard.clockOutAction')}</Text>
         </Pressable>
 
         <Pressable style={styles.ghostButton} onPress={() => void handleFaceVerify()}>
-          <Text style={styles.ghostButtonText}>Verify with face (camera)</Text>
-          <Text style={styles.hint}>Optional — falls back if camera denied</Text>
+          <Text style={styles.ghostButtonText}>{t('attendance.faceVerify')}</Text>
+          <Text style={styles.hint}>{t('attendance.faceVerifyHint')}</Text>
         </Pressable>
       </View>
 
       <View style={styles.timeline}>
-        <Text style={styles.timelineTitle}>Today (local queue)</Text>
+        <Text style={styles.timelineTitle}>{t('attendance.todayQueue')}</Text>
         {todayEvents.length === 0 ? (
-          <Text style={styles.timelineEmpty}>No punches yet</Text>
+          <Text style={styles.timelineEmpty}>{t('attendance.noPunches')}</Text>
         ) : (
           todayEvents.map((event) => (
             <View key={event.localId} style={styles.timelineRow}>
-              <Text style={styles.timelineType}>{event.eventType.replace('_', ' ')}</Text>
+              <Text style={styles.timelineType}>
+                {t(`attendance.event.${event.eventType}`)}
+              </Text>
               <Text style={styles.timelineMeta}>
-                {new Date(event.timestampDevice).toLocaleTimeString()} · {event.status}
+                {new Date(event.timestampDevice).toLocaleTimeString()} ·{' '}
+                {t(`queue.status.${event.status}`)}
               </Text>
             </View>
           ))

@@ -1,7 +1,8 @@
 import { Alert, Linking } from 'react-native';
+import type { TFunction } from 'i18next';
 import { recordConsent, getConsent } from '../db/consent-repository';
 
-export async function requestCameraForFaceVerify(): Promise<boolean> {
+export async function requestCameraForFaceVerify(t: TFunction): Promise<boolean> {
   const { Camera } = await import('expo-camera');
   const current = await Camera.getCameraPermissionsAsync();
   if (current.granted) {
@@ -14,11 +15,14 @@ export async function requestCameraForFaceVerify(): Promise<boolean> {
 
   if (!requested.granted) {
     Alert.alert(
-      'Camera unavailable',
-      'Face verification needs camera access. You can still clock in using the standard button — try PIN or manual verification instead.',
+      t('alerts.cameraUnavailableTitle'),
+      t('alerts.cameraUnavailableBody'),
       [
-        { text: 'OK', style: 'default' },
-        { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+        { text: t('common.close'), style: 'default' },
+        {
+          text: t('alerts.openSettings'),
+          onPress: () => void Linking.openSettings(),
+        },
       ],
     );
     return false;

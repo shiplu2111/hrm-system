@@ -136,6 +136,8 @@ export const navGroups: NavGroup[] = [
       { label: 'Asset Management', page: 'assets', badge: 'Phase 2' },
       { label: 'Accounting / GL', page: 'accounting' },
       { label: 'Help Center', page: 'help-center' },
+      { label: 'Knowledge Base Admin', page: 'support-kb-admin' },
+      { label: 'Support Tickets', page: 'support-tickets' },
     ],
   },
   {

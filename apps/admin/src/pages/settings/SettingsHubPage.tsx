@@ -45,6 +45,7 @@ import { SmtpSettingsPanel } from '@/components/settings/SmtpSettingsPanel';
 import { RealtimeNotificationSettingsPanel } from '@/components/settings/RealtimeNotificationSettingsPanel';
 import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
 import { WebhookSettingsPanel } from '@/components/settings/WebhookSettingsPanel';
+import { ExchangeRatesPanel } from '@/components/settings/ExchangeRatesPanel';
 import {
   notificationRules,
   notificationChannels,
@@ -55,7 +56,6 @@ import {
   apiKeys,
   integrationConnectors,
   backupRecords,
-  currenciesList,
   languagesList,
   type NotificationRule,
   type WorkflowItem,
@@ -63,7 +63,6 @@ import {
   type ApiKeyItem,
   type IntegrationConnector,
   type BackupRecord,
-  type CurrencyItem,
 } from '@/data/settingsData';
 import { useNav } from '@/context/NavContext';
 
@@ -126,7 +125,6 @@ export function SettingsHubPage() {
 
   // ---------------- MODULE 46 & 47: BACKUP & MULTI-CURRENCY STATE ----------------
   const [backups, setBackups] = useState<BackupRecord[]>(backupRecords);
-  const [currencies, setCurrencies] = useState<CurrencyItem[]>(currenciesList);
   const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [backupRunning, setBackupRunning] = useState(false);
 
@@ -902,36 +900,7 @@ export function SettingsHubPage() {
 
               {/* Multi-Currency & Language i18n */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {/* Multi-Currency */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-accent-500" /> Multi-Currency Exchange Rates
-                    </CardTitle>
-                  </CardHeader>
-                  <CardBody className="p-0">
-                    <table className="w-full text-xs">
-                      <thead className="bg-[rgb(var(--bg-muted))] border-b border-base">
-                        <tr>
-                          <th className="text-left px-4 py-2 font-semibold text-secondary">Currency</th>
-                          <th className="text-left px-4 py-2 font-semibold text-secondary">Symbol</th>
-                          <th className="text-right px-4 py-2 font-semibold text-secondary">Rate (vs USD)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                        {currencies.map((c) => (
-                          <tr key={c.code}>
-                            <td className="px-4 py-2.5 font-bold text-primary">{c.name} ({c.code})</td>
-                            <td className="px-4 py-2.5 font-mono text-secondary">{c.symbol}</td>
-                            <td className="px-4 py-2.5 text-right font-mono font-semibold text-primary">
-                              {c.isBase ? '1.00 (Base)' : c.exchangeRate}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </CardBody>
-                </Card>
+                <ExchangeRatesPanel />
 
                 {/* Language i18n */}
                 <Card>

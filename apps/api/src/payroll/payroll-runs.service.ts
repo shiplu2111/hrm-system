@@ -42,6 +42,7 @@ import {
 } from './payroll-run.utils';
 import { formatDateOnly, formatMoney, parseMoney } from './payroll.utils';
 import { AccountingSyncQueueService } from '../accounting/accounting-sync-queue.service';
+import { CurrencyPayrollService } from '../currency/currency-payroll.service';
 
 type RunWithRelations = PayrollRun & {
   employee: {
@@ -69,6 +70,7 @@ export class PayrollRunsService {
     private readonly loanPayrollService: LoanPayrollService,
     @Inject(forwardRef(() => AccountingSyncQueueService))
     private readonly accountingSyncQueue: AccountingSyncQueueService,
+    private readonly currencyPayroll: CurrencyPayrollService,
   ) {}
 
   async listForPeriod(
@@ -182,6 +184,16 @@ export class PayrollRunsService {
       formatDateOnly(existing.payrollPeriod.endDate),
     );
 
+    const currencySnapshot = await this.currencyPayroll.buildPayrollCurrencySnapshot({
+      tenantId: company.tenantId,
+      companyId,
+      employeeId: existing.employeeId,
+      asOfDate: existing.payrollPeriod.endDate,
+      grossPay: preview.grossPay,
+      totalDeductions: preview.totalDeductions,
+      netPay: preview.netPay,
+    });
+
     const previousStatus = existing.status;
     const nextStatus =
       previousStatus === PayrollRunStatus.draft
@@ -202,6 +214,14 @@ export class PayrollRunsService {
           grossPay: parseMoney(preview.grossPay),
           totalDeductions: parseMoney(preview.totalDeductions),
           netPay: parseMoney(preview.netPay),
+          payCurrency: currencySnapshot.payCurrency,
+          baseCurrency: currencySnapshot.baseCurrency,
+          exchangeRate: parseMoney(currencySnapshot.exchangeRate),
+          exchangeRateId: currencySnapshot.exchangeRateId ?? null,
+          exchangeRateDate: existing.payrollPeriod.endDate,
+          grossPayBase: parseMoney(currencySnapshot.grossPayBase),
+          totalDeductionsBase: parseMoney(currencySnapshot.totalDeductionsBase),
+          netPayBase: parseMoney(currencySnapshot.netPayBase),
           status: nextStatus,
         },
         include: this.runInclude(),
@@ -284,6 +304,13 @@ export class PayrollRunsService {
     };
 
     if (targetStatus === 'finalized') {
+      if (!existing.exchangeRateDate || existing.exchangeRate == null) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message:
+            'Payroll run must be calculated before finalize so the exchange rate is locked to the period end date',
+        });
+      }
       updateData.locked = true;
       updateData.finalizedAt = new Date();
     }
@@ -455,6 +482,19 @@ export class PayrollRunsService {
       netPay: formatMoney(row.netPay),
       status: row.status as SharedPayrollRunStatus,
       locked: row.locked,
+      payCurrency: row.payCurrency,
+      baseCurrency: row.baseCurrency,
+      exchangeRate: row.exchangeRate != null ? formatMoney(row.exchangeRate) : null,
+      exchangeRateId: row.exchangeRateId,
+      exchangeRateDate: row.exchangeRateDate
+        ? formatDateOnly(row.exchangeRateDate)
+        : null,
+      grossPayBase: row.grossPayBase != null ? formatMoney(row.grossPayBase) : null,
+      totalDeductionsBase:
+        row.totalDeductionsBase != null
+          ? formatMoney(row.totalDeductionsBase)
+          : null,
+      netPayBase: row.netPayBase != null ? formatMoney(row.netPayBase) : null,
       finalizedAt: row.finalizedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

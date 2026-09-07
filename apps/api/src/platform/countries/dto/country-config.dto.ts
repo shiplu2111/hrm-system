@@ -32,6 +32,11 @@ export class CreateCountryDto {
   @IsString()
   @IsNotEmpty()
   dateFormat!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  numberFormat?: string;
 }
 
 export class UpdateCountryDto {
@@ -54,6 +59,11 @@ export class UpdateCountryDto {
   @IsString()
   @IsNotEmpty()
   dateFormat?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  numberFormat?: string;
 }
 
 export class UpsertTaxBracketDto {

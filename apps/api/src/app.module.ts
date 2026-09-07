@@ -43,6 +43,8 @@ import { AccountingModule } from './accounting/accounting.module';
 import { ApiAccessModule } from './api-access/api-access.module';
 import { BillingModule } from './billing/billing.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { SupportModule } from './support/support.module';
+import { CurrencyModule } from './currency/currency.module';
 
 @Module({
   imports: [
@@ -93,6 +95,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     ApiAccessModule,
     BillingModule,
     WebhooksModule,
+    SupportModule,
+    CurrencyModule,
   ],
   controllers: [AppController],
   providers: [

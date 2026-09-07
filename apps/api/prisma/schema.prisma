@@ -93,20 +93,26 @@ model Tenant {
   tenantOAuthAccessTokens     TenantOAuthAccessToken[]
   tenantWebhooks              TenantWebhook[]
   webhookDeliveries           WebhookDelivery[]
+  kbCategories                KbCategory[]
+  kbArticles                  KbArticle[]
+  supportTickets              SupportTicket[]
+  supportTicketMessages       SupportTicketMessage[]
+  exchangeRates               ExchangeRate[]
   holidays                    Holiday[]
 
   @@map("tenants")
 }
 
 model Country {
-  id         String   @id @default(uuid()) @db.Uuid
-  name       String
-  isoCode    String   @unique @map("iso_code") @db.VarChar(3)
-  currency   String   @db.VarChar(3)
-  timezone   String
-  dateFormat String   @map("date_format")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  isoCode      String   @unique @map("iso_code") @db.VarChar(3)
+  currency     String   @db.VarChar(3)
+  timezone     String
+  dateFormat   String   @map("date_format")
+  numberFormat String   @default("1,234.56") @map("number_format")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   countryRules CountryRule[]
   companies    Company[]
@@ -211,6 +217,8 @@ model Company {
   name              String
   countryId         String   @map("country_id") @db.Uuid
   financialYearStart Int     @map("financial_year_start") @db.SmallInt
+  payrollBaseCurrency String? @map("payroll_base_currency") @db.VarChar(3)
+  timezone          String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -274,6 +282,7 @@ model Location {
   companyId        String   @map("company_id") @db.Uuid
   name             String
   address          String?
+  timezone         String?
   lat              Decimal? @db.Decimal(10, 7)
   lng              Decimal? @db.Decimal(10, 7)
   geofenceRadiusM  Int?     @map("geofence_radius_m")
@@ -2108,6 +2117,14 @@ model PayrollRun {
   grossPay         Decimal          @map("gross_pay") @db.Decimal(14, 2)
   totalDeductions  Decimal          @map("total_deductions") @db.Decimal(14, 2)
   netPay           Decimal          @map("net_pay") @db.Decimal(14, 2)
+  payCurrency      String           @default("AUD") @map("pay_currency") @db.VarChar(3)
+  baseCurrency     String           @default("AUD") @map("base_currency") @db.VarChar(3)
+  exchangeRate     Decimal?         @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateId   String?          @map("exchange_rate_id") @db.Uuid
+  exchangeRateDate DateTime?        @map("exchange_rate_date") @db.Date
+  grossPayBase     Decimal?         @map("gross_pay_base") @db.Decimal(14, 2)
+  totalDeductionsBase Decimal?      @map("total_deductions_base") @db.Decimal(14, 2)
+  netPayBase       Decimal?         @map("net_pay_base") @db.Decimal(14, 2)
   status           PayrollRunStatus @default(draft)
   finalizedAt      DateTime?        @map("finalized_at")
   locked           Boolean          @default(false)
@@ -2117,6 +2134,7 @@ model PayrollRun {
 
   payrollPeriod              PayrollPeriod               @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
   employee                   Employee                    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lockedExchangeRate         ExchangeRate?               @relation(fields: [exchangeRateId], references: [id], onDelete: SetNull)
   payslips                   Payslip[]
   superannuationContributions SuperannuationContribution[]
   adjustmentsAsOriginal      PayrollAdjustment[] @relation("OriginalPayrollRun")
@@ -3068,6 +3086,137 @@ model WebhookDelivery {
   @@index([tenantId, status])
   @@index([webhookId, createdAt])
   @@map("webhook_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// §8e In-App Support / Help Center (MODULES.md §45)
+// ---------------------------------------------------------------------------
+
+enum SupportTicketStatus {
+  open
+  in_progress
+  waiting
+  resolved
+  closed
+
+  @@map("support_ticket_status")
+}
+
+enum SupportTicketPriority {
+  low
+  medium
+  high
+  urgent
+
+  @@map("support_ticket_priority")
+}
+
+model KbCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  slug        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  articles KbArticle[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("kb_categories")
+}
+
+model KbArticle {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  categoryId      String   @map("category_id") @db.Uuid
+  title           String
+  slug            String
+  summary         String
+  body            String   @db.Text
+  published       Boolean  @default(false)
+  viewCount       Int      @default(0) @map("view_count")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  category KbCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, published])
+  @@index([categoryId])
+  @@map("kb_articles")
+}
+
+model SupportTicket {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  companyId           String?               @map("company_id") @db.Uuid
+  ticketNumber        String                @map("ticket_number")
+  subject             String
+  description         String                @db.Text
+  status              SupportTicketStatus   @default(open)
+  priority            SupportTicketPriority @default(medium)
+  requesterUserId     String                @map("requester_user_id") @db.Uuid
+  requesterEmployeeId String?               @map("requester_employee_id") @db.Uuid
+  assignedToUserId    String?               @map("assigned_to_user_id") @db.Uuid
+  resolvedAt          DateTime?             @map("resolved_at")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  tenant   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  messages SupportTicketMessage[]
+
+  @@unique([tenantId, ticketNumber])
+  @@index([tenantId, status])
+  @@index([requesterUserId])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  ticketId     String   @map("ticket_id") @db.Uuid
+  authorUserId String   @map("author_user_id") @db.Uuid
+  body         String   @db.Text
+  isInternal   Boolean  @default(false) @map("is_internal")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+// ---------------------------------------------------------------------------
+// §8f Multi-Currency Payroll (MODULES.md §46, RULES.md §4)
+// ---------------------------------------------------------------------------
+
+/// Tenant-scoped FX rates — effective-dated; payroll locks the rate active on period end date.
+model ExchangeRate {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  baseCurrency  String    @map("base_currency") @db.VarChar(3)
+  quoteCurrency String    @map("quote_currency") @db.VarChar(3)
+  /// Base currency units received for 1 unit of quote currency (e.g. 1 USD → 1.48 AUD).
+  rate          Decimal   @db.Decimal(18, 8)
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdByUserId String  @map("created_by_user_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  payrollRuns PayrollRun[]
+
+  @@index([tenantId, baseCurrency, quoteCurrency, effectiveFrom])
+  @@map("exchange_rates")
 }
 
 // ---------------------------------------------------------------------------

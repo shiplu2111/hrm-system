@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useAppTranslation } from '@hrm/i18n';
 import { useNotificationsCenter } from '../notifications/useNotificationsCenter';
 
 interface NotificationsScreenProps {
@@ -14,6 +15,7 @@ interface NotificationsScreenProps {
 }
 
 export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
+  const { t } = useAppTranslation();
   const { items, loading, error, pushReady, refresh, markRead } =
     useNotificationsCenter();
 
@@ -21,16 +23,14 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={8}>
-          <Text style={styles.back}>Back</Text>
+          <Text style={styles.back}>{t('notifications.back')}</Text>
         </Pressable>
-        <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.title}>{t('notifications.title')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <Text style={styles.hint}>
-        {pushReady
-          ? 'Push alerts are enabled. All notifications are also saved here for offline access.'
-          : 'Enable push alerts for instant updates, or check this list anytime — notifications are always stored on the server.'}
+        {pushReady ? t('notifications.pushEnabled') : t('notifications.pushDisabled')}
       </Text>
 
       {loading && items.length === 0 ? (
@@ -48,7 +48,7 @@ export function NotificationsScreen({ onBack }: NotificationsScreenProps) {
         contentContainerStyle={items.length === 0 ? styles.emptyList : undefined}
         ListEmptyComponent={
           !loading ? (
-            <Text style={styles.empty}>No notifications yet.</Text>
+            <Text style={styles.empty}>{t('notifications.empty')}</Text>
           ) : null
         }
         renderItem={({ item }) => (

@@ -13,6 +13,7 @@ export interface CountrySummary {
   currency: string;
   timezone: string;
   dateFormat: string;
+  numberFormat: string;
   tenantCount: number;
   lastRuleUpdate: string | null;
 }

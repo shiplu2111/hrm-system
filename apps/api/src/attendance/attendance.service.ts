@@ -9,7 +9,14 @@ import {
   Prisma,
   type Shift,
 } from '@prisma/client';
+import {
+  buildAttendanceDisplay,
+  parseLocalDateInput,
+  startOfLocalCalendarDay,
+} from '@hrm/shared-types';
+import type { LocaleContext } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
+import { LocaleContextService } from '../locale/locale-context.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import {
   buildAttendanceLateVariables,
@@ -19,7 +26,6 @@ import { getTenantIdFromSession } from '../tenant/tenant.context';
 import {
   computeAttendanceMetrics,
   resolveAttendanceStatus,
-  startOfUtcDay,
 } from './attendance.utils';
 import type { AttendanceCaptureDto } from './dto/attendance.dto';
 
@@ -32,11 +38,15 @@ export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly localeContext: LocaleContextService,
   ) {}
 
   async getDayRecord(employeeId: string, dateInput?: string) {
     await this.assertEmployee(employeeId);
-    const workDate = dateInput ? this.parseDate(dateInput) : startOfUtcDay();
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const workDate = dateInput
+      ? this.parseDate(dateInput)
+      : startOfLocalCalendarDay(new Date(), locale.timezone);
 
     const record = await this.prisma.unscoped.attendanceRecord.findFirst({
       where: { employeeId, date: workDate },
@@ -45,14 +55,15 @@ export class AttendanceService {
 
     const shift = await this.resolveShiftForDay(employeeId, workDate, record?.status);
 
-    return this.toResponse(record, shift, workDate);
+    return this.toResponse(record, shift, workDate, locale);
   }
 
   async clockIn(employeeId: string, dto: AttendanceCaptureDto) {
     await this.assertEmployee(employeeId);
-    const workDate = startOfUtcDay(this.resolveTimestamp(dto));
-    const shift = await this.getAssignedShift(employeeId, workDate);
     const at = this.resolveTimestamp(dto);
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const workDate = startOfLocalCalendarDay(at, locale.timezone);
+    const shift = await this.getAssignedShift(employeeId, workDate);
 
     const existing = await this.prisma.unscoped.attendanceRecord.findFirst({
       where: { employeeId, date: workDate },
@@ -135,13 +146,14 @@ export class AttendanceService {
       });
     }
 
-    return this.toResponse(record, shift, workDate, at);
+    return this.toResponse(record, shift, workDate, locale, at);
   }
 
   async clockOut(employeeId: string, dto: AttendanceCaptureDto) {
     await this.assertEmployee(employeeId);
     const at = this.resolveTimestamp(dto);
-    const workDate = startOfUtcDay(at);
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const workDate = startOfLocalCalendarDay(at, locale.timezone);
     const shift = await this.getAssignedShift(employeeId, workDate);
 
     const record = await this.requireActiveRecord(employeeId, workDate);
@@ -172,13 +184,14 @@ export class AttendanceService {
       include: { breaks: { orderBy: { startAt: 'asc' } } },
     });
 
-    return this.toResponse(updated, shift, workDate, at);
+    return this.toResponse(updated, shift, workDate, locale, at);
   }
 
   async breakStart(employeeId: string, dto: AttendanceCaptureDto) {
     await this.assertEmployee(employeeId);
     const at = this.resolveTimestamp(dto);
-    const workDate = startOfUtcDay(at);
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const workDate = startOfLocalCalendarDay(at, locale.timezone);
     const shift = await this.getAssignedShift(employeeId, workDate);
 
     const record = await this.requireActiveRecord(employeeId, workDate);
@@ -201,13 +214,14 @@ export class AttendanceService {
       include: { breaks: { orderBy: { startAt: 'asc' } } },
     });
 
-    return this.toResponse(updated, shift, workDate, at);
+    return this.toResponse(updated, shift, workDate, locale, at);
   }
 
   async breakEnd(employeeId: string, dto: AttendanceCaptureDto) {
     await this.assertEmployee(employeeId);
     const at = this.resolveTimestamp(dto);
-    const workDate = startOfUtcDay(at);
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const workDate = startOfLocalCalendarDay(at, locale.timezone);
     const shift = await this.getAssignedShift(employeeId, workDate);
 
     const record = await this.requireActiveRecord(employeeId, workDate);
@@ -230,7 +244,7 @@ export class AttendanceService {
       include: { breaks: { orderBy: { startAt: 'asc' } } },
     });
 
-    return this.toResponse(updated, shift, workDate, at);
+    return this.toResponse(updated, shift, workDate, locale, at);
   }
 
   private async requireActiveRecord(employeeId: string, workDate: Date) {
@@ -343,14 +357,14 @@ export class AttendanceService {
   }
 
   private parseDate(value: string): Date {
-    const [year, month, day] = value.split('-').map(Number);
-    if (!year || !month || !day) {
+    try {
+      return parseLocalDateInput(value);
+    } catch {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Invalid date format, expected YYYY-MM-DD',
       });
     }
-    return new Date(Date.UTC(year, month - 1, day));
   }
 
   private formatTime(time: Date): string {
@@ -361,6 +375,7 @@ export class AttendanceService {
     record: AttendanceWithBreaks | null,
     shift: Shift,
     workDate: Date,
+    locale: LocaleContext,
     now: Date = new Date(),
   ) {
     const metrics = computeAttendanceMetrics({
@@ -372,35 +387,56 @@ export class AttendanceService {
       now,
     });
 
+    const dateKey = workDate.toISOString().slice(0, 10);
+    const clockInAt = record?.clockInAt?.toISOString() ?? null;
+    const clockOutAt = record?.clockOutAt?.toISOString() ?? null;
+    const clockInServerAt = record?.clockInServerAt?.toISOString() ?? null;
+    const clockOutServerAt = record?.clockOutServerAt?.toISOString() ?? null;
+    const shiftInfo = {
+      id: shift.id,
+      name: shift.name,
+      startTime: this.formatTime(shift.startTime),
+      endTime: this.formatTime(shift.endTime),
+      breakMinutes: shift.breakMinutes,
+      graceMinutes: shift.graceMinutes,
+      standardMinutes: metrics.standardMinutes,
+    };
+    const breaks = (record?.breaks ?? []).map((b) => ({
+      id: b.id,
+      startAt: b.startAt.toISOString(),
+      endAt: b.endAt?.toISOString() ?? null,
+    }));
+
     return {
       id: record?.id ?? null,
       employeeId: record?.employeeId ?? null,
-      date: workDate.toISOString().slice(0, 10),
-      clockInAt: record?.clockInAt?.toISOString() ?? null,
-      clockOutAt: record?.clockOutAt?.toISOString() ?? null,
-      clockInServerAt: record?.clockInServerAt?.toISOString() ?? null,
-      clockOutServerAt: record?.clockOutServerAt?.toISOString() ?? null,
+      date: dateKey,
+      clockInAt,
+      clockOutAt,
+      clockInServerAt,
+      clockOutServerAt,
       status: (record?.status ?? 'absent') as AttendanceRecordStatus,
       source: record?.source ?? null,
       timeAnomaly: record?.timeAnomaly ?? false,
       geofenceMismatch: record?.geofenceMismatch ?? false,
       payrollEligible: record?.payrollEligible ?? true,
       reviewStatus: record?.reviewStatus ?? 'none',
-      shift: {
-        id: shift.id,
-        name: shift.name,
-        startTime: this.formatTime(shift.startTime),
-        endTime: this.formatTime(shift.endTime),
-        breakMinutes: shift.breakMinutes,
-        graceMinutes: shift.graceMinutes,
-        standardMinutes: metrics.standardMinutes,
-      },
-      breaks: (record?.breaks ?? []).map((b) => ({
-        id: b.id,
-        startAt: b.startAt.toISOString(),
-        endAt: b.endAt?.toISOString() ?? null,
-      })),
+      shift: shiftInfo,
+      breaks,
       metrics,
+      locale,
+      display: buildAttendanceDisplay(
+        {
+          date: dateKey,
+          clockInAt,
+          clockOutAt,
+          clockInServerAt,
+          clockOutServerAt,
+          shift: shiftInfo,
+          breaks,
+        },
+        locale,
+      ),
     };
   }
 }

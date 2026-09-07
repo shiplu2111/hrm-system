@@ -10,7 +10,9 @@ import {
   View,
 } from 'react-native';
 import type { AuthUser } from '@hrm/shared-types';
+import { useAppTranslation } from '@hrm/i18n';
 import { login } from '../api/client';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { getDatabase } from '../db/database';
 import {
   saveSession,
@@ -23,6 +25,7 @@ interface LoginScreenProps {
 }
 
 export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
+  const { t } = useAppTranslation();
   const [email, setEmail] = useState('employee@cmsnbd.com');
   const [password, setPassword] = useState('password');
   const [tenant, setTenant] = useState('demo');
@@ -49,7 +52,7 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
       });
       onLoggedIn(response.user);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Login failed');
+      setError(e instanceof Error ? e.message : t('errors.loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -60,18 +63,16 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Text style={styles.eyebrow}>Employee ESS</Text>
-      <Text style={styles.title}>Sign in</Text>
-      <Text style={styles.subtitle}>
-        Offline clock-in works without connectivity. Actions queue locally and sync when
-        you&apos;re back online.
-      </Text>
+      <Text style={styles.eyebrow}>{t('auth.eyebrow')}</Text>
+      <Text style={styles.title}>{t('auth.title')}</Text>
+      <Text style={styles.subtitle}>{t('auth.subtitle')}</Text>
+      <LanguageSwitcher />
 
       <TextInput
         style={styles.input}
         autoCapitalize="none"
         keyboardType="email-address"
-        placeholder="Email"
+        placeholder={t('auth.email')}
         placeholderTextColor="#64748b"
         value={email}
         onChangeText={setEmail}
@@ -79,7 +80,7 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
       <TextInput
         style={styles.input}
         secureTextEntry
-        placeholder="Password"
+        placeholder={t('auth.password')}
         placeholderTextColor="#64748b"
         value={password}
         onChangeText={setPassword}
@@ -87,7 +88,7 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
       <TextInput
         style={styles.input}
         autoCapitalize="none"
-        placeholder="Tenant subdomain"
+        placeholder={t('auth.tenantSubdomain')}
         placeholderTextColor="#64748b"
         value={tenant}
         onChangeText={setTenant}
@@ -103,7 +104,7 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
         {loading ? (
           <ActivityIndicator color="#0f172a" />
         ) : (
-          <Text style={styles.buttonText}>Continue</Text>
+          <Text style={styles.buttonText}>{t('auth.continue')}</Text>
         )}
       </Pressable>
     </KeyboardAvoidingView>
