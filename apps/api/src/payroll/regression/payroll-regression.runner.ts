@@ -99,6 +99,7 @@ export async function runPayrollRegression(
     asOfDate,
     active: structures,
     buildContext: buildContextFromFixture(fixture),
+    superannuationRates: fixture.superannuationRates ?? null,
   });
 
   return toGoldenOutput(fixture, preview);
@@ -116,6 +117,13 @@ export function toGoldenOutput(
     netPay: preview.netPay,
     earnings: normalizeLines(preview.earnings),
     deductions: normalizeLines(preview.deductions),
+    superannuation: preview.superannuation
+      ? {
+          employerContribution: preview.superannuation.employerContribution,
+          employeeContribution: preview.superannuation.employeeContribution,
+          totalContribution: preview.superannuation.totalContribution,
+        }
+      : null,
     inputs: {
       attendance: fixture.attendance,
       leave: fixture.leave,

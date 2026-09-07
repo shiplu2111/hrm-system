@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import {
   AuditAction,
@@ -39,6 +41,7 @@ import {
   requiredPermissionForPayrollTransition,
 } from './payroll-run.utils';
 import { formatDateOnly, formatMoney, parseMoney } from './payroll.utils';
+import { AccountingSyncQueueService } from '../accounting/accounting-sync-queue.service';
 
 type RunWithRelations = PayrollRun & {
   employee: {
@@ -64,6 +67,8 @@ export class PayrollRunsService {
     private readonly payslipService: PayslipService,
     private readonly notificationEngine: NotificationEngineService,
     private readonly loanPayrollService: LoanPayrollService,
+    @Inject(forwardRef(() => AccountingSyncQueueService))
+    private readonly accountingSyncQueue: AccountingSyncQueueService,
   ) {}
 
   async listForPeriod(
@@ -190,15 +195,37 @@ export class PayrollRunsService {
       );
     }
 
-    const row = await this.prisma.unscoped.payrollRun.update({
-      where: { id: runId },
-      data: {
-        grossPay: parseMoney(preview.grossPay),
-        totalDeductions: parseMoney(preview.totalDeductions),
-        netPay: parseMoney(preview.netPay),
-        status: nextStatus,
-      },
-      include: this.runInclude(),
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      const updated = await tx.payrollRun.update({
+        where: { id: runId },
+        data: {
+          grossPay: parseMoney(preview.grossPay),
+          totalDeductions: parseMoney(preview.totalDeductions),
+          netPay: parseMoney(preview.netPay),
+          status: nextStatus,
+        },
+        include: this.runInclude(),
+      });
+
+      await tx.superannuationContribution.deleteMany({
+        where: { payrollRunId: runId },
+      });
+
+      if (preview.superannuation) {
+        await tx.superannuationContribution.create({
+          data: {
+            payrollRunId: runId,
+            employeeContribution: parseMoney(
+              preview.superannuation.employeeContribution,
+            ),
+            employerContribution: parseMoney(
+              preview.superannuation.employerContribution,
+            ),
+          },
+        });
+      }
+
+      return updated;
     });
 
     await this.logTransition({
@@ -314,6 +341,13 @@ export class PayrollRunsService {
           employeeId: row.employeeId,
           eventType: 'payroll.finalized',
         },
+      });
+
+      void this.accountingSyncQueue.enqueuePeriodSync({
+        companyId,
+        tenantId: company.tenantId,
+        payrollPeriodId: row.payrollPeriodId,
+        triggeredByUserId: user.id,
       });
     }
 

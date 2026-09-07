@@ -22,6 +22,7 @@ const ID = {
   countryRuleLeave: '10000000-0000-4000-8000-000000000004',
   countryRuleOt: '10000000-0000-4000-8000-000000000005',
   countryRulePublicHoliday: '10000000-0000-4000-8000-000000000006',
+  countryRuleSocialSecurity: '10000000-0000-4000-8000-000000000008',
   stateRuleNswHoliday: '10000000-0000-4000-8000-000000000007',
   companyHoliday: '10000000-0000-4000-8000-000000000071',
   branchHoliday: '10000000-0000-4000-8000-000000000072',
@@ -88,6 +89,40 @@ const ID = {
   onboardingTemplateItemEmail: '10000000-0000-4000-8000-000000000166',
   employeeOnboardingStaff: '10000000-0000-4000-8000-000000000170',
   employeeDocumentStaffId: '10000000-0000-4000-8000-000000000171',
+  assetLaptopManager: '10000000-0000-4000-8000-000000000172',
+  assetAssignmentManager: '10000000-0000-4000-8000-000000000173',
+  assetLaptopStaff: '10000000-0000-4000-8000-000000000174',
+  offboardingTemplateDefault: '10000000-0000-4000-8000-000000000180',
+  offboardingTemplateItemExitSchedule: '10000000-0000-4000-8000-000000000181',
+  offboardingTemplateItemExitComplete: '10000000-0000-4000-8000-000000000182',
+  offboardingTemplateItemLaptopReturn: '10000000-0000-4000-8000-000000000183',
+  offboardingTemplateItemAccessRevoke: '10000000-0000-4000-8000-000000000184',
+  offboardingTemplateItemClearance: '10000000-0000-4000-8000-000000000185',
+  offboardingTemplateItemSettlement: '10000000-0000-4000-8000-000000000186',
+  employeeOffboardingManager: '10000000-0000-4000-8000-000000000190',
+  payrollPeriodAug2026: '10000000-0000-4000-8000-0000000001a0',
+  payrollRunManagerAug2026: '10000000-0000-4000-8000-0000000001a1',
+  benefitPlanHealthGold: '10000000-0000-4000-8000-0000000001b0',
+  benefitPlanLife: '10000000-0000-4000-8000-0000000001b1',
+  benefitOpenEnrollment2026: '10000000-0000-4000-8000-0000000001b2',
+  benefitEnrollmentStaffHealth: '10000000-0000-4000-8000-0000000001b3',
+  benefitEnrollmentStaffLife: '10000000-0000-4000-8000-0000000001b4',
+  benefitDependentStaffSpouse: '10000000-0000-4000-8000-0000000001b5',
+  glAccountSalariesPayable: '10000000-0000-4000-8000-0000000001c0',
+  glAccountBasicSalary: '10000000-0000-4000-8000-0000000001c1',
+  glAccountAllowances: '10000000-0000-4000-8000-0000000001c2',
+  glAccountTaxPayable: '10000000-0000-4000-8000-0000000001c3',
+  glAccountLoanPayable: '10000000-0000-4000-8000-0000000001c4',
+  glAccountSuperExpense: '10000000-0000-4000-8000-0000000001c5',
+  glAccountSuperPayable: '10000000-0000-4000-8000-0000000001c6',
+  glAccountBenefitsPayable: '10000000-0000-4000-8000-0000000001c7',
+  glMappingBasic: '10000000-0000-4000-8000-0000000001d0',
+  glMappingHra: '10000000-0000-4000-8000-0000000001d1',
+  glMappingTax: '10000000-0000-4000-8000-0000000001d2',
+  glMappingLoan: '10000000-0000-4000-8000-0000000001d3',
+  glMappingNetPay: '10000000-0000-4000-8000-0000000001d4',
+  glMappingSuperExpense: '10000000-0000-4000-8000-0000000001d5',
+  glMappingSuperLiability: '10000000-0000-4000-8000-0000000001d6',
   company: '10000000-0000-4000-8000-000000000010',
   location: '10000000-0000-4000-8000-000000000011',
   departmentHr: '10000000-0000-4000-8000-000000000012',
@@ -383,6 +418,33 @@ async function main(): Promise<void> {
           { name: 'Christmas Day', date: '2025-12-25', recurring: true },
           { name: 'Boxing Day', date: '2025-12-26', recurring: true },
         ],
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+      effectiveTo: null,
+    },
+  });
+
+  await prisma.countryRule.upsert({
+    where: { id: ID.countryRuleSocialSecurity },
+    create: {
+      id: ID.countryRuleSocialSecurity,
+      countryId: country.id,
+      ruleType: CountryRuleType.social_security,
+      payload: {
+        schemeName: 'Superannuation Guarantee',
+        employerContributionRate: 11,
+        employeeContributionRate: 0,
+        contributionBase: 'gross',
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: {
+      ruleType: CountryRuleType.social_security,
+      payload: {
+        schemeName: 'Superannuation Guarantee',
+        employerContributionRate: 11,
+        employeeContributionRate: 0,
+        contributionBase: 'gross',
       },
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
@@ -1963,6 +2025,7 @@ async function main(): Promise<void> {
       description: 'Provision laptop, monitor, and accessories',
       category: 'equipment_provisioning' as const,
       taskType: 'provisioning' as const,
+      assetCategory: 'laptop' as const,
       assigneeLabel: 'IT Team',
       dueDaysOffset: 7,
       sortOrder: 5,
@@ -1990,6 +2053,7 @@ async function main(): Promise<void> {
         category: item.category,
         taskType: item.taskType,
         documentTypeId: item.documentTypeId ?? null,
+        assetCategory: item.assetCategory ?? null,
         assigneeLabel: item.assigneeLabel,
         dueDaysOffset: item.dueDaysOffset,
         sortOrder: item.sortOrder,
@@ -2001,6 +2065,7 @@ async function main(): Promise<void> {
         category: item.category,
         taskType: item.taskType,
         documentTypeId: item.documentTypeId ?? null,
+        assetCategory: item.assetCategory ?? null,
         assigneeLabel: item.assigneeLabel,
         dueDaysOffset: item.dueDaysOffset,
         sortOrder: item.sortOrder,
@@ -2097,10 +2162,10 @@ async function main(): Promise<void> {
       title: 'IT Equipment Setup',
       category: 'equipment_provisioning' as const,
       taskType: 'provisioning' as const,
+      assetCategory: 'laptop' as const,
       assigneeLabel: 'IT Team',
       dueDate: new Date('2023-02-08T00:00:00.000Z'),
-      status: 'completed' as const,
-      completedAt: new Date('2023-02-03T00:00:00.000Z'),
+      status: 'pending' as const,
       sortOrder: 5,
     },
     {
@@ -2128,6 +2193,7 @@ async function main(): Promise<void> {
         category: task.category,
         taskType: task.taskType,
         documentTypeId: task.documentTypeId ?? null,
+        assetCategory: task.assetCategory ?? null,
         employeeDocumentId: task.employeeDocumentId ?? null,
         assigneeLabel: task.assigneeLabel,
         dueDate: task.dueDate ?? null,
@@ -2139,10 +2205,666 @@ async function main(): Promise<void> {
       update: {
         status: task.status,
         completedAt: task.completedAt ?? null,
+        assetCategory: task.assetCategory ?? null,
         employeeDocumentId: task.employeeDocumentId ?? null,
       },
     });
   }
+
+  await prisma.companyAsset.upsert({
+    where: { id: ID.assetLaptopManager },
+    create: {
+      id: ID.assetLaptopManager,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'MacBook Pro 14"',
+      assetTag: 'AST-LAP-1048',
+      category: 'laptop',
+      serialNumber: 'C02ZX19QMD6T',
+      purchaseDate: new Date('2025-02-12T00:00:00.000Z'),
+      warrantyExpiryDate: new Date('2028-02-11T00:00:00.000Z'),
+      purchaseValue: 2399,
+      status: 'assigned',
+    },
+    update: {
+      name: 'MacBook Pro 14"',
+      status: 'assigned',
+    },
+  });
+
+  await prisma.employeeAssetAssignment.upsert({
+    where: { id: ID.assetAssignmentManager },
+    create: {
+      id: ID.assetAssignmentManager,
+      assetId: ID.assetLaptopManager,
+      employeeId: ID.empManager,
+      status: 'active',
+      assignedAt: new Date('2025-02-15T00:00:00.000Z'),
+      conditionOnAssign: 'New',
+      assignedByUserId: ID.userHrAdmin,
+    },
+    update: {
+      status: 'active',
+      employeeId: ID.empManager,
+    },
+  });
+
+  await prisma.companyAsset.upsert({
+    where: { id: ID.assetLaptopStaff },
+    create: {
+      id: ID.assetLaptopStaff,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Dell Latitude 5540',
+      assetTag: 'AST-LAP-1052',
+      category: 'laptop',
+      serialNumber: 'DL5540-STAFF-01',
+      purchaseDate: new Date('2025-08-01T00:00:00.000Z'),
+      warrantyExpiryDate: new Date('2028-07-31T00:00:00.000Z'),
+      purchaseValue: 1899,
+      status: 'available',
+    },
+    update: {
+      name: 'Dell Latitude 5540',
+      status: 'available',
+    },
+  });
+
+  await prisma.offboardingChecklistTemplate.upsert({
+    where: { id: ID.offboardingTemplateDefault },
+    create: {
+      id: ID.offboardingTemplateDefault,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Standard Exit',
+      description: 'Default offboarding checklist for departing employees',
+      isDefault: true,
+      isActive: true,
+    },
+    update: {
+      name: 'Standard Exit',
+      isDefault: true,
+      isActive: true,
+    },
+  });
+
+  const offboardingTemplateItems = [
+    {
+      id: ID.offboardingTemplateItemExitSchedule,
+      title: 'Schedule Exit Interview',
+      description: 'Book exit interview with HR',
+      category: 'exit_process' as const,
+      taskType: 'manual_task' as const,
+      assigneeLabel: 'HR Admin',
+      dueDaysOffset: 3,
+      sortOrder: 1,
+    },
+    {
+      id: ID.offboardingTemplateItemExitComplete,
+      title: 'Complete Exit Interview',
+      description: 'Record exit interview feedback and reason for leaving',
+      category: 'exit_process' as const,
+      taskType: 'exit_interview' as const,
+      assigneeLabel: 'HR Admin',
+      dueDaysOffset: 7,
+      sortOrder: 2,
+    },
+    {
+      id: ID.offboardingTemplateItemLaptopReturn,
+      title: 'Return Company Laptop',
+      description: 'Collect laptop and accessories from departing employee',
+      category: 'asset_return' as const,
+      taskType: 'asset_return' as const,
+      assetCategory: 'laptop' as const,
+      assigneeLabel: 'IT Team',
+      dueDaysOffset: 10,
+      sortOrder: 3,
+    },
+    {
+      id: ID.offboardingTemplateItemAccessRevoke,
+      title: 'Revoke System Access',
+      description: 'Deactivate login, email, and application access',
+      category: 'access_revocation' as const,
+      taskType: 'access_revocation' as const,
+      assigneeLabel: 'IT Team',
+      dueDaysOffset: 11,
+      sortOrder: 4,
+    },
+    {
+      id: ID.offboardingTemplateItemClearance,
+      title: 'Department Clearance',
+      description: 'Obtain signed clearance from all departments',
+      category: 'clearance' as const,
+      taskType: 'clearance' as const,
+      assigneeLabel: 'HR Admin',
+      dueDaysOffset: 12,
+      sortOrder: 5,
+    },
+    {
+      id: ID.offboardingTemplateItemSettlement,
+      title: 'Full & Final Settlement',
+      description: 'Calculate and queue final settlement payroll adjustment',
+      category: 'final_settlement' as const,
+      taskType: 'final_settlement' as const,
+      assigneeLabel: 'Payroll Admin',
+      dueDaysOffset: 14,
+      sortOrder: 6,
+    },
+  ];
+
+  for (const item of offboardingTemplateItems) {
+    await prisma.offboardingChecklistTemplateItem.upsert({
+      where: { id: item.id },
+      create: {
+        id: item.id,
+        templateId: ID.offboardingTemplateDefault,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        taskType: item.taskType,
+        assetCategory: item.assetCategory ?? null,
+        assigneeLabel: item.assigneeLabel,
+        dueDaysOffset: item.dueDaysOffset,
+        sortOrder: item.sortOrder,
+        isRequired: true,
+      },
+      update: {
+        title: item.title,
+        category: item.category,
+        taskType: item.taskType,
+        assetCategory: item.assetCategory ?? null,
+        sortOrder: item.sortOrder,
+      },
+    });
+  }
+
+  await prisma.payrollPeriod.upsert({
+    where: { id: ID.payrollPeriodAug2026 },
+    create: {
+      id: ID.payrollPeriodAug2026,
+      companyId: company.id,
+      startDate: new Date('2026-08-01T00:00:00.000Z'),
+      endDate: new Date('2026-08-31T00:00:00.000Z'),
+      paymentDate: new Date('2026-09-05T00:00:00.000Z'),
+      status: 'closed',
+    },
+    update: {
+      status: 'closed',
+    },
+  });
+
+  await prisma.payrollRun.upsert({
+    where: { id: ID.payrollRunManagerAug2026 },
+    create: {
+      id: ID.payrollRunManagerAug2026,
+      payrollPeriodId: ID.payrollPeriodAug2026,
+      employeeId: ID.empManager,
+      grossPay: 8500,
+      totalDeductions: 1700,
+      netPay: 6800,
+      status: 'finalized',
+      finalizedAt: new Date('2026-09-01T00:00:00.000Z'),
+      locked: true,
+    },
+    update: {
+      status: 'finalized',
+      locked: true,
+    },
+  });
+
+  await prisma.benefitPlan.upsert({
+    where: { id: ID.benefitPlanHealthGold },
+    create: {
+      id: ID.benefitPlanHealthGold,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Comprehensive Health & Dental (Gold)',
+      category: 'health_insurance',
+      provider: 'Medibank Private',
+      planTier: 'Gold',
+      description:
+        'Comprehensive medical, dental, and vision coverage with low excess.',
+      employerContributionLabel: '85% ($850/mo)',
+      employerContributionAmount: 850,
+      employeeContributionAmount: 150,
+      employeeContributionLabel: '$150/mo',
+      coverageLimitLabel: '$2,000,000 In-Network',
+      status: 'active',
+    },
+    update: {
+      status: 'active',
+      employerContributionAmount: 850,
+      employeeContributionAmount: 150,
+    },
+  });
+
+  await prisma.benefitPlan.upsert({
+    where: { id: ID.benefitPlanLife },
+    create: {
+      id: ID.benefitPlanLife,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: 'Group Term Life Insurance',
+      category: 'life_insurance',
+      provider: 'MetLife',
+      planTier: 'Gold',
+      description: 'Life insurance and AD&D protection — 3× annual base salary.',
+      employerContributionLabel: '100% ($60/mo)',
+      employerContributionAmount: 60,
+      employeeContributionAmount: 0,
+      employeeContributionLabel: '$0/mo',
+      coverageLimitLabel: '3× Annual Base Salary',
+      status: 'active',
+    },
+    update: {
+      status: 'active',
+      employerContributionAmount: 60,
+    },
+  });
+
+  await prisma.benefitOpenEnrollmentPeriod.upsert({
+    where: { id: ID.benefitOpenEnrollment2026 },
+    create: {
+      id: ID.benefitOpenEnrollment2026,
+      tenantId: tenant.id,
+      companyId: company.id,
+      name: '2026 Annual Benefits Open Enrollment',
+      description: 'Select health and life coverage for the 2026 plan year.',
+      startDate: new Date('2026-09-01T00:00:00.000Z'),
+      endDate: new Date('2026-09-30T00:00:00.000Z'),
+      status: 'open',
+      openedAt: new Date('2026-09-01T00:00:00.000Z'),
+      plans: {
+        create: [
+          { benefitPlanId: ID.benefitPlanHealthGold },
+          { benefitPlanId: ID.benefitPlanLife },
+        ],
+      },
+    },
+    update: {
+      status: 'open',
+      openedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+  });
+
+  await prisma.benefitOpenEnrollmentPlan.upsert({
+    where: {
+      openEnrollmentPeriodId_benefitPlanId: {
+        openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+        benefitPlanId: ID.benefitPlanHealthGold,
+      },
+    },
+    create: {
+      openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+      benefitPlanId: ID.benefitPlanHealthGold,
+    },
+    update: {},
+  });
+
+  await prisma.benefitOpenEnrollmentPlan.upsert({
+    where: {
+      openEnrollmentPeriodId_benefitPlanId: {
+        openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+        benefitPlanId: ID.benefitPlanLife,
+      },
+    },
+    create: {
+      openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+      benefitPlanId: ID.benefitPlanLife,
+    },
+    update: {},
+  });
+
+  await prisma.benefitEnrollment.upsert({
+    where: { id: ID.benefitEnrollmentStaffHealth },
+    create: {
+      id: ID.benefitEnrollmentStaffHealth,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      benefitPlanId: ID.benefitPlanHealthGold,
+      openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+      enrollmentType: 'open_enrollment',
+      status: 'active',
+      effectiveFrom: new Date('2026-10-01T00:00:00.000Z'),
+      employeeContributionAmount: 150,
+      enrolledAt: new Date('2026-09-05T00:00:00.000Z'),
+      dependents: {
+        create: {
+          id: ID.benefitDependentStaffSpouse,
+          tenantId: tenant.id,
+          fullName: 'Alex Lee',
+          relationship: 'spouse',
+          dateOfBirth: new Date('1990-03-15T00:00:00.000Z'),
+          status: 'active',
+        },
+      },
+    },
+    update: {
+      status: 'active',
+    },
+  });
+
+  await prisma.benefitEnrollment.upsert({
+    where: { id: ID.benefitEnrollmentStaffLife },
+    create: {
+      id: ID.benefitEnrollmentStaffLife,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empStaff,
+      benefitPlanId: ID.benefitPlanLife,
+      openEnrollmentPeriodId: ID.benefitOpenEnrollment2026,
+      enrollmentType: 'open_enrollment',
+      status: 'active',
+      effectiveFrom: new Date('2026-10-01T00:00:00.000Z'),
+      employeeContributionAmount: 0,
+      beneficiarySharePercent: 100,
+      enrolledAt: new Date('2026-09-05T00:00:00.000Z'),
+    },
+    update: {
+      status: 'active',
+      beneficiarySharePercent: 100,
+    },
+  });
+
+  const glAccountSeeds = [
+    {
+      id: ID.glAccountSalariesPayable,
+      code: '2100',
+      name: 'Salaries Payable',
+      accountType: 'liability' as const,
+    },
+    {
+      id: ID.glAccountBasicSalary,
+      code: '5010',
+      name: 'Basic Salary Expense',
+      accountType: 'expense' as const,
+    },
+    {
+      id: ID.glAccountAllowances,
+      code: '5020',
+      name: 'Allowances Expense',
+      accountType: 'expense' as const,
+    },
+    {
+      id: ID.glAccountTaxPayable,
+      code: '2110',
+      name: 'Income Tax Payable',
+      accountType: 'liability' as const,
+    },
+    {
+      id: ID.glAccountLoanPayable,
+      code: '2120',
+      name: 'Loan Repayment Payable',
+      accountType: 'liability' as const,
+    },
+    {
+      id: ID.glAccountSuperExpense,
+      code: '5030',
+      name: 'Employer Superannuation Expense',
+      accountType: 'expense' as const,
+    },
+    {
+      id: ID.glAccountSuperPayable,
+      code: '2130',
+      name: 'Superannuation Payable',
+      accountType: 'liability' as const,
+    },
+    {
+      id: ID.glAccountBenefitsPayable,
+      code: '2140',
+      name: 'Benefits Payable',
+      accountType: 'liability' as const,
+    },
+  ];
+
+  for (const account of glAccountSeeds) {
+    await prisma.glAccount.upsert({
+      where: { id: account.id },
+      create: {
+        id: account.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        code: account.code,
+        name: account.name,
+        accountType: account.accountType,
+        isActive: true,
+      },
+      update: {
+        name: account.name,
+        accountType: account.accountType,
+        isActive: true,
+      },
+    });
+  }
+
+  const glMappingSeeds = [
+    {
+      id: ID.glMappingBasic,
+      payComponentId: ID.payComponentBasic,
+      systemKey: null,
+      postingSide: 'debit' as const,
+      glAccountId: ID.glAccountBasicSalary,
+    },
+    {
+      id: ID.glMappingHra,
+      payComponentId: ID.payComponentHra,
+      systemKey: null,
+      postingSide: 'debit' as const,
+      glAccountId: ID.glAccountAllowances,
+    },
+    {
+      id: ID.glMappingTax,
+      payComponentId: ID.payComponentTax,
+      systemKey: null,
+      postingSide: 'credit' as const,
+      glAccountId: ID.glAccountTaxPayable,
+    },
+    {
+      id: ID.glMappingLoan,
+      payComponentId: ID.payComponentLoan,
+      systemKey: null,
+      postingSide: 'credit' as const,
+      glAccountId: ID.glAccountLoanPayable,
+    },
+    {
+      id: ID.glMappingNetPay,
+      payComponentId: null,
+      systemKey: 'net_pay_salary_payable',
+      postingSide: 'credit' as const,
+      glAccountId: ID.glAccountSalariesPayable,
+    },
+    {
+      id: ID.glMappingSuperExpense,
+      payComponentId: null,
+      systemKey: 'employer_superannuation_expense',
+      postingSide: 'debit' as const,
+      glAccountId: ID.glAccountSuperExpense,
+    },
+    {
+      id: ID.glMappingSuperLiability,
+      payComponentId: null,
+      systemKey: 'employer_superannuation_liability',
+      postingSide: 'credit' as const,
+      glAccountId: ID.glAccountSuperPayable,
+    },
+  ];
+
+  for (const mapping of glMappingSeeds) {
+    if (mapping.payComponentId) {
+      await prisma.glPayrollMapping.upsert({
+        where: {
+          companyId_payComponentId: {
+            companyId: company.id,
+            payComponentId: mapping.payComponentId,
+          },
+        },
+        create: {
+          id: mapping.id,
+          tenantId: tenant.id,
+          companyId: company.id,
+          payComponentId: mapping.payComponentId,
+          postingSide: mapping.postingSide,
+          glAccountId: mapping.glAccountId,
+        },
+        update: {
+          postingSide: mapping.postingSide,
+          glAccountId: mapping.glAccountId,
+        },
+      });
+      continue;
+    }
+
+    await prisma.glPayrollMapping.upsert({
+      where: {
+        companyId_systemKey: {
+          companyId: company.id,
+          systemKey: mapping.systemKey!,
+        },
+      },
+      create: {
+        id: mapping.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        systemKey: mapping.systemKey!,
+        postingSide: mapping.postingSide,
+        glAccountId: mapping.glAccountId,
+      },
+      update: {
+        postingSide: mapping.postingSide,
+        glAccountId: mapping.glAccountId,
+      },
+    });
+  }
+
+  await prisma.employeeOffboarding.upsert({
+    where: { id: ID.employeeOffboardingManager },
+    create: {
+      id: ID.employeeOffboardingManager,
+      tenantId: tenant.id,
+      companyId: company.id,
+      employeeId: ID.empManager,
+      templateId: ID.offboardingTemplateDefault,
+      status: 'in_progress',
+      lastWorkingDate: new Date('2026-09-15T00:00:00.000Z'),
+      startedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+    update: {
+      status: 'in_progress',
+      templateId: ID.offboardingTemplateDefault,
+    },
+  });
+
+  const offboardingTaskSeeds = [
+    {
+      id: '10000000-0000-4000-8000-000000000191',
+      templateItemId: ID.offboardingTemplateItemExitSchedule,
+      title: 'Schedule Exit Interview',
+      category: 'exit_process' as const,
+      taskType: 'manual_task' as const,
+      assigneeLabel: 'HR Admin',
+      dueDate: new Date('2026-09-04T00:00:00.000Z'),
+      status: 'completed' as const,
+      completedAt: new Date('2026-09-02T00:00:00.000Z'),
+      sortOrder: 1,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000192',
+      templateItemId: ID.offboardingTemplateItemExitComplete,
+      title: 'Complete Exit Interview',
+      category: 'exit_process' as const,
+      taskType: 'exit_interview' as const,
+      assigneeLabel: 'HR Admin',
+      dueDate: new Date('2026-09-08T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 2,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000193',
+      templateItemId: ID.offboardingTemplateItemLaptopReturn,
+      title: 'Return Company Laptop',
+      category: 'asset_return' as const,
+      taskType: 'asset_return' as const,
+      assetCategory: 'laptop' as const,
+      assigneeLabel: 'IT Team',
+      dueDate: new Date('2026-09-11T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 3,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000194',
+      templateItemId: ID.offboardingTemplateItemAccessRevoke,
+      title: 'Revoke System Access',
+      category: 'access_revocation' as const,
+      taskType: 'access_revocation' as const,
+      assigneeLabel: 'IT Team',
+      dueDate: new Date('2026-09-12T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 4,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000195',
+      templateItemId: ID.offboardingTemplateItemClearance,
+      title: 'Department Clearance',
+      category: 'clearance' as const,
+      taskType: 'clearance' as const,
+      assigneeLabel: 'HR Admin',
+      dueDate: new Date('2026-09-13T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 5,
+    },
+    {
+      id: '10000000-0000-4000-8000-000000000196',
+      templateItemId: ID.offboardingTemplateItemSettlement,
+      title: 'Full & Final Settlement',
+      category: 'final_settlement' as const,
+      taskType: 'final_settlement' as const,
+      assigneeLabel: 'Payroll Admin',
+      dueDate: new Date('2026-09-15T00:00:00.000Z'),
+      status: 'pending' as const,
+      sortOrder: 6,
+    },
+  ];
+
+  for (const task of offboardingTaskSeeds) {
+    await prisma.employeeOffboardingTask.upsert({
+      where: { id: task.id },
+      create: {
+        id: task.id,
+        offboardingId: ID.employeeOffboardingManager,
+        templateItemId: task.templateItemId,
+        title: task.title,
+        category: task.category,
+        taskType: task.taskType,
+        assetCategory: task.assetCategory ?? null,
+        assigneeLabel: task.assigneeLabel,
+        dueDate: task.dueDate ?? null,
+        status: task.status,
+        completedAt: task.completedAt ?? null,
+        sortOrder: task.sortOrder,
+        isRequired: true,
+      },
+      update: {
+        status: task.status,
+        completedAt: task.completedAt ?? null,
+      },
+    });
+  }
+
+  await prisma.exitInterviewRecord.upsert({
+    where: { offboardingId: ID.employeeOffboardingManager },
+    create: {
+      id: '10000000-0000-4000-8000-000000000197',
+      offboardingId: ID.employeeOffboardingManager,
+      employeeId: ID.empManager,
+      scheduledAt: new Date('2026-09-07T02:00:00.000Z'),
+      interviewerEmployeeId: ID.empHrAdmin,
+    },
+    update: {
+      scheduledAt: new Date('2026-09-07T02:00:00.000Z'),
+      interviewerEmployeeId: ID.empHrAdmin,
+    },
+  });
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
 

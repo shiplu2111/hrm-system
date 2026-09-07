@@ -7,6 +7,10 @@ import { evaluatePayFormulaRule } from './formula/formula-interpreter';
 import type { StructureRow } from './payroll-calculation.helpers';
 import { resolvePayrollPeriod } from './payroll-context.service';
 import {
+  applySuperannuationToPreview,
+  type ResolvedSuperannuationRates,
+} from './superannuation.utils';
+import {
   formatDateOnly,
   formatMoney,
   parseAmountConfig,
@@ -33,8 +37,10 @@ export async function computePayrollFromStructures(input: {
   asOfDate: Date;
   active: StructureRow[];
   buildContext: PayrollContextBuilder;
+  superannuationRates?: ResolvedSuperannuationRates | null;
 }): Promise<PayrollCalculationPreview> {
-  const { employeeId, companyId, asOfDate, active, buildContext } = input;
+  const { employeeId, companyId, asOfDate, active, buildContext, superannuationRates } =
+    input;
 
   if (active.length === 0) {
     return {
@@ -147,7 +153,7 @@ export async function computePayrollFromStructures(input: {
 
   const net = gross.minus(totalDeductions);
 
-  return {
+  const preview: PayrollCalculationPreview = {
     employeeId,
     asOfDate: formatDateOnly(asOfDate),
     grossPay: formatMoney(gross),
@@ -156,6 +162,17 @@ export async function computePayrollFromStructures(input: {
     earnings: earningLines,
     deductions: deductionLines,
   };
+
+  if (!superannuationRates) {
+    return preview;
+  }
+
+  return applySuperannuationToPreview({
+    preview,
+    rates: superannuationRates,
+    basicAmount: basic,
+    grossAmount: gross,
+  });
 }
 
 function computeFixedLine(row: StructureRow): PayrollCalculationLine {

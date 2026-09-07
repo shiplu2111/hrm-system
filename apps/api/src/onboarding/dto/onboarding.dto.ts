@@ -11,6 +11,7 @@ import {
   MinLength,
 } from 'class-validator';
 import {
+  AssetCategory,
   OnboardingStatus,
   OnboardingTaskCategory,
   OnboardingTaskType,
@@ -80,6 +81,10 @@ export class CreateOnboardingTemplateItemDto {
   documentTypeId?: string;
 
   @IsOptional()
+  @IsEnum(AssetCategory)
+  assetCategory?: AssetCategory;
+
+  @IsOptional()
   @IsString()
   policyDocumentUrl?: string;
 
@@ -122,6 +127,10 @@ export class UpdateOnboardingTemplateItemDto {
   @IsOptional()
   @IsUUID()
   documentTypeId?: string | null;
+
+  @IsOptional()
+  @IsEnum(AssetCategory)
+  assetCategory?: AssetCategory | null;
 
   @IsOptional()
   @IsString()
@@ -178,4 +187,21 @@ export class SkipOnboardingTaskDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class AssignOnboardingAssetsDto {
+  @IsUUID()
+  assetId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  assignedAt?: string;
+
+  @IsOptional()
+  @IsString()
+  conditionOnAssign?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

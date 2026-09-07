@@ -33,6 +33,7 @@ type TemplateRow = OnboardingChecklistTemplate & {
 type TaskRow = EmployeeOnboardingTask & {
   documentType?: { name: string; requiresVerification: boolean } | null;
   employeeDocument?: { verifiedAt: Date | null } | null;
+  companyAsset?: { name: string } | null;
 };
 
 type OnboardingRow = EmployeeOnboarding & {
@@ -59,6 +60,7 @@ export function toTemplateItemRecord(
     taskType: row.taskType,
     documentTypeId: row.documentTypeId,
     documentTypeName: row.documentType?.name ?? null,
+    assetCategory: row.assetCategory ?? null,
     policyDocumentUrl: row.policyDocumentUrl,
     assigneeLabel: row.assigneeLabel,
     dueDaysOffset: row.dueDaysOffset,
@@ -91,7 +93,10 @@ export function toTemplateRecord(
   };
 }
 
-export function toTaskRecord(row: TaskRow): EmployeeOnboardingTaskRecord {
+export function toTaskRecord(
+  row: TaskRow,
+  pendingAssetAssignCount?: number | null,
+): EmployeeOnboardingTaskRecord {
   const requiresVerification = row.documentType?.requiresVerification ?? false;
   const verified = row.employeeDocument?.verifiedAt != null;
 
@@ -106,10 +111,14 @@ export function toTaskRecord(row: TaskRow): EmployeeOnboardingTaskRecord {
     documentTypeId: row.documentTypeId,
     documentTypeName: row.documentType?.name ?? null,
     employeeDocumentId: row.employeeDocumentId,
-    documentVerified:
-      row.taskType === 'document_collection' && row.employeeDocumentId
-        ? verified
-        : null,
+    documentRequiresVerification: row.documentTypeId
+      ? (row.documentType?.requiresVerification ?? false)
+      : null,
+    documentVerified: row.employeeDocumentId ? verified : null,
+    assetCategory: row.assetCategory ?? null,
+    companyAssetId: row.companyAssetId,
+    companyAssetName: row.companyAsset?.name ?? null,
+    pendingAssetAssignCount: pendingAssetAssignCount ?? null,
     policyDocumentUrl: row.policyDocumentUrl,
     policyAcceptedAt: formatDateTimeValue(row.policyAcceptedAt),
     assigneeLabel: row.assigneeLabel,
@@ -126,8 +135,14 @@ export function toTaskRecord(row: TaskRow): EmployeeOnboardingTaskRecord {
 export function toOnboardingRecord(
   row: OnboardingRow,
   includeTasks = false,
+  pendingAssetCounts?: Map<string, number>,
 ): EmployeeOnboardingRecord {
-  const tasks = includeTasks && row.tasks ? row.tasks.map(toTaskRecord) : undefined;
+  const tasks =
+    includeTasks && row.tasks
+      ? row.tasks.map((task) =>
+          toTaskRecord(task, pendingAssetCounts?.get(task.id) ?? null),
+        )
+      : undefined;
   const totalTaskCount = row._count?.tasks ?? row.tasks?.length ?? 0;
   const completedTaskCount =
     row.tasks?.filter((task) => task.status === 'completed').length ?? 0;

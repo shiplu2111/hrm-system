@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   ArrowLeft,
   CalendarDays,
@@ -19,6 +19,17 @@ import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Toggle';
+import { useCompany } from '@/context/CompanyContext';
+import {
+  assignAsset,
+  createCompanyAsset,
+  listAssetAssignments,
+  listCompanyAssets,
+  returnAsset,
+} from '@/lib/assets-api';
+import { listEmployees } from '@/lib/employees-api';
+import type { CompanyAssetRecord, EmployeeAssetAssignmentRecord, EmployeeRecord } from '@hrm/shared-types';
+import { ApiError } from '@/lib/tenant-api-client';
 
 type AssetStatus = 'Assigned' | 'Available' | 'In repair' | 'Retired';
 
@@ -27,7 +38,9 @@ interface Asset {
   name: string;
   tag: string;
   category: string;
+  categoryKey: string;
   employee: string | null;
+  employeeId: string | null;
   status: AssetStatus;
   purchased: string;
   warranty: string;
@@ -35,20 +48,17 @@ interface Asset {
   value: string;
 }
 
-const initialAssets: Asset[] = [
-  { id: 'a1', name: 'MacBook Pro 14"', tag: 'AST-LAP-1048', category: 'Laptop', employee: 'Nadia Rahman', status: 'Assigned', purchased: '12 Feb 2025', warranty: '11 Feb 2028', serial: 'C02ZX19QMD6T', value: '$2,399' },
-  { id: 'a2', name: 'Dell UltraSharp U2723QE', tag: 'AST-MON-0831', category: 'Monitor', employee: 'Arif Hassan', status: 'Assigned', purchased: '03 Nov 2024', warranty: '02 Nov 2027', serial: 'CN0J7K2L8', value: '$629' },
-  { id: 'a3', name: 'Lenovo ThinkPad X1', tag: 'AST-LAP-1056', category: 'Laptop', employee: null, status: 'Available', purchased: '21 May 2025', warranty: '20 May 2028', serial: 'PF4C8J2X', value: '$1,749' },
-  { id: 'a4', name: 'iPhone 15', tag: 'AST-MOB-0419', category: 'Mobile', employee: 'Sarah Chen', status: 'Assigned', purchased: '18 Jan 2025', warranty: '17 Jan 2026', serial: 'F2LX91NP3', value: '$899' },
-  { id: 'a5', name: 'Logitech Brio 4K', tag: 'AST-ACC-0302', category: 'Accessory', employee: null, status: 'In repair', purchased: '09 Aug 2023', warranty: 'Expired', serial: 'BRI093882', value: '$179' },
-  { id: 'a6', name: 'HP EliteBook 840', tag: 'AST-LAP-0722', category: 'Laptop', employee: null, status: 'Retired', purchased: '06 Mar 2021', warranty: 'Expired', serial: '5CG1047JPF', value: '$1,249' },
-];
+const CATEGORY_OPTIONS = [
+  { value: 'laptop', label: 'Laptop' },
+  { value: 'monitor', label: 'Monitor' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'sim', label: 'SIM' },
+  { value: 'accessory', label: 'Accessory' },
+  { value: 'id_card', label: 'ID Card' },
+  { value: 'equipment', label: 'Equipment' },
+] as const;
 
-const history = [
-  { date: '21 May 2025', title: 'Added to inventory', detail: 'Received from Apex Technology · PO-2025-184', icon: Package },
-  { date: '22 May 2025', title: 'Quality inspection passed', detail: 'Checked by IT Operations · Condition: New', icon: CheckCircle2 },
-  { date: '23 May 2025', title: 'Security baseline installed', detail: 'Device encrypted and enrolled in endpoint management', icon: ShieldCheck },
-];
 
 const maintenance = [
   { date: '22 May 2025', service: 'Initial device inspection', provider: 'Internal IT', cost: '$0', status: 'Completed' },
@@ -62,17 +72,110 @@ const statusTone: Record<AssetStatus, 'success' | 'accent' | 'warning' | 'neutra
   Retired: 'neutral',
 };
 
+function mapApiAsset(row: CompanyAssetRecord): Asset {
+  const statusMap: Record<string, AssetStatus> = {
+    assigned: 'Assigned',
+    available: 'Available',
+    in_repair: 'In repair',
+    retired: 'Retired',
+  };
+  const categoryMap: Record<string, string> = Object.fromEntries(
+    CATEGORY_OPTIONS.map((item) => [item.value, item.label]),
+  );
+  return {
+    id: row.id,
+    name: row.name,
+    tag: row.assetTag,
+    category: categoryMap[row.category] ?? row.category,
+    categoryKey: row.category,
+    employee: row.assignedEmployeeName,
+    employeeId: row.assignedEmployeeId,
+    status: statusMap[row.status] ?? 'Available',
+    purchased: row.purchaseDate
+      ? new Date(`${row.purchaseDate}T00:00:00`).toLocaleDateString(undefined, {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })
+      : '—',
+    warranty: row.warrantyExpiryDate
+      ? new Date(`${row.warrantyExpiryDate}T00:00:00`).toLocaleDateString(undefined, {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })
+      : '—',
+    serial: row.serialNumber ?? '—',
+    value: row.purchaseValue ? `$${row.purchaseValue}` : '—',
+  };
+}
+
 export function AssetManagementPage() {
-  const [assets, setAssets] = useState(initialAssets);
+  const { companyId } = useCompany();
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [assignments, setAssignments] = useState<EmployeeAssetAssignmentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [status, setStatus] = useState('All');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assetId, setAssetId] = useState('a3');
-  const [employee, setEmployee] = useState('Maya Patel');
-  const [assignmentDate, setAssignmentDate] = useState('2026-08-25');
-  const [notes, setNotes] = useState('New condition; charger and protective sleeve included.');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [assetId, setAssetId] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [assignmentDate, setAssignmentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [conditionOnAssign, setConditionOnAssign] = useState('New');
+  const [conditionOnReturn, setConditionOnReturn] = useState('Good');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [newAsset, setNewAsset] = useState({
+    name: '',
+    assetTag: '',
+    category: 'laptop',
+    serialNumber: '',
+    purchaseDate: '',
+    warrantyExpiryDate: '',
+    purchaseValue: '',
+  });
+
+  const loadAssets = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [rows, employeeRows] = await Promise.all([
+        listCompanyAssets(companyId),
+        listEmployees(companyId),
+      ]);
+      setAssets(rows.map(mapApiAsset));
+      setEmployees(employeeRows);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load assets');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  const loadAssignments = useCallback(async (assetIdToLoad: string) => {
+    if (!companyId) return;
+    const rows = await listAssetAssignments(companyId, { activeOnly: false });
+    setAssignments(rows.filter((row) => row.assetId === assetIdToLoad));
+  }, [companyId]);
+
+  useEffect(() => {
+    void loadAssets();
+  }, [loadAssets]);
+
+  useEffect(() => {
+    if (selectedAsset) {
+      void loadAssignments(selectedAsset.id);
+    } else {
+      setAssignments([]);
+    }
+  }, [selectedAsset, loadAssignments]);
 
   const filteredAssets = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -85,11 +188,81 @@ export function AssetManagementPage() {
 
   const assignableAssets = assets.filter((asset) => asset.status === 'Available');
 
-  const handleAssign = () => {
-    setAssets((current) => current.map((asset) => (
-      asset.id === assetId ? { ...asset, employee, status: 'Assigned' } : asset
-    )));
-    setAssignOpen(false);
+  const handleAssign = async () => {
+    if (!assetId || !employeeId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await assignAsset(assetId, {
+        employeeId,
+        assignedAt: assignmentDate,
+        conditionOnAssign: conditionOnAssign.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      setAssignOpen(false);
+      await loadAssets();
+      if (selectedAsset?.id === assetId) {
+        const refreshed = await listCompanyAssets(companyId!);
+        const updated = refreshed.find((row) => row.id === assetId);
+        if (updated) setSelectedAsset(mapApiAsset(updated));
+        await loadAssignments(assetId);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to assign asset');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReturn = async () => {
+    if (!selectedAsset) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await returnAsset(selectedAsset.id, {
+        conditionOnReturn: conditionOnReturn.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      setReturnOpen(false);
+      setSelectedAsset(null);
+      await loadAssets();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to return asset');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!companyId || !newAsset.name.trim() || !newAsset.assetTag.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await createCompanyAsset(companyId, {
+        name: newAsset.name.trim(),
+        assetTag: newAsset.assetTag.trim(),
+        category: newAsset.category as CompanyAssetRecord['category'],
+        serialNumber: newAsset.serialNumber.trim() || undefined,
+        purchaseDate: newAsset.purchaseDate || undefined,
+        warrantyExpiryDate: newAsset.warrantyExpiryDate || undefined,
+        purchaseValue: newAsset.purchaseValue ? Number(newAsset.purchaseValue) : undefined,
+      });
+      setCreateOpen(false);
+      setNewAsset({
+        name: '',
+        assetTag: '',
+        category: 'laptop',
+        serialNumber: '',
+        purchaseDate: '',
+        warrantyExpiryDate: '',
+        purchaseValue: '',
+      });
+      await loadAssets();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to create asset');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (selectedAsset) {
@@ -115,6 +288,11 @@ export function AssetManagementPage() {
           <Button onClick={() => { setAssetId(selectedAsset.id); setAssignOpen(true); }} disabled={selectedAsset.status !== 'Available'}>
             <UserRound className="h-4 w-4" /> Assign asset
           </Button>
+          {selectedAsset.status === 'Assigned' && (
+            <Button variant="secondary" onClick={() => setReturnOpen(true)}>
+              Return asset
+            </Button>
+          )}
         </div>
 
         <div className="grid gap-5 lg:grid-cols-3">
@@ -125,22 +303,33 @@ export function AssetManagementPage() {
                 <h2 className="text-sm font-semibold text-primary">Asset history</h2>
               </div>
               <div className="p-5">
-                {history.map((event, index) => {
-                  const Icon = event.icon;
-                  return (
-                    <div key={event.title} className="relative flex gap-4 pb-6 last:pb-0">
-                      {index < history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%-24px)] w-px bg-[rgb(var(--border-base))]" />}
+                {assignments.length === 0 ? (
+                  <p className="text-sm text-secondary">No assignment history yet.</p>
+                ) : (
+                  assignments.map((event, index) => (
+                    <div key={event.id} className="relative flex gap-4 pb-6 last:pb-0">
+                      {index < assignments.length - 1 && (
+                        <span className="absolute left-[15px] top-8 h-[calc(100%-24px)] w-px bg-[rgb(var(--border-base))]" />
+                      )}
                       <div className="z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-accent-200 bg-accent-50 text-accent-600 dark:border-accent-800 dark:bg-accent-950/40 dark:text-accent-400">
-                        <Icon className="h-4 w-4" />
+                        <Package className="h-4 w-4" />
                       </div>
                       <div>
-                        <div className="text-sm font-semibold text-primary">{event.title}</div>
-                        <div className="mt-0.5 text-xs text-secondary">{event.detail}</div>
-                        <div className="mt-1 text-[11px] text-muted">{event.date}</div>
+                        <div className="text-sm font-semibold text-primary">
+                          {event.status === 'active' ? 'Assigned to' : 'Returned by'} {event.employeeName}
+                        </div>
+                        <div className="mt-0.5 text-xs text-secondary">
+                          {event.status === 'active'
+                            ? `Condition: ${event.conditionOnAssign ?? '—'}`
+                            : `Return condition: ${event.conditionOnReturn ?? '—'}`}
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted">
+                          {new Date(event.status === 'active' ? event.assignedAt : event.returnedAt ?? event.assignedAt).toLocaleDateString()}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
+                  ))
+                )}
               </div>
             </section>
 
@@ -204,7 +393,8 @@ export function AssetManagementPage() {
           </div>
         </div>
 
-        <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employee={employee} setEmployee={setEmployee} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} notes={notes} setNotes={setNotes} onAssign={handleAssign} />
+        <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employees={employees} employeeId={employeeId} setEmployeeId={setEmployeeId} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} conditionOnAssign={conditionOnAssign} setConditionOnAssign={setConditionOnAssign} notes={notes} setNotes={setNotes} onAssign={() => void handleAssign()} saving={saving} />
+        <ReturnAssetModal open={returnOpen} onClose={() => setReturnOpen(false)} conditionOnReturn={conditionOnReturn} setConditionOnReturn={setConditionOnReturn} notes={notes} setNotes={setNotes} onReturn={() => void handleReturn()} saving={saving} />
       </div>
     );
   }
@@ -217,8 +407,22 @@ export function AssetManagementPage() {
     <div className="mx-auto max-w-[1400px] space-y-5 p-4 lg:p-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div><h1 className="text-xl font-bold text-primary">Asset Management</h1><p className="mt-0.5 text-sm text-secondary">Track company equipment, ownership, warranty, and maintenance.</p></div>
-        <Button onClick={() => setAssignOpen(true)}><Plus className="h-4 w-4" /> Assign Asset</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Add asset</Button>
+          <Button onClick={() => setAssignOpen(true)}><Plus className="h-4 w-4" /> Assign Asset</Button>
+        </div>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="py-16 text-center text-sm text-secondary">Loading assets…</div>
+      ) : (
+      <>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -242,7 +446,7 @@ export function AssetManagementPage() {
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
             <Select className="sm:w-40" value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option>All</option>{['Laptop', 'Monitor', 'Mobile', 'Accessory'].map((item) => <option key={item}>{item}</option>)}
+              <option>All</option>{CATEGORY_OPTIONS.map((item) => <option key={item.value}>{item.label}</option>)}
             </Select>
             <Select className="sm:w-40" value={status} onChange={(event) => setStatus(event.target.value)}>
               <option>All</option>{['Assigned', 'Available', 'In repair', 'Retired'].map((item) => <option key={item}>{item}</option>)}
@@ -271,8 +475,11 @@ export function AssetManagementPage() {
           {filteredAssets.length === 0 && <div className="p-10 text-center text-sm text-secondary">No assets match these filters.</div>}
         </div>
       </section>
+      </>
+      )}
 
-      <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employee={employee} setEmployee={setEmployee} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} notes={notes} setNotes={setNotes} onAssign={handleAssign} />
+      <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employees={employees} employeeId={employeeId} setEmployeeId={setEmployeeId} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} conditionOnAssign={conditionOnAssign} setConditionOnAssign={setConditionOnAssign} notes={notes} setNotes={setNotes} onAssign={() => void handleAssign()} saving={saving} />
+      <CreateAssetModal open={createOpen} onClose={() => setCreateOpen(false)} newAsset={newAsset} setNewAsset={setNewAsset} onCreate={() => void handleCreate()} saving={saving} />
     </div>
   );
 }
@@ -283,35 +490,118 @@ interface AssignAssetModalProps {
   assets: Asset[];
   assetId: string;
   setAssetId: (value: string) => void;
-  employee: string;
-  setEmployee: (value: string) => void;
+  employees: EmployeeRecord[];
+  employeeId: string;
+  setEmployeeId: (value: string) => void;
   assignmentDate: string;
   setAssignmentDate: (value: string) => void;
+  conditionOnAssign: string;
+  setConditionOnAssign: (value: string) => void;
   notes: string;
   setNotes: (value: string) => void;
   onAssign: () => void;
+  saving: boolean;
 }
 
-function AssignAssetModal({ open, onClose, assets, assetId, setAssetId, employee, setEmployee, assignmentDate, setAssignmentDate, notes, setNotes, onAssign }: AssignAssetModalProps) {
+function AssignAssetModal({ open, onClose, assets, assetId, setAssetId, employees, employeeId, setEmployeeId, assignmentDate, setAssignmentDate, conditionOnAssign, setConditionOnAssign, notes, setNotes, onAssign, saving }: AssignAssetModalProps) {
   return (
     <Modal
       open={open}
       onClose={onClose}
       size="lg"
       title="Assign Asset"
-      description="Record custody and prepare an employee acknowledgement."
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={onAssign} disabled={!assetId || !employee}>Confirm assignment</Button></>}
+      description="Record custody, assigned date, and condition."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={onAssign} disabled={!assetId || !employeeId || saving}>Confirm assignment</Button></>}
     >
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div><Label>Asset</Label><Select value={assetId} onChange={(event) => setAssetId(event.target.value)}><option value="">Select available asset</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.tag}</option>)}</Select></div>
-          <div><Label>Employee</Label><Select value={employee} onChange={(event) => setEmployee(event.target.value)}>{['Maya Patel', 'Nadia Rahman', 'Arif Hassan', 'Sarah Chen'].map((name) => <option key={name}>{name}</option>)}</Select></div>
+          <div><Label>Employee</Label><Select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName}</option>)}</Select></div>
         </div>
         <div><Label>Assignment date</Label><Input type="date" value={assignmentDate} onChange={(event) => setAssignmentDate(event.target.value)} /></div>
-        <div><Label>Condition and included items</Label><Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Describe condition, accessories, or existing marks…" /></div>
-        <div className="rounded-xl border border-accent-200 bg-accent-50/70 p-4 dark:border-accent-800 dark:bg-accent-950/30">
-          <div className="flex gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-accent-600 dark:text-accent-400" /><div><div className="text-sm font-semibold text-primary">Employee acknowledgement & e-signature</div><p className="mt-1 text-xs leading-5 text-secondary">The employee will receive a secure request to confirm receipt, condition, and responsibility for this asset.</p><div className="mt-3 flex h-14 items-center justify-center rounded-lg border border-dashed border-accent-300 bg-white/60 text-xs font-medium text-accent-700 dark:border-accent-700 dark:bg-slate-900/30 dark:text-accent-300">E-signature placeholder · Sent after assignment</div></div></div>
+        <div><Label>Condition on assign</Label><Input value={conditionOnAssign} onChange={(event) => setConditionOnAssign(event.target.value)} placeholder="New, Good, Fair…" /></div>
+        <div><Label>Notes</Label><Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Accessories included, existing marks…" /></div>
+      </div>
+    </Modal>
+  );
+}
+
+interface CreateAssetModalProps {
+  open: boolean;
+  onClose: () => void;
+  newAsset: {
+    name: string;
+    assetTag: string;
+    category: string;
+    serialNumber: string;
+    purchaseDate: string;
+    warrantyExpiryDate: string;
+    purchaseValue: string;
+  };
+  setNewAsset: Dispatch<SetStateAction<CreateAssetModalProps['newAsset']>>;
+  onCreate: () => void;
+  saving: boolean;
+}
+
+function CreateAssetModal({ open, onClose, newAsset, setNewAsset, onCreate, saving }: CreateAssetModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add asset to register"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={onCreate} disabled={!newAsset.name.trim() || !newAsset.assetTag.trim() || saving}>
+            Create asset
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><Label>Name</Label><Input value={newAsset.name} onChange={(e) => setNewAsset((v) => ({ ...v, name: e.target.value }))} /></div>
+          <div><Label>Asset tag</Label><Input value={newAsset.assetTag} onChange={(e) => setNewAsset((v) => ({ ...v, assetTag: e.target.value }))} /></div>
         </div>
+        <div><Label>Category</Label><Select value={newAsset.category} onChange={(e) => setNewAsset((v) => ({ ...v, category: e.target.value }))}>{CATEGORY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>
+        <div><Label>Serial number</Label><Input value={newAsset.serialNumber} onChange={(e) => setNewAsset((v) => ({ ...v, serialNumber: e.target.value }))} /></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><Label>Purchase date</Label><Input type="date" value={newAsset.purchaseDate} onChange={(e) => setNewAsset((v) => ({ ...v, purchaseDate: e.target.value }))} /></div>
+          <div><Label>Warranty expiry</Label><Input type="date" value={newAsset.warrantyExpiryDate} onChange={(e) => setNewAsset((v) => ({ ...v, warrantyExpiryDate: e.target.value }))} /></div>
+        </div>
+        <div><Label>Purchase value</Label><Input type="number" min={0} value={newAsset.purchaseValue} onChange={(e) => setNewAsset((v) => ({ ...v, purchaseValue: e.target.value }))} /></div>
+      </div>
+    </Modal>
+  );
+}
+
+interface ReturnAssetModalProps {
+  open: boolean;
+  onClose: () => void;
+  conditionOnReturn: string;
+  setConditionOnReturn: (value: string) => void;
+  notes: string;
+  setNotes: (value: string) => void;
+  onReturn: () => void;
+  saving: boolean;
+}
+
+function ReturnAssetModal({ open, onClose, conditionOnReturn, setConditionOnReturn, notes, setNotes, onReturn, saving }: ReturnAssetModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Return asset"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={onReturn} disabled={saving}>Confirm return</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div><Label>Condition on return</Label><Input value={conditionOnReturn} onChange={(event) => setConditionOnReturn(event.target.value)} placeholder="Good, Fair, Damaged…" /></div>
+        <div><Label>Notes</Label><Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
       </div>
     </Modal>
   );

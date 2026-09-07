@@ -22,6 +22,11 @@ export interface ChecklistItem {
   taskType?: string;
   status?: string;
   documentTypeName?: string | null;
+  documentRequiresVerification?: boolean | null;
+  documentVerified?: boolean | null;
+  employeeDocumentId?: string | null;
+  assetCategory?: string | null;
+  pendingAssetAssignCount?: number | null;
   policyAcceptedAt?: string | null;
 }
 
@@ -33,7 +38,7 @@ export interface ChecklistConfig {
 
 interface ChecklistBoardProps {
   config: ChecklistConfig;
-  onTaskAction?: (taskId: string) => void;
+  onTaskAction?: (taskId: string, action?: string) => void;
   actionTaskId?: string | null;
 }
 
@@ -59,17 +64,41 @@ export function ChecklistBoard({
     }
 
     if (item.taskType === 'policy_acceptance') {
+      if (item.documentRequiresVerification) {
+        const label = item.employeeDocumentId && item.documentVerified === false
+          ? `Verify ${item.documentTypeName ?? 'document'}`
+          : `Upload ${item.documentTypeName ?? 'signed policy'}`;
+        return <Badge tone="neutral">{label}</Badge>;
+      }
+
       return (
         <Button
           size="sm"
           variant="secondary"
           disabled={actionTaskId === item.id}
-          onClick={() => onTaskAction(item.id)}
+          onClick={() => onTaskAction(item.id, 'accept-policy')}
         >
           {actionTaskId === item.id ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
             'Accept policy'
+          )}
+        </Button>
+      );
+    }
+
+    if (item.taskType === 'provisioning' && item.assetCategory) {
+      return (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={actionTaskId === item.id || (item.pendingAssetAssignCount ?? 0) === 0}
+          onClick={() => onTaskAction(item.id, 'assign-asset')}
+        >
+          {actionTaskId === item.id ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            `Assign ${item.assetCategory.replace('_', ' ')}`
           )}
         </Button>
       );
@@ -81,7 +110,7 @@ export function ChecklistBoard({
           size="sm"
           variant="secondary"
           disabled={actionTaskId === item.id}
-          onClick={() => onTaskAction(item.id)}
+          onClick={() => onTaskAction(item.id, 'complete')}
         >
           {actionTaskId === item.id ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

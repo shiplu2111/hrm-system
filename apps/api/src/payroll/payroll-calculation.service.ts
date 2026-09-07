@@ -12,6 +12,7 @@ import {
 } from './payroll-calculation.helpers';
 import { PrismaService } from '../database/prisma.service';
 import { PayrollContextService } from './payroll-context.service';
+import { SuperannuationPayrollService } from './superannuation-payroll.service';
 import {
   formatDateOnly,
   isEffectiveOn,
@@ -29,6 +30,7 @@ export class PayrollCalculationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payrollContext: PayrollContextService,
+    private readonly superannuationPayroll: SuperannuationPayrollService,
   ) {}
 
   /**
@@ -107,12 +109,19 @@ export class PayrollCalculationService {
     asOfDate: Date,
     active: StructureRow[],
   ): Promise<PayrollCalculationPreview> {
+    const superannuationRates =
+      await this.superannuationPayroll.resolveRatesForEmployee(
+        employeeId,
+        asOfDate,
+      );
+
     return computePayrollFromStructures({
       employeeId,
       companyId,
       asOfDate,
       active,
       buildContext: (opts) => this.payrollContext.buildContext(opts),
+      superannuationRates,
     });
   }
 }

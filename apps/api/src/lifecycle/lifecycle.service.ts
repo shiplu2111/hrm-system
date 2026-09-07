@@ -11,6 +11,7 @@ import {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { EmployeeOffboardingService } from '../offboarding/employee-offboarding.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import type { CreateLifecycleEventDto } from './dto/lifecycle.dto';
 
@@ -52,6 +53,7 @@ export class LifecycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly employeeOffboardingService: EmployeeOffboardingService,
   ) {}
 
   async listEvents(
@@ -102,7 +104,7 @@ export class LifecycleService {
       dto,
     );
 
-    return this.prisma.unscoped.$transaction(async (tx) => {
+    const response = await this.prisma.unscoped.$transaction(async (tx) => {
       let updatedEmployee = employee;
 
       if (employeeUpdate) {
@@ -160,6 +162,26 @@ export class LifecycleService {
 
       return this.toResponse(event);
     });
+
+    if (
+      dto.eventType === LifecycleEventType.resignation ||
+      dto.eventType === LifecycleEventType.termination
+    ) {
+      const lastWorkingDate =
+        typeof enrichedDetails.lastWorkingDate === 'string'
+          ? enrichedDetails.lastWorkingDate
+          : dto.effectiveDate;
+
+      await this.employeeOffboardingService.startFromLifecycle({
+        tenantId: employee.tenantId,
+        companyId: employee.companyId,
+        employeeId,
+        lastWorkingDate,
+        userId: user.id,
+      });
+    }
+
+    return response;
   }
 
   private resolveEventEffects(

@@ -3,6 +3,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { createPayrollFormulaContext } from './formula/formula-interpreter';
 import { computePayrollFromStructures } from './payroll-calculation.core';
 import type { StructureRow } from './payroll-calculation.helpers';
+import { AUS_SUPERANNUATION_RATES } from './regression/payroll-regression.fixtures';
 
 function structureRow(partial: {
   id: string;
@@ -40,7 +41,7 @@ describe('Payroll calculation chain (PAYROLL_LOGIC.md §2, §6)', () => {
   const asOfDate = new Date('2024-06-30T00:00:00.000Z');
   const buildContext = async () => createPayrollFormulaContext({});
 
-  it('Australia (AUS): basic + HRA percentage − superannuation on gross', async () => {
+  it('Australia (AUS): basic + HRA + employer super on gross (country rule)', async () => {
     const rows: StructureRow[] = [
       structureRow({
         id: 'ss-basic',
@@ -59,15 +60,6 @@ describe('Payroll calculation chain (PAYROLL_LOGIC.md §2, §6)', () => {
         amountOrFormula: { percentage: 10 },
         formula: { base: 'basic' },
       }),
-      structureRow({
-        id: 'ss-super',
-        componentId: 'comp-super',
-        componentType: 'deduction',
-        name: 'Superannuation',
-        calculationType: PayComponentCalculationType.percentage,
-        amountOrFormula: { percentage: 11 },
-        formula: { base: 'gross' },
-      }),
     ];
 
     const preview = await computePayrollFromStructures({
@@ -76,11 +68,14 @@ describe('Payroll calculation chain (PAYROLL_LOGIC.md §2, §6)', () => {
       asOfDate,
       active: rows,
       buildContext,
+      superannuationRates: AUS_SUPERANNUATION_RATES,
     });
 
     expect(preview.grossPay).toBe('6600.00');
-    expect(preview.totalDeductions).toBe('726.00');
-    expect(preview.netPay).toBe('5874.00');
+    expect(preview.totalDeductions).toBe('0.00');
+    expect(preview.netPay).toBe('6600.00');
+    expect(preview.superannuation?.employerContribution).toBe('726.00');
+    expect(preview.superannuation?.employeeContribution).toBe('0.00');
   });
 
   it('Bangladesh (BGD): basic + transport fixed − income tax on gross', async () => {

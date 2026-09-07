@@ -128,6 +128,7 @@ export class OnboardingChecklistTemplatesService {
         category: dto.category,
         taskType: dto.taskType,
         documentTypeId: dto.documentTypeId ?? null,
+        assetCategory: dto.assetCategory ?? null,
         policyDocumentUrl: dto.policyDocumentUrl?.trim() ?? null,
         assigneeLabel: dto.assigneeLabel?.trim() ?? null,
         dueDaysOffset: dto.dueDaysOffset ?? null,
@@ -167,6 +168,9 @@ export class OnboardingChecklistTemplatesService {
         ...(dto.taskType !== undefined ? { taskType: dto.taskType } : {}),
         ...(dto.documentTypeId !== undefined
           ? { documentTypeId: dto.documentTypeId }
+          : {}),
+        ...(dto.assetCategory !== undefined
+          ? { assetCategory: dto.assetCategory }
           : {}),
         ...(dto.policyDocumentUrl !== undefined
           ? { policyDocumentUrl: dto.policyDocumentUrl?.trim() ?? null }

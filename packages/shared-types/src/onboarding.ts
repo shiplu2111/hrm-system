@@ -1,3 +1,5 @@
+import type { AssetCategory } from './assets';
+
 export type OnboardingTaskCategory =
   | 'document_collection'
   | 'policy_acceptance'
@@ -24,6 +26,7 @@ export interface OnboardingChecklistTemplateItemRecord {
   taskType: OnboardingTaskType;
   documentTypeId: string | null;
   documentTypeName: string | null;
+  assetCategory: AssetCategory | null;
   policyDocumentUrl: string | null;
   assigneeLabel: string | null;
   dueDaysOffset: number | null;
@@ -57,7 +60,12 @@ export interface EmployeeOnboardingTaskRecord {
   documentTypeId: string | null;
   documentTypeName: string | null;
   employeeDocumentId: string | null;
+  documentRequiresVerification: boolean | null;
   documentVerified: boolean | null;
+  assetCategory: AssetCategory | null;
+  companyAssetId: string | null;
+  companyAssetName: string | null;
+  pendingAssetAssignCount: number | null;
   policyDocumentUrl: string | null;
   policyAcceptedAt: string | null;
   assigneeLabel: string | null;

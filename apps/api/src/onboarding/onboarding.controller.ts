@@ -14,6 +14,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  AssignOnboardingAssetsDto,
   CompleteOnboardingTaskDto,
   CreateOnboardingTemplateDto,
   CreateOnboardingTemplateItemDto,
@@ -165,6 +166,24 @@ export class OnboardingController {
   ) {
     return {
       data: await this.onboardingService.acceptPolicy(onboardingId, taskId, user),
+    };
+  }
+
+  @Post('employee-onboardings/:onboardingId/tasks/:taskId/assign-assets')
+  @RequirePermission('employee', 'edit')
+  async assignAssets(
+    @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: AssignOnboardingAssetsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.onboardingService.assignAssetsForTask(
+        onboardingId,
+        taskId,
+        dto,
+        user,
+      ),
     };
   }
 

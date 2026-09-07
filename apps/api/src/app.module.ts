@@ -36,6 +36,10 @@ import { ExpensesModule } from './expenses/expenses.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { OffboardingModule } from './offboarding/offboarding.module';
+import { AssetsModule } from './assets/assets.module';
+import { BenefitsModule } from './benefits/benefits.module';
+import { AccountingModule } from './accounting/accounting.module';
 
 @Module({
   imports: [
@@ -79,6 +83,10 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     TimesheetsModule,
     RecruitmentModule,
     OnboardingModule,
+    OffboardingModule,
+    AssetsModule,
+    BenefitsModule,
+    AccountingModule,
   ],
   controllers: [AppController],
   providers: [

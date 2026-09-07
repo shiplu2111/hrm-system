@@ -64,7 +64,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Contracts', page: 'emp-contracts', hidden: true },
       { label: 'Recruitment / ATS', page: 'recruitment' },
       { label: 'Onboarding', page: 'onboarding' },
-      { label: 'Offboarding', page: 'offboarding', hidden: true },
+      { label: 'Offboarding', page: 'offboarding' },
       { label: 'Document Types', page: 'doc-types' },
       { label: 'Employee Documents', page: 'emp-documents' },
       { label: 'Custom Fields', page: 'field-builder' },
@@ -134,7 +134,7 @@ export const navGroups: NavGroup[] = [
     hidden: true,
     items: [
       { label: 'Asset Management', page: 'assets', badge: 'Phase 2' },
-      { label: 'Accounting / GL', page: 'accounting', badge: 'Phase 2' },
+      { label: 'Accounting / GL', page: 'accounting' },
       { label: 'Help Center', page: 'help-center' },
     ],
   },

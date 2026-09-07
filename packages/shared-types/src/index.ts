@@ -23,3 +23,7 @@ export * from './expense';
 export * from './timesheet';
 export * from './recruitment';
 export * from './onboarding';
+export * from './offboarding';
+export * from './assets';
+export * from './benefits';
+export * from './accounting';

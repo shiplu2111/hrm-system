@@ -19,14 +19,19 @@ import { CompanySelector } from '@/components/org/CompanySelector';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { useCompany } from '@/context/CompanyContext';
 import {
   acceptOnboardingPolicy,
+  assignOnboardingAsset,
   completeOnboardingTask,
   getEmployeeOnboarding,
   listEmployeeOnboardings,
   resendOnboardingWelcome,
 } from '@/lib/onboarding-api';
+import { listCompanyAssets } from '@/lib/assets-api';
+import type { CompanyAssetRecord } from '@hrm/shared-types';
 import { ApiError } from '@/lib/tenant-api-client';
 
 const CATEGORY_LABELS: Record<OnboardingTaskCategory, string> = {
@@ -70,6 +75,11 @@ function tasksToChecklistItems(
       taskType: task.taskType,
       status: task.status,
       documentTypeName: task.documentTypeName,
+      documentRequiresVerification: task.documentRequiresVerification,
+      documentVerified: task.documentVerified,
+      employeeDocumentId: task.employeeDocumentId,
+      assetCategory: task.assetCategory,
+      pendingAssetAssignCount: task.pendingAssetAssignCount,
       policyAcceptedAt: task.policyAcceptedAt,
     };
   });
@@ -84,6 +94,12 @@ export function OnboardingPage() {
   const [detail, setDetail] = useState<EmployeeOnboardingRecord | null>(null);
   const [actionTaskId, setActionTaskId] = useState<string | null>(null);
   const [welcomeSending, setWelcomeSending] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignTaskId, setAssignTaskId] = useState<string | null>(null);
+  const [availableAssets, setAvailableAssets] = useState<CompanyAssetRecord[]>([]);
+  const [selectedAssetId, setSelectedAssetId] = useState('');
+  const [conditionOnAssign, setConditionOnAssign] = useState('New');
+  const [assignNotes, setAssignNotes] = useState('');
 
   const loadList = useCallback(async () => {
     if (!companyId) return;
@@ -141,21 +157,55 @@ export function OnboardingPage() {
     [detail?.tasks],
   );
 
-  const handleTaskAction = async (taskId: string) => {
+  const handleTaskAction = async (taskId: string, action = 'complete') => {
     if (!detail) return;
     const task = detail.tasks?.find(
       (item: EmployeeOnboardingTaskRecord) => item.id === taskId,
     );
     if (!task || task.status !== 'pending') return;
 
+    if (action === 'assign-asset') {
+      if (!companyId) return;
+      setAssignTaskId(taskId);
+      setError(null);
+      try {
+        const assets = await listCompanyAssets(companyId, {
+          status: 'available',
+          category: task.assetCategory ?? undefined,
+        });
+        setAvailableAssets(assets);
+        setSelectedAssetId(assets[0]?.id ?? '');
+        setAssignOpen(true);
+      } catch (err) {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load available assets',
+        );
+      }
+      return;
+    }
+
+    if (
+      task.taskType === 'policy_acceptance' &&
+      task.documentRequiresVerification
+    ) {
+      setError(
+        `${task.documentTypeName ?? 'This policy'} requires an uploaded and verified document. Upload it from the employee profile documents section.`,
+      );
+      return;
+    }
+
     setActionTaskId(taskId);
     setError(null);
     try {
-      if (task.taskType === 'policy_acceptance') {
+      if (action === 'accept-policy' || task.taskType === 'policy_acceptance') {
         await acceptOnboardingPolicy(detail.id, taskId);
       } else if (
         task.taskType === 'manual_task' ||
-        task.taskType === 'provisioning'
+        (task.taskType === 'provisioning' && !task.assetCategory)
       ) {
         await completeOnboardingTask(detail.id, taskId);
       }
@@ -168,6 +218,34 @@ export function OnboardingPage() {
           : err instanceof Error
             ? err.message
             : 'Failed to update task',
+      );
+    } finally {
+      setActionTaskId(null);
+    }
+  };
+
+  const submitAssetAssignment = async () => {
+    if (!detail || !assignTaskId || !selectedAssetId) return;
+    setActionTaskId(assignTaskId);
+    setError(null);
+    try {
+      await assignOnboardingAsset(detail.id, assignTaskId, {
+        assetId: selectedAssetId,
+        conditionOnAssign: conditionOnAssign.trim() || undefined,
+        notes: assignNotes.trim() || undefined,
+      });
+      setAssignOpen(false);
+      setAssignTaskId(null);
+      setAssignNotes('');
+      await loadDetail(detail.id);
+      await loadList();
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to assign asset',
       );
     } finally {
       setActionTaskId(null);
@@ -300,6 +378,66 @@ export function OnboardingPage() {
           )}
         </>
       )}
+
+      <Modal
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        title="Assign asset"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAssignOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void submitAssetAssignment()}
+              disabled={!selectedAssetId || !!actionTaskId}
+            >
+              Confirm assignment
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {availableAssets.length === 0 ? (
+            <p className="text-sm text-secondary">
+              No available assets in this category. Add one from Asset Management first.
+            </p>
+          ) : (
+            <>
+              <div>
+                <Label>Asset</Label>
+                <Select
+                  value={selectedAssetId}
+                  onChange={(event) => setSelectedAssetId(event.target.value)}
+                >
+                  {availableAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.name} · {asset.assetTag}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Condition on assign</Label>
+                <Input
+                  value={conditionOnAssign}
+                  onChange={(event) => setConditionOnAssign(event.target.value)}
+                  placeholder="e.g. New, Good, Fair"
+                />
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Textarea
+                  rows={2}
+                  value={assignNotes}
+                  onChange={(event) => setAssignNotes(event.target.value)}
+                  placeholder="Accessories included, existing marks, etc."
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

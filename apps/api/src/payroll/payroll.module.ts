@@ -1,8 +1,10 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { LoansModule } from '../loans/loans.module';
+import { RuleResolverModule } from '../rule-resolver/rule-resolver.module';
+import { AccountingModule } from '../accounting/accounting.module';
 import { EmployeeTaxProfilesController } from './employee-tax-profiles.controller';
 import { EmployeeTaxProfilesService } from './employee-tax-profiles.service';
 import { PayComponentsController } from './pay-components.controller';
@@ -22,9 +24,17 @@ import { PayrollRunsController } from './payroll-runs.controller';
 import { PayrollRunsService } from './payroll-runs.service';
 import { SalaryStructuresController } from './salary-structures.controller';
 import { SalaryStructuresService } from './salary-structures.service';
+import { SuperannuationPayrollService } from './superannuation-payroll.service';
 
 @Module({
-  imports: [OrganizationModule, RbacModule, NotificationsModule, LoansModule],
+  imports: [
+    OrganizationModule,
+    RbacModule,
+    NotificationsModule,
+    LoansModule,
+    RuleResolverModule,
+    forwardRef(() => AccountingModule),
+  ],
   controllers: [
     PayComponentsController,
     SalaryStructuresController,
@@ -42,6 +52,7 @@ import { SalaryStructuresService } from './salary-structures.service';
     SalaryStructuresService,
     PayrollCalculationService,
     PayrollContextService,
+    SuperannuationPayrollService,
     PayrollPeriodsService,
     PayrollRunsService,
     PayrollAdjustmentsService,

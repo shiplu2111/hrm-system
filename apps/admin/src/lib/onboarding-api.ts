@@ -109,6 +109,22 @@ export function acceptOnboardingPolicy(
   );
 }
 
+export function assignOnboardingAsset(
+  onboardingId: string,
+  taskId: string,
+  input: {
+    assetId: string;
+    assignedAt?: string;
+    conditionOnAssign?: string;
+    notes?: string;
+  },
+): Promise<EmployeeOnboardingTaskRecord> {
+  return tenantApiRequest<EmployeeOnboardingTaskRecord>(
+    `/employee-onboardings/${onboardingId}/tasks/${taskId}/assign-assets`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
 export function resendOnboardingWelcome(
   onboardingId: string,
 ): Promise<EmployeeOnboardingRecord> {

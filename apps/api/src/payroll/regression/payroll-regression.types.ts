@@ -1,4 +1,5 @@
 import type { PayComponentCalculationType } from '@prisma/client';
+import type { ResolvedSuperannuationRates } from '../superannuation.utils';
 
 export interface PayrollRegressionAttendanceInput {
   workedHours: string;
@@ -34,6 +35,8 @@ export interface PayrollRegressionFixture {
   attendance: PayrollRegressionAttendanceInput;
   leave: PayrollRegressionLeaveInput;
   salaryStructures: PayrollRegressionStructureInput[];
+  /** Resolved `social_security` country-rule rates (when testing superannuation). */
+  superannuationRates?: ResolvedSuperannuationRates | null;
 }
 
 export interface PayslipGoldenLine {
@@ -50,6 +53,11 @@ export interface PayslipGoldenOutput {
   netPay: string;
   earnings: PayslipGoldenLine[];
   deductions: PayslipGoldenLine[];
+  superannuation?: {
+    employerContribution: string;
+    employeeContribution: string;
+    totalContribution: string;
+  } | null;
   inputs: {
     attendance: PayrollRegressionAttendanceInput;
     leave: PayrollRegressionLeaveInput;

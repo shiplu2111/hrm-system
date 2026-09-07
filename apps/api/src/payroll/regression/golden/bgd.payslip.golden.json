@@ -28,6 +28,7 @@
       "amount": "4363.64"
     }
   ],
+  "superannuation": null,
   "inputs": {
     "attendance": {
       "workedHours": "168",

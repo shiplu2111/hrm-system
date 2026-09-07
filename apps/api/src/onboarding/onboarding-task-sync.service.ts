@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnboardingTaskStatus } from '@prisma/client';
+import { AssetStatus, OnboardingTaskStatus, OnboardingTaskType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
@@ -7,6 +7,95 @@ export class OnboardingTaskSyncService {
   private readonly logger = new Logger(OnboardingTaskSyncService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async syncAfterAssetAssignment(input: {
+    employeeId: string;
+    assetId: string;
+    assetCategory: string;
+    onboardingTaskId?: string | null;
+  }): Promise<void> {
+    if (input.onboardingTaskId) {
+      const task = await this.prisma.unscoped.employeeOnboardingTask.findFirst({
+        where: {
+          id: input.onboardingTaskId,
+          status: OnboardingTaskStatus.pending,
+          taskType: OnboardingTaskType.provisioning,
+          onboarding: {
+            employeeId: input.employeeId,
+            status: 'in_progress',
+          },
+        },
+        select: { id: true, onboardingId: true, assetCategory: true },
+      });
+
+      if (!task) {
+        return;
+      }
+
+      if (task.assetCategory && task.assetCategory !== input.assetCategory) {
+        return;
+      }
+
+      await this.completeProvisioningTask(task.id, task.onboardingId, input.assetId);
+      return;
+    }
+
+    const tasks = await this.prisma.unscoped.employeeOnboardingTask.findMany({
+      where: {
+        status: OnboardingTaskStatus.pending,
+        taskType: OnboardingTaskType.provisioning,
+        onboarding: {
+          employeeId: input.employeeId,
+          status: 'in_progress',
+        },
+        OR: [
+          { assetCategory: input.assetCategory as never },
+          { assetCategory: null },
+        ],
+      },
+      select: { id: true, onboardingId: true, assetCategory: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    for (const task of tasks) {
+      await this.completeProvisioningTask(task.id, task.onboardingId, input.assetId);
+      break;
+    }
+  }
+
+  private async completeProvisioningTask(
+    taskId: string,
+    onboardingId: string,
+    assetId: string,
+  ): Promise<void> {
+    await this.prisma.unscoped.employeeOnboardingTask.update({
+      where: { id: taskId },
+      data: {
+        status: OnboardingTaskStatus.completed,
+        completedAt: new Date(),
+        companyAssetId: assetId,
+      },
+    });
+
+    await this.refreshOnboardingCompletion(onboardingId);
+  }
+
+  async countAvailableAssetsForTask(
+    companyId: string,
+    assetCategory: string | null,
+  ): Promise<number> {
+    if (!assetCategory) {
+      return 0;
+    }
+
+    return this.prisma.unscoped.companyAsset.count({
+      where: {
+        companyId,
+        status: AssetStatus.available,
+        category: assetCategory as never,
+      },
+    });
+  }
 
   async syncAfterDocumentChange(
     employeeId: string,

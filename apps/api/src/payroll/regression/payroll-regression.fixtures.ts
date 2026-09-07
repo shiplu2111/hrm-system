@@ -1,17 +1,28 @@
 import { PayComponentCalculationType } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import {
   PAY_FORMULA_OVERTIME_EXAMPLE,
   PAY_FORMULA_UNPAID_LEAVE_EXAMPLE,
 } from '@hrm/shared-types';
+import type { ResolvedSuperannuationRates } from '../superannuation.utils';
 import type { PayrollRegressionFixture } from './payroll-regression.types';
 
-/** June 2024 payroll period — Australia (AUS): basic + HRA + OT − superannuation. */
+/** AUS Superannuation Guarantee — mirrors seeded `social_security` country rule (11% on gross). */
+export const AUS_SUPERANNUATION_RATES: ResolvedSuperannuationRates = {
+  schemeName: 'Superannuation Guarantee',
+  employerContributionRate: new Decimal(11),
+  employeeContributionRate: new Decimal(0),
+  contributionBase: 'gross',
+};
+
+/** June 2024 payroll period — Australia (AUS): basic + HRA + OT + employer super (country rule). */
 export const AUS_PAYROLL_REGRESSION_FIXTURE: PayrollRegressionFixture = {
   countryCode: 'AUS',
   employeeId: 'regression-emp-aus',
   companyId: 'regression-company-aus',
   periodEnd: '2024-06-30',
   basicSalary: '6000.00',
+  superannuationRates: AUS_SUPERANNUATION_RATES,
   attendance: {
     workedHours: '180',
     standardHours: '160',
@@ -51,15 +62,6 @@ export const AUS_PAYROLL_REGRESSION_FIXTURE: PayrollRegressionFixture = {
       calculationType: PayComponentCalculationType.formula,
       amountOrFormula: {},
       formula: PAY_FORMULA_OVERTIME_EXAMPLE as unknown as Record<string, unknown>,
-    },
-    {
-      id: 'aus-ss-super',
-      componentId: 'aus-comp-super',
-      componentType: 'deduction',
-      name: 'Superannuation',
-      calculationType: PayComponentCalculationType.percentage,
-      amountOrFormula: { percentage: 11 },
-      formula: { base: 'gross', percentage: 11 },
     },
   ],
 };

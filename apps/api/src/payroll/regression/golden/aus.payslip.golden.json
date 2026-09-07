@@ -2,8 +2,8 @@
   "countryCode": "AUS",
   "periodEnd": "2024-06-30",
   "grossPay": "7725.00",
-  "totalDeductions": "849.75",
-  "netPay": "6875.25",
+  "totalDeductions": "0.00",
+  "netPay": "7725.00",
   "earnings": [
     {
       "componentName": "Basic Salary",
@@ -21,13 +21,12 @@
       "amount": "1125.00"
     }
   ],
-  "deductions": [
-    {
-      "componentName": "Superannuation",
-      "calculationType": "percentage",
-      "amount": "849.75"
-    }
-  ],
+  "deductions": [],
+  "superannuation": {
+    "employerContribution": "849.75",
+    "employeeContribution": "0.00",
+    "totalContribution": "849.75"
+  },
   "inputs": {
     "attendance": {
       "workedHours": "180",

@@ -100,6 +100,20 @@ export interface PayrollCalculationPreview {
   netPay: string;
   earnings: PayrollCalculationLine[];
   deductions: PayrollCalculationLine[];
+  superannuation?: SuperannuationContributionPreview | null;
+}
+
+export interface SuperannuationContributionPreview {
+  schemeName: string;
+  contributionBase: 'gross' | 'basic';
+  employerContributionRate: number;
+  employeeContributionRate: number;
+  baseAmount: string;
+  employerContribution: string;
+  employeeContribution: string;
+  totalContribution: string;
+  /** Country rule layer that supplied the rates (for audit/display) */
+  ruleType: 'social_security';
 }
 
 export interface PayrollRunSummary {
