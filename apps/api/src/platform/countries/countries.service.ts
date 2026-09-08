@@ -24,6 +24,7 @@ const CONFIGURABLE_RULE_TYPES: CountryRuleKind[] = [
   'ot',
   'social_security',
   'public_holiday',
+  'health_safety',
 ];
 
 @Injectable()

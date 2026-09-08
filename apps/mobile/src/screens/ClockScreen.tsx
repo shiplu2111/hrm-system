@@ -23,6 +23,7 @@ interface ClockScreenProps {
   onOpenNotifications: () => void;
   onOpenHelp: () => void;
   onOpenKudos: () => void;
+  onOpenSafety: () => void;
 }
 
 export function ClockScreen({
@@ -31,6 +32,7 @@ export function ClockScreen({
   onOpenNotifications,
   onOpenHelp,
   onOpenKudos,
+  onOpenSafety,
 }: ClockScreenProps) {
   const { t } = useAppTranslation();
   const employeeId = user.employeeId;
@@ -97,6 +99,9 @@ export function ClockScreen({
           <LanguageSwitcher />
         </View>
         <View style={styles.headerActions}>
+          <Pressable onPress={onOpenSafety} hitSlop={8}>
+            <Text style={styles.notificationsLink}>{t('healthSafety.nav')}</Text>
+          </Pressable>
           <Pressable onPress={onOpenKudos} hitSlop={8}>
             <Text style={styles.notificationsLink}>{t('engagement.nav')}</Text>
           </Pressable>

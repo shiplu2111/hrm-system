@@ -30,6 +30,7 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'onboarding.welcome': true,
   'certification.expiring': true,
   'kudos.received': true,
+  'safety.incident.reported': true,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -105,6 +106,7 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'onboarding.welcome': 'Onboarding welcome',
   'certification.expiring': 'Certification expiring soon',
   'kudos.received': 'Kudos received',
+  'safety.incident.reported': 'Safety incident reported',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

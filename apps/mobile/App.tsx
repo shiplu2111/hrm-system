@@ -17,6 +17,7 @@ import { registerPushTokenIfPermitted } from './src/notifications/push-registrat
 import { ClockScreen } from './src/screens/ClockScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
 import { KudosScreen } from './src/screens/KudosScreen';
+import { IncidentReportScreen } from './src/screens/IncidentReportScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 
@@ -30,6 +31,7 @@ function AuthenticatedApp({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showKudos, setShowKudos] = useState(false);
+  const [showSafety, setShowSafety] = useState(false);
 
   useEffect(() => {
     void registerPushTokenIfPermitted();
@@ -41,6 +43,10 @@ function AuthenticatedApp({
 
   if (showKudos) {
     return <KudosScreen user={user} onBack={() => setShowKudos(false)} />;
+  }
+
+  if (showSafety) {
+    return <IncidentReportScreen user={user} onBack={() => setShowSafety(false)} />;
   }
 
   if (showNotifications) {
@@ -58,6 +64,7 @@ function AuthenticatedApp({
             onOpenNotifications={() => setShowNotifications(true)}
             onOpenHelp={() => setShowHelp(true)}
             onOpenKudos={() => setShowKudos(true)}
+            onOpenSafety={() => setShowSafety(true)}
           />
         </View>
       </View>

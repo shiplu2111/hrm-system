@@ -77,6 +77,11 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['subject_employee'],
   },
+  'safety.incident.reported': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['hr_admin', 'manager'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -153,6 +158,11 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'You received kudos!',
     body: '{from_employee_name} recognized you: "{kudos_message}"',
     emailSubject: 'Kudos from {from_employee_name}',
+  },
+  'safety.incident.reported': {
+    title: 'Safety incident reported',
+    body: '{reporter_name} reported {incident_number} ({incident_type}, {severity}) at {location}.{regulator_notice}',
+    emailSubject: 'Safety incident {incident_number} — action required',
   },
 };
 

@@ -277,5 +277,40 @@
     "noRecipients": "কোনো সহকর্মী উপলব্ধ নেই।",
     "typePeer": "পিয়ার স্বীকৃতি",
     "typeManager": "ম্যানেজার স্বীকৃতি"
+  },
+  "healthSafety": {
+    "nav": "নিরাপত্তা",
+    "title": "ঘটনা রিপোর্ট",
+    "subtitle": "মাঠ থেকে কর্মক্ষেত্রের ঘটনা রিপোর্ট করুন। GPS উপলব্ধ থাকলে সংযুক্ত হয়।",
+    "reportIncident": "ঘটনা রিপোর্ট",
+    "submitReport": "রিপোর্ট জমা দিন",
+    "reportSent": "ঘটনা রিপোর্ট হয়েছে — HR-কে জানানো হয়েছে।",
+    "incidentType": "ঘটনার ধরন",
+    "severity": "তীব্রতা",
+    "location": "অবস্থান",
+    "locationPlaceholder": "যেমন: সাইট B · লোডিং ডক",
+    "description": "কী ঘটেছিল?",
+    "descriptionPlaceholder": "ঘটনা এবং তাত্ক্ষণিক ব্যবস্থা বর্ণনা করুন…",
+    "recentIncidents": "সাম্প্রতিক ঘটনা",
+    "emptyFeed": "এখনও কোনো ঘটনা রিপোর্ট নেই।",
+    "regulatorRequired": "নিয়ন্ত্রক রিপোর্ট প্রয়োজন হতে পারে",
+    "gpsLocationFallback": "মাঠের অবস্থান (GPS)",
+    "loadFailedTitle": "নিরাপত্তা ডেটা লোড করা যায়নি",
+    "submitFailedTitle": "রিপোর্ট জমা দেওয়া যায়নি",
+    "types": {
+      "near_miss": "নিকট-ঘটনা",
+      "injury": "আঘাত",
+      "first_aid": "প্রাথমিক চিকিৎসা",
+      "slip_trip": "পিছল / stumble",
+      "equipment_damage": "সরঞ্জাম ক্ষতি",
+      "environmental": "পরিবেশগত",
+      "other": "অন্যান্য"
+    },
+    "severities": {
+      "low": "কম",
+      "medium": "মাঝারি",
+      "high": "উচ্চ",
+      "critical": "গুরুতর"
+    }
   }
 }

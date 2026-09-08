@@ -23,10 +23,12 @@ import {
   listAccountingConnections,
   listAccountingSyncJobs,
   listGlAccounts,
+  listGlContractorMappings,
   listGlPayrollMappings,
   listJournalExports,
   listPayrollPeriods,
   previewPayrollJournal,
+  saveGlContractorMappings,
   saveGlPayrollMappings,
   beginXeroConnect,
   disconnectXero,
@@ -37,12 +39,14 @@ import type {
   AccountingConnectionRecord,
   AccountingSyncJobRecord,
   GlAccountRecord,
+  GlContractorMappingRecord,
+  GlContractorSystemMappingKey,
   GlPayrollMappingRecord,
   GlSystemMappingKey,
   PayrollJournalPreview,
   PayrollPeriodRecord,
 } from '@hrm/shared-types';
-import { GL_SYSTEM_MAPPING_LABELS } from '@hrm/shared-types';
+import { GL_CONTRACTOR_MAPPING_LABELS, GL_SYSTEM_MAPPING_LABELS } from '@hrm/shared-types';
 
 type Tab = 'mapping' | 'connections' | 'journal';
 
@@ -127,7 +131,9 @@ export function AccountingIntegrationPage() {
 
   const [accounts, setAccounts] = useState<GlAccountRecord[]>([]);
   const [mappings, setMappings] = useState<GlPayrollMappingRecord[]>([]);
+  const [contractorMappings, setContractorMappings] = useState<GlContractorMappingRecord[]>([]);
   const [draftGlByKey, setDraftGlByKey] = useState<Record<string, string>>({});
+  const [draftContractorGlByKey, setDraftContractorGlByKey] = useState<Record<string, string>>({});
   const [periods, setPeriods] = useState<PayrollPeriodRecord[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [journal, setJournal] = useState<PayrollJournalPreview | null>(null);
@@ -142,7 +148,9 @@ export function AccountingIntegrationPage() {
   const [disconnecting, setDisconnecting] = useState(false);
 
   const [saved, setSaved] = useState(false);
+  const [contractorSaved, setContractorSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [contractorSaving, setContractorSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
 
@@ -154,16 +162,18 @@ export function AccountingIntegrationPage() {
     setLoading(true);
     setError(null);
     try {
-      const [accountRows, mappingRows, periodRows, connectionRows, syncJobRows] =
+      const [accountRows, mappingRows, contractorMappingRows, periodRows, connectionRows, syncJobRows] =
         await Promise.all([
         listGlAccounts(companyId),
         listGlPayrollMappings(companyId),
+        listGlContractorMappings(companyId),
         listPayrollPeriods(companyId),
         listAccountingConnections(companyId),
         listAccountingSyncJobs(companyId),
       ]);
       setAccounts(accountRows);
       setMappings(mappingRows);
+      setContractorMappings(contractorMappingRows);
       setPeriods(periodRows);
       setConnections(connectionRows);
       setSyncJobs(syncJobRows);
@@ -172,6 +182,13 @@ export function AccountingIntegrationPage() {
           mappingRows
             .filter((row) => row.glAccountId)
             .map((row) => [mappingKey(row), row.glAccountId]),
+        ),
+      );
+      setDraftContractorGlByKey(
+        Object.fromEntries(
+          contractorMappingRows
+            .filter((row) => row.glAccountId)
+            .map((row) => [row.systemKey, row.glAccountId]),
         ),
       );
       if (periodRows.length > 0) {
@@ -306,6 +323,36 @@ export function AccountingIntegrationPage() {
       setError(err instanceof ApiError ? err.message : 'Failed to save mappings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveContractorMappings = async () => {
+    if (!companyId) return;
+    setContractorSaving(true);
+    try {
+      const payload = contractorMappings
+        .map((row) => {
+          const glAccountId = draftContractorGlByKey[row.systemKey];
+          if (!glAccountId) return null;
+          return {
+            systemKey: row.systemKey,
+            postingSide: row.postingSide,
+            glAccountId,
+          };
+        })
+        .filter(Boolean) as Array<{
+        systemKey: GlContractorSystemMappingKey;
+        postingSide: 'debit' | 'credit';
+        glAccountId: string;
+      }>;
+
+      const updated = await saveGlContractorMappings(companyId, payload);
+      setContractorMappings(updated);
+      setContractorSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save contractor mappings');
+    } finally {
+      setContractorSaving(false);
     }
   };
 
@@ -546,6 +593,80 @@ export function AccountingIntegrationPage() {
             )}
           </aside>
         </div>
+      )}
+
+      {tab === 'mapping' && (
+        <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
+          <div className="flex flex-col justify-between gap-2 border-b border-base px-5 py-4 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-sm font-semibold text-primary">Contractor payment mapping</h2>
+              <p className="mt-0.5 text-xs text-secondary">
+                Separate from payroll journals — paid contractor batches export to these accounts.
+              </p>
+            </div>
+            <Badge tone="accent">{contractorMappings.length} lines</Badge>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] uppercase tracking-wide text-secondary">
+                <tr>
+                  <th className="px-5 py-3">Contractor source</th>
+                  <th className="px-5 py-3">Side</th>
+                  <th className="px-5 py-3">GL account</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                {contractorMappings.map((mapping) => (
+                  <tr key={mapping.systemKey} className="hover:bg-[rgb(var(--bg-hover))]">
+                    <td className="px-5 py-3.5 font-semibold text-primary">
+                      {GL_CONTRACTOR_MAPPING_LABELS[mapping.systemKey]}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <Badge tone={mapping.postingSide === 'debit' ? 'success' : 'warning'}>
+                        {mapping.postingSide === 'debit' ? 'Expense' : 'Liability'}
+                      </Badge>
+                    </td>
+                    <td className="min-w-[280px] px-5 py-3.5">
+                      <Select
+                        value={draftContractorGlByKey[mapping.systemKey] ?? ''}
+                        onChange={(event) => {
+                          setContractorSaved(false);
+                          setDraftContractorGlByKey((current) => ({
+                            ...current,
+                            [mapping.systemKey]: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="">Choose GL account</option>
+                        {accounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.code} · {account.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end border-t border-base px-5 py-4">
+            <Button onClick={() => void handleSaveContractorMappings()} disabled={contractorSaving}>
+              {contractorSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : contractorSaved ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Settings2 className="h-4 w-4" />
+              )}
+              {contractorSaved
+                ? 'Contractor mappings saved'
+                : contractorSaving
+                  ? 'Saving…'
+                  : 'Save contractor mappings'}
+            </Button>
+          </div>
+        </section>
       )}
 
       {tab === 'connections' && (

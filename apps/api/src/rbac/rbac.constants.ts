@@ -26,6 +26,8 @@ export const PERMISSION_MODULES = [
   'training',
   'employee_relations',
   'engagement',
+  'health_safety',
+  'contractors',
 ] as const;
 
 export type PermissionModule = (typeof PERMISSION_MODULES)[number];

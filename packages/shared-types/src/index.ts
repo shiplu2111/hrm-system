@@ -37,3 +37,5 @@ export * from './performance';
 export * from './training';
 export * from './employee-relations';
 export * from './engagement';
+export * from './health-safety';
+export * from './contractors';

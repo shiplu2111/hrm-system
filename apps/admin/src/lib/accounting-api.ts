@@ -1,7 +1,10 @@
 import type {
   AccountingConnectionRecord,
   AccountingSyncJobRecord,
+  ContractorJournalExportRecord,
   GlAccountRecord,
+  GlContractorMappingRecord,
+  GlContractorSystemMappingKey,
   GlPayrollMappingRecord,
   GlSystemMappingKey,
   PayrollJournalExportRecord,
@@ -36,6 +39,36 @@ export function saveGlPayrollMappings(
   return tenantApiRequest<GlPayrollMappingRecord[]>(
     `/companies/${companyId}/gl-payroll-mappings`,
     { method: 'POST', body: JSON.stringify({ mappings }) },
+  );
+}
+
+export function listGlContractorMappings(
+  companyId: string,
+): Promise<GlContractorMappingRecord[]> {
+  return tenantApiRequest<GlContractorMappingRecord[]>(
+    `/companies/${companyId}/gl-contractor-mappings`,
+  );
+}
+
+export function saveGlContractorMappings(
+  companyId: string,
+  mappings: Array<{
+    systemKey: GlContractorSystemMappingKey;
+    postingSide: 'debit' | 'credit';
+    glAccountId: string;
+  }>,
+): Promise<GlContractorMappingRecord[]> {
+  return tenantApiRequest<GlContractorMappingRecord[]>(
+    `/companies/${companyId}/gl-contractor-mappings`,
+    { method: 'POST', body: JSON.stringify({ mappings }) },
+  );
+}
+
+export function listContractorJournalExports(
+  companyId: string,
+): Promise<ContractorJournalExportRecord[]> {
+  return tenantApiRequest<ContractorJournalExportRecord[]>(
+    `/companies/${companyId}/contractor-journal-exports`,
   );
 }
 

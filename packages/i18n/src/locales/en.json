@@ -277,5 +277,40 @@
     "noRecipients": "No colleagues available.",
     "typePeer": "Peer recognition",
     "typeManager": "Manager recognition"
+  },
+  "healthSafety": {
+    "nav": "Safety",
+    "title": "Report incident",
+    "subtitle": "Report workplace incidents from the field. GPS is attached when available.",
+    "reportIncident": "Report incident",
+    "submitReport": "Submit report",
+    "reportSent": "Incident reported — HR has been notified.",
+    "incidentType": "Incident type",
+    "severity": "Severity",
+    "location": "Location",
+    "locationPlaceholder": "e.g. Site B · loading dock",
+    "description": "What happened?",
+    "descriptionPlaceholder": "Describe the incident and immediate actions taken…",
+    "recentIncidents": "Recent incidents",
+    "emptyFeed": "No incidents reported yet.",
+    "regulatorRequired": "Regulator reporting may be required",
+    "gpsLocationFallback": "Field location (GPS)",
+    "loadFailedTitle": "Could not load safety data",
+    "submitFailedTitle": "Could not submit report",
+    "types": {
+      "near_miss": "Near miss",
+      "injury": "Injury",
+      "first_aid": "First aid",
+      "slip_trip": "Slip / trip",
+      "equipment_damage": "Equipment damage",
+      "environmental": "Environmental",
+      "other": "Other"
+    },
+    "severities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    }
   }
 }

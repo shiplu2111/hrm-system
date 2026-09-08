@@ -106,6 +106,26 @@ export function buildKudosReceivedVariables(input: {
   };
 }
 
+export function buildSafetyIncidentReportedVariables(input: {
+  incidentNumber: string;
+  incidentType: string;
+  severity: string;
+  location: string;
+  reporterName: string;
+  regulatorReportRequired: boolean;
+}): NotificationEmitInput['variables'] {
+  return {
+    incident_number: input.incidentNumber,
+    incident_type: input.incidentType.replace(/_/g, ' '),
+    severity: input.severity,
+    location: input.location,
+    reporter_name: input.reporterName,
+    regulator_notice: input.regulatorReportRequired
+      ? ' Regulator reporting may be required under country rules.'
+      : '',
+  };
+}
+
 export function buildExpenseOutcomeVariables(input: {
   employeeName: string;
   claimReference: string;

@@ -49,6 +49,8 @@ import { PerformanceModule } from './performance/performance.module';
 import { TrainingModule } from './training/training.module';
 import { EmployeeRelationsModule } from './employee-relations/employee-relations.module';
 import { EngagementModule } from './engagement/engagement.module';
+import { HealthSafetyModule } from './health-safety/health-safety.module';
+import { ContractorsModule } from './contractors/contractors.module';
 
 @Module({
   imports: [
@@ -105,6 +107,8 @@ import { EngagementModule } from './engagement/engagement.module';
     TrainingModule,
     EmployeeRelationsModule,
     EngagementModule,
+    HealthSafetyModule,
+    ContractorsModule,
   ],
   controllers: [AppController],
   providers: [

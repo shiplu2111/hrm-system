@@ -85,7 +85,7 @@ export class UpsertTaxBracketDto {
 
 export class UpsertCountryRuleDto {
   @IsString()
-  @IsIn(['leave', 'ot', 'social_security', 'public_holiday'])
+  @IsIn(['leave', 'ot', 'social_security', 'public_holiday', 'health_safety'])
   ruleType!: CountryRuleKind;
 
   @IsObject()

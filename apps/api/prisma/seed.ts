@@ -23,6 +23,7 @@ const ID = {
   countryRuleOt: '10000000-0000-4000-8000-000000000005',
   countryRulePublicHoliday: '10000000-0000-4000-8000-000000000006',
   countryRuleSocialSecurity: '10000000-0000-4000-8000-000000000008',
+  countryRuleHealthSafety: '10000000-0000-4000-8000-000000000009',
   stateRuleNswHoliday: '10000000-0000-4000-8000-000000000007',
   companyHoliday: '10000000-0000-4000-8000-000000000071',
   branchHoliday: '10000000-0000-4000-8000-000000000072',
@@ -201,6 +202,20 @@ const ID = {
   engagementPulseQuestion: '10000000-0000-4000-8000-000000000283',
   engagementEnpsQuestion: '10000000-0000-4000-8000-000000000284',
   engagementKudosManager: '10000000-0000-4000-8000-000000000285',
+  safetyIncidentNearMiss: '10000000-0000-4000-8000-000000000290',
+  contractorClearPath: '10000000-0000-4000-8000-000000000291',
+  contractorContractClearPath: '10000000-0000-4000-8000-000000000292',
+  contractorInvoiceClearPathPaid: '10000000-0000-4000-8000-000000000293',
+  contractorInvoiceClearPathApproved: '10000000-0000-4000-8000-000000000294',
+  contractorApex: '10000000-0000-4000-8000-000000000295',
+  contractorContractApex: '10000000-0000-4000-8000-000000000296',
+  glAccountContractorExpense: '10000000-0000-4000-8000-000000000297',
+  glAccountContractorPayable: '10000000-0000-4000-8000-000000000298',
+  glMappingContractorExpense: '10000000-0000-4000-8000-000000000299',
+  glMappingContractorPayable: '10000000-0000-4000-8000-00000000029a',
+  contractorMilestoneClearPath1: '10000000-0000-4000-8000-00000000029b',
+  contractorMilestoneClearPath2: '10000000-0000-4000-8000-00000000029c',
+  safetyComplianceInduction: '10000000-0000-4000-8000-000000000291',
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
   userStaff: '10000000-0000-4000-8000-000000000064',
@@ -240,6 +255,8 @@ const MODULES = [
   'training',
   'employee_relations',
   'engagement',
+  'health_safety',
+  'contractors',
 ] as const;
 
 const ALL_ACTIONS: PermissionAction[] = [
@@ -272,12 +289,15 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'training', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'employee_relations', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
     { module: 'engagement', actions: ['view', 'create', 'edit', 'approve'] },
+    { module: 'health_safety', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
+    { module: 'contractors', actions: ['view', 'create', 'edit', 'approve'] },
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
     { module: 'leave', actions: ['view'] },
     { module: 'payroll', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
     { module: 'attendance', actions: ['view'] },
+    { module: 'contractors', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
   ],
   Manager: [
     { module: 'employee', actions: ['view'] },
@@ -286,6 +306,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'training', actions: ['view', 'create', 'edit'] },
     { module: 'engagement', actions: ['view'] },
+    { module: 'health_safety', actions: ['view', 'create'] },
   ],
   Employee: [
     { module: 'employee', actions: ['view', 'edit'] },
@@ -296,10 +317,12 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'performance', actions: ['view'] },
     { module: 'training', actions: ['view'] },
     { module: 'engagement', actions: ['view', 'create'] },
+    { module: 'health_safety', actions: ['view', 'create'] },
   ],
   Accountant: [
     { module: 'employee', actions: ['view'] },
     { module: 'payroll', actions: ['view', 'approve'] },
+    { module: 'contractors', actions: ['view', 'approve', 'finalize'] },
   ],
   Recruiter: [
     { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
@@ -507,6 +530,77 @@ async function main(): Promise<void> {
         employerContributionRate: 11,
         employeeContributionRate: 0,
         contributionBase: 'gross',
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+      effectiveTo: null,
+    },
+  });
+
+  await prisma.countryRule.upsert({
+    where: { id: ID.countryRuleHealthSafety },
+    create: {
+      id: ID.countryRuleHealthSafety,
+      countryId: country.id,
+      ruleType: CountryRuleType.health_safety,
+      payload: {
+        incidentReporting: {
+          regulatorReportRequiredSeverities: ['high', 'critical'],
+          notifiableIncidentTypes: ['injury'],
+          regulatorReportDeadlineHours: 24,
+          regulatorName: 'Safe Work Australia',
+        },
+        injuryLog: {
+          retentionYears: 7,
+          requireBodyPart: true,
+        },
+        complianceRequirements: [
+          {
+            key: 'safety_induction',
+            title: 'Mandatory safety induction',
+            type: 'training',
+            description: 'Annual workplace safety induction for all staff',
+            renewalMonths: 12,
+          },
+          {
+            key: 'monthly_workplace_inspection',
+            title: 'Monthly workplace inspection',
+            type: 'inspection',
+            description: 'Walk-through inspection of operational areas',
+            frequencyDays: 30,
+          },
+        ],
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: {
+      ruleType: CountryRuleType.health_safety,
+      payload: {
+        incidentReporting: {
+          regulatorReportRequiredSeverities: ['high', 'critical'],
+          notifiableIncidentTypes: ['injury'],
+          regulatorReportDeadlineHours: 24,
+          regulatorName: 'Safe Work Australia',
+        },
+        injuryLog: {
+          retentionYears: 7,
+          requireBodyPart: true,
+        },
+        complianceRequirements: [
+          {
+            key: 'safety_induction',
+            title: 'Mandatory safety induction',
+            type: 'training',
+            description: 'Annual workplace safety induction for all staff',
+            renewalMonths: 12,
+          },
+          {
+            key: 'monthly_workplace_inspection',
+            title: 'Monthly workplace inspection',
+            type: 'inspection',
+            description: 'Walk-through inspection of operational areas',
+            frequencyDays: 30,
+          },
+        ],
       },
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
@@ -2680,6 +2774,18 @@ async function main(): Promise<void> {
       name: 'Benefits Payable',
       accountType: 'liability' as const,
     },
+    {
+      id: ID.glAccountContractorExpense,
+      code: '5040',
+      name: 'Contractor Services Expense',
+      accountType: 'expense' as const,
+    },
+    {
+      id: ID.glAccountContractorPayable,
+      code: '2150',
+      name: 'Contractor Payments Payable',
+      accountType: 'liability' as const,
+    },
   ];
 
   for (const account of glAccountSeeds) {
@@ -2791,6 +2897,42 @@ async function main(): Promise<void> {
         tenantId: tenant.id,
         companyId: company.id,
         systemKey: mapping.systemKey!,
+        postingSide: mapping.postingSide,
+        glAccountId: mapping.glAccountId,
+      },
+      update: {
+        postingSide: mapping.postingSide,
+        glAccountId: mapping.glAccountId,
+      },
+    });
+  }
+
+  for (const mapping of [
+    {
+      id: ID.glMappingContractorExpense,
+      systemKey: 'contractor_expense',
+      postingSide: 'debit' as const,
+      glAccountId: ID.glAccountContractorExpense,
+    },
+    {
+      id: ID.glMappingContractorPayable,
+      systemKey: 'contractor_payable',
+      postingSide: 'credit' as const,
+      glAccountId: ID.glAccountContractorPayable,
+    },
+  ]) {
+    await prisma.glContractorMapping.upsert({
+      where: {
+        companyId_systemKey: {
+          companyId: company.id,
+          systemKey: mapping.systemKey,
+        },
+      },
+      create: {
+        id: mapping.id,
+        tenantId: tenant.id,
+        companyId: company.id,
+        systemKey: mapping.systemKey,
         postingSide: mapping.postingSide,
         glAccountId: mapping.glAccountId,
       },
@@ -3826,6 +3968,252 @@ async function main(): Promise<void> {
       createdByUserId: ID.userManager,
     },
     update: {},
+  });
+
+  await prisma.workplaceIncident.upsert({
+    where: { id: ID.safetyIncidentNearMiss },
+    create: {
+      id: ID.safetyIncidentNearMiss,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      incidentNumber: 'WSH-2026-001',
+      incidentType: 'near_miss',
+      severity: 'medium',
+      status: 'under_investigation',
+      location: 'Warehouse · Bay 3',
+      occurredAt: new Date('2026-08-24T14:35:00.000Z'),
+      description:
+        'Pallet shifted while being lifted; area was isolated immediately.',
+      reportedByEmployeeId: ID.empStaff,
+      regulatorReportRequired: false,
+      createdByUserId: ID.userStaff,
+    },
+    update: { status: 'under_investigation' },
+  });
+
+  await prisma.safetyComplianceRecord.upsert({
+    where: {
+      companyId_requirementKey_scopeKey: {
+        companyId: ID.company,
+        requirementKey: 'safety_induction',
+        scopeKey: 'company',
+      },
+    },
+    create: {
+      id: ID.safetyComplianceInduction,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      requirementKey: 'safety_induction',
+      title: 'Mandatory safety induction',
+      description: 'Annual workplace safety induction for all staff',
+      requirementType: 'training',
+      status: 'compliant',
+      dueDate: new Date('2026-12-31'),
+      completedAt: new Date('2026-01-15'),
+      scopeKey: 'company',
+      sourceRuleType: 'health_safety',
+      metadata: {},
+    },
+    update: { status: 'compliant' },
+  });
+
+  await prisma.contractor.upsert({
+    where: { id: ID.contractorClearPath },
+    create: {
+      id: ID.contractorClearPath,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorNumber: 'VEN-2026-001',
+      legalName: 'ClearPath Consulting Pty Ltd',
+      displayName: 'ClearPath Consulting',
+      contractorKind: 'consultant',
+      category: 'Professional Services',
+      contactName: 'Marcus Lee',
+      email: 'marcus@clearpath.co',
+      phone: '+61 2 5550 0172',
+      location: 'Sydney, NSW',
+      status: 'active',
+      ownerEmployeeId: ID.empHrAdmin,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.contractorContract.upsert({
+    where: { id: ID.contractorContractClearPath },
+    create: {
+      id: ID.contractorContractClearPath,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorId: ID.contractorClearPath,
+      contractNumber: 'CTR-2026-001',
+      title: 'Organizational design advisory',
+      scopeDescription:
+        'Organizational design and change advisory. Includes monthly service reporting and quarterly business reviews.',
+      status: 'active',
+      startDate: new Date('2026-04-01'),
+      endDate: new Date('2027-03-31'),
+      annualValue: 120000,
+      fixedFeeAmount: 120000,
+      currency: 'AUD',
+      paymentStructure: 'milestone',
+      paymentTerms: 'net_30',
+      billingFrequency: 'milestone',
+      autoRenewal: false,
+      noticePeriodDays: 60,
+      ownerEmployeeId: ID.empHrAdmin,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      status: 'active',
+      paymentStructure: 'milestone',
+      fixedFeeAmount: 120000,
+      billingFrequency: 'milestone',
+    },
+  });
+
+  await prisma.contractorContractMilestone.upsert({
+    where: { id: ID.contractorMilestoneClearPath1 },
+    create: {
+      id: ID.contractorMilestoneClearPath1,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractId: ID.contractorContractClearPath,
+      title: 'Discovery & assessment',
+      amount: 40000,
+      targetDate: new Date('2026-06-30'),
+      sortOrder: 0,
+      status: 'paid',
+    },
+    update: { status: 'paid' },
+  });
+
+  await prisma.contractorContractMilestone.upsert({
+    where: { id: ID.contractorMilestoneClearPath2 },
+    create: {
+      id: ID.contractorMilestoneClearPath2,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractId: ID.contractorContractClearPath,
+      title: 'Implementation phase',
+      amount: 80000,
+      targetDate: new Date('2027-03-31'),
+      sortOrder: 1,
+      status: 'pending',
+    },
+    update: {},
+  });
+
+  await prisma.contractorInvoice.upsert({
+    where: { id: ID.contractorInvoiceClearPathPaid },
+    create: {
+      id: ID.contractorInvoiceClearPathPaid,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorId: ID.contractorClearPath,
+      contractId: ID.contractorContractClearPath,
+      milestoneId: ID.contractorMilestoneClearPath1,
+      invoiceNumber: 'CINV-2026-001',
+      periodLabel: 'Milestone 1 — Discovery',
+      description: 'Discovery & assessment milestone',
+      lineItems: [
+        {
+          description: 'Discovery & assessment milestone',
+          amount: '40000.00',
+        },
+      ],
+      amount: 40000,
+      currency: 'AUD',
+      issuedAt: new Date('2026-07-18'),
+      dueAt: new Date('2026-08-17'),
+      status: 'paid',
+      paidAt: new Date('2026-08-15'),
+      paymentReference: 'EFT-20260815-001',
+      approvedByUserId: ID.userPayrollAdmin,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'paid' },
+  });
+
+  await prisma.contractorInvoice.upsert({
+    where: { id: ID.contractorInvoiceClearPathApproved },
+    create: {
+      id: ID.contractorInvoiceClearPathApproved,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorId: ID.contractorClearPath,
+      contractId: ID.contractorContractClearPath,
+      invoiceNumber: 'CINV-2026-002',
+      periodLabel: 'August 2026',
+      description: 'Monthly advisory retainer',
+      lineItems: [
+        {
+          description: 'Organizational design advisory — August 2026',
+          amount: '10000.00',
+        },
+      ],
+      amount: 10000,
+      currency: 'AUD',
+      issuedAt: new Date('2026-08-18'),
+      dueAt: new Date('2026-09-17'),
+      status: 'approved',
+      approvedByUserId: ID.userPayrollAdmin,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'approved' },
+  });
+
+  await prisma.contractor.upsert({
+    where: { id: ID.contractorApex },
+    create: {
+      id: ID.contractorApex,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorNumber: 'VEN-2026-002',
+      legalName: 'Apex Facilities Group',
+      displayName: 'Apex Facilities Group',
+      contractorKind: 'vendor',
+      category: 'Facilities',
+      contactName: 'Sofia Martinez',
+      email: 'sofia@apexfacilities.com',
+      phone: '+61 2 5550 0194',
+      location: 'Melbourne, VIC',
+      status: 'active',
+      ownerEmployeeId: ID.empManager,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: { status: 'active' },
+  });
+
+  await prisma.contractorContract.upsert({
+    where: { id: ID.contractorContractApex },
+    create: {
+      id: ID.contractorContractApex,
+      tenantId: ID.tenant,
+      companyId: ID.company,
+      contractorId: ID.contractorApex,
+      contractNumber: 'CTR-2026-002',
+      title: 'Office maintenance and facilities response',
+      scopeDescription: 'Office maintenance, cleaning, and facilities response SLA.',
+      status: 'active',
+      startDate: new Date('2025-09-15'),
+      endDate: new Date('2026-09-14'),
+      annualValue: 86400,
+      hourlyRate: 95,
+      currency: 'AUD',
+      paymentStructure: 'hourly_invoice',
+      paymentTerms: 'net_30',
+      billingFrequency: 'monthly',
+      autoRenewal: false,
+      noticePeriodDays: 30,
+      ownerEmployeeId: ID.empManager,
+      createdByUserId: ID.userHrAdmin,
+    },
+    update: {
+      status: 'active',
+      paymentStructure: 'hourly_invoice',
+      hourlyRate: 95,
+    },
   });
 
   console.log('Seed complete.');

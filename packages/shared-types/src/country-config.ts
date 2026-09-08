@@ -4,7 +4,8 @@ export type CountryRuleKind =
   | 'leave'
   | 'ot'
   | 'social_security'
-  | 'public_holiday';
+  | 'public_holiday'
+  | 'health_safety';
 
 export interface CountrySummary {
   id: string;

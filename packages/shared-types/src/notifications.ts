@@ -12,7 +12,8 @@ export type NotificationEventType =
   | 'expense.rejected'
   | 'onboarding.welcome'
   | 'certification.expiring'
-  | 'kudos.received';
+  | 'kudos.received'
+  | 'safety.incident.reported';
 
 export type NotificationRecipientRole =
   | 'subject_employee'

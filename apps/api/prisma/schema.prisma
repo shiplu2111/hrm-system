@@ -32,6 +32,7 @@ enum CountryRuleType {
   ot
   social_security
   public_holiday
+  health_safety
 
   @@map("country_rule_type")
 }
@@ -85,7 +86,9 @@ model Tenant {
   benefitEnrollmentDependents BenefitEnrollmentDependent[]
   glAccounts                  GlAccount[]
   glPayrollMappings           GlPayrollMapping[]
+  glContractorMappings        GlContractorMapping[]
   payrollJournalExports       PayrollJournalExport[]
+  contractorJournalExports    ContractorJournalExport[]
   accountingConnections       AccountingConnection[]
   accountingSyncJobs          AccountingSyncJob[]
   tenantApiKeys               TenantApiKey[]
@@ -121,6 +124,17 @@ model Tenant {
   engagementSurveys           EngagementSurvey[]
   engagementSurveyResponses   EngagementSurveyResponse[]
   employeeKudos               EmployeeKudos[]
+  workplaceIncidents          WorkplaceIncident[]
+  workplaceIncidentParties    WorkplaceIncidentParty[]
+  injuryLogEntries            InjuryLogEntry[]
+  safetyComplianceRecords     SafetyComplianceRecord[]
+  safetyInspections           SafetyInspection[]
+  contractors                 Contractor[]
+  contractorContracts         ContractorContract[]
+  contractorInvoices          ContractorInvoice[]
+  contractorPaymentBatches    ContractorPaymentBatch[]
+  contractorPaymentBatchItems ContractorPaymentBatchItem[]
+  contractorContractMilestones ContractorContractMilestone[]
 
   @@map("tenants")
 }
@@ -290,6 +304,7 @@ model Company {
   benefitEnrollments          BenefitEnrollment[]
   glAccounts                  GlAccount[]
   glPayrollMappings           GlPayrollMapping[]
+  glContractorMappings        GlContractorMapping[]
   payrollJournalExports       PayrollJournalExport[]
   accountingConnections       AccountingConnection[]
   accountingSyncJobs          AccountingSyncJob[]
@@ -311,6 +326,16 @@ model Company {
   companyAnnouncements          CompanyAnnouncement[]
   engagementSurveys             EngagementSurvey[]
   employeeKudos                 EmployeeKudos[]
+  workplaceIncidents            WorkplaceIncident[]
+  injuryLogEntries              InjuryLogEntry[]
+  safetyComplianceRecords       SafetyComplianceRecord[]
+  safetyInspections             SafetyInspection[]
+  contractors                   Contractor[]
+  contractorContracts           ContractorContract[]
+  contractorInvoices            ContractorInvoice[]
+  contractorPaymentBatches      ContractorPaymentBatch[]
+  contractorContractMilestones  ContractorContractMilestone[]
+  contractorJournalExports      ContractorJournalExport[]
 
   @@index([tenantId])
   @@index([countryId])
@@ -555,6 +580,13 @@ model Employee {
   engagementSurveyResponses   EngagementSurveyResponse[]
   kudosGiven                  EmployeeKudos[] @relation("KudosGiven")
   kudosReceived               EmployeeKudos[] @relation("KudosReceived")
+  workplaceIncidentsReported  WorkplaceIncident[] @relation("IncidentReporter")
+  workplaceIncidentParties    WorkplaceIncidentParty[]
+  injuryLogEntries            InjuryLogEntry[] @relation("InjuredEmployee")
+  safetyComplianceRecords     SafetyComplianceRecord[]
+  safetyInspectionsConducted  SafetyInspection[] @relation("SafetyInspector")
+  ownedContractorContracts    ContractorContract[] @relation("ContractOwner")
+  contractorsOwned            Contractor[] @relation("ContractorOwner")
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -2839,6 +2871,7 @@ model GlAccount {
   tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company          Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   payrollMappings  GlPayrollMapping[]
+  contractorMappings GlContractorMapping[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -2868,6 +2901,56 @@ model GlPayrollMapping {
   @@index([companyId])
   @@index([glAccountId])
   @@map("gl_payroll_mappings")
+}
+
+model GlContractorMapping {
+  id          String               @id @default(uuid()) @db.Uuid
+  tenantId    String               @map("tenant_id") @db.Uuid
+  companyId   String               @map("company_id") @db.Uuid
+  systemKey   String               @map("system_key")
+  postingSide GlMappingPostingSide @map("posting_side")
+  glAccountId String               @map("gl_account_id") @db.Uuid
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  glAccount GlAccount @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, systemKey])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([glAccountId])
+  @@map("gl_contractor_mappings")
+}
+
+model ContractorJournalExport {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  tenantId                 String                     @map("tenant_id") @db.Uuid
+  companyId                String                     @map("company_id") @db.Uuid
+  contractorPaymentBatchId String                     @map("contractor_payment_batch_id") @db.Uuid
+  referenceNumber          String                     @map("reference_number")
+  status                   PayrollJournalExportStatus @default(pending)
+  provider                 AccountingProvider?        @map("provider")
+  journalData              Json                       @map("journal_data")
+  totalDebit               Decimal                    @map("total_debit") @db.Decimal(14, 2)
+  totalCredit              Decimal                    @map("total_credit") @db.Decimal(14, 2)
+  unmappedCount            Int                        @default(0) @map("unmapped_count")
+  errorMessage             String?                    @map("error_message")
+  externalReferenceId      String?                    @map("external_reference_id")
+  exportedByUserId         String?                    @map("exported_by_user_id") @db.Uuid
+  exportedAt               DateTime?                  @map("exported_at")
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company                Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contractorPaymentBatch ContractorPaymentBatch @relation(fields: [contractorPaymentBatchId], references: [id], onDelete: Restrict)
+
+  @@unique([contractorPaymentBatchId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("contractor_journal_exports")
 }
 
 model PayrollJournalExport {
@@ -4173,6 +4256,518 @@ model EmployeeKudos {
   @@index([toEmployeeId])
   @@index([fromEmployeeId])
   @@map("employee_kudos")
+}
+
+// ---------------------------------------------------------------------------
+// §8k Health & Safety (MODULES.md §30)
+// ---------------------------------------------------------------------------
+
+enum WorkplaceIncidentType {
+  near_miss
+  injury
+  first_aid
+  slip_trip
+  equipment_damage
+  environmental
+  other
+
+  @@map("workplace_incident_type")
+}
+
+enum WorkplaceIncidentSeverity {
+  low
+  medium
+  high
+  critical
+
+  @@map("workplace_incident_severity")
+}
+
+enum WorkplaceIncidentStatus {
+  reported
+  under_investigation
+  resolved
+  closed
+
+  @@map("workplace_incident_status")
+}
+
+enum IncidentPartyRole {
+  involved
+  witness
+  injured
+
+  @@map("incident_party_role")
+}
+
+/// Workplace incident report — submittable by any employee (incl. mobile field workers).
+model WorkplaceIncident {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  tenantId                 String                    @map("tenant_id") @db.Uuid
+  companyId                String                    @map("company_id") @db.Uuid
+  incidentNumber           String                    @map("incident_number")
+  incidentType             WorkplaceIncidentType     @map("incident_type")
+  severity                 WorkplaceIncidentSeverity
+  status                   WorkplaceIncidentStatus   @default(reported)
+  location                 String
+  occurredAt               DateTime                  @map("occurred_at")
+  description              String                    @db.Text
+  reportedByEmployeeId     String                    @map("reported_by_employee_id") @db.Uuid
+  gpsLat                   Decimal?                  @map("gps_lat") @db.Decimal(10, 7)
+  gpsLng                   Decimal?                  @map("gps_lng") @db.Decimal(10, 7)
+  regulatorReportRequired  Boolean                   @default(false) @map("regulator_report_required")
+  regulatorReportDueAt     DateTime?                 @map("regulator_report_due_at")
+  regulatorReportSubmittedAt DateTime?               @map("regulator_report_submitted_at")
+  regulatorName            String?                   @map("regulator_name")
+  investigationNotes       String?                   @map("investigation_notes") @db.Text
+  resolvedAt               DateTime?                 @map("resolved_at")
+  createdByUserId          String                    @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reportedByEmployee Employee                @relation("IncidentReporter", fields: [reportedByEmployeeId], references: [id], onDelete: Restrict)
+  parties          WorkplaceIncidentParty[]
+  injuryEntries    InjuryLogEntry[]
+
+  @@unique([companyId, incidentNumber])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, occurredAt])
+  @@index([reportedByEmployeeId])
+  @@map("workplace_incidents")
+}
+
+model WorkplaceIncidentParty {
+  id         String            @id @default(uuid()) @db.Uuid
+  tenantId   String            @map("tenant_id") @db.Uuid
+  incidentId String            @map("incident_id") @db.Uuid
+  employeeId String            @map("employee_id") @db.Uuid
+  partyRole  IncidentPartyRole @map("party_role")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  incident WorkplaceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  employee Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([incidentId, employeeId])
+  @@index([tenantId])
+  @@index([employeeId])
+  @@map("workplace_incident_parties")
+}
+
+enum InjuryMedicalAttention {
+  none
+  first_aid
+  clinic
+  hospital
+
+  @@map("injury_medical_attention")
+}
+
+/// Injury log — may link to an incident or stand alone.
+model InjuryLogEntry {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  tenantId           String                 @map("tenant_id") @db.Uuid
+  companyId          String                 @map("company_id") @db.Uuid
+  incidentId         String?                @map("incident_id") @db.Uuid
+  employeeId         String                 @map("employee_id") @db.Uuid
+  injuryType         String                 @map("injury_type")
+  bodyPart           String?                @map("body_part")
+  treatmentSummary   String?                @map("treatment_summary") @db.Text
+  medicalAttention   InjuryMedicalAttention @default(none) @map("medical_attention")
+  daysLost           Int                    @default(0) @map("days_lost")
+  recordedAt         DateTime               @map("recorded_at")
+  recordedByUserId   String                 @map("recorded_by_user_id") @db.Uuid
+  notes              String?                @db.Text
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  incident         WorkplaceIncident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  employee         Employee           @relation("InjuredEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, recordedAt])
+  @@index([employeeId])
+  @@index([incidentId])
+  @@map("injury_log_entries")
+}
+
+enum SafetyComplianceRequirementType {
+  training
+  inspection
+  certification
+  reporting
+
+  @@map("safety_compliance_requirement_type")
+}
+
+enum SafetyComplianceStatus {
+  pending
+  compliant
+  overdue
+  waived
+
+  @@map("safety_compliance_status")
+}
+
+/// Safety compliance tracking — requirements resolved from country health_safety rules.
+model SafetyComplianceRecord {
+  id              String                          @id @default(uuid()) @db.Uuid
+  tenantId        String                          @map("tenant_id") @db.Uuid
+  companyId       String                          @map("company_id") @db.Uuid
+  requirementKey  String                          @map("requirement_key")
+  title           String
+  description     String?                         @db.Text
+  requirementType SafetyComplianceRequirementType @map("requirement_type")
+  status          SafetyComplianceStatus          @default(pending)
+  dueDate         DateTime?                       @map("due_date") @db.Date
+  completedAt     DateTime?                       @map("completed_at")
+  employeeId      String?                         @map("employee_id") @db.Uuid
+  scopeKey        String                          @default("company") @map("scope_key")
+  sourceRuleType  String                          @default("health_safety") @map("source_rule_type")
+  metadata        Json                            @default("{}")
+  createdAt       DateTime                        @default(now()) @map("created_at")
+  updatedAt       DateTime                        @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, requirementKey, scopeKey])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([employeeId])
+  @@map("safety_compliance_records")
+}
+
+enum SafetyInspectionStatus {
+  draft
+  completed
+
+  @@map("safety_inspection_status")
+}
+
+model SafetyInspection {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  companyId           String                 @map("company_id") @db.Uuid
+  title               String
+  inspectedAt         DateTime               @map("inspected_at")
+  status              SafetyInspectionStatus @default(draft)
+  inspectorEmployeeId String?                @map("inspector_employee_id") @db.Uuid
+  scorePercent        Int?                   @map("score_percent")
+  checklistItems      Json                   @default("[]") @map("checklist_items")
+  createdByUserId     String                 @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  inspectorEmployee Employee? @relation("SafetyInspector", fields: [inspectorEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([companyId, inspectedAt])
+  @@map("safety_inspections")
+}
+
+// ---------------------------------------------------------------------------
+// §8l Vendor / Contractor Management (MODULES.md §31)
+// Invoice-based contractor payroll — separate from employee salary_structures.
+// ---------------------------------------------------------------------------
+
+enum ContractorKind {
+  freelancer
+  consultant
+  vendor
+
+  @@map("contractor_kind")
+}
+
+enum ContractorStatus {
+  draft
+  active
+  inactive
+
+  @@map("contractor_status")
+}
+
+enum ContractorContractStatus {
+  draft
+  active
+  expired
+  terminated
+
+  @@map("contractor_contract_status")
+}
+
+enum ContractorPaymentTerms {
+  due_on_receipt
+  net_7
+  net_14
+  net_30
+  net_45
+  net_60
+
+  @@map("contractor_payment_terms")
+}
+
+enum ContractorBillingFrequency {
+  per_invoice
+  weekly
+  monthly
+  milestone
+
+  @@map("contractor_billing_frequency")
+}
+
+/// How a contract is billed — distinct from net payment terms (net_30, etc.).
+enum ContractorPaymentStructure {
+  fixed_project_fee
+  milestone
+  hourly_invoice
+
+  @@map("contractor_payment_structure")
+}
+
+enum ContractorMilestoneStatus {
+  pending
+  invoiced
+  paid
+
+  @@map("contractor_milestone_status")
+}
+
+enum ContractorInvoiceStatus {
+  draft
+  submitted
+  approved
+  scheduled
+  paid
+  rejected
+  cancelled
+
+  @@map("contractor_invoice_status")
+}
+
+enum ContractorPaymentBatchStatus {
+  draft
+  pending
+  paid
+  failed
+
+  @@map("contractor_payment_batch_status")
+}
+
+enum ContractorPaymentBatchItemStatus {
+  pending
+  paid
+  failed
+
+  @@map("contractor_payment_batch_item_status")
+}
+
+/// Non-employee vendor, freelancer or consultant — not linked to salary_structures.
+model Contractor {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  companyId        String           @map("company_id") @db.Uuid
+  contractorNumber String           @map("contractor_number")
+  legalName        String           @map("legal_name")
+  displayName      String?          @map("display_name")
+  contractorKind   ContractorKind   @default(consultant) @map("contractor_kind")
+  category         String?
+  contactName      String?          @map("contact_name")
+  email            String?
+  phone            String?
+  location         String?
+  taxId            String?          @map("tax_id")
+  status           ContractorStatus @default(draft)
+  ownerEmployeeId  String?          @map("owner_employee_id") @db.Uuid
+  bankDetails      Json             @default("{}") @map("bank_details")
+  notes            String?          @db.Text
+  createdByUserId  String           @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  owner     Employee?            @relation("ContractorOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
+  contracts ContractorContract[]
+  invoices  ContractorInvoice[]
+  paymentBatchItems ContractorPaymentBatchItem[]
+
+  @@unique([companyId, contractorNumber])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@map("contractors")
+}
+
+/// Contract-based payment terms for a contractor.
+model ContractorContract {
+  id                String                     @id @default(uuid()) @db.Uuid
+  tenantId          String                     @map("tenant_id") @db.Uuid
+  companyId         String                     @map("company_id") @db.Uuid
+  contractorId      String                     @map("contractor_id") @db.Uuid
+  contractNumber    String                     @map("contract_number")
+  title             String
+  scopeDescription  String?                    @map("scope_description") @db.Text
+  status            ContractorContractStatus   @default(draft)
+  startDate         DateTime                   @map("start_date") @db.Date
+  endDate           DateTime                   @map("end_date") @db.Date
+  annualValue       Decimal?                   @map("annual_value") @db.Decimal(14, 2)
+  fixedFeeAmount    Decimal?                   @map("fixed_fee_amount") @db.Decimal(14, 2)
+  hourlyRate        Decimal?                   @map("hourly_rate") @db.Decimal(14, 2)
+  currency          String                     @default("AUD") @db.VarChar(3)
+  paymentStructure  ContractorPaymentStructure @default(fixed_project_fee) @map("payment_structure")
+  paymentTerms      ContractorPaymentTerms     @default(net_30) @map("payment_terms")
+  billingFrequency  ContractorBillingFrequency @default(monthly) @map("billing_frequency")
+  autoRenewal       Boolean                    @default(false) @map("auto_renewal")
+  noticePeriodDays  Int                        @default(30) @map("notice_period_days")
+  ownerEmployeeId   String?                    @map("owner_employee_id") @db.Uuid
+  createdByUserId   String                     @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contractor Contractor          @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  owner      Employee?           @relation("ContractOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
+  invoices   ContractorInvoice[]
+  milestones ContractorContractMilestone[]
+
+  @@unique([companyId, contractNumber])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([contractorId])
+  @@index([companyId, endDate])
+  @@map("contractor_contracts")
+}
+
+model ContractorContractMilestone {
+  id          String                    @id @default(uuid()) @db.Uuid
+  tenantId    String                    @map("tenant_id") @db.Uuid
+  companyId   String                    @map("company_id") @db.Uuid
+  contractId  String                    @map("contract_id") @db.Uuid
+  title       String
+  description String?                   @db.Text
+  amount      Decimal                   @db.Decimal(14, 2)
+  targetDate  DateTime?                 @map("target_date") @db.Date
+  sortOrder   Int                       @default(0) @map("sort_order")
+  status      ContractorMilestoneStatus @default(pending)
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company  Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contract ContractorContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  invoices ContractorInvoice[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([contractId])
+  @@map("contractor_contract_milestones")
+}
+
+/// Invoice-based contractor payment — not a payroll_run / salary_structure record.
+model ContractorInvoice {
+  id              String                  @id @default(uuid()) @db.Uuid
+  tenantId        String                  @map("tenant_id") @db.Uuid
+  companyId       String                  @map("company_id") @db.Uuid
+  contractorId    String                  @map("contractor_id") @db.Uuid
+  contractId      String                  @map("contract_id") @db.Uuid
+  milestoneId     String?                 @map("milestone_id") @db.Uuid
+  invoiceNumber   String                  @map("invoice_number")
+  periodLabel     String?                 @map("period_label")
+  description     String?                 @db.Text
+  lineItems       Json                    @default("[]") @map("line_items")
+  hoursWorked     Decimal?                @map("hours_worked") @db.Decimal(10, 2)
+  hourlyRate      Decimal?                @map("hourly_rate") @db.Decimal(14, 2)
+  amount          Decimal                 @db.Decimal(14, 2)
+  currency        String                  @default("AUD") @db.VarChar(3)
+  issuedAt        DateTime                @map("issued_at")
+  dueAt           DateTime                @map("due_at")
+  status          ContractorInvoiceStatus @default(draft)
+  paidAt          DateTime?               @map("paid_at")
+  paymentReference String?                @map("payment_reference")
+  approvedByUserId String?                @map("approved_by_user_id") @db.Uuid
+  createdByUserId String                  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contractor Contractor         @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  contract   ContractorContract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  milestone  ContractorContractMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  paymentBatchItem ContractorPaymentBatchItem?
+
+  @@unique([companyId, invoiceNumber])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([contractorId])
+  @@index([contractId])
+  @@index([milestoneId])
+  @@index([companyId, dueAt])
+  @@map("contractor_invoices")
+}
+
+/// Contractor payment batch — separate from employee payment_batches / payroll_periods.
+model ContractorPaymentBatch {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  tenantId             String                       @map("tenant_id") @db.Uuid
+  companyId            String                       @map("company_id") @db.Uuid
+  referenceNumber      String                       @map("reference_number")
+  status               ContractorPaymentBatchStatus @default(draft)
+  totalAmount          Decimal                      @map("total_amount") @db.Decimal(14, 2)
+  currency             String                       @default("AUD") @db.VarChar(3)
+  itemCount            Int                          @map("item_count")
+  transactionReference String?                      @map("transaction_reference")
+  failureReason        String?                      @map("failure_reason")
+  submittedAt          DateTime?                    @map("submitted_at")
+  paidAt               DateTime?                    @map("paid_at")
+  failedAt             DateTime?                    @map("failed_at")
+  createdByUserId      String                       @map("created_by_user_id") @db.Uuid
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+
+  tenant        Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  items         ContractorPaymentBatchItem[]
+  journalExport ContractorJournalExport?
+
+  @@unique([companyId, referenceNumber])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@map("contractor_payment_batches")
+}
+
+model ContractorPaymentBatchItem {
+  id                   String                           @id @default(uuid()) @db.Uuid
+  tenantId             String                           @map("tenant_id") @db.Uuid
+  paymentBatchId       String                           @map("payment_batch_id") @db.Uuid
+  contractorInvoiceId  String                           @unique @map("contractor_invoice_id") @db.Uuid
+  contractorId         String                           @map("contractor_id") @db.Uuid
+  amount               Decimal                          @db.Decimal(14, 2)
+  status               ContractorPaymentBatchItemStatus @default(pending)
+  transactionReference String?                          @map("transaction_reference")
+  failureReason        String?                          @map("failure_reason")
+  createdAt            DateTime                         @default(now()) @map("created_at")
+  updatedAt            DateTime                         @updatedAt @map("updated_at")
+
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  paymentBatch      ContractorPaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Restrict)
+  contractorInvoice ContractorInvoice      @relation(fields: [contractorInvoiceId], references: [id], onDelete: Restrict)
+  contractor        Contractor             @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([paymentBatchId])
+  @@index([contractorId])
+  @@index([status])
+  @@map("contractor_payment_batch_items")
 }
 
 // ---------------------------------------------------------------------------

@@ -17,7 +17,9 @@ import { RequirePermission } from '../rbac/require-permission.decorator';
 import { AccountingConnectionService } from './accounting-connection.service';
 import { AccountingSyncQueueService } from './accounting-sync-queue.service';
 import { AccountingService } from './accounting.service';
+import { ContractorAccountingService } from './contractor-accounting.service';
 import {
+  BulkUpsertGlContractorMappingsDto,
   BulkUpsertGlPayrollMappingsDto,
   CreateGlAccountDto,
   UpdateGlAccountDto,
@@ -29,6 +31,7 @@ import {
 export class AccountingController {
   constructor(
     private readonly accountingService: AccountingService,
+    private readonly contractorAccountingService: ContractorAccountingService,
     private readonly connectionService: AccountingConnectionService,
     private readonly syncQueue: AccountingSyncQueueService,
   ) {}
@@ -83,6 +86,60 @@ export class AccountingController {
         dto,
         user,
       ),
+    };
+  }
+
+  @Get('companies/:companyId/gl-contractor-mappings')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Contractor payment GL mappings (separate from payroll)' })
+  async listContractorMappings(@Param('companyId', ParseUUIDPipe) companyId: string) {
+    return {
+      data: await this.contractorAccountingService.listContractorMappings(companyId),
+    };
+  }
+
+  @Post('companies/:companyId/gl-contractor-mappings')
+  @RequirePermission('payroll', 'edit')
+  async upsertContractorMappings(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: BulkUpsertGlContractorMappingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.contractorAccountingService.upsertContractorMappings(
+        companyId,
+        dto.mappings,
+        user,
+      ),
+    };
+  }
+
+  @Get('contractor-payment-batches/:batchId/journal-preview')
+  @RequirePermission('payroll', 'view')
+  async previewContractorJournal(@Param('batchId', ParseUUIDPipe) batchId: string) {
+    return {
+      data: await this.contractorAccountingService.previewJournalForBatch(batchId),
+    };
+  }
+
+  @Post('contractor-payment-batches/:batchId/journal-export')
+  @RequirePermission('payroll', 'create')
+  async exportContractorJournal(
+    @Param('batchId', ParseUUIDPipe) batchId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.contractorAccountingService.exportJournalForBatch(batchId, user),
+    };
+  }
+
+  @Get('companies/:companyId/contractor-journal-exports')
+  @RequirePermission('payroll', 'view')
+  async listContractorJournalExports(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+  ) {
+    return {
+      data: await this.contractorAccountingService.listContractorJournalExports(companyId),
     };
   }
 

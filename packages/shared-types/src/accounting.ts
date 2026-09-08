@@ -138,3 +138,61 @@ export const GL_SYSTEM_MAPPING_LABELS: Record<GlSystemMappingKey, string> = {
   employer_superannuation_expense: 'Employer superannuation expense',
   employer_superannuation_liability: 'Employer superannuation liability',
 };
+
+/** Contractor payment GL keys — separate from payroll journal mappings. */
+export type GlContractorSystemMappingKey =
+  | 'contractor_expense'
+  | 'contractor_payable';
+
+export interface GlContractorMappingRecord {
+  id: string;
+  companyId: string;
+  systemKey: GlContractorSystemMappingKey;
+  postingSide: GlMappingPostingSide;
+  glAccountId: string;
+  glAccountCode?: string;
+  glAccountName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContractorJournalPreview {
+  contractorPaymentBatchId: string;
+  batchReference: string;
+  periodLabel: string;
+  postingDate: string;
+  invoiceCount: number;
+  referenceNumber: string;
+  lines: PayrollJournalLine[];
+  totalDebit: string;
+  totalCredit: string;
+  balanced: boolean;
+  unmapped: PayrollJournalUnmappedItem[];
+}
+
+export interface ContractorJournalExportRecord {
+  id: string;
+  companyId: string;
+  contractorPaymentBatchId: string;
+  referenceNumber: string;
+  status: PayrollJournalExportStatus;
+  provider: AccountingProvider | null;
+  journal: ContractorJournalPreview;
+  totalDebit: string;
+  totalCredit: string;
+  unmappedCount: number;
+  errorMessage: string | null;
+  externalReferenceId: string | null;
+  csvContent: string | null;
+  exportedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const GL_CONTRACTOR_MAPPING_LABELS: Record<
+  GlContractorSystemMappingKey,
+  string
+> = {
+  contractor_expense: 'Contractor services expense',
+  contractor_payable: 'Contractor payments payable',
+};

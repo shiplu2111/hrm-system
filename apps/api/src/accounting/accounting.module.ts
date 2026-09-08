@@ -8,6 +8,7 @@ import { AccountingOAuthController } from './accounting-oauth.controller';
 import { AccountingSyncQueueService } from './accounting-sync-queue.service';
 import { AccountingController } from './accounting.controller';
 import { AccountingService } from './accounting.service';
+import { ContractorAccountingService } from './contractor-accounting.service';
 import { AccountingGlProviderFactory } from './providers/accounting-gl-provider.factory';
 import { XeroGlProvider } from './providers/xero-gl.provider';
 
@@ -21,11 +22,12 @@ import { XeroGlProvider } from './providers/xero-gl.provider';
   controllers: [AccountingController, AccountingOAuthController],
   providers: [
     AccountingService,
+    ContractorAccountingService,
     AccountingConnectionService,
     AccountingSyncQueueService,
     XeroGlProvider,
     AccountingGlProviderFactory,
   ],
-  exports: [AccountingService, AccountingSyncQueueService],
+  exports: [AccountingService, ContractorAccountingService, AccountingSyncQueueService],
 })
 export class AccountingModule {}

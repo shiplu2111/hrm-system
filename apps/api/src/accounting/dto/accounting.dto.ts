@@ -85,3 +85,23 @@ export class BulkUpsertGlPayrollMappingsDto {
   @Type(() => UpsertGlPayrollMappingDto)
   mappings!: UpsertGlPayrollMappingDto[];
 }
+
+const CONTRACTOR_SYSTEM_KEYS = ['contractor_expense', 'contractor_payable'] as const;
+
+export class UpsertGlContractorMappingDto {
+  @IsIn([...CONTRACTOR_SYSTEM_KEYS])
+  systemKey!: (typeof CONTRACTOR_SYSTEM_KEYS)[number];
+
+  @IsIn([...POSTING_SIDES])
+  postingSide!: (typeof POSTING_SIDES)[number];
+
+  @IsUUID()
+  glAccountId!: string;
+}
+
+export class BulkUpsertGlContractorMappingsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertGlContractorMappingDto)
+  mappings!: UpsertGlContractorMappingDto[];
+}
