@@ -1,9 +1,17 @@
+import type { TenantMembershipView } from '@hrm/shared-types';
+
 export type PortalKind = 'admin' | 'employee' | 'platform';
 
 const TOKEN_KEYS: Record<PortalKind, string> = {
   admin: 'hrm_admin_access_token',
   employee: 'hrm_employee_access_token',
   platform: 'hrm_platform_access_token',
+};
+
+const REFRESH_TOKEN_KEYS: Record<PortalKind, string> = {
+  admin: 'hrm_admin_refresh_token',
+  employee: 'hrm_employee_refresh_token',
+  platform: 'hrm_platform_refresh_token',
 };
 
 const SESSION_KEYS: Record<PortalKind, string> = {
@@ -70,8 +78,24 @@ export function setPortalToken(portal: PortalKind, token: string | null): void {
   }
 }
 
+export function getPortalRefreshToken(portal: PortalKind): string | null {
+  return localStorage.getItem(REFRESH_TOKEN_KEYS[portal]);
+}
+
+export function setPortalRefreshToken(
+  portal: PortalKind,
+  token: string | null,
+): void {
+  if (token) {
+    localStorage.setItem(REFRESH_TOKEN_KEYS[portal], token);
+  } else {
+    localStorage.removeItem(REFRESH_TOKEN_KEYS[portal]);
+  }
+}
+
 export function clearPortalToken(portal: PortalKind): void {
   localStorage.removeItem(TOKEN_KEYS[portal]);
+  localStorage.removeItem(REFRESH_TOKEN_KEYS[portal]);
   localStorage.removeItem(SESSION_KEYS[portal]);
 }
 
@@ -243,12 +267,14 @@ export async function portalLogin(
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(body),
   });
 
   const payload = (await response.json().catch(() => ({}))) as
     | ApiEnvelope<{
         accessToken: string;
+        refreshToken: string;
         user: PortalSessionUser;
       }>
     | ApiErrorBody;
@@ -265,15 +291,28 @@ export async function portalLogin(
   const data = (
     payload as ApiEnvelope<{
       accessToken: string;
+      refreshToken: string;
       user: PortalSessionUser;
     }>
   ).data;
 
   assertPortalAccess(portal, data.user);
 
-  setPortalToken(portal, data.accessToken);
-  setPortalSession(portal, data.user);
+  applyPortalAuthBundle(portal, data);
   return data.accessToken;
+}
+
+export function applyPortalAuthBundle(
+  portal: PortalKind,
+  data: {
+    accessToken: string;
+    refreshToken: string;
+    user: PortalSessionUser;
+  },
+): void {
+  setPortalToken(portal, data.accessToken);
+  setPortalRefreshToken(portal, data.refreshToken);
+  setPortalSession(portal, data.user);
 }
 
 export async function portalApiRequest<T>(
@@ -295,6 +334,7 @@ export async function portalApiRequest<T>(
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: options.credentials ?? 'include',
     headers,
   });
 
@@ -326,6 +366,31 @@ export async function portalApiRequest<T>(
   }
 
   return (payload as ApiEnvelope<T>).data;
+}
+
+export async function listPortalTenants(
+  portal: PortalKind,
+): Promise<TenantMembershipView[]> {
+  return portalApiRequest(portal, '/auth/tenants');
+}
+
+export async function switchPortalTenant(
+  portal: PortalKind,
+  tenantId: string,
+): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: PortalSessionUser;
+}> {
+  const refreshToken = getPortalRefreshToken(portal);
+  return portalApiRequest(portal, '/auth/switch-tenant', {
+    method: 'POST',
+    body: JSON.stringify({
+      tenantId,
+      ...(refreshToken ? { refreshToken } : {}),
+    }),
+  });
 }
 
 function filenameFromContentDisposition(header: string | null): string | undefined {

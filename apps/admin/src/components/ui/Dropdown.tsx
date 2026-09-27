@@ -1,4 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useState,
+  type MouseEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface DropdownProps {
@@ -6,25 +13,78 @@ interface DropdownProps {
   children: ReactNode;
   align?: 'left' | 'right';
   width?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function Dropdown({ trigger, children, align = 'right', width = 'w-64' }: DropdownProps) {
-  const [open, setOpen] = useState(false);
+function renderTrigger(
+  trigger: ReactNode,
+  open: boolean,
+  toggle: () => void,
+): ReactNode {
+  if (isValidElement(trigger) && trigger.type === 'button') {
+    const button = trigger as ReactElement<{
+      onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+      type?: 'button' | 'submit' | 'reset';
+    }>;
+
+    return cloneElement(button, {
+      type: button.props.type ?? 'button',
+      'aria-expanded': open,
+      'aria-haspopup': 'menu',
+      onClick: (event: MouseEvent<HTMLButtonElement>) => {
+        button.props.onClick?.(event);
+        if (!event.defaultPrevented) toggle();
+      },
+    });
+  }
 
   return (
-    <div className="relative" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}>
-      <button onClick={() => setOpen((o) => !o)} className="block">
-        {trigger}
-      </button>
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-haspopup="menu"
+      onClick={toggle}
+      className="block text-left"
+    >
+      {trigger}
+    </button>
+  );
+}
+
+export function Dropdown({
+  trigger,
+  children,
+  align = 'right',
+  width = 'w-64',
+  onOpenChange,
+}: DropdownProps) {
+  const [open, setOpen] = useState(false);
+
+  const setOpenState = (next: boolean) => {
+    setOpen(next);
+    onOpenChange?.(next);
+  };
+
+  const toggle = () => setOpenState(!open);
+
+  return (
+    <div
+      className="relative inline-block"
+      onBlur={(e) =>
+        !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpenState(false)
+      }
+    >
+      {renderTrigger(trigger, open, toggle)}
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-30" onClick={() => setOpenState(false)} />
           <div
+            role="menu"
             className={`absolute z-40 mt-2 ${width} surface rounded-xl border shadow-elevated py-1.5 animate-scale-in origin-top ${
               align === 'right' ? 'right-0' : 'left-0'
             }`}
           >
-            <div onClick={() => setOpen(false)}>{children}</div>
+            <div onClick={() => setOpenState(false)}>{children}</div>
           </div>
         </>
       )}
@@ -45,6 +105,8 @@ export function DropdownItem({
 }) {
   return (
     <button
+      type="button"
+      role="menuitem"
       onClick={onClick}
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left rounded-lg transition-colors ${
         active ? 'bg-accent-50 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300' : 'text-secondary hover:bg-[rgb(var(--bg-hover))] hover:text-primary'

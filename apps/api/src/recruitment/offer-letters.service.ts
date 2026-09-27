@@ -14,6 +14,8 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { StorageService } from '../storage/storage.service';
+import { MailService } from '../settings/mail.service';
+import { SmtpSettingsService } from '../settings/smtp-settings.service';
 import type {
   OfferLetterActionDto,
   UpsertOfferLetterDto,
@@ -54,6 +56,8 @@ export class OfferLettersService {
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
     private readonly offerWorkflow: OfferLetterWorkflowService,
+    private readonly mailService: MailService,
+    private readonly smtpSettingsService: SmtpSettingsService,
   ) {}
 
   async getOrCreateForApplication(
@@ -69,7 +73,8 @@ export class OfferLettersService {
     });
     if (existing) {
       const workflow = await this.offerWorkflow.findForOfferLetter(existing.id);
-      return this.toRecord(existing, workflow);
+      const synced = await this.syncOfferWithWorkflow(existing, workflow);
+      return this.toRecord(synced, workflow);
     }
 
     const requisition = await this.prisma.unscoped.jobRequisition.findUnique({
@@ -199,6 +204,7 @@ export class OfferLettersService {
 
     if (
       row.status !== OfferLetterStatus.draft &&
+      row.status !== OfferLetterStatus.pending_approval &&
       row.status !== OfferLetterStatus.approved &&
       row.status !== OfferLetterStatus.sent &&
       row.status !== OfferLetterStatus.accepted
@@ -304,7 +310,9 @@ export class OfferLettersService {
       });
     }
 
-    const requesterEmployeeId = user.employeeId;
+    const existingWorkflow = await this.offerWorkflow.findForOfferLetter(row.id);
+    const requesterEmployeeId =
+      existingWorkflow?.requesterEmployeeId ?? user.employeeId;
     if (!requesterEmployeeId) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -324,26 +332,10 @@ export class OfferLettersService {
       companyId: row.companyId,
       tenantId: row.tenantId,
       requesterEmployeeId,
-      requesterUserId: user.id,
+      requesterUserId: existingWorkflow?.requesterUserId ?? user.id,
     });
 
-    let updated = row;
-    if (transition.fullyApproved) {
-      await this.generatePdf(offerLetterId, user);
-      updated = await this.prisma.unscoped.offerLetter.update({
-        where: { id: offerLetterId },
-        data: { status: OfferLetterStatus.approved },
-        include: OFFER_LETTER_INCLUDE,
-      });
-      await this.ensureApplicationOfferStage(row.applicationId);
-    } else if (transition.rejected) {
-      updated = await this.prisma.unscoped.offerLetter.update({
-        where: { id: offerLetterId },
-        data: { status: OfferLetterStatus.cancelled },
-        include: OFFER_LETTER_INCLUDE,
-      });
-    }
-
+    const updated = await this.syncOfferWithWorkflow(row, transition.instance);
     return this.toRecord(updated, transition.instance);
   }
 
@@ -362,7 +354,9 @@ export class OfferLettersService {
       });
     }
 
-    const requesterEmployeeId = user.employeeId;
+    const existingWorkflow = await this.offerWorkflow.findForOfferLetter(row.id);
+    const requesterEmployeeId =
+      existingWorkflow?.requesterEmployeeId ?? user.employeeId;
     if (!requesterEmployeeId) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -382,7 +376,7 @@ export class OfferLettersService {
       companyId: row.companyId,
       tenantId: row.tenantId,
       requesterEmployeeId,
-      requesterUserId: user.id,
+      requesterUserId: existingWorkflow?.requesterUserId ?? user.id,
     });
 
     const updated = await this.prisma.unscoped.offerLetter.update({
@@ -412,6 +406,52 @@ export class OfferLettersService {
       await this.generatePdf(offerLetterId, user);
     }
 
+    const refreshed = await this.findOrThrow(offerLetterId);
+    const candidateEmail = refreshed.application.candidate.email?.trim();
+    if (!candidateEmail) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Candidate does not have an email address on file',
+      });
+    }
+
+    const { buffer, filename } = await this.downloadFile(offerLetterId, user);
+    const smtp = await this.smtpSettingsService.resolveDecryptedSettings(
+      refreshed.companyId,
+    );
+    const candidateName = formatCandidateName(
+      refreshed.application.candidate.firstName,
+      refreshed.application.candidate.lastName,
+    );
+    const companyName = refreshed.company?.name ?? 'Our company';
+
+    await this.mailService.sendMail({
+      settings: smtp,
+      to: candidateEmail,
+      subject: `Job Offer — ${refreshed.jobTitle} at ${companyName}`,
+      text: [
+        `Dear ${candidateName},`,
+        '',
+        `Please find attached your formal offer letter for the ${refreshed.jobTitle} position at ${companyName}.`,
+        '',
+        'We look forward to hearing from you.',
+        '',
+        'Best regards,',
+        'Human Resources',
+      ].join('\n'),
+      html: `<p>Dear ${candidateName},</p>
+<p>Please find attached your formal offer letter for the <strong>${refreshed.jobTitle}</strong> position at ${companyName}.</p>
+<p>We look forward to hearing from you.</p>
+<p>Best regards,<br/>Human Resources</p>`,
+      attachments: [
+        {
+          filename,
+          content: buffer,
+          contentType: 'application/pdf',
+        },
+      ],
+    });
+
     const updated = await this.prisma.unscoped.offerLetter.update({
       where: { id: offerLetterId },
       data: {
@@ -429,7 +469,7 @@ export class OfferLettersService {
       action: 'update',
       module: 'recruitment',
       recordId: updated.id,
-      newValue: { status: 'sent' },
+      newValue: { status: 'sent', emailedTo: candidateEmail },
     });
 
     const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
@@ -513,6 +553,36 @@ export class OfferLettersService {
         status: OfferLetterStatus.accepted,
       },
     });
+  }
+
+  /** Keep offer status in sync when workflow already finished (no PDF regen). */
+  private async syncOfferWithWorkflow(
+    row: OfferWithRelations,
+    workflow: WorkflowInstanceRecord | null,
+  ): Promise<OfferWithRelations> {
+    if (row.status !== OfferLetterStatus.pending_approval || !workflow) {
+      return row;
+    }
+
+    if (workflow.status === 'approved') {
+      const updated = await this.prisma.unscoped.offerLetter.update({
+        where: { id: row.id },
+        data: { status: OfferLetterStatus.approved },
+        include: OFFER_LETTER_INCLUDE,
+      });
+      await this.ensureApplicationOfferStage(row.applicationId);
+      return updated;
+    }
+
+    if (workflow.status === 'rejected') {
+      return this.prisma.unscoped.offerLetter.update({
+        where: { id: row.id },
+        data: { status: OfferLetterStatus.cancelled },
+        include: OFFER_LETTER_INCLUDE,
+      });
+    }
+
+    return row;
   }
 
   private async ensureApplicationOfferStage(applicationId: string) {
@@ -647,6 +717,7 @@ export class OfferLettersService {
       companyId: row.companyId,
       applicationId: row.applicationId,
       candidateName,
+      candidateEmail: row.application.candidate.email,
       status: row.status,
       displayStatus: resolveOfferLetterDisplayStatus(row.status, workflow),
       template: row.template,

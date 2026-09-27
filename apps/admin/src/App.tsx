@@ -5,8 +5,10 @@ import {
   useAuth,
 } from '@hrm/portal-ui';
 import { useEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { CompanyProvider } from '@/context/CompanyContext';
+import { TenantProvider } from '@/context/TenantContext';
 import { NavProvider } from '@/context/NavContext';
 import { AppShell } from '@/components/layout/AppShell';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -60,7 +62,6 @@ import { BenefitsPage } from '@/pages/payroll/BenefitsPage';
 import { LoansPage } from '@/pages/payroll/LoansPage';
 import { ExpensesPage } from '@/pages/payroll/ExpensesPage';
 import { BillingPage } from '@/pages/billing/BillingPage';
-import { ConstructionPage } from '@/pages/ConstructionPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
 import { HelpCenterPage } from '@/pages/support/HelpCenterPage';
@@ -77,88 +78,102 @@ import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
 import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
-import { useNav } from '@/context/NavContext';
 
-function PageRouter() {
-  const { current } = useNav();
+function PageRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<DashboardPage />} />
 
-  switch (current) {
-    case 'dashboard': return <DashboardPage />;
-    case 'org-profile': return <CompanyProfilePage />;
-    case 'org-departments': return <DepartmentsPage />;
-    case 'org-designations': return <DesignationsPage />;
-    case 'org-job-levels': return <JobLevelsPage />;
-    case 'org-employment-types': return <EmploymentTypesPage />;
-    case 'org-teams': return <TeamsPage />;
-    case 'org-cost-centres': return <CostCentresPage />;
-    case 'org-chart': return <OrgChartPage />;
-    case 'rbac-roles': return <RolesPage />;
-    case 'rbac-matrix': return <PermissionMatrixPage />;
-    case 'emp-directory': return <EmployeeDirectoryPage />;
-    case 'emp-profile': return <EmployeeProfilePage />;
-    case 'emp-lifecycle': return <LifecycleEventsPage />;
-    case 'emp-contracts': return <ContractsPage />;
-    case 'emp-contract-detail': return <ContractDetailPage />;
-    case 'recruitment': return <RecruitmentPage />;
-    case 'candidate-profile': return <CandidateProfilePage />;
-    case 'offer-letter': return <OfferLetterPage />;
-    case 'onboarding': return <OnboardingPage />;
-    case 'offboarding': return <OffboardingPage />;
-    case 'doc-types': return <DocumentTypesPage />;
-    case 'emp-documents': return <EmployeeDocumentsPage />;
-    case 'field-builder': return <CustomFieldBuilderPage />;
-    case 'attendance': return <AttendancePage />;
-    case 'attendance-regularization': return <RegularizationPage />;
-    case 'shifts': return <ShiftsPage />;
-    case 'roster': return <RosterPage />;
-    case 'shift-swap': return <ShiftSwapPage />;
-    case 'leave-types': return <LeaveTypesPage />;
-    case 'leave-requests': return <LeaveRequestsPage />;
-    case 'leave-balance': return <LeaveBalancePage />;
-    case 'holidays': return <HolidayCalendarPage />;
-    case 'overtime': return <OvertimePage />;
-    case 'ot-rules': return <OTRulesPage />;
-    case 'timesheet': return <TimesheetPage />;
-    case 'geofence': return <GeofencePage />;
-    case 'devices': return <DevicesPage />;
-    case 'attendance-methods': return <AttendanceMethodsPage />;
-    case 'payroll-runs': return <PayrollRunWizardPage />;
-    case 'pay-schedules': return <PaySchedulePage />;
-    case 'salary-components': return <SalaryComponentsPage />;
-    case 'salary-structures': return <SalaryStructurePage />;
-    case 'payroll-formulas': return <FormulaBuilderPage />;
-    case 'payslips': return <PayslipPage />;
-    case 'payment-batches': return <PaymentBatchPage />;
-    case 'tax-profiles': return <TaxProfilesPage />;
-    case 'benefits': return <BenefitsPage />;
-    case 'loans': return <LoansPage />;
-    case 'expenses': return <ExpensesPage />;
-    case 'billing': return <BillingPage />;
-    case 'assets': return <AssetManagementPage />;
-    case 'accounting': return <AccountingIntegrationPage />;
-    case 'help-center': return <HelpCenterPage />;
-    case 'support-kb-admin': return <KnowledgeBaseAdminPage />;
-    case 'support-tickets': return <SupportTicketsAdminPage />;
-    case 'performance': return <PerformanceManagementPage />;
-    case 'training': return <TrainingCertificationPage />;
-    case 'employee-relations': return <EmployeeRelationsPage />;
-    case 'engagement': return <EmployeeEngagementPage />;
-    case 'health-safety': return <HealthSafetyPage />;
-    case 'vendors-contractors': return <VendorContractorPage />;
-    case 'reports-hub':
-    case 'reports-scheduled':
-      return <ReportsHubPage />;
-    case 'settings-workflows':
-      return <WorkflowBuilderPage />;
-    case 'settings-hub':
-    case 'settings-integrations':
-    case 'settings-notifications':
-    case 'settings-security':
-    case 'settings-backup':
-    case 'settings-general':
-      return <SettingsHubPage />;
-    default: return <ConstructionPage />;
-  }
+      <Route path="/employees/directory" element={<EmployeeDirectoryPage />} />
+      <Route path="/employees/lifecycle" element={<LifecycleEventsPage />} />
+      <Route path="/employees/contracts" element={<ContractsPage />} />
+      <Route path="/employees/contracts/:contractId" element={<ContractDetailPage />} />
+      <Route path="/employees/recruitment" element={<RecruitmentPage />} />
+      <Route
+        path="/employees/recruitment/candidates/:applicationId"
+        element={<CandidateProfilePage />}
+      />
+      <Route
+        path="/employees/recruitment/offer-letter/:applicationId"
+        element={<OfferLetterPage />}
+      />
+      <Route path="/employees/onboarding" element={<OnboardingPage />} />
+      <Route path="/employees/offboarding" element={<OffboardingPage />} />
+      <Route path="/employees/document-types" element={<DocumentTypesPage />} />
+      <Route path="/employees/documents" element={<EmployeeDocumentsPage />} />
+      <Route path="/employees/custom-fields" element={<CustomFieldBuilderPage />} />
+      <Route path="/employees/:employeeId" element={<EmployeeProfilePage />} />
+
+      <Route path="/organization/profile" element={<CompanyProfilePage />} />
+      <Route path="/organization/departments" element={<DepartmentsPage />} />
+      <Route path="/organization/designations" element={<DesignationsPage />} />
+      <Route path="/organization/job-levels" element={<JobLevelsPage />} />
+      <Route path="/organization/employment-types" element={<EmploymentTypesPage />} />
+      <Route path="/organization/teams" element={<TeamsPage />} />
+      <Route path="/organization/cost-centres" element={<CostCentresPage />} />
+      <Route path="/organization/chart" element={<OrgChartPage />} />
+
+      <Route path="/attendance/daily" element={<AttendancePage />} />
+      <Route path="/attendance/regularization" element={<RegularizationPage />} />
+      <Route path="/attendance/shifts" element={<ShiftsPage />} />
+      <Route path="/attendance/roster" element={<RosterPage />} />
+      <Route path="/attendance/shift-swap" element={<ShiftSwapPage />} />
+      <Route path="/attendance/overtime" element={<OvertimePage />} />
+      <Route path="/attendance/ot-rules" element={<OTRulesPage />} />
+      <Route path="/attendance/timesheets" element={<TimesheetPage />} />
+      <Route path="/attendance/geofence" element={<GeofencePage />} />
+      <Route path="/attendance/devices" element={<DevicesPage />} />
+      <Route path="/attendance/methods" element={<AttendanceMethodsPage />} />
+
+      <Route path="/leave/types" element={<LeaveTypesPage />} />
+      <Route path="/leave/requests" element={<LeaveRequestsPage />} />
+      <Route path="/leave/balances" element={<LeaveBalancePage />} />
+      <Route path="/leave/holidays" element={<HolidayCalendarPage />} />
+
+      <Route path="/payroll/runs" element={<PayrollRunWizardPage />} />
+      <Route path="/payroll/schedules" element={<PaySchedulePage />} />
+      <Route path="/payroll/salary-components" element={<SalaryComponentsPage />} />
+      <Route path="/payroll/salary-structures" element={<SalaryStructurePage />} />
+      <Route path="/payroll/formulas" element={<FormulaBuilderPage />} />
+      <Route path="/payroll/payslips" element={<PayslipPage />} />
+      <Route path="/payroll/payment-batches" element={<PaymentBatchPage />} />
+      <Route path="/payroll/tax-profiles" element={<TaxProfilesPage />} />
+      <Route path="/payroll/benefits" element={<BenefitsPage />} />
+      <Route path="/payroll/loans" element={<LoansPage />} />
+      <Route path="/payroll/expenses" element={<ExpensesPage />} />
+
+      <Route path="/billing" element={<BillingPage />} />
+      <Route path="/operations/assets" element={<AssetManagementPage />} />
+      <Route path="/operations/accounting" element={<AccountingIntegrationPage />} />
+      <Route path="/support/help" element={<HelpCenterPage />} />
+      <Route path="/support/knowledge-base" element={<KnowledgeBaseAdminPage />} />
+      <Route path="/support/tickets" element={<SupportTicketsAdminPage />} />
+
+      <Route path="/talent/performance" element={<PerformanceManagementPage />} />
+      <Route path="/talent/training" element={<TrainingCertificationPage />} />
+      <Route path="/talent/employee-relations" element={<EmployeeRelationsPage />} />
+      <Route path="/talent/engagement" element={<EmployeeEngagementPage />} />
+      <Route path="/talent/health-safety" element={<HealthSafetyPage />} />
+      <Route path="/talent/vendors-contractors" element={<VendorContractorPage />} />
+
+      <Route path="/reports" element={<ReportsHubPage />} />
+      <Route path="/reports/scheduled" element={<ReportsHubPage />} />
+      <Route path="/reports/import" element={<ReportsHubPage />} />
+      <Route path="/reports/export" element={<ReportsHubPage />} />
+
+      <Route path="/settings" element={<SettingsHubPage />} />
+      <Route path="/settings/notifications" element={<SettingsHubPage />} />
+      <Route path="/settings/workflows" element={<WorkflowBuilderPage />} />
+      <Route path="/settings/security" element={<SettingsHubPage />} />
+      <Route path="/settings/integrations" element={<SettingsHubPage />} />
+      <Route path="/settings/backup" element={<SettingsHubPage />} />
+      <Route path="/settings/general" element={<SettingsHubPage />} />
+      <Route path="/settings/roles" element={<RolesPage />} />
+      <Route path="/settings/permission-matrix" element={<PermissionMatrixPage />} />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }
 
 function AdminApp() {
@@ -175,13 +190,17 @@ function AdminApp() {
   }
 
   return (
-    <CompanyProvider>
-      <NavProvider>
-        <AppShell onLogout={logout}>
-          <PageRouter />
-        </AppShell>
-      </NavProvider>
-    </CompanyProvider>
+    <TenantProvider>
+      <CompanyProvider>
+        <BrowserRouter>
+          <NavProvider>
+            <AppShell onLogout={logout}>
+              <PageRoutes />
+            </AppShell>
+          </NavProvider>
+        </BrowserRouter>
+      </CompanyProvider>
+    </TenantProvider>
   );
 }
 

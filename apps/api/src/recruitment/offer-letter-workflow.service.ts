@@ -87,12 +87,28 @@ export class OfferLetterWorkflowService {
         requesterEmployeeId: input.requesterEmployeeId,
         requesterUserId: input.requesterUserId ?? input.user.id,
       });
+      if (created.status !== 'pending') {
+        return {
+          instance: created,
+          fullyApproved: created.status === 'approved',
+          rejected: created.status === 'rejected',
+        };
+      }
       return this.workflowEngine.approve({
         instanceId: created.id,
         user: input.user,
         comment: input.comment,
         audit: input.audit,
       });
+    }
+
+    const record = this.workflowEngine.toRecord(instance);
+    if (record.status !== 'pending') {
+      return {
+        instance: record,
+        fullyApproved: record.status === 'approved',
+        rejected: record.status === 'rejected',
+      };
     }
 
     return this.workflowEngine.approve({
@@ -132,6 +148,15 @@ export class OfferLetterWorkflowService {
     }
     if (!instance) {
       throw new Error('Failed to resolve offer letter workflow instance');
+    }
+
+    const record = this.workflowEngine.toRecord(instance);
+    if (record.status !== 'pending') {
+      return {
+        instance: record,
+        fullyApproved: record.status === 'approved',
+        rejected: record.status === 'rejected',
+      };
     }
 
     return this.workflowEngine.reject({

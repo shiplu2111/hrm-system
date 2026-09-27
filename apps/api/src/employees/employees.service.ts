@@ -228,6 +228,31 @@ export class EmployeesService {
     });
   }
 
+  async bulkUpdateEmploymentStatus(
+    employeeIds: string[],
+    employmentStatus: EmploymentStatus,
+  ): Promise<{ updatedCount: number }> {
+    const uniqueIds = [...new Set(employeeIds)];
+    const existing = await this.prisma.scoped.employee.findMany({
+      where: { id: { in: uniqueIds }, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (existing.length !== uniqueIds.length) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'One or more employees were not found',
+      });
+    }
+
+    const result = await this.prisma.scoped.employee.updateMany({
+      where: { id: { in: uniqueIds }, deletedAt: null },
+      data: { employmentStatus },
+    });
+
+    return { updatedCount: result.count };
+  }
+
   private async validateEmployeeReferences(
     companyId: string,
     dto: CreateEmployeeDto | UpdateEmployeeDto,

@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   ArrowLeft,
-  Send,
   Download,
   Loader2,
   Check,
   ThumbsUp,
   ThumbsDown,
   FileText,
+  Mail,
+  Clock,
 } from 'lucide-react';
 import type { OfferLetterRecord, OfferLetterTemplate } from '@hrm/shared-types';
+import { useAuth } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -44,7 +47,10 @@ function statusTone(
 }
 
 export function OfferLetterPage() {
-  const { navigate, selectedApplicationId } = useNav();
+  const { applicationId: routeApplicationId } = useParams<{ applicationId: string }>();
+  const { navigate, openApplication, selectedApplicationId } = useNav();
+  const { user } = useAuth();
+  const applicationId = routeApplicationId ?? selectedApplicationId;
   const [offer, setOffer] = useState<OfferLetterRecord | null>(null);
   const [candidateName, setCandidateName] = useState('');
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>(
@@ -61,17 +67,17 @@ export function OfferLetterPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!selectedApplicationId) {
+    if (!applicationId) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const application = await getJobApplication(selectedApplicationId);
+      const application = await getJobApplication(applicationId);
       setCandidateName(application.candidateName ?? 'Candidate');
       const [offerRow, depts, desigs, empTypes] = await Promise.all([
-        getOfferLetter(selectedApplicationId),
+        getOfferLetter(applicationId),
         listDepartments(application.companyId),
         listDesignations(application.companyId),
         listEmploymentTypes(application.companyId),
@@ -85,19 +91,19 @@ export function OfferLetterPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedApplicationId]);
+  }, [applicationId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const handleSave = async () => {
-    if (!offer || !selectedApplicationId) return;
+    if (!offer || !applicationId) return;
     setSaving(true);
     setError(null);
     try {
       setOffer(
-        await updateOfferLetter(selectedApplicationId, {
+        await updateOfferLetter(applicationId, {
           template: offer.template,
           jobTitle: offer.jobTitle,
           departmentId: offer.departmentId,
@@ -133,7 +139,7 @@ export function OfferLetterPage() {
     }
   };
 
-  if (!selectedApplicationId) {
+  if (!applicationId) {
     return (
       <div className="p-6 text-secondary">
         Select a candidate from the recruitment pipeline first.
@@ -152,12 +158,21 @@ export function OfferLetterPage() {
 
   const isDraft = offer.status === 'draft';
   const canEdit = isDraft;
+  const workflowSteps = offer.workflow?.steps ?? [];
+  const pendingStep = workflowSteps.find((s) => s.status === 'pending');
+  const currentRole = user?.roleName ?? '';
+  const canActOnPendingStep =
+    Boolean(pendingStep) &&
+    (currentRole === pendingStep?.roleName || currentRole === 'Company Owner');
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
       <button
         type="button"
-        onClick={() => navigate('candidate-profile')}
+        onClick={() => {
+          if (applicationId) openApplication(applicationId);
+          else navigate('recruitment');
+        }}
         className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors"
       >
         <ArrowLeft className="h-4 w-4" /> Back to Candidate
@@ -204,18 +219,23 @@ export function OfferLetterPage() {
               </Button>
             </>
           )}
-          {offer.status === 'pending_approval' && (
+          {offer.status === 'pending_approval' && pendingStep && (
             <>
               <Button
                 variant="primary"
-                disabled={saving}
+                disabled={saving || !canActOnPendingStep}
+                title={
+                  canActOnPendingStep
+                    ? undefined
+                    : `Sign in as ${pendingStep?.roleName ?? 'the assigned role'} to approve`
+                }
                 onClick={() => void runAction(() => approveOfferLetter(offer.id))}
               >
                 <ThumbsUp className="h-4 w-4" /> Approve
               </Button>
               <Button
                 variant="secondary"
-                disabled={saving}
+                disabled={saving || !canActOnPendingStep}
                 onClick={() => void runAction(() => rejectOfferLetter(offer.id))}
               >
                 <ThumbsDown className="h-4 w-4" /> Reject
@@ -225,10 +245,15 @@ export function OfferLetterPage() {
           {offer.status === 'approved' && (
             <Button
               variant="primary"
-              disabled={saving}
+              disabled={saving || !offer.candidateEmail}
+              title={
+                offer.candidateEmail
+                  ? `Email PDF to ${offer.candidateEmail}`
+                  : 'Candidate has no email on file'
+              }
               onClick={() => void runAction(() => sendOfferLetter(offer.id))}
             >
-              <Send className="h-4 w-4" /> Send Offer
+              <Mail className="h-4 w-4" /> Email Offer to Candidate
             </Button>
           )}
           {offer.status === 'sent' && (
@@ -459,6 +484,56 @@ export function OfferLetterPage() {
             <CardTitle>Preview Summary</CardTitle>
           </CardHeader>
           <CardBody className="text-sm space-y-3 text-secondary">
+            {offer.candidateEmail ? (
+              <p>
+                <span className="text-muted">Candidate email:</span>{' '}
+                <span className="text-primary font-medium">{offer.candidateEmail}</span>
+              </p>
+            ) : (
+              <p className="text-warning-700 bg-warning-50 dark:bg-warning-950/30 rounded-lg px-3 py-2 text-xs">
+                No candidate email on file — add one on the candidate profile before sending.
+              </p>
+            )}
+
+            {offer.status === 'pending_approval' && workflowSteps.length > 0 ? (
+              <div className="rounded-lg border border-base p-3 space-y-2 bg-[rgb(var(--bg-muted))]/40">
+                <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5" /> Approval required
+                </p>
+                <ol className="space-y-1.5">
+                  {workflowSteps.map((step) => (
+                    <li
+                      key={step.order}
+                      className={`flex items-center justify-between text-xs rounded-md px-2 py-1.5 ${
+                        step.status === 'pending'
+                          ? 'bg-accent-50 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300 font-medium'
+                          : step.status === 'approved'
+                            ? 'text-success-700'
+                            : 'text-muted'
+                      }`}
+                    >
+                      <span>
+                        {step.order}. {step.roleName}
+                      </span>
+                      <span className="capitalize">{step.status}</span>
+                    </li>
+                  ))}
+                </ol>
+                {pendingStep ? (
+                  <p className="text-xs text-secondary pt-1">
+                    Waiting for a user with the{' '}
+                    <strong className="text-primary">{pendingStep.roleName}</strong> role.
+                    {pendingStep.roleName === 'Company Owner'
+                      ? ' Log in as Company Owner (demo: admin@cmsnbd.com) and click Approve.'
+                      : ' Company Owner can also approve this step.'}
+                    {currentRole
+                      ? ` You are signed in as ${currentRole}.`
+                      : null}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
             <p>
               Offer terms pre-fill from the job requisition and candidate record.
               After HR and leadership approve, a PDF is generated using the same

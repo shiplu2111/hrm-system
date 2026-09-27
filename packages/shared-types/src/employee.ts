@@ -57,6 +57,15 @@ export interface EmployeeSummary {
   employmentType?: { id: string; name: string } | null;
 }
 
+export interface BulkUpdateEmployeeStatusInput {
+  employeeIds: string[];
+  employmentStatus: EmploymentStatus;
+}
+
+export interface BulkUpdateEmployeeStatusResult {
+  updatedCount: number;
+}
+
 export interface EmployeeRecord extends EmployeeSummary {
   personalInfo: EmployeePersonalInfo;
   employmentTypeId: string | null;

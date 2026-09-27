@@ -33,6 +33,7 @@ import {
   ChangePasswordDto,
   LoginDto,
   RefreshTokenDto,
+  SwitchTenantDto,
 } from './dto/auth-swagger.dto';
 import { parseDurationToMs } from './auth.utils';
 
@@ -141,6 +142,53 @@ export class AuthController {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresIn: tokens.expiresIn,
+      },
+    };
+  }
+
+  @Get('tenants')
+  @RequirePermission('employee', 'view')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'List active tenant memberships for the signed-in user (AUTH_FLOW.md §5)',
+  })
+  async listTenants(@CurrentUser() user: AuthenticatedUser) {
+    return {
+      data: await this.authService.listAccessibleTenants(user),
+    };
+  }
+
+  @Post('switch-tenant')
+  @RequirePermission('employee', 'view')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Switch organization scope — issues a new JWT for the target tenant',
+    description:
+      'Revokes the current refresh token and returns new access/refresh tokens scoped to the ' +
+      'target tenant user record. Never rely on client-side tenant_id alone (RULES.md §1).',
+  })
+  @ApiBody({ type: SwitchTenantDto })
+  async switchTenant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SwitchTenantDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiEnvelope<AuthLoginResponse>> {
+    const refreshToken = this.resolveRefreshToken(dto, req)!;
+    const tokens = await this.authService.switchTenant(
+      user,
+      dto.tenantId,
+      refreshToken,
+      this.extractContext(req),
+    );
+    this.setRefreshCookie(res, tokens.refreshToken);
+
+    return {
+      data: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: tokens.expiresIn,
+        user: tokens.user,
       },
     };
   }

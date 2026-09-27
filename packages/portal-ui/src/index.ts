@@ -4,21 +4,33 @@ export { PortalLoginPage } from './auth/PortalLoginPage';
 export {
   ApiError,
   assertPortalAccess,
+  applyPortalAuthBundle,
   clearPortalToken,
   ensurePortalLogin,
   getPortalSession,
   getPortalToken,
   isAdminPortalUser,
   isEmployeePortalUser,
+  listPortalTenants,
   portalApiRequest,
   portalDownload,
   portalLogin,
   setPortalToken,
+  switchPortalTenant,
   validatePortalSession,
   type PermissionClaim,
   type PortalKind,
   type PortalSessionUser,
 } from './lib/portal-auth';
+export {
+  hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
+  canViewModule,
+  type PermissionRequirement,
+} from './lib/permissions';
+export { usePermission, usePermissions } from './hooks/usePermission';
+export { PermissionGate, AnyPermissionGate } from './components/rbac/PermissionGate';
 
 export { Button } from './components/ui/Button';
 export { Badge } from './components/ui/Badge';

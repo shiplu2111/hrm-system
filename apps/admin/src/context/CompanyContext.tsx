@@ -9,6 +9,8 @@ import {
 import type { CompanySummary } from '@hrm/shared-types';
 import { listCompanies } from '@/lib/organization-api';
 import { ApiError } from '@/lib/tenant-api-client';
+import { useAuth } from '@hrm/portal-ui';
+import { useTenant } from '@/context/TenantContext';
 
 const COMPANY_KEY = 'hrm_selected_company_id';
 
@@ -27,6 +29,8 @@ const CompanyContext = createContext<CompanyContextValue | undefined>(
 );
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const { sessionVersion } = useTenant();
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [companyId, setCompanyIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +64,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, user?.tenantId, sessionVersion]);
 
   const setCompanyId = useCallback((id: string) => {
     setCompanyIdState(id);

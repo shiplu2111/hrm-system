@@ -1,4 +1,9 @@
-import type { EmployeePersonalInfo, EmployeeRecord } from '@hrm/shared-types';
+import type {
+  BulkUpdateEmployeeStatusInput,
+  BulkUpdateEmployeeStatusResult,
+  EmployeePersonalInfo,
+  EmployeeRecord,
+} from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
 export function listEmployees(companyId?: string): Promise<EmployeeRecord[]> {
@@ -60,4 +65,16 @@ export function updateEmployee(
 
 export function deleteEmployee(id: string): Promise<void> {
   return tenantApiRequest<void>(`/employees/${id}`, { method: 'DELETE' });
+}
+
+export function bulkUpdateEmployeeStatus(
+  input: BulkUpdateEmployeeStatusInput,
+): Promise<BulkUpdateEmployeeStatusResult> {
+  return tenantApiRequest<BulkUpdateEmployeeStatusResult>(
+    '/employees/bulk/employment-status',
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
 }

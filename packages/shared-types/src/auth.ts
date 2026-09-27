@@ -42,3 +42,17 @@ export interface AccessTokenClaims {
   employee_id: string | null;
   permissions: PermissionClaim[];
 }
+
+/** Active tenant membership for multi-tenant login (AUTH_FLOW.md §5). */
+export interface TenantMembershipView {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  logoUrl: string | null;
+  roleName: string;
+  isCurrent: boolean;
+}
+
+export interface SwitchTenantResponse extends AuthTokens {
+  user: AuthUser & { roleName: string };
+}

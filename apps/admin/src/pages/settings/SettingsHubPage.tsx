@@ -67,7 +67,7 @@ import {
 import { useNav } from '@/context/NavContext';
 
 export function SettingsHubPage() {
-  const { current } = useNav();
+  const { current, navigate } = useNav();
   const [activeGroup, setActiveGroup] = useState<
     'general' | 'notifications' | 'workflows' | 'security' | 'integrations' | 'backup-i18n'
   >('notifications');
@@ -81,7 +81,7 @@ export function SettingsHubPage() {
       setActiveGroup('security');
     } else if (current === 'settings-backup') {
       setActiveGroup('backup-i18n');
-    } else if (current === 'settings-general') {
+    } else if (current === 'settings-general' || current === 'settings-hub') {
       setActiveGroup('general');
     }
   }, [current]);
@@ -168,12 +168,12 @@ export function SettingsHubPage() {
   };
 
   const settingsNavItems = [
-    { key: 'notifications' as const, label: 'Notification Engine', icon: Bell, badge: `${rules.length} Rules`, desc: 'Channels & Multi-Channel Triggers' },
-    { key: 'workflows' as const, label: 'Workflow Builder', icon: GitBranch, badge: 'Visual', desc: 'Approval Engines & Multi-Step Logic' },
-    { key: 'security' as const, label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'SOC2', desc: '2FA, SSO, Login Audit & Code Diff' },
-    { key: 'integrations' as const, label: 'Integrations & API', icon: Webhook, badge: 'REST API', desc: 'API Keys, Webhooks & Connectors' },
-    { key: 'backup-i18n' as const, label: 'Backup & Multi-Currency', icon: Database, badge: 'i18n', desc: 'Automated Snapshots & Currencies' },
-    { key: 'general' as const, label: 'General System Settings', icon: Sliders, desc: 'Timezones, Formats & System Identity' },
+    { key: 'notifications' as const, label: 'Notification Engine', icon: Bell, badge: `${rules.length} Rules`, desc: 'Channels & Multi-Channel Triggers', page: 'settings-notifications' as const },
+    { key: 'workflows' as const, label: 'Workflow Builder', icon: GitBranch, badge: 'Visual', desc: 'Approval Engines & Multi-Step Logic', page: 'settings-workflows' as const },
+    { key: 'security' as const, label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'SOC2', desc: '2FA, SSO, Login Audit & Code Diff', page: 'settings-security' as const },
+    { key: 'integrations' as const, label: 'Integrations & API', icon: Webhook, badge: 'REST API', desc: 'API Keys, Webhooks & Connectors', page: 'settings-integrations' as const },
+    { key: 'backup-i18n' as const, label: 'Backup & Multi-Currency', icon: Database, badge: 'i18n', desc: 'Automated Snapshots & Currencies', page: 'settings-backup' as const },
+    { key: 'general' as const, label: 'General System Settings', icon: Sliders, desc: 'Timezones, Formats & System Identity', page: 'settings-general' as const },
   ];
 
   return (
@@ -201,7 +201,7 @@ export function SettingsHubPage() {
               return (
                 <button
                   key={item.key}
-                  onClick={() => setActiveGroup(item.key)}
+                  onClick={() => navigate(item.page)}
                   className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${
                     isActive
                       ? 'bg-accent-50 dark:bg-accent-950/40 border border-accent-500/40 text-accent-700 dark:text-accent-300 shadow-sm'

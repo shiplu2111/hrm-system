@@ -16,6 +16,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
+import { getPageViewPermission } from '@/config/page-permissions';
+import type { PermissionAction } from '@hrm/shared-types';
 
 export interface NavItem {
   label: string;
@@ -178,13 +180,28 @@ export const navGroups: NavGroup[] = [
   },
 ];
 
-/** Sidebar-ready nav: drops hidden groups/items. Pages remain routable via App.tsx. */
-export function getVisibleNavGroups(): NavGroup[] {
-  return navGroups
+/** Sidebar-ready nav: drops hidden groups/items and filters by permission when `can` is provided. */
+export function getVisibleNavGroups(
+  can?: (module: string, action: PermissionAction) => boolean,
+): NavGroup[] {
+  const visible = navGroups
     .filter((group) => !group.hidden)
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => !item.hidden),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  if (!can) return visible;
+
+  return visible
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        const required = getPageViewPermission(item.page);
+        if (!required) return true;
+        return can(required.module, required.action);
+      }),
     }))
     .filter((group) => group.items.length > 0);
 }

@@ -17,11 +17,13 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { EmploymentStatus } from '@prisma/client';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
 } from '../organization/dto/organization.dto';
+import { BulkUpdateEmployeeStatusDto } from './dto/bulk-update-employee-status.dto';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { EmployeesService } from './employees.service';
 
@@ -57,6 +59,22 @@ export class EmployeesController {
     @Body() dto: CreateEmployeeDto,
   ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['createEmployee']>>>> {
     return { data: await this.employeesService.createEmployee(dto) };
+  }
+
+  @Patch('bulk/employment-status')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Bulk update employment status for selected employees' })
+  async bulkUpdateEmploymentStatus(
+    @Body() dto: BulkUpdateEmployeeStatusDto,
+  ): Promise<
+    ApiEnvelope<Awaited<ReturnType<EmployeesService['bulkUpdateEmploymentStatus']>>>
+  > {
+    return {
+      data: await this.employeesService.bulkUpdateEmploymentStatus(
+        dto.employeeIds,
+        dto.employmentStatus as EmploymentStatus,
+      ),
+    };
   }
 
   @Patch(':id')

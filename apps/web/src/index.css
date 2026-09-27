@@ -1,3 +1,209 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Primary (accent) — deep trust blue ── */
+    --color-accent-50: 238 242 246;
+    --color-accent-100: 213 223 233;
+    --color-accent-200: 173 191 206;
+    --color-accent-300: 133 159 179;
+    --color-accent-400: 93 127 152;
+    --color-accent-500: 61 101 128;
+    --color-accent-600: 30 73 118;
+    --color-accent-700: 24 60 98;
+    --color-accent-800: 18 47 77;
+    --color-accent-900: 12 34 57;
+    --color-accent-950: 6 21 37;
+
+    /* ── Secondary — slate neutrals ── */
+    --color-secondary-50: 248 250 252;
+    --color-secondary-100: 241 245 249;
+    --color-secondary-200: 226 232 240;
+    --color-secondary-300: 203 213 225;
+    --color-secondary-400: 148 163 184;
+    --color-secondary-500: 100 116 139;
+    --color-secondary-600: 71 85 105;
+    --color-secondary-700: 51 65 85;
+    --color-secondary-800: 30 41 59;
+    --color-secondary-900: 15 23 42;
+    --color-secondary-950: 2 6 23;
+
+    /* ── Success — restrained emerald ── */
+    --color-success-50: 236 253 245;
+    --color-success-100: 209 250 229;
+    --color-success-200: 167 243 208;
+    --color-success-300: 110 231 183;
+    --color-success-400: 52 211 153;
+    --color-success-500: 16 185 129;
+    --color-success-600: 4 120 87;
+    --color-success-700: 6 95 70;
+    --color-success-800: 6 78 59;
+    --color-success-900: 2 44 34;
+
+    /* ── Warning — muted amber ── */
+    --color-warning-50: 255 251 235;
+    --color-warning-100: 254 243 199;
+    --color-warning-200: 253 230 138;
+    --color-warning-300: 252 211 77;
+    --color-warning-400: 251 191 36;
+    --color-warning-500: 245 158 11;
+    --color-warning-600: 180 83 9;
+    --color-warning-700: 146 64 14;
+    --color-warning-800: 120 53 15;
+    --color-warning-900: 69 26 3;
+
+    /* ── Danger / error — serious red ── */
+    --color-error-50: 254 242 242;
+    --color-error-100: 254 226 226;
+    --color-error-200: 254 202 202;
+    --color-error-300: 252 165 165;
+    --color-error-400: 248 113 113;
+    --color-error-500: 239 68 68;
+    --color-error-600: 185 28 28;
+    --color-error-700: 153 27 27;
+    --color-error-800: 127 29 29;
+    --color-error-900: 69 10 10;
+
+    /* ── Semantic surfaces (light) ── */
+    --bg-base: 244 247 250;
+    --bg-surface: 255 255 255;
+    --bg-elevated: 255 255 255;
+    --bg-muted: 237 242 247;
+    --bg-hover: 229 235 242;
+    --border-base: 218 226 234;
+    --border-strong: 192 203 216;
+    --text-primary: 12 25 41;
+    --text-secondary: 72 84 102;
+    --text-muted: 107 119 133;
+    --text-inverse: 255 255 255;
+    --ring-focus: 30 73 118;
+
+    /* ── Typography ── */
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* ── Spacing (4px base) ── */
+    --spacing-0: 0;
+    --spacing-0-5: 0.125rem;
+    --spacing-1: 0.25rem;
+    --spacing-2: 0.5rem;
+    --spacing-3: 0.75rem;
+    --spacing-4: 1rem;
+    --spacing-5: 1.25rem;
+    --spacing-6: 1.5rem;
+    --spacing-8: 2rem;
+    --spacing-10: 2.5rem;
+    --spacing-12: 3rem;
+    --spacing-16: 4rem;
+
+    /* ── Radius ── */
+    --radius-sm: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --radius-2xl: 1rem;
+    --radius-full: 9999px;
+
+    /* ── Shadows ── */
+    --shadow-xs: 0 1px 1px 0 rgb(12 25 41 / 0.04);
+    --shadow-sm: 0 1px 2px 0 rgb(12 25 41 / 0.05), 0 1px 3px 0 rgb(12 25 41 / 0.06);
+    --shadow-card: var(--shadow-sm);
+    --shadow-card-hover: 0 4px 12px -2px rgb(12 25 41 / 0.08), 0 2px 6px -2px rgb(12 25 41 / 0.04);
+    --shadow-md: 0 4px 6px -1px rgb(12 25 41 / 0.08), 0 2px 4px -2px rgb(12 25 41 / 0.06);
+    --shadow-lg: 0 10px 24px -4px rgb(12 25 41 / 0.12), 0 4px 8px -4px rgb(12 25 41 / 0.06);
+    --shadow-elevated: var(--shadow-lg);
+    --shadow-xl: 0 20px 40px -8px rgb(12 25 41 / 0.16);
+  }
+
+  .dark {
+    --bg-base: 6 16 28;
+    --bg-surface: 12 25 41;
+    --bg-elevated: 18 37 58;
+    --bg-muted: 18 37 58;
+    --bg-hover: 24 48 74;
+    --border-base: 30 52 75;
+    --border-strong: 45 71 97;
+    --text-primary: 244 247 250;
+    --text-secondary: 148 163 184;
+    --text-muted: 100 116 139;
+    --text-inverse: 12 25 41;
+    --ring-focus: 133 159 179;
+
+    --shadow-xs: 0 1px 1px 0 rgb(0 0 0 / 0.2);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.24), 0 1px 3px 0 rgb(0 0 0 / 0.28);
+    --shadow-card: var(--shadow-sm);
+    --shadow-card-hover: 0 4px 12px -2px rgb(0 0 0 / 0.32), 0 2px 6px -2px rgb(0 0 0 / 0.2);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.32), 0 2px 4px -2px rgb(0 0 0 / 0.24);
+    --shadow-lg: 0 10px 24px -4px rgb(0 0 0 / 0.4), 0 4px 8px -4px rgb(0 0 0 / 0.24);
+    --shadow-elevated: var(--shadow-lg);
+    --shadow-xl: 0 20px 40px -8px rgb(0 0 0 / 0.48);
+  }
+
+  * {
+    border-color: rgb(var(--border-base));
+  }
+
+  body {
+    background-color: rgb(var(--bg-base));
+    color: rgb(var(--text-primary));
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: rgb(var(--color-accent-600) / 0.2);
+  }
+}
+
+@layer components {
+  .surface {
+    background-color: rgb(var(--bg-surface));
+    border-color: rgb(var(--border-base));
+  }
+  .surface-muted {
+    background-color: rgb(var(--bg-muted));
+  }
+  .text-primary {
+    color: rgb(var(--text-primary));
+  }
+  .text-secondary {
+    color: rgb(var(--text-secondary));
+  }
+  .text-muted {
+    color: rgb(var(--text-muted));
+  }
+  .border-base {
+    border-color: rgb(var(--border-base));
+  }
+  .border-strong {
+    border-color: rgb(var(--border-strong));
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border-strong)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--border-strong));
+    border-radius: var(--radius-full);
+  }
+}
+
+.theme-transition,
+.theme-transition * {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}

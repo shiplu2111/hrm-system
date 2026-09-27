@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { Dropdown, DropdownItem, DropdownDivider } from '@/components/ui/Dropdown';
+import { PermissionGate, usePermissions } from '@hrm/portal-ui';
 import { CompanySelector } from '@/components/org/CompanySelector';
 import { OrgPageState } from '@/components/org/OrgPageState';
 import { useCompany } from '@/context/CompanyContext';
@@ -44,6 +45,11 @@ function DeptRow({
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
+  const { can } = usePermissions();
+  const showActions =
+    can('settings', 'create') ||
+    can('settings', 'edit') ||
+    can('settings', 'delete');
 
   return (
     <>
@@ -81,6 +87,7 @@ function DeptRow({
         <span className="text-xs text-muted hidden sm:flex items-center gap-1">
           <Users className="h-3 w-3" /> {node.employeeCount}
         </span>
+        {showActions && (
         <Dropdown
           width="w-40"
           trigger={
@@ -92,26 +99,33 @@ function DeptRow({
             </button>
           }
         >
-          <DropdownItem
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => onAddChild(node)}
-          >
-            Add Sub-dept
-          </DropdownItem>
-          <DropdownItem
-            icon={<Pencil className="h-4 w-4" />}
-            onClick={() => onEdit(node)}
-          >
-            Edit
-          </DropdownItem>
-          <DropdownDivider />
-          <DropdownItem
-            icon={<Trash2 className="h-4 w-4" />}
-            onClick={() => onDelete(node.id)}
-          >
-            Delete
-          </DropdownItem>
+          <PermissionGate module="settings" action="create">
+            <DropdownItem
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => onAddChild(node)}
+            >
+              Add Sub-dept
+            </DropdownItem>
+          </PermissionGate>
+          <PermissionGate module="settings" action="edit">
+            <DropdownItem
+              icon={<Pencil className="h-4 w-4" />}
+              onClick={() => onEdit(node)}
+            >
+              Edit
+            </DropdownItem>
+          </PermissionGate>
+          <PermissionGate module="settings" action="delete">
+            <DropdownDivider />
+            <DropdownItem
+              icon={<Trash2 className="h-4 w-4" />}
+              onClick={() => onDelete(node.id)}
+            >
+              Delete
+            </DropdownItem>
+          </PermissionGate>
         </Dropdown>
+        )}
       </div>
       {hasChildren && expanded && (
         <div className="border-l border-base ml-5">
@@ -244,9 +258,11 @@ function DepartmentsContent({ companyId }: { companyId: string }) {
         </div>
         <div className="flex items-center gap-2">
           <CompanySelector />
-          <Button variant="primary" onClick={() => openAdd()}>
-            <Plus className="h-4 w-4" /> Add Department
-          </Button>
+          <PermissionGate module="settings" action="create">
+            <Button variant="primary" onClick={() => openAdd()}>
+              <Plus className="h-4 w-4" /> Add Department
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 

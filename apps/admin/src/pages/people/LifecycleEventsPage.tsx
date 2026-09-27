@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
+import { Timeline, TimelineSection } from '@/components/ui/Timeline';
+import { lifecycleEventsToTimelineItems } from '@/lib/lifecycle-display';
 import { useNav } from '@/context/NavContext';
 import { useCompany } from '@/context/CompanyContext';
 import { getEmployee } from '@/lib/employees-api';
@@ -230,30 +232,14 @@ export function LifecycleEventsPage() {
 
       <Card>
         <CardHeader><CardTitle>Event History</CardTitle></CardHeader>
-        <CardBody className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Date</th>
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Event</th>
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden md:table-cell">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--border-base))]">
-              {events.map((ev) => (
-                <tr key={ev.id}>
-                  <td className="px-5 py-3 text-secondary">{ev.effectiveDate}</td>
-                  <td className="px-5 py-3 font-medium text-primary">{ev.eventType.replace('_', ' ')}</td>
-                  <td className="px-5 py-3 text-muted hidden md:table-cell truncate max-w-md">
-                    {JSON.stringify(ev.details)}
-                  </td>
-                </tr>
-              ))}
-              {events.length === 0 && (
-                <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No lifecycle events yet.</td></tr>
-              )}
-            </tbody>
-          </table>
+        <CardBody>
+          {events.length === 0 ? (
+            <p className="text-sm text-muted py-4 text-center">No lifecycle events yet.</p>
+          ) : (
+            <TimelineSection title="Timeline">
+              <Timeline items={lifecycleEventsToTimelineItems(events)} />
+            </TimelineSection>
+          )}
         </CardBody>
       </Card>
 

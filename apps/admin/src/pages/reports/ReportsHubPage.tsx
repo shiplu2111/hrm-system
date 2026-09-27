@@ -45,10 +45,17 @@ import {
 
 export function ReportsHubPage() {
   const { companyId } = useCompany();
-  const { current } = useNav();
+  const { current, navigate } = useNav();
   const [activeTab, setActiveTab] = useState<'catalog' | 'scheduled' | 'import' | 'export'>(
-    current === 'reports-scheduled' ? 'scheduled' : 'catalog',
+    'catalog',
   );
+
+  useEffect(() => {
+    if (current === 'reports-scheduled') setActiveTab('scheduled');
+    else if (current === 'data-import') setActiveTab('import');
+    else if (current === 'data-export') setActiveTab('export');
+    else setActiveTab('catalog');
+  }, [current]);
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'Payroll' | 'Attendance' | 'HR & People'>('All');
   const [search, setSearch] = useState('');
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
@@ -187,7 +194,7 @@ export function ReportsHubPage() {
         {/* Navigation Tabs */}
         <div className="surface border border-base rounded-xl p-1 flex items-center gap-1 flex-wrap">
           <button
-            onClick={() => setActiveTab('catalog')}
+            onClick={() => navigate('reports-hub')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               activeTab === 'catalog'
                 ? 'bg-accent-600 text-white shadow-sm'
@@ -197,7 +204,7 @@ export function ReportsHubPage() {
             <BarChart3 className="h-3.5 w-3.5" /> Reports Catalog
           </button>
           <button
-            onClick={() => setActiveTab('scheduled')}
+            onClick={() => navigate('reports-scheduled')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               activeTab === 'scheduled'
                 ? 'bg-accent-600 text-white shadow-sm'
@@ -207,7 +214,7 @@ export function ReportsHubPage() {
             <Clock className="h-3.5 w-3.5" /> Scheduled Subscriptions ({schedList.length})
           </button>
           <button
-            onClick={() => setActiveTab('import')}
+            onClick={() => navigate('data-import')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               activeTab === 'import'
                 ? 'bg-accent-600 text-white shadow-sm'
@@ -217,7 +224,7 @@ export function ReportsHubPage() {
             <Upload className="h-3.5 w-3.5" /> Data Import Wizard
           </button>
           <button
-            onClick={() => setActiveTab('export')}
+            onClick={() => navigate('data-export')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
               activeTab === 'export'
                 ? 'bg-accent-600 text-white shadow-sm'

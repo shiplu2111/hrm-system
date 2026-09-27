@@ -20,6 +20,7 @@ interface AuthContextValue {
   user: PortalSessionUser | null;
   login: (email: string, password: string, tenantSubdomain?: string) => Promise<void>;
   logout: () => void;
+  refreshSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -52,9 +53,15 @@ export function AuthProvider({
     setIsAuthenticated(false);
   }, [portal]);
 
+  const refreshSession = useCallback(() => {
+    const session = validatePortalSession(portal);
+    setUser(session);
+    setIsAuthenticated(!!session);
+  }, [portal]);
+
   const value = useMemo(
-    () => ({ portal, isAuthenticated, user, login, logout }),
-    [portal, isAuthenticated, user, login, logout],
+    () => ({ portal, isAuthenticated, user, login, logout, refreshSession }),
+    [portal, isAuthenticated, user, login, logout, refreshSession],
   );
 
   return (

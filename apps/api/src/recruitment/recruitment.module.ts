@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { PrismaModule } from '../database/prisma.module';
 import { EmployeesModule } from '../employees/employees.module';
 import { OrganizationModule } from '../organization/organization.module';
+import { SettingsModule } from '../settings/settings.module';
 import { StorageModule } from '../storage/storage.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { OnboardingModule } from '../onboarding/onboarding.module';
@@ -25,6 +26,7 @@ import { RecruitmentController } from './recruitment.controller';
     WorkflowModule,
     EmployeesModule,
     OnboardingModule,
+    SettingsModule,
   ],
   controllers: [RecruitmentController],
   providers: [

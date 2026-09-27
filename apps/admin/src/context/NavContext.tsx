@@ -1,4 +1,14 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { pathForPage, resolveRoute } from '@/config/routes';
 
 export type PageKey =
   | 'dashboard'
@@ -77,7 +87,16 @@ export type PageKey =
   | 'settings-backup'
   | 'settings-general'
   | 'ess'
-  | 'self-service';
+  | 'self-service'
+  | 'shell-employees'
+  | 'shell-organization'
+  | 'shell-recruitment'
+  | 'shell-attendance'
+  | 'shell-roster'
+  | 'shell-leave'
+  | 'shell-payroll'
+  | 'shell-reports'
+  | 'shell-settings';
 
 interface NavContextValue {
   current: PageKey;
@@ -89,54 +108,92 @@ interface NavContextValue {
   openLifecycle: (id: string) => void;
   openContract: (id: string) => void;
   openApplication: (id: string) => void;
+  openOfferLetter: (applicationId: string) => void;
 }
 
 const NavContext = createContext<NavContextValue | undefined>(undefined);
 
 export function NavProvider({ children }: { children: ReactNode }) {
-  const [current, setCurrent] = useState<PageKey>('dashboard');
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
-    null,
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+
+  const resolved = useMemo(
+    () => resolveRoute(location.pathname),
+    [location.pathname],
   );
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(
-    null,
-  );
+
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(
     null,
   );
 
-  const openEmployee = (id: string) => {
-    setSelectedEmployeeId(id);
-    setCurrent('emp-profile');
-  };
+  useEffect(() => {
+    if (resolved.employeeId) setSelectedEmployeeId(resolved.employeeId);
+    if (resolved.contractId) setSelectedContractId(resolved.contractId);
+    if (resolved.applicationId) setSelectedApplicationId(resolved.applicationId);
+  }, [resolved.employeeId, resolved.contractId, resolved.applicationId]);
 
-  const openLifecycle = (id: string) => {
-    setSelectedEmployeeId(id);
-    setCurrent('emp-lifecycle');
-  };
+  const navigate = useCallback(
+    (page: PageKey) => {
+      routerNavigate(pathForPage(page));
+    },
+    [routerNavigate],
+  );
 
-  const openContract = (id: string) => {
-    setSelectedContractId(id);
-    setCurrent('emp-contract-detail');
-  };
+  const openEmployee = useCallback(
+    (id: string) => {
+      setSelectedEmployeeId(id);
+      routerNavigate(pathForPage('emp-profile', { employeeId: id }));
+    },
+    [routerNavigate],
+  );
 
-  const openApplication = (id: string) => {
-    setSelectedApplicationId(id);
-    setCurrent('candidate-profile');
-  };
+  const openLifecycle = useCallback(
+    (id: string) => {
+      setSelectedEmployeeId(id);
+      routerNavigate(pathForPage('emp-lifecycle'));
+    },
+    [routerNavigate],
+  );
+
+  const openContract = useCallback(
+    (id: string) => {
+      setSelectedContractId(id);
+      routerNavigate(pathForPage('emp-contract-detail', { contractId: id }));
+    },
+    [routerNavigate],
+  );
+
+  const openApplication = useCallback(
+    (id: string) => {
+      setSelectedApplicationId(id);
+      routerNavigate(pathForPage('candidate-profile', { applicationId: id }));
+    },
+    [routerNavigate],
+  );
+
+  const openOfferLetter = useCallback(
+    (applicationId: string) => {
+      setSelectedApplicationId(applicationId);
+      routerNavigate(pathForPage('offer-letter', { applicationId }));
+    },
+    [routerNavigate],
+  );
 
   return (
     <NavContext.Provider
       value={{
-        current,
-        navigate: setCurrent,
-        selectedEmployeeId,
-        selectedContractId,
-        selectedApplicationId,
+        current: resolved.page,
+        navigate,
+        selectedEmployeeId: resolved.employeeId ?? selectedEmployeeId,
+        selectedContractId: resolved.contractId ?? selectedContractId,
+        selectedApplicationId: resolved.applicationId ?? selectedApplicationId,
         openEmployee,
         openLifecycle,
         openContract,
         openApplication,
+        openOfferLetter,
       }}
     >
       {children}

@@ -21,6 +21,7 @@ import {
   parseDurationToMs,
   parseDurationToSeconds,
 } from './auth.utils';
+import type { TenantMembershipView } from '@hrm/shared-types';
 import type { LoginDto } from './dto/auth-swagger.dto';
 import {
   assertPasswordMeetsPolicy,
@@ -246,6 +247,96 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     return result.count;
+  }
+
+  async listAccessibleTenants(
+    user: AuthenticatedUser,
+  ): Promise<TenantMembershipView[]> {
+    const currentUser = await this.prisma.unscoped.user.findUnique({
+      where: { id: user.id },
+      select: { email: true, tenantId: true },
+    });
+    if (!currentUser?.email) {
+      return [];
+    }
+
+    const normalizedEmail = currentUser.email.trim().toLowerCase();
+    const memberships = await this.prisma.unscoped.user.findMany({
+      where: {
+        email: normalizedEmail,
+        isActive: true,
+        tenantId: { not: null },
+        tenant: { status: 'active' },
+      },
+      include: {
+        role: true,
+        tenant: true,
+      },
+      orderBy: { tenant: { name: 'asc' } },
+    });
+
+    const logoUrls = await Promise.all(
+      memberships.map((row) =>
+        row.tenantId ? this.resolveTenantLogoUrl(row.tenantId) : null,
+      ),
+    );
+
+    return memberships.map((row, index) => ({
+      tenantId: row.tenantId!,
+      tenantName: row.tenant!.name,
+      subdomain: row.tenant!.subdomain,
+      logoUrl: logoUrls[index] ?? null,
+      roleName: row.role.name,
+      isCurrent: row.tenantId === currentUser.tenantId,
+    }));
+  }
+
+  async switchTenant(
+    currentUser: AuthenticatedUser,
+    tenantId: string,
+    refreshToken: string,
+    context: RefreshContext,
+  ): Promise<AuthTokenBundle> {
+    const sessionUser = await this.prisma.unscoped.user.findUnique({
+      where: { id: currentUser.id },
+      include: { role: { include: { permissions: true } } },
+    });
+    if (!sessionUser) {
+      throw new UnauthorizedException({
+        code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
+        message: 'User not found',
+      });
+    }
+
+    if (sessionUser.tenantId === tenantId) {
+      await this.logout(refreshToken);
+      return this.issueTokenBundle(sessionUser, context, generateTokenFamilyId());
+    }
+
+    const normalizedEmail = sessionUser.email.trim().toLowerCase();
+    const targetUser = await this.prisma.unscoped.user.findFirst({
+      where: {
+        email: normalizedEmail,
+        tenantId,
+        isActive: true,
+        tenant: { status: 'active' },
+      },
+      include: {
+        role: { include: { permissions: true } },
+        tenant: true,
+      },
+    });
+
+    if (!targetUser) {
+      throw new UnauthorizedException({
+        code: AUTH_ERROR_CODES.TENANT_ACCESS_DENIED,
+        message: 'You do not have access to this organization',
+      });
+    }
+
+    await this.logout(refreshToken);
+
+    return this.issueTokenBundle(targetUser, context, generateTokenFamilyId());
   }
 
   async changePassword(
@@ -502,6 +593,21 @@ export class AuthService {
       },
       data: { revokedAt: new Date() },
     });
+  }
+
+  private async resolveTenantLogoUrl(tenantId: string): Promise<string | null> {
+    const setting = await this.prisma.unscoped.tenantSetting.findFirst({
+      where: {
+        tenantId,
+        category: 'branding',
+        key: 'default',
+      },
+    });
+    if (!setting?.value || typeof setting.value !== 'object') {
+      return null;
+    }
+    const value = setting.value as Record<string, unknown>;
+    return typeof value.logoUrl === 'string' ? value.logoUrl : null;
   }
 
   private toPermissionClaims(permissions: Permission[]): PermissionClaim[] {

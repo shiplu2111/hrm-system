@@ -461,7 +461,7 @@ function InterviewRoundsPanel({
 }
 
 export function CandidateProfilePage() {
-  const { navigate, selectedApplicationId } = useNav();
+  const { navigate, openOfferLetter, selectedApplicationId } = useNav();
   const [application, setApplication] = useState<JobApplicationRecord | null>(null);
   const [offerAccepted, setOfferAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -693,7 +693,11 @@ export function CandidateProfilePage() {
                 <div className="pt-2 border-t border-base space-y-3">
                   <Button
                     variant="secondary"
-                    onClick={() => navigate('offer-letter')}
+                    onClick={() => {
+                      if (selectedApplicationId) {
+                        openOfferLetter(selectedApplicationId);
+                      }
+                    }}
                   >
                     <FileSignature className="h-4 w-4" /> Offer Letter
                   </Button>

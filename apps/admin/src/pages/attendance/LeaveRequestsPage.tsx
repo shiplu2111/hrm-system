@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Toggle';
 import { CompanySelector } from '@/components/org/CompanySelector';
+import { PermissionGate } from '@hrm/portal-ui';
 import { PageErrorState, PageLoadingState } from '@/components/org/PageState';
 import { useCompany } from '@/context/CompanyContext';
 import { listEmployees } from '@/lib/employees-api';
@@ -153,24 +154,26 @@ export function LeaveRequestsPage() {
                         </div>
                       </div>
                       {req.status === 'pending' && (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={actingId === req.id}
-                            onClick={() => void handleAction(req.id, 'reject')}
-                          >
-                            <X className="h-4 w-4" /> Reject
-                          </Button>
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            disabled={actingId === req.id}
-                            onClick={() => void handleAction(req.id, 'approve')}
-                          >
-                            <Check className="h-4 w-4" /> Approve
-                          </Button>
-                        </div>
+                        <PermissionGate module="leave" action="approve">
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={actingId === req.id}
+                              onClick={() => void handleAction(req.id, 'reject')}
+                            >
+                              <X className="h-4 w-4" /> Reject
+                            </Button>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={actingId === req.id}
+                              onClick={() => void handleAction(req.id, 'approve')}
+                            >
+                              <Check className="h-4 w-4" /> Approve
+                            </Button>
+                          </div>
+                        </PermissionGate>
                       )}
                     </div>
                   </CardBody>

@@ -8,6 +8,11 @@ export interface SendMailInput {
   subject: string;
   text: string;
   html?: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
 }
 
 @Injectable()
@@ -34,6 +39,11 @@ export class MailService {
         subject: input.subject,
         text: input.text,
         html: input.html,
+        attachments: input.attachments?.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType ?? 'application/octet-stream',
+        })),
       });
     } catch (error) {
       const message =

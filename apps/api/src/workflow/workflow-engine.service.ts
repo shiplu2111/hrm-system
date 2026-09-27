@@ -150,6 +150,9 @@ export class WorkflowEngineService {
     audit: WorkflowAuditContext;
   }): Promise<WorkflowTransitionResult> {
     const row = await this.findInstanceOrThrow(input.instanceId);
+    const steps = parseInstanceSteps(row.steps);
+    const currentStep = getCurrentWorkflowStep(steps);
+
     if (row.status !== WorkflowInstanceStatus.pending) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -157,9 +160,21 @@ export class WorkflowEngineService {
       });
     }
 
-    const steps = parseInstanceSteps(row.steps);
-    const currentStep = getCurrentWorkflowStep(steps);
     if (!currentStep) {
+      if (isWorkflowComplete(steps)) {
+        const synced = await this.prisma.unscoped.workflowInstance.update({
+          where: { id: row.id },
+          data: {
+            status: WorkflowInstanceStatus.approved,
+            completedAt: row.completedAt ?? new Date(),
+          },
+        });
+        return {
+          instance: this.toRecord(synced),
+          fullyApproved: true,
+          rejected: false,
+        };
+      }
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'No pending approval step',

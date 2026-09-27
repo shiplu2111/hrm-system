@@ -76,6 +76,7 @@ export interface OfferLetterRecord {
   companyId: string;
   applicationId: string;
   candidateName?: string;
+  candidateEmail?: string | null;
   status: OfferLetterStatus;
   displayStatus: string;
   template: OfferLetterTemplate;

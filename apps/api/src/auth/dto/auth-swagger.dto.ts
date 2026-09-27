@@ -117,3 +117,37 @@ export class ApiDataRefreshResponseDto {
   @ApiProperty({ type: RefreshResponseDto })
   data!: RefreshResponseDto;
 }
+
+export class SwitchTenantDto {
+  @ApiProperty({ format: 'uuid', description: 'Target tenant to scope the new JWT to' })
+  @IsUUID()
+  tenantId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Current refresh token (required for rotation). Optional when sent via httpOnly cookie.',
+  })
+  @IsOptional()
+  @IsString()
+  refreshToken?: string;
+}
+
+export class TenantMembershipDto {
+  @ApiProperty()
+  tenantId!: string;
+
+  @ApiProperty()
+  tenantName!: string;
+
+  @ApiProperty()
+  subdomain!: string;
+
+  @ApiProperty({ nullable: true })
+  logoUrl!: string | null;
+
+  @ApiProperty()
+  roleName!: string;
+
+  @ApiProperty()
+  isCurrent!: boolean;
+}

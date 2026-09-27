@@ -85,6 +85,13 @@ export class LeaveWorkflowService {
     legacyApprovalChain?: LeaveApprovalStep[] | null;
   }): Promise<WorkflowTransitionResult> {
     const instance = await this.ensureInstance(input);
+    if (instance.status !== 'pending') {
+      return {
+        instance,
+        fullyApproved: instance.status === 'approved',
+        rejected: instance.status === 'rejected',
+      };
+    }
     return this.workflowEngine.approve({
       instanceId: instance.id,
       user: input.user,
@@ -105,6 +112,13 @@ export class LeaveWorkflowService {
     legacyApprovalChain?: LeaveApprovalStep[] | null;
   }): Promise<WorkflowTransitionResult> {
     const instance = await this.ensureInstance(input);
+    if (instance.status !== 'pending') {
+      return {
+        instance,
+        fullyApproved: false,
+        rejected: instance.status === 'rejected',
+      };
+    }
     return this.workflowEngine.reject({
       instanceId: instance.id,
       user: input.user,
