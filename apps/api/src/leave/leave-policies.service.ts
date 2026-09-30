@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -29,32 +30,67 @@ export class LeavePoliciesService {
     return rows.map((row) => this.toRecord(row));
   }
 
+  /**
+   * Adds a policy version. The version in effect on `effectiveFrom` is closed the day
+   * before, so past accruals keep resolving to the rules that applied at the time.
+   */
   async create(companyId: string, dto: CreateLeavePolicyDto): Promise<LeavePolicyRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
     await this.assertLeaveType(companyId, dto.leaveTypeId);
 
-    const row = await this.prisma.unscoped.leavePolicy.create({
-      data: {
-        companyId,
-        leaveTypeId: dto.leaveTypeId,
-        entitlementDays: dto.entitlementDays,
-        accrualType: dto.accrualType,
-        carryForwardMax: dto.carryForwardMax ?? null,
-        expiryMonths: dto.expiryMonths ?? null,
-        encashmentAllowed: dto.encashmentAllowed ?? false,
-        probationRestricted: dto.probationRestricted ?? true,
-        allowNegativeBalance: dto.allowNegativeBalance ?? false,
-        negativeBalanceCap: dto.negativeBalanceCap ?? null,
-        halfDayAllowed: dto.halfDayAllowed ?? true,
-        deductPublicHolidays: dto.deductPublicHolidays ?? false,
-        approvalSteps: (dto.approvalSteps ?? [
-          { roleName: 'Manager' },
-          { roleName: 'HR Admin' },
-        ]) as unknown as Prisma.InputJsonValue,
-        yearlyAccrualAnchor: dto.yearlyAccrualAnchor ?? 'financial_year',
-        effectiveFrom: parseDateString(dto.effectiveFrom),
-        effectiveTo: dto.effectiveTo ? parseDateString(dto.effectiveTo) : null,
-      },
+    const effectiveFrom = parseDateString(dto.effectiveFrom);
+    const effectiveTo = dto.effectiveTo ? parseDateString(dto.effectiveTo) : null;
+    this.assertDateRange(effectiveFrom, effectiveTo);
+
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      const versions = await tx.leavePolicy.findMany({
+        where: { companyId, leaveTypeId: dto.leaveTypeId },
+        orderBy: { effectiveFrom: 'asc' },
+      });
+
+      const later = versions.find((v) => v.effectiveFrom >= effectiveFrom);
+      if (later) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `A policy version already starts on ${formatDateValue(later.effectiveFrom)}. Edit that version or choose a later effective date.`,
+        });
+      }
+
+      const covering = versions.find(
+        (v) => v.effectiveTo === null || v.effectiveTo >= effectiveFrom,
+      );
+      if (covering) {
+        const dayBefore = new Date(effectiveFrom);
+        dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+        await tx.leavePolicy.update({
+          where: { id: covering.id },
+          data: { effectiveTo: dayBefore },
+        });
+      }
+
+      return tx.leavePolicy.create({
+        data: {
+          companyId,
+          leaveTypeId: dto.leaveTypeId,
+          entitlementDays: dto.entitlementDays,
+          accrualType: dto.accrualType,
+          carryForwardMax: dto.carryForwardMax ?? null,
+          expiryMonths: dto.expiryMonths ?? null,
+          encashmentAllowed: dto.encashmentAllowed ?? false,
+          probationRestricted: dto.probationRestricted ?? true,
+          allowNegativeBalance: dto.allowNegativeBalance ?? false,
+          negativeBalanceCap: dto.allowNegativeBalance ? (dto.negativeBalanceCap ?? null) : null,
+          halfDayAllowed: dto.halfDayAllowed ?? true,
+          deductPublicHolidays: dto.deductPublicHolidays ?? false,
+          approvalSteps: (dto.approvalSteps ?? [
+            { roleName: 'Manager' },
+            { roleName: 'HR Admin' },
+          ]) as unknown as Prisma.InputJsonValue,
+          yearlyAccrualAnchor: dto.yearlyAccrualAnchor ?? 'financial_year',
+          effectiveFrom,
+          effectiveTo,
+        },
+      });
     });
     return this.toRecord(row);
   }
@@ -64,7 +100,38 @@ export class LeavePoliciesService {
     policyId: string,
     dto: UpdateLeavePolicyDto,
   ): Promise<LeavePolicyRecord> {
-    await this.findOrThrow(companyId, policyId);
+    const existing = await this.findOrThrow(companyId, policyId);
+
+    if (dto.effectiveFrom !== undefined || dto.effectiveTo !== undefined) {
+      const from =
+        dto.effectiveFrom !== undefined
+          ? parseDateString(dto.effectiveFrom)
+          : existing.effectiveFrom;
+      const to =
+        dto.effectiveTo !== undefined
+          ? dto.effectiveTo
+            ? parseDateString(dto.effectiveTo)
+            : null
+          : existing.effectiveTo;
+      this.assertDateRange(from, to);
+
+      const overlap = await this.prisma.unscoped.leavePolicy.findFirst({
+        where: {
+          companyId,
+          leaveTypeId: existing.leaveTypeId,
+          id: { not: policyId },
+          ...(to ? { effectiveFrom: { lte: to } } : {}),
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }],
+        },
+      });
+      if (overlap) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `These dates overlap the version effective from ${formatDateValue(overlap.effectiveFrom)}`,
+        });
+      }
+    }
+
     const row = await this.prisma.unscoped.leavePolicy.update({
       where: { id: policyId },
       data: {
@@ -83,9 +150,12 @@ export class LeavePoliciesService {
           ? { probationRestricted: dto.probationRestricted }
           : {}),
         ...(dto.allowNegativeBalance !== undefined
-          ? { allowNegativeBalance: dto.allowNegativeBalance }
+          ? {
+              allowNegativeBalance: dto.allowNegativeBalance,
+              ...(dto.allowNegativeBalance ? {} : { negativeBalanceCap: null }),
+            }
           : {}),
-        ...(dto.negativeBalanceCap !== undefined
+        ...(dto.negativeBalanceCap !== undefined && dto.allowNegativeBalance !== false
           ? { negativeBalanceCap: dto.negativeBalanceCap }
           : {}),
         ...(dto.halfDayAllowed !== undefined
@@ -109,6 +179,15 @@ export class LeavePoliciesService {
       },
     });
     return this.toRecord(row);
+  }
+
+  private assertDateRange(from: Date, to: Date | null) {
+    if (to && to < from) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Effective to must be on or after effective from',
+      });
+    }
   }
 
   private async findOrThrow(companyId: string, policyId: string) {

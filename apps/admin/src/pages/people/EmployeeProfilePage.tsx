@@ -9,6 +9,7 @@ import {
   User,
   FileText,
   History,
+  Palmtree,
   Pencil,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -23,6 +24,7 @@ import { EmployeeProfileSkeleton } from '@/components/people/EmployeeProfileSkel
 import { EmployeeFormWizard } from '@/components/people/EmployeeFormWizard';
 import { EmployeeProfileDocumentsTab } from '@/components/people/EmployeeProfileDocumentsTab';
 import { EmployeeProfileLifecycleTab } from '@/components/people/EmployeeProfileLifecycleTab';
+import { EmployeeLeaveBalances } from '@/components/leave/EmployeeLeaveBalances';
 import { useNav } from '@/context/NavContext';
 import { getEmployee, listEmployees, updateEmployee } from '@/lib/employees-api';
 import {
@@ -34,11 +36,12 @@ import {
 import { useCompany } from '@/context/CompanyContext';
 import { ApiError } from '@/lib/tenant-api-client';
 
-type Tab = 'personal' | 'employment' | 'documents' | 'lifecycle';
+type Tab = 'personal' | 'employment' | 'leave' | 'documents' | 'lifecycle';
 
 const tabs: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
   { key: 'employment', label: 'Employment Info', icon: Briefcase },
+  { key: 'leave', label: 'Leave', icon: Palmtree },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'lifecycle', label: 'Lifecycle History', icon: History },
 ];
@@ -720,6 +723,14 @@ export function EmployeeProfilePage() {
           </CardBody>
         </Card>
       )}
+
+      {activeTab === 'leave' && companyId ? (
+        <EmployeeLeaveBalances
+          employeeId={emp.id}
+          companyId={companyId}
+          probationEndDate={emp.probationEndDate}
+        />
+      ) : null}
 
       {activeTab === 'documents' && companyId ? (
         <EmployeeProfileDocumentsTab

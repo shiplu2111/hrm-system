@@ -5,13 +5,17 @@ interface ToggleProps {
   onChange: (v: boolean) => void;
   size?: 'sm' | 'md';
   disabled?: boolean;
+  label?: string;
 }
 
-export function Toggle({ checked, onChange, size = 'md', disabled = false }: ToggleProps) {
+export function Toggle({ checked, onChange, size = 'md', disabled = false, label }: ToggleProps) {
   const dims = size === 'sm' ? { w: 'w-8', h: 'h-4', knob: 'h-3 w-3', translate: 'translate-x-4' } : { w: 'w-9', h: 'h-5', knob: 'h-4 w-4', translate: 'translate-x-4' };
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
       className={`relative inline-flex ${dims.h} ${dims.w} shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${

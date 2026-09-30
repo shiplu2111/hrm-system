@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   LeaveAccrualType,
+  LeaveRequestStatus,
   type LeaveBalance,
   type LeavePolicy,
   type Prisma,
@@ -202,11 +203,34 @@ export class LeaveBalancesService {
     });
     const balance = await this.getOrCreateBalance(employeeId, leaveTypeId, leaveYear);
 
+    const yearStart = getFinancialYearStart(company.financialYearStart, leaveYear);
+    const yearEnd = getFinancialYearStart(company.financialYearStart, leaveYear + 1);
+    yearEnd.setUTCDate(yearEnd.getUTCDate() - 1);
+    const usage = await this.prisma.unscoped.leaveRequest.groupBy({
+      by: ['status'],
+      where: {
+        employeeId,
+        leaveTypeId,
+        status: { in: [LeaveRequestStatus.approved, LeaveRequestStatus.pending] },
+        startDate: { gte: yearStart, lte: yearEnd },
+      },
+      _sum: { totalDays: true },
+    });
+    const sumFor = (status: LeaveRequestStatus) => {
+      const total = usage.find((row) => row.status === status)?._sum.totalDays;
+      return total ? decimalToNumber(total) : 0;
+    };
+
     return {
       id: balance.id,
       employeeId,
       leaveTypeId,
       leaveTypeName: leaveType.name,
+      isPaid: leaveType.isPaid,
+      usedDays: sumFor(LeaveRequestStatus.approved),
+      pendingDays: sumFor(LeaveRequestStatus.pending),
+      leaveYearStart: formatDateValue(yearStart),
+      leaveYearEnd: formatDateValue(yearEnd),
       balanceDays: decimalToNumber(balance.balanceDays),
       carriedForwardDays: decimalToNumber(balance.carriedForwardDays),
       carriedForwardExpiresAt: balance.carriedForwardExpiresAt

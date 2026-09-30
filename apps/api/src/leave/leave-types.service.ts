@@ -21,12 +21,17 @@ export class LeaveTypesService {
     const rows = await this.prisma.unscoped.leaveType.findMany({
       where: { companyId },
       orderBy: { name: 'asc' },
+      include: { _count: { select: { leavePolicies: true, leaveRequests: true } } },
     });
-    return rows.map((row) => this.toRecord(row));
+    return rows.map((row) => ({
+      ...this.toRecord(row),
+      usage: { policies: row._count.leavePolicies, requests: row._count.leaveRequests },
+    }));
   }
 
   async create(companyId: string, dto: CreateLeaveTypeDto): Promise<LeaveTypeRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    await this.assertUniqueName(companyId, dto.name);
     try {
       const row = await this.prisma.unscoped.leaveType.create({
         data: {
@@ -56,6 +61,9 @@ export class LeaveTypesService {
     dto: UpdateLeaveTypeDto,
   ): Promise<LeaveTypeRecord> {
     await this.findOrThrow(companyId, leaveTypeId);
+    if (dto.name !== undefined) {
+      await this.assertUniqueName(companyId, dto.name, leaveTypeId);
+    }
     const row = await this.prisma.unscoped.leaveType.update({
       where: { id: leaveTypeId },
       data: {
@@ -75,10 +83,27 @@ export class LeaveTypesService {
     if (policyCount > 0 || requestCount > 0) {
       throw new ConflictException({
         code: 'CONFLICT',
-        message: 'Leave type is in use and cannot be deleted',
+        message: `Leave type is in use (${policyCount} policy version(s), ${requestCount} request(s)) and cannot be deleted`,
       });
     }
     await this.prisma.unscoped.leaveType.delete({ where: { id: leaveTypeId } });
+  }
+
+  private async assertUniqueName(companyId: string, name: string, excludeId?: string) {
+    const clash = await this.prisma.unscoped.leaveType.findFirst({
+      where: {
+        companyId,
+        name: { equals: name.trim(), mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `A leave type named "${name.trim()}" already exists`,
+      });
+    }
   }
 
   private async findOrThrow(companyId: string, leaveTypeId: string) {

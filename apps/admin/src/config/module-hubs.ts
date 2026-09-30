@@ -87,14 +87,14 @@ export const leaveHub: ModuleHubConfig = {
       icon: ClipboardList,
     },
     {
-      label: 'Leave Types',
-      description: 'Annual, sick, and custom leave categories.',
+      label: 'Leave Types & Policies',
+      description: 'Entitlement, accrual, carry-forward and request rules per leave type.',
       page: 'leave-types',
       icon: Palmtree,
     },
     {
       label: 'Leave Balances',
-      description: 'Entitlements and remaining balance by employee.',
+      description: 'Available, used, pending and carried-forward days per employee.',
       page: 'leave-balance',
       icon: Calendar,
     },

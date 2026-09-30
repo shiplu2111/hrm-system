@@ -97,7 +97,7 @@ export const adminNavItems: AdminNavItem[] = [
     permission: { module: 'leave', action: 'view' },
     children: [
       { label: 'Leave Requests', page: 'leave-requests' },
-      { label: 'Leave Types', page: 'leave-types' },
+      { label: 'Leave Types & Policies', page: 'leave-types' },
       { label: 'Leave Balances', page: 'leave-balance' },
     ],
   },

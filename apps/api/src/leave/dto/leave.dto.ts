@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -8,6 +10,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -18,6 +22,7 @@ import { LeaveAccrualType, YearlyAccrualAnchor } from '@prisma/client';
 export class CreateLeaveTypeDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   name!: string;
 
   @IsOptional()
@@ -29,6 +34,7 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   name?: string;
 
   @IsOptional()
@@ -39,6 +45,7 @@ export class UpdateLeaveTypeDto {
 export class ApprovalStepTemplateDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   roleName!: string;
 }
 
@@ -47,8 +54,9 @@ export class CreateLeavePolicyDto {
   leaveTypeId!: string;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(366)
   entitlementDays!: number;
 
   @IsEnum(LeaveAccrualType)
@@ -56,81 +64,16 @@ export class CreateLeavePolicyDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  carryForwardMax?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  expiryMonths?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  encashmentAllowed?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  probationRestricted?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  allowNegativeBalance?: boolean;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  negativeBalanceCap?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  halfDayAllowed?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  deductPublicHolidays?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ApprovalStepTemplateDto)
-  approvalSteps?: ApprovalStepTemplateDto[];
-
-  @IsOptional()
-  @IsEnum(YearlyAccrualAnchor)
-  yearlyAccrualAnchor?: YearlyAccrualAnchor;
-
-  @IsDateString()
-  effectiveFrom!: string;
-
-  @IsOptional()
-  @IsDateString()
-  effectiveTo?: string;
-}
-
-export class UpdateLeavePolicyDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  entitlementDays?: number;
-
-  @IsOptional()
-  @IsEnum(LeaveAccrualType)
-  accrualType?: LeaveAccrualType;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
+  @Max(366)
   carryForwardMax?: number | null;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(60)
   expiryMonths?: number | null;
 
   @IsOptional()
@@ -147,8 +90,9 @@ export class UpdateLeavePolicyDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(366)
   negativeBalanceCap?: number | null;
 
   @IsOptional()
@@ -161,6 +105,81 @@ export class UpdateLeavePolicyDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ApprovalStepTemplateDto)
+  approvalSteps?: ApprovalStepTemplateDto[];
+
+  @IsOptional()
+  @IsEnum(YearlyAccrualAnchor)
+  yearlyAccrualAnchor?: YearlyAccrualAnchor;
+
+  @IsDateString()
+  effectiveFrom!: string;
+
+  @IsOptional()
+  @IsDateString()
+  effectiveTo?: string | null;
+}
+
+export class UpdateLeavePolicyDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(366)
+  entitlementDays?: number;
+
+  @IsOptional()
+  @IsEnum(LeaveAccrualType)
+  accrualType?: LeaveAccrualType;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(366)
+  carryForwardMax?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  expiryMonths?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  encashmentAllowed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  probationRestricted?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowNegativeBalance?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(366)
+  negativeBalanceCap?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  halfDayAllowed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  deductPublicHolidays?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => ApprovalStepTemplateDto)
   approvalSteps?: ApprovalStepTemplateDto[];

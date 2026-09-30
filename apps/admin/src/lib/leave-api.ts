@@ -1,8 +1,10 @@
 import type {
+  CreateLeavePolicyInput,
   LeaveBalanceRecord,
   LeavePolicyRecord,
   LeaveRequestRecord,
   LeaveTypeRecord,
+  UpdateLeavePolicyInput,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -19,6 +21,17 @@ export function createLeaveType(
   return tenantApiRequest<LeaveTypeRecord>(
     `/companies/${companyId}/leave-types`,
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function updateLeaveType(
+  companyId: string,
+  leaveTypeId: string,
+  input: { name?: string; isPaid?: boolean },
+): Promise<LeaveTypeRecord> {
+  return tenantApiRequest<LeaveTypeRecord>(
+    `/companies/${companyId}/leave-types/${leaveTypeId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
   );
 }
 
@@ -46,17 +59,22 @@ export function listLeavePolicies(
 
 export function createLeavePolicy(
   companyId: string,
-  input: {
-    leaveTypeId: string;
-    entitlementDays: number;
-    accrualType: 'monthly' | 'yearly' | 'on_hire';
-    effectiveFrom: string;
-    approvalSteps?: Array<{ roleName: string }>;
-  },
+  input: CreateLeavePolicyInput,
 ): Promise<LeavePolicyRecord> {
   return tenantApiRequest<LeavePolicyRecord>(
     `/companies/${companyId}/leave-policies`,
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function updateLeavePolicy(
+  companyId: string,
+  policyId: string,
+  input: UpdateLeavePolicyInput,
+): Promise<LeavePolicyRecord> {
+  return tenantApiRequest<LeavePolicyRecord>(
+    `/companies/${companyId}/leave-policies/${policyId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
   );
 }
 
@@ -95,8 +113,21 @@ export function rejectLeaveRequest(
 
 export function getEmployeeLeaveBalances(
   employeeId: string,
+  asOf?: string,
 ): Promise<LeaveBalanceRecord[]> {
+  const query = asOf ? `?asOf=${encodeURIComponent(asOf)}` : '';
   return tenantApiRequest<LeaveBalanceRecord[]>(
-    `/employees/${employeeId}/leave-balances`,
+    `/employees/${employeeId}/leave-balances${query}`,
+  );
+}
+
+export function accrueEmployeeLeave(
+  employeeId: string,
+  asOf?: string,
+): Promise<LeaveBalanceRecord[]> {
+  const query = asOf ? `?asOf=${encodeURIComponent(asOf)}` : '';
+  return tenantApiRequest<LeaveBalanceRecord[]>(
+    `/employees/${employeeId}/leave-balances/accrue${query}`,
+    { method: 'POST' },
   );
 }

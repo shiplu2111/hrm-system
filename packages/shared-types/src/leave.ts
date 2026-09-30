@@ -27,6 +27,8 @@ export interface LeaveTypeRecord {
   companyId: string;
   name: string;
   isPaid: boolean;
+  /** Present on the list endpoint; a type with policies or requests cannot be deleted */
+  usage?: { policies: number; requests: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -53,11 +55,55 @@ export interface LeavePolicyRecord {
   updatedAt: string;
 }
 
+export interface LeavePolicyInput {
+  entitlementDays: number;
+  accrualType: LeaveAccrualType;
+  carryForwardMax?: number | null;
+  expiryMonths?: number | null;
+  encashmentAllowed?: boolean;
+  probationRestricted?: boolean;
+  allowNegativeBalance?: boolean;
+  negativeBalanceCap?: number | null;
+  halfDayAllowed?: boolean;
+  deductPublicHolidays?: boolean;
+  approvalSteps?: Array<{ roleName: string }>;
+  yearlyAccrualAnchor?: YearlyAccrualAnchor;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+}
+
+export interface CreateLeavePolicyInput extends LeavePolicyInput {
+  leaveTypeId: string;
+}
+
+export type UpdateLeavePolicyInput = Partial<LeavePolicyInput>;
+
+/** The version in effect on `asOf` (YYYY-MM-DD); versions never overlap. */
+export function findEffectiveLeavePolicy<
+  T extends Pick<LeavePolicyRecord, 'leaveTypeId' | 'effectiveFrom' | 'effectiveTo'>,
+>(policies: T[], leaveTypeId: string, asOf: string): T | undefined {
+  return policies
+    .filter(
+      (p) =>
+        p.leaveTypeId === leaveTypeId &&
+        p.effectiveFrom <= asOf &&
+        (p.effectiveTo === null || p.effectiveTo >= asOf),
+    )
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+}
+
 export interface LeaveBalanceRecord {
   id: string;
   employeeId: string;
   leaveTypeId: string;
   leaveTypeName?: string;
+  isPaid?: boolean;
+  /** Days of approved leave starting within the leave year */
+  usedDays?: number;
+  /** Days of submitted, not yet decided leave starting within the leave year */
+  pendingDays?: number;
+  leaveYearStart?: string;
+  leaveYearEnd?: string;
   balanceDays: number;
   carriedForwardDays: number;
   carriedForwardExpiresAt: string | null;
