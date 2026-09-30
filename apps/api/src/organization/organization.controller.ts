@@ -37,7 +37,9 @@ export class OrganizationController {
   ) {}
 
   @Get('companies')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', {
+    orAnyOf: [{ module: 'payroll', action: 'view' }],
+  })
   @ApiOperation({ summary: 'List companies for the authenticated tenant' })
   async listCompanies() {
     return { data: await this.companyScope.listCompanies() };

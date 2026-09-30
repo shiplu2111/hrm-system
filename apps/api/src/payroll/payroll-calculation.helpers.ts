@@ -13,7 +13,7 @@ export function applySalaryStructureOverrides(
     return rows;
   }
 
-  return rows.map((row) => {
+  return rows.flatMap((row) => {
     const match = overrides.find(
       (override) =>
         (override.salaryStructureId != null &&
@@ -22,7 +22,10 @@ export function applySalaryStructureOverrides(
     );
 
     if (!match) {
-      return row;
+      return [row];
+    }
+    if (match.remove) {
+      return [];
     }
 
     const current = parseAmountConfig(row.amountOrFormula);
@@ -36,11 +39,52 @@ export function applySalaryStructureOverrides(
         : {}),
     };
 
-    return {
-      ...row,
-      amountOrFormula: merged,
-    };
+    return [
+      {
+        ...row,
+        amountOrFormula: merged,
+      },
+    ];
   });
+}
+
+/** Component overrides with no active row become hypothetical assignments (what-if "add"). */
+export function buildHypotheticalStructureRows(
+  employeeId: string,
+  asOfDate: Date,
+  activeRows: StructureRow[],
+  components: PayComponent[],
+  overrides?: PayrollSalaryStructureOverride[],
+): StructureRow[] {
+  if (!overrides?.length) {
+    return [];
+  }
+  const rows: StructureRow[] = [];
+  for (const override of overrides) {
+    if (override.remove || override.salaryStructureId || !override.componentId) {
+      continue;
+    }
+    if (activeRows.some((row) => row.componentId === override.componentId)) {
+      continue;
+    }
+    const component = components.find((c) => c.id === override.componentId);
+    if (!component) {
+      continue;
+    }
+    rows.push({
+      id: `simulated-${component.id}`,
+      employeeId,
+      componentType: component.type,
+      componentId: component.id,
+      amountOrFormula: {},
+      effectiveFrom: asOfDate,
+      effectiveTo: null,
+      createdAt: asOfDate,
+      updatedAt: asOfDate,
+      component,
+    });
+  }
+  return rows;
 }
 
 export function computePayrollDelta(

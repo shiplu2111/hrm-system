@@ -1,382 +1,935 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Users,
-  DollarSign,
-  Search,
+  CalendarClock,
+  CheckCircle2,
+  Download,
+  Layers,
+  Lock,
+  MoreHorizontal,
   Pencil,
-  ArrowRight,
+  Plus,
+  Search,
+  StopCircle,
+  Trash2,
   TrendingUp,
-  TrendingDown,
-  Sparkles,
-  Check,
-  Building,
+  UserRound,
+  Wallet,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
+import type {
+  EmployeeRecord,
+  PayComponentRecord,
+  PayrollCalculationLine,
+  PayrollCalculationPreview,
+  PayrollSalaryStructureOverride,
+  SalaryStructurePayrollLock,
+  SalaryStructureRecord,
+} from '@hrm/shared-types';
+import { usePermissions } from '@hrm/portal-ui';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select } from '@/components/ui/Form';
+import { Input } from '@/components/ui/Form';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { StatusPill, type StatusPillTone } from '@/components/ui/StatusPill';
 import { Avatar } from '@/components/ui/Toggle';
+import { DataTable, DataTableBody, DataTableHead } from '@/components/ui/DataTable';
+import { Dropdown, DropdownDivider, DropdownItem } from '@/components/ui/Dropdown';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { OrgErrorBanner, OrgTableSkeleton } from '@/components/org/OrgScreenParts';
+import { PageErrorState, PageLoadingState } from '@/components/org/PageState';
+import { PayrollReviewDialog, type PayrollImpactState } from '@/components/payroll/PayrollReviewDialog';
+import { SalaryStructureChangeModal } from '@/components/payroll/SalaryStructureChangeModal';
 import {
-  employeeSalaryStructures,
-  type EmployeeSalaryStructure,
-} from '@/data/payrollData';
+  formatPeriodList,
+  lockedPeriodsIn,
+  rangeFullyLocked,
+  uniquePeriods,
+  type StructureChange,
+  type StructureFormMode,
+  type StructureValue,
+} from '@/lib/salary-structure-change';
+import { useCompany } from '@/context/CompanyContext';
+import { listEmployees } from '@/lib/employees-api';
+import {
+  createSalaryStructure,
+  deleteSalaryStructure,
+  getSalaryStructurePayrollLock,
+  listPayComponents,
+  listSalaryStructures,
+  previewPayroll,
+  reviseSalaryStructure,
+  simulatePayroll,
+  updateSalaryStructure,
+} from '@/lib/payroll-api';
+import {
+  addDaysIso,
+  componentTypeLabel,
+  describeStructureValue,
+  formatDate,
+  formatMoney,
+  formatRate,
+  payrollCopy,
+  todayIso,
+} from '@/lib/payroll-copy';
+import { downloadCsvFile } from '@/lib/csv';
+import { ApiError } from '@/lib/tenant-api-client';
+
+const copy = payrollCopy.structures;
+const reviewCopy = payrollCopy.structureReview;
+
+type RowStatus = 'active' | 'scheduled' | 'ended';
+
+const STATUS_TONE: Record<RowStatus, StatusPillTone> = {
+  active: 'success',
+  scheduled: 'accent',
+  ended: 'neutral',
+};
+
+function rowStatus(row: SalaryStructureRecord, today: string): RowStatus {
+  if (row.effectiveFrom > today) return 'scheduled';
+  if (row.effectiveTo && row.effectiveTo < today) return 'ended';
+  return 'active';
+}
+
+function clampDate(date: string, from: string, to: string | null): string {
+  if (date < from) return from;
+  if (to && date > to) return to;
+  return date;
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
+}
+
+function valueOverride(value: StructureValue): Pick<PayrollSalaryStructureOverride, 'amount' | 'percentage'> {
+  return {
+    ...(value.amount !== undefined ? { amount: value.amount } : {}),
+    ...(value.percentage !== undefined ? { percentage: value.percentage } : {}),
+  };
+}
+
+/** Where to measure the change and which hypothetical overrides represent it. */
+function simulationFor(change: StructureChange, today: string): { asOf: string; overrides: PayrollSalaryStructureOverride[] } {
+  switch (change.kind) {
+    case 'add':
+      return { asOf: change.effectiveFrom, overrides: [{ componentId: change.component.id, ...valueOverride(change.value) }] };
+    case 'revise':
+      return { asOf: change.effectiveFrom, overrides: [{ salaryStructureId: change.row.id, ...valueOverride(change.value) }] };
+    case 'correct':
+      return {
+        asOf: clampDate(today, change.effectiveFrom, change.effectiveTo),
+        overrides: [{ salaryStructureId: change.row.id, ...valueOverride(change.value) }],
+      };
+    case 'end':
+      return { asOf: addDaysIso(change.endDate, 1), overrides: [{ salaryStructureId: change.row.id, remove: true }] };
+    case 'delete':
+      return {
+        asOf: clampDate(today, change.row.effectiveFrom, change.row.effectiveTo),
+        overrides: [{ salaryStructureId: change.row.id, remove: true }],
+      };
+  }
+}
+
+function formatValue(value: StructureValue, component: PayComponentRecord): string {
+  return describeStructureValue(
+    { amountOrFormula: value, componentCalculationType: component.calculationType },
+    component,
+  );
+}
 
 export function SalaryStructurePage() {
-  const [structures, setStructures] = useState<EmployeeSalaryStructure[]>(
-    employeeSalaryStructures
-  );
-  const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState('All');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedEmp, setSelectedEmp] = useState<EmployeeSalaryStructure | null>(null);
+  const { companyId, loading: companyLoading, error: companyError, refresh: refreshCompanies } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('payroll', 'create');
+  const canEdit = can('payroll', 'edit');
+  const canDelete = can('payroll', 'delete');
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get('employee');
+  const today = todayIso();
 
-  // Edit structure form state
-  const [editBasic, setEditBasic] = useState(0);
-  const [editHra, setEditHra] = useState(0);
-  const [editSpecial, setEditSpecial] = useState(0);
-  const [editTax, setEditTax] = useState(0);
-  const [editPf, setEditPf] = useState(0);
-  const [editInsurance, setEditInsurance] = useState(0);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [components, setComponents] = useState<PayComponentRecord[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [employeeSearch, setEmployeeSearch] = useState('');
 
-  const openEditModal = (emp: EmployeeSalaryStructure) => {
-    setSelectedEmp(emp);
-    setEditBasic(emp.basicSalary);
-    const hra = emp.earnings.find((e) => e.name.includes('House') || e.name.includes('HRA'))?.amount || 0;
-    const special = emp.earnings.find((e) => e.name.includes('Special'))?.amount || 0;
-    const tax = emp.deductions.find((d) => d.name.includes('Tax'))?.amount || 0;
-    const pf = emp.deductions.find((d) => d.name.includes('401') || d.name.includes('PF'))?.amount || 0;
-    const ins = emp.deductions.find((d) => d.name.includes('Health') || d.name.includes('Insurance'))?.amount || 0;
+  const [rows, setRows] = useState<SalaryStructureRecord[]>([]);
+  const [lock, setLock] = useState<SalaryStructurePayrollLock>({ lockedThrough: null, periods: [] });
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-    setEditHra(hra);
-    setEditSpecial(special);
-    setEditTax(tax);
-    setEditPf(pf);
-    setEditInsurance(ins);
-    setModalOpen(true);
-  };
+  const [asOf, setAsOf] = useState(today);
+  const [preview, setPreview] = useState<PayrollCalculationPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const calculatedGross = editBasic + editHra + editSpecial + 800; // includes 800 conveyance
-  const calculatedDeductions = editTax + editPf + editInsurance;
-  const calculatedNet = calculatedGross - calculatedDeductions;
+  const [showEnded, setShowEnded] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const handleSave = () => {
-    if (!selectedEmp) return;
-    setStructures((prev) =>
-      prev.map((item) => {
-        if (item.id === selectedEmp.id) {
-          return {
-            ...item,
-            basicSalary: editBasic,
-            grossSalary: calculatedGross,
-            totalDeductions: calculatedDeductions,
-            netSalary: calculatedNet,
-            earnings: item.earnings.map((e) => {
-              if (e.name.includes('Basic')) return { ...e, amount: editBasic };
-              if (e.name.includes('HRA') || e.name.includes('House')) return { ...e, amount: editHra };
-              if (e.name.includes('Special')) return { ...e, amount: editSpecial };
-              return e;
-            }),
-            deductions: item.deductions.map((d) => {
-              if (d.name.includes('Tax')) return { ...d, amount: editTax };
-              if (d.name.includes('401') || d.name.includes('PF')) return { ...d, amount: editPf };
-              if (d.name.includes('Health') || d.name.includes('Insurance')) return { ...d, amount: editInsurance };
-              return d;
-            }),
-          };
-        }
-        return item;
-      })
+  const [formMode, setFormMode] = useState<StructureFormMode | null>(null);
+  const [pendingChange, setPendingChange] = useState<StructureChange | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [impact, setImpact] = useState<PayrollImpactState | null>(null);
+
+  const loadLists = useCallback(async () => {
+    if (!companyId) return;
+    setListLoading(true);
+    setListError(null);
+    try {
+      const [employeeList, componentList] = await Promise.all([listEmployees(companyId), listPayComponents(companyId)]);
+      setEmployees([...employeeList].sort((a, b) => a.fullName.localeCompare(b.fullName)));
+      setComponents(componentList);
+    } catch (err) {
+      setListError(errorMessage(err, copy.loadError));
+    } finally {
+      setListLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    void loadLists();
+  }, [loadLists]);
+
+  const loadDetail = useCallback(async () => {
+    if (!selectedId) return;
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const [structureRows, lockInfo] = await Promise.all([
+        listSalaryStructures(selectedId),
+        getSalaryStructurePayrollLock(selectedId),
+      ]);
+      setRows(structureRows);
+      setLock(lockInfo);
+    } catch (err) {
+      setDetailError(errorMessage(err, copy.loadError));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [selectedId]);
+
+  const loadPreview = useCallback(async () => {
+    if (!selectedId || !asOf) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      setPreview(await previewPayroll(selectedId, asOf));
+    } catch (err) {
+      setPreview(null);
+      setPreviewError(errorMessage(err, copy.previewError));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [selectedId, asOf]);
+
+  useEffect(() => {
+    setRows([]);
+    setPreview(null);
+    void loadDetail();
+  }, [loadDetail]);
+
+  useEffect(() => {
+    void loadPreview();
+  }, [loadPreview]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const componentsById = useMemo(() => new Map(components.map((c) => [c.id, c])), [components]);
+  const selectedEmployee = employees.find((e) => e.id === selectedId) ?? null;
+
+  const filteredEmployees = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(
+      (e) => e.fullName.toLowerCase().includes(q) || e.employeeNumber.toLowerCase().includes(q),
     );
-    setModalOpen(false);
+  }, [employees, employeeSearch]);
+
+  const visibleRows = useMemo(() => {
+    const list = showEnded ? rows : rows.filter((r) => rowStatus(r, today) !== 'ended');
+    const order: Record<RowStatus, number> = { active: 0, scheduled: 1, ended: 2 };
+    return [...list].sort((a, b) => {
+      const typeCmp = a.componentType.localeCompare(b.componentType);
+      if (typeCmp) return typeCmp;
+      const statusCmp = order[rowStatus(a, today)] - order[rowStatus(b, today)];
+      if (statusCmp) return statusCmp;
+      return b.effectiveFrom.localeCompare(a.effectiveFrom);
+    });
+  }, [rows, showEnded, today]);
+
+  const selectEmployee = (id: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('employee', id);
+      return next;
+    });
+    setAsOf(todayIso());
   };
 
-  const filteredStructures = structures.filter((s) => {
-    const matchesSearch =
-      s.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-      s.employeeId.toLowerCase().includes(search.toLowerCase()) ||
-      s.designation.toLowerCase().includes(search.toLowerCase());
-    const matchesDept = deptFilter === 'All' || s.department === deptFilter;
-    return matchesSearch && matchesDept;
-  });
+  const touchesLock = (row: SalaryStructureRecord) =>
+    lockedPeriodsIn(lock.periods, row.effectiveFrom, row.effectiveTo).length > 0;
+  const fullyLocked = (row: SalaryStructureRecord) =>
+    rangeFullyLocked(lock.periods, row.effectiveFrom, row.effectiveTo);
 
-  const totalPayrollGross = structures.reduce((sum, s) => sum + s.grossSalary, 0);
-  const totalPayrollNet = structures.reduce((sum, s) => sum + s.netSalary, 0);
-  const totalPayrollDeductions = structures.reduce((sum, s) => sum + s.totalDeductions, 0);
+  const openForm = (mode: StructureFormMode) => {
+    setPendingChange(null);
+    setFormMode(mode);
+  };
+
+  const startReview = async (change: StructureChange) => {
+    if (!selectedId) return;
+    setPendingChange(change);
+    setFormMode(null);
+    setReviewOpen(true);
+    const { asOf: impactDate, overrides } = simulationFor(change, today);
+    setImpact({ status: 'loading', asOf: impactDate });
+    try {
+      const result = await simulatePayroll(selectedId, { asOf: impactDate, structureOverrides: overrides });
+      setImpact({ status: 'ready', asOf: impactDate, result });
+    } catch (err) {
+      setImpact({ status: 'error', asOf: impactDate, message: errorMessage(err, copy.previewError) });
+    }
+  };
+
+  const backToForm = () => {
+    if (!pendingChange || pendingChange.kind === 'delete') return;
+    setReviewOpen(false);
+    setFormMode(pendingChange.kind === 'add' ? { kind: 'add' } : { kind: pendingChange.kind, row: pendingChange.row });
+  };
+
+  const closeReview = () => {
+    setReviewOpen(false);
+    setPendingChange(null);
+    setImpact(null);
+  };
+
+  const commitChange = async () => {
+    if (!selectedId || !pendingChange) return;
+    const change = pendingChange;
+    switch (change.kind) {
+      case 'add':
+        await createSalaryStructure(selectedId, {
+          componentId: change.component.id,
+          componentType: change.component.type,
+          amountOrFormula: change.value,
+          effectiveFrom: change.effectiveFrom,
+          effectiveTo: change.effectiveTo,
+        });
+        break;
+      case 'revise':
+        await reviseSalaryStructure(selectedId, change.row.id, {
+          amountOrFormula: change.value,
+          effectiveFrom: change.effectiveFrom,
+        });
+        break;
+      case 'correct':
+        await updateSalaryStructure(selectedId, change.row.id, {
+          amountOrFormula: change.value,
+          effectiveFrom: change.effectiveFrom,
+          effectiveTo: change.effectiveTo,
+        });
+        break;
+      case 'end':
+        await updateSalaryStructure(selectedId, change.row.id, { effectiveTo: change.endDate });
+        break;
+      case 'delete':
+        await deleteSalaryStructure(selectedId, change.row.id);
+        break;
+    }
+    closeReview();
+    setNotice(copy.saved);
+    await Promise.all([loadDetail(), loadPreview(), loadLists()]);
+  };
+
+  const retroPeriods = useMemo(() => {
+    if (!pendingChange) return [];
+    if (pendingChange.kind === 'add') {
+      return uniquePeriods(lockedPeriodsIn(lock.periods, pendingChange.effectiveFrom, pendingChange.effectiveTo));
+    }
+    if (pendingChange.kind === 'revise') {
+      return uniquePeriods(lockedPeriodsIn(lock.periods, pendingChange.effectiveFrom, pendingChange.row.effectiveTo));
+    }
+    return [];
+  }, [pendingChange, lock.periods]);
+
+  const exportCsv = () => {
+    if (!selectedEmployee) return;
+    downloadCsvFile(
+      `salary-structure-${selectedEmployee.employeeNumber}.csv`,
+      ['Employee ID', 'Employee', copy.colComponent, 'Type', 'Calculation', copy.colValue, 'Amount', 'Rate (%)', copy.colFrom, copy.colTo, copy.colStatus],
+      visibleRows.map((row) => {
+        const component = componentsById.get(row.componentId);
+        return [
+          selectedEmployee.employeeNumber,
+          selectedEmployee.fullName,
+          row.componentName ?? component?.name ?? '',
+          componentTypeLabel(row.componentType),
+          row.componentCalculationType ? payrollCopy.calcType[row.componentCalculationType] : '',
+          describeStructureValue(row, component),
+          row.amountOrFormula.amount ?? '',
+          row.amountOrFormula.percentage ?? '',
+          row.effectiveFrom,
+          row.effectiveTo ?? '',
+          rowStatusLabel(rowStatus(row, today)),
+        ];
+      }),
+    );
+  };
+
+  if (companyLoading) return <PageLoadingState />;
+  if (companyError) return <PageErrorState error={companyError} onRetry={() => void refreshCompanies()} />;
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">Employee Salary Structure Assignment</h1>
-          <p className="text-sm text-secondary mt-0.5">
-            Manage per-employee compensation breakdown, statutory tax deductions, and take-home pay.
-          </p>
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">{payrollCopy.common.eyebrow}</p>
+          <h1 className="text-xl font-bold text-primary">{copy.title}</h1>
+          <p className="text-sm text-secondary mt-0.5 max-w-3xl">{copy.description}</p>
         </div>
+        <CompanySelector />
       </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-primary">${totalPayrollGross.toLocaleString()}</div>
-            <div className="text-xs text-secondary mt-0.5">Total Monthly Gross Committed</div>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 dark:text-accent-400 flex items-center justify-center">
-            <TrendingUp className="h-5 w-5" />
-          </div>
+      {notice ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg px-4 py-2.5"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {notice}
         </div>
+      ) : null}
 
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-error-600 dark:text-error-400">
-              ${totalPayrollDeductions.toLocaleString()}
+      {listError ? <OrgErrorBanner message={listError} onRetry={() => void loadLists()} /> : null}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
+        <Card className="overflow-hidden lg:sticky lg:top-4">
+          <div className="px-4 py-3 border-b border-base space-y-2">
+            <div className="text-sm font-semibold text-primary">
+              {copy.employees}
+              {!listLoading ? <span className="text-muted font-normal"> ({employees.length})</span> : null}
             </div>
-            <div className="text-xs text-secondary mt-0.5">Total Monthly Deductions & Tax</div>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-error-50 dark:bg-error-950/40 text-error-600 dark:text-error-400 flex items-center justify-center">
-            <TrendingDown className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-success-600 dark:text-success-400">
-              ${totalPayrollNet.toLocaleString()}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+              <Input
+                type="search"
+                value={employeeSearch}
+                onChange={(e) => setEmployeeSearch(e.target.value)}
+                placeholder={copy.searchEmployees}
+                aria-label={copy.searchEmployees}
+                className="pl-9 h-9"
+              />
             </div>
-            <div className="text-xs text-secondary mt-0.5">Total Net Salary (Take-Home)</div>
           </div>
-          <div className="h-10 w-10 rounded-lg bg-success-50 dark:bg-success-950/40 text-success-600 dark:text-success-400 flex items-center justify-center">
-            <DollarSign className="h-5 w-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employee by name, ID, or designation..."
-            className="pl-9"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-secondary font-medium">Department:</span>
-          <Select
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-            className="w-40 text-xs"
-          >
-            <option value="All">All Departments</option>
-            <option value="Engineering">Engineering</option>
-            <option value="Sales">Sales</option>
-            <option value="Marketing">Marketing</option>
-          </Select>
-        </div>
-      </div>
-
-      {/* Structures Table */}
-      <Card>
-        <CardHeader className="flex items-center justify-between">
-          <CardTitle>Assigned Salary Structures</CardTitle>
-          <Badge tone="neutral">{filteredStructures.length} records</Badge>
-        </CardHeader>
-        <CardBody className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Employee
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Basic Salary
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Allowances & Bonus
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Gross Pay
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Deductions (Tax/PF)
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Net Pay
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {filteredStructures.map((item) => (
-                  <tr key={item.id} className="hover:bg-[rgb(var(--bg-hover))] transition-colors">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={item.employeeName} size="sm" />
-                        <div>
-                          <div className="font-semibold text-primary text-sm">{item.employeeName}</div>
-                          <div className="text-xs text-muted">
-                            {item.employeeId} · {item.department}
+          <div className="max-h-[60vh] lg:max-h-[calc(100vh-240px)] overflow-y-auto scrollbar-thin">
+            {listLoading ? (
+              <div className="p-3 space-y-3" aria-busy="true">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="h-8 w-8 rounded-full" />
+                    <div className="flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-32" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : employees.length === 0 ? (
+              <EmptyState compact icon={UserRound} title={copy.noEmployeesTitle} description={copy.noEmployeesDescription} />
+            ) : filteredEmployees.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted text-center">{copy.noEmployeeMatch}</p>
+            ) : (
+              <ul role="listbox" aria-label={copy.employees}>
+                {filteredEmployees.map((employee) => {
+                  const selected = employee.id === selectedId;
+                  return (
+                    <li key={employee.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => selectEmployee(employee.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors border-l-2 ${
+                          selected
+                            ? 'bg-accent-50 dark:bg-accent-950/40 border-accent-600'
+                            : 'border-transparent hover:bg-[rgb(var(--bg-hover))]'
+                        }`}
+                      >
+                        <Avatar name={employee.fullName} size="sm" />
+                        <div className="min-w-0">
+                          <div className={`text-sm truncate ${selected ? 'font-semibold text-primary' : 'text-primary'}`}>
+                            {employee.fullName}
+                          </div>
+                          <div className="text-xs text-muted truncate">
+                            {employee.employeeNumber}
+                            {employee.designation?.name ? ` · ${employee.designation.name}` : ''}
                           </div>
                         </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </Card>
+
+        <div className="space-y-6 min-w-0">
+          {!selectedId ? (
+            <Card>
+              <EmptyState icon={Wallet} title={copy.selectTitle} description={copy.selectDescription} />
+            </Card>
+          ) : (
+            <>
+              <Card className="p-5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={selectedEmployee?.fullName ?? '?'} size="lg" />
+                    <div className="min-w-0">
+                      <div className="text-lg font-semibold text-primary truncate">
+                        {selectedEmployee?.fullName ?? <Skeleton className="h-5 w-40" />}
                       </div>
-                    </td>
-
-                    <td className="px-5 py-3.5 font-medium text-primary text-xs">
-                      ${item.basicSalary.toLocaleString()}
-                    </td>
-
-                    <td className="px-5 py-3.5 text-xs text-secondary">
-                      <div className="flex flex-wrap gap-1">
-                        {item.earnings
-                          .filter((e) => !e.name.includes('Basic'))
-                          .map((e) => (
-                            <span
-                              key={e.name}
-                              className="px-1.5 py-0.5 rounded bg-[rgb(var(--bg-muted))] text-[11px]"
-                            >
-                              {e.name.split(' ')[0]}: ${e.amount}
-                            </span>
-                          ))}
+                      <div className="text-sm text-secondary truncate">
+                        {[selectedEmployee?.employeeNumber, selectedEmployee?.designation?.name, selectedEmployee?.department?.name]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </div>
-                    </td>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-secondary">
+                    <CalendarClock className="h-4 w-4" />
+                    {copy.asOf}
+                    <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="h-9 w-auto" />
+                  </label>
+                </div>
 
-                    <td className="px-5 py-3.5 font-semibold text-primary text-xs">
-                      ${item.grossSalary.toLocaleString()}
-                    </td>
+                {lock.periods.length > 0 ? (
+                  <div className="mt-4 flex items-start gap-2 rounded-lg bg-[rgb(var(--bg-muted))] px-3 py-2.5 text-sm text-secondary">
+                    <Lock className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{copy.lockBanner(formatPeriodList(lock.periods))}</span>
+                  </div>
+                ) : null}
 
-                    <td className="px-5 py-3.5 text-xs text-error-600 dark:text-error-400 font-medium">
-                      -${item.totalDeductions.toLocaleString()}
-                    </td>
+                <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <SummaryTile label={copy.gross} value={preview?.grossPay} loading={previewLoading} />
+                  <SummaryTile label={copy.totalDeductions} value={preview?.totalDeductions} loading={previewLoading} />
+                  <SummaryTile label={copy.net} value={preview?.netPay} loading={previewLoading} emphasis />
+                </div>
 
-                    <td className="px-5 py-3.5">
-                      <span className="inline-flex items-center gap-1 font-bold text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-950/40 px-2.5 py-1 rounded-lg text-xs">
-                        ${item.netSalary.toLocaleString()}
-                      </span>
-                    </td>
+                {previewError ? (
+                  <div className="mt-4">
+                    <OrgErrorBanner message={`${copy.previewError} ${previewError}`} onRetry={() => void loadPreview()} />
+                  </div>
+                ) : preview && !previewLoading ? (
+                  <Breakdown preview={preview} />
+                ) : null}
+              </Card>
 
-                    <td className="px-5 py-3.5 text-right">
-                      <Button variant="secondary" size="sm" onClick={() => openEditModal(item)}>
-                        <Pencil className="h-3.5 w-3.5" /> Edit
+              <Card className="overflow-hidden">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 px-5 py-4 border-b border-base">
+                  <div>
+                    <h2 className="text-sm font-semibold text-primary">{copy.assignments}</h2>
+                    <p className="text-xs text-secondary mt-0.5">{copy.assignmentsHint}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer select-none mr-1">
+                      <input
+                        type="checkbox"
+                        checked={showEnded}
+                        onChange={(e) => setShowEnded(e.target.checked)}
+                        className="h-4 w-4 rounded border-base accent-accent-600"
+                      />
+                      {copy.showEnded}
+                    </label>
+                    <Button variant="secondary" size="sm" onClick={exportCsv} disabled={visibleRows.length === 0}>
+                      <Download className="h-4 w-4" /> {payrollCopy.common.exportCsv}
+                    </Button>
+                    {canCreate ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => openForm({ kind: 'add' })}
+                        disabled={components.length === 0 || detailLoading}
+                      >
+                        <Plus className="h-4 w-4" /> {copy.addComponent}
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardBody>
-      </Card>
+                    ) : null}
+                  </div>
+                </div>
 
-      {/* Edit Structure Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={selectedEmp ? `Salary Structure: ${selectedEmp.employeeName}` : 'Edit Structure'}
-        description={`Designation: ${selectedEmp?.designation} · ${selectedEmp?.department}`}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSave}>
-              <Check className="h-4 w-4" /> Save Structure
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {/* Earnings Section */}
-          <div>
-            <div className="text-xs font-bold text-success-600 dark:text-success-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <TrendingUp className="h-3.5 w-3.5" /> Earnings Breakdown
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Basic Salary</Label>
-                <Input
-                  type="number"
-                  value={editBasic}
-                  onChange={(e) => setEditBasic(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <div>
-                <Label>House Rent (HRA)</Label>
-                <Input
-                  type="number"
-                  value={editHra}
-                  onChange={(e) => setEditHra(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <div>
-                <Label>Special Allowance</Label>
-                <Input
-                  type="number"
-                  value={editSpecial}
-                  onChange={(e) => setEditSpecial(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Deductions Section */}
-          <div className="pt-3 border-t border-base">
-            <div className="text-xs font-bold text-error-600 dark:text-error-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <TrendingDown className="h-3.5 w-3.5" /> Deductions Breakdown
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Income Tax (TDS)</Label>
-                <Input
-                  type="number"
-                  value={editTax}
-                  onChange={(e) => setEditTax(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <div>
-                <Label>401(k) / PF</Label>
-                <Input
-                  type="number"
-                  value={editPf}
-                  onChange={(e) => setEditPf(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-              <div>
-                <Label>Health Insurance</Label>
-                <Input
-                  type="number"
-                  value={editInsurance}
-                  onChange={(e) => setEditInsurance(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Live Recalculation Summary */}
-          <div className="surface border border-base rounded-xl p-3 bg-accent-50/30 dark:bg-accent-950/20 grid grid-cols-3 gap-3 text-center">
-            <div>
-              <div className="text-[11px] text-secondary">Gross Salary</div>
-              <div className="text-sm font-bold text-primary">${calculatedGross.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-[11px] text-secondary">Total Deductions</div>
-              <div className="text-sm font-bold text-error-600">-${calculatedDeductions.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-[11px] text-secondary">Estimated Net Pay</div>
-              <div className="text-sm font-bold text-success-600">${calculatedNet.toLocaleString()}</div>
-            </div>
-          </div>
+                {detailError ? (
+                  <div className="p-5">
+                    <OrgErrorBanner message={detailError} onRetry={() => void loadDetail()} />
+                  </div>
+                ) : detailLoading ? (
+                  <OrgTableSkeleton columns={5} rows={4} />
+                ) : components.length === 0 && rows.length === 0 ? (
+                  <EmptyState
+                    compact
+                    icon={Layers}
+                    title={copy.noComponentsTitle}
+                    description={copy.noComponentsDescription}
+                    action={{ label: copy.goToComponents, onClick: () => navigate('/payroll/salary-components') }}
+                  />
+                ) : rows.length === 0 ? (
+                  <EmptyState
+                    compact
+                    icon={TrendingUp}
+                    title={copy.emptyTitle}
+                    description={copy.emptyDescription}
+                    action={canCreate ? { label: copy.addComponent, onClick: () => openForm({ kind: 'add' }), icon: Plus } : undefined}
+                  />
+                ) : (
+                  <DataTable className="max-h-[60vh] overflow-y-auto">
+                    <DataTableHead>
+                      <tr className="text-xs font-semibold text-secondary uppercase tracking-wide">
+                        <th className="text-left px-5 py-3">{copy.colComponent}</th>
+                        <th className="text-right px-5 py-3">{copy.colValue}</th>
+                        <th className="text-left px-5 py-3">{copy.colFrom}</th>
+                        <th className="text-left px-5 py-3">{copy.colTo}</th>
+                        <th className="text-left px-5 py-3">{copy.colStatus}</th>
+                        <th className="px-5 py-3 w-12">
+                          <span className="sr-only">{payrollCopy.common.actions}</span>
+                        </th>
+                      </tr>
+                    </DataTableHead>
+                    <DataTableBody>
+                      {visibleRows.map((row) => {
+                        const component = componentsById.get(row.componentId);
+                        const status = rowStatus(row, today);
+                        const locked = touchesLock(row);
+                        const readOnly = fullyLocked(row);
+                        return (
+                          <tr
+                            key={row.id}
+                            className={
+                              readOnly
+                                ? 'bg-[rgb(var(--bg-muted))]/60 text-muted'
+                                : 'hover:bg-[rgb(var(--bg-hover))] transition-colors'
+                            }
+                          >
+                            <td className="px-5 py-3">
+                              <div className={`font-medium flex items-center gap-1.5 ${readOnly ? 'text-secondary' : 'text-primary'}`}>
+                                {row.componentName ?? component?.name}
+                                {locked ? (
+                                  <span title={copy.lockedRowHint} className="inline-flex">
+                                    <Lock className="h-3.5 w-3.5 text-muted" aria-label={copy.locked} />
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="text-xs text-muted">
+                                {componentTypeLabel(row.componentType)}
+                                {row.componentCalculationType ? ` · ${payrollCopy.calcType[row.componentCalculationType]}` : ''}
+                              </div>
+                            </td>
+                            <td className={`px-5 py-3 text-right tabular-nums ${readOnly ? '' : 'text-primary font-medium'}`}>
+                              {describeStructureValue(row, component)}
+                            </td>
+                            <td className="px-5 py-3 whitespace-nowrap">{formatDate(row.effectiveFrom)}</td>
+                            <td className="px-5 py-3 whitespace-nowrap">
+                              {row.effectiveTo ? formatDate(row.effectiveTo) : <span className="text-muted">{copy.openEnded}</span>}
+                            </td>
+                            <td className="px-5 py-3">
+                              <StatusPill tone={STATUS_TONE[status]}>{rowStatusLabel(status)}</StatusPill>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              {component ? (
+                                <RowActions
+                                  row={row}
+                                  status={status}
+                                  locked={locked}
+                                  calculationType={component.calculationType}
+                                  canEdit={canEdit}
+                                  canDelete={canDelete}
+                                  onRevise={() => openForm({ kind: 'revise', row })}
+                                  onCorrect={() => openForm({ kind: 'correct', row })}
+                                  onEnd={() => openForm({ kind: 'end', row })}
+                                  onDelete={() => void startReview({ kind: 'delete', row, component })}
+                                />
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </DataTableBody>
+                  </DataTable>
+                )}
+              </Card>
+            </>
+          )}
         </div>
-      </Modal>
+      </div>
+
+      {formMode ? (
+        <SalaryStructureChangeModal
+          open
+          mode={formMode}
+          employeeName={selectedEmployee?.fullName ?? ''}
+          components={components}
+          rows={rows}
+          lockedPeriods={lock.periods}
+          previous={pendingChange}
+          onClose={() => {
+            setFormMode(null);
+            setPendingChange(null);
+          }}
+          onReview={(change) => void startReview(change)}
+        />
+      ) : null}
+
+      <PayrollReviewDialog
+        open={reviewOpen && pendingChange !== null}
+        title={reviewCopy.title}
+        intro={reviewCopy.intro}
+        impact={impact}
+        retroPeriods={retroPeriods}
+        tone={pendingChange?.kind === 'delete' ? 'danger' : 'primary'}
+        confirmLabel={pendingChange?.kind === 'delete' ? reviewCopy.confirmDelete : reviewCopy.confirm}
+        onBack={pendingChange && pendingChange.kind !== 'delete' ? backToForm : undefined}
+        onClose={closeReview}
+        onConfirm={commitChange}
+      >
+        {pendingChange ? <ChangeSummary change={pendingChange} employee={selectedEmployee} /> : null}
+      </PayrollReviewDialog>
     </div>
   );
 }
 
+function rowStatusLabel(status: RowStatus): string {
+  return status === 'active' ? copy.statusActive : status === 'scheduled' ? copy.statusScheduled : copy.statusEnded;
+}
+
+function RowActions({
+  row,
+  status,
+  locked,
+  calculationType,
+  canEdit,
+  canDelete,
+  onRevise,
+  onCorrect,
+  onEnd,
+  onDelete,
+}: {
+  row: SalaryStructureRecord;
+  status: RowStatus;
+  locked: boolean;
+  calculationType: PayComponentRecord['calculationType'];
+  canEdit: boolean;
+  canDelete: boolean;
+  onRevise: () => void;
+  onCorrect: () => void;
+  onEnd: () => void;
+  onDelete: () => void;
+}) {
+  const ended = status === 'ended';
+  const canRevise = canEdit && !ended && calculationType !== 'formula';
+  const canEnd = canEdit && !ended;
+  if (!canEdit && !canDelete) return null;
+
+  return (
+    <Dropdown
+      width="w-72"
+      trigger={
+        <button
+          type="button"
+          aria-label={`${payrollCopy.common.actions}: ${row.componentName ?? ''}`}
+          className="text-muted hover:text-primary p-1 rounded hover:bg-[rgb(var(--bg-muted))] transition-colors"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      }
+    >
+      {canRevise ? (
+        <DropdownItem icon={<TrendingUp className="h-4 w-4" />} onClick={onRevise} description={copy.actionReviseHint}>
+          {copy.actionRevise}
+        </DropdownItem>
+      ) : null}
+      {canEdit ? (
+        <DropdownItem
+          icon={<Pencil className="h-4 w-4" />}
+          onClick={onCorrect}
+          disabled={locked}
+          description={locked ? copy.correctLockedReason : copy.actionCorrectHint}
+        >
+          {copy.actionCorrect}
+        </DropdownItem>
+      ) : null}
+      {canEnd ? (
+        <DropdownItem icon={<StopCircle className="h-4 w-4" />} onClick={onEnd}>
+          {copy.actionEnd}
+        </DropdownItem>
+      ) : null}
+      {canDelete ? (
+        <>
+          {canEdit ? <DropdownDivider /> : null}
+          <DropdownItem
+            icon={<Trash2 className="h-4 w-4" />}
+            onClick={onDelete}
+            disabled={locked}
+            description={locked ? copy.deleteLockedReason : undefined}
+          >
+            {copy.actionDelete}
+          </DropdownItem>
+        </>
+      ) : null}
+    </Dropdown>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  loading,
+  emphasis = false,
+}: {
+  label: string;
+  value: string | undefined;
+  loading: boolean;
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border px-4 py-3 ${
+        emphasis ? 'border-accent-200 dark:border-accent-800 bg-accent-50/60 dark:bg-accent-950/30' : 'border-base'
+      }`}
+    >
+      <div className="text-xs text-secondary">{label}</div>
+      {loading ? (
+        <Skeleton className="h-7 w-28 mt-1" />
+      ) : (
+        <div className={`mt-0.5 tabular-nums font-bold ${emphasis ? 'text-2xl text-accent-700 dark:text-accent-300' : 'text-xl text-primary'}`}>
+          {formatMoney(value ?? null)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function lineBasis(line: PayrollCalculationLine): string {
+  if (line.calculationType === 'percentage' && line.percentage !== null) {
+    return `${formatRate(line.percentage)}% × ${formatMoney(line.baseAmount)}`;
+  }
+  if (line.calculationType === 'formula') return line.formulaDescription ?? payrollCopy.calcType.formula;
+  return payrollCopy.calcType.fixed;
+}
+
+function Breakdown({ preview }: { preview: PayrollCalculationPreview }) {
+  const sections: Array<{ title: string; lines: PayrollCalculationLine[]; total: string }> = [
+    { title: payrollCopy.common.earnings, lines: preview.earnings, total: preview.grossPay },
+    { title: payrollCopy.common.deductions, lines: preview.deductions, total: preview.totalDeductions },
+  ];
+
+  if (preview.earnings.length === 0 && preview.deductions.length === 0) {
+    return <p className="mt-5 text-sm text-muted">{copy.breakdownEmpty}</p>;
+  }
+
+  return (
+    <div className="mt-5">
+      <h3 className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">
+        {copy.breakdown(formatDate(preview.asOfDate))}
+      </h3>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {sections.map((section) => (
+          <div key={section.title} className="rounded-lg border border-base overflow-hidden">
+            <div className="px-4 py-2 bg-[rgb(var(--bg-muted))] text-xs font-semibold text-secondary">{section.title}</div>
+            {section.lines.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted">{payrollCopy.common.none}</p>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                  {section.lines.map((line) => (
+                    <tr key={line.salaryStructureId}>
+                      <td className="px-4 py-2">
+                        <div className="text-primary">{line.componentName}</div>
+                        <div className="text-xs text-muted">{lineBasis(line)}</div>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-primary">{formatMoney(line.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr className="font-semibold">
+                    <td className="px-4 py-2 text-secondary">{payrollCopy.common.total}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-primary">{formatMoney(section.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChangeSummary({ change, employee }: { change: StructureChange; employee: EmployeeRecord | null }) {
+  const name = change.component.name;
+  let headline: string;
+  const details: string[] = [];
+  let effective: string;
+
+  switch (change.kind) {
+    case 'add':
+      headline = reviewCopy.describeAdd(name, formatValue(change.value, change.component));
+      effective = `${formatDate(change.effectiveFrom)} – ${change.effectiveTo ? formatDate(change.effectiveTo) : copy.openEnded}`;
+      break;
+    case 'revise':
+      headline = reviewCopy.describeRevise(
+        name,
+        describeStructureValue(change.row, change.component),
+        formatValue(change.value, change.component),
+      );
+      effective = formatDate(change.effectiveFrom);
+      break;
+    case 'correct': {
+      headline = reviewCopy.describeCorrect(name);
+      const before = describeStructureValue(change.row, change.component);
+      const after = formatValue(change.value, change.component);
+      if (before !== after) details.push(reviewCopy.detailValue(before, after));
+      const oldRange = `${formatDate(change.row.effectiveFrom)} – ${change.row.effectiveTo ? formatDate(change.row.effectiveTo) : copy.openEnded}`;
+      const newRange = `${formatDate(change.effectiveFrom)} – ${change.effectiveTo ? formatDate(change.effectiveTo) : copy.openEnded}`;
+      if (oldRange !== newRange) details.push(reviewCopy.detailDates(oldRange, newRange));
+      effective = newRange;
+      break;
+    }
+    case 'end':
+      headline = reviewCopy.describeEnd(name, formatDate(change.endDate));
+      effective = formatDate(addDaysIso(change.endDate, 1));
+      break;
+    case 'delete':
+      headline = reviewCopy.describeDelete(name);
+      effective = `${formatDate(change.row.effectiveFrom)} – ${change.row.effectiveTo ? formatDate(change.row.effectiveTo) : copy.openEnded}`;
+      break;
+  }
+
+  return (
+    <dl className="rounded-lg border border-base divide-y divide-[rgb(var(--border-base))] text-sm">
+      <div className="flex gap-4 px-4 py-2.5">
+        <dt className="w-28 shrink-0 text-secondary">{reviewCopy.employee}</dt>
+        <dd className="text-primary font-medium">
+          {employee ? `${employee.fullName} (${employee.employeeNumber})` : payrollCopy.common.none}
+        </dd>
+      </div>
+      <div className="flex gap-4 px-4 py-2.5">
+        <dt className="w-28 shrink-0 text-secondary">{reviewCopy.change}</dt>
+        <dd className="min-w-0">
+          <div className="text-primary font-semibold break-words">{headline}</div>
+          {details.map((detail) => (
+            <div key={detail} className="text-secondary text-xs mt-0.5">
+              {detail}
+            </div>
+          ))}
+        </dd>
+      </div>
+      <div className="flex gap-4 px-4 py-2.5">
+        <dt className="w-28 shrink-0 text-secondary">{reviewCopy.effective}</dt>
+        <dd className="text-primary">{effective}</dd>
+      </div>
+    </dl>
+  );
+}

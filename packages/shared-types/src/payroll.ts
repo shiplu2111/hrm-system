@@ -39,10 +39,18 @@ export type {
 export {
   isPayFormulaRule,
   isPercentageFormula,
+  PAY_FORMULA_LOAN_INSTALLMENT,
   PAY_FORMULA_OVERTIME_EXAMPLE,
   PAY_FORMULA_UNPAID_LEAVE_EXAMPLE,
   PAY_FORMULA_REF_PATHS,
 } from './payroll-formula';
+
+export interface PayComponentUsage {
+  /** Distinct employees with a current or scheduled assignment */
+  activeEmployeeCount: number;
+  /** All salary structure rows referencing the component, including ended ones */
+  assignmentCount: number;
+}
 
 export interface PayComponentRecord {
   id: string;
@@ -51,8 +59,23 @@ export interface PayComponentRecord {
   type: PayComponentType;
   calculationType: PayComponentCalculationType;
   formula: import('./payroll-formula').PayComponentFormula | null;
+  /** Present on list responses */
+  usage?: PayComponentUsage;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreatePayComponentRequest {
+  name: string;
+  type: PayComponentType;
+  calculationType: PayComponentCalculationType;
+  formula?: import('./payroll-formula').PayComponentFormula;
+}
+
+export interface UpdatePayComponentRequest {
+  name?: string;
+  calculationType?: PayComponentCalculationType;
+  formula?: import('./payroll-formula').PayComponentFormula | null;
 }
 
 export interface SalaryStructureAmountConfig {
@@ -78,6 +101,44 @@ export interface SalaryStructureRecord {
   effectiveTo: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreateSalaryStructureRequest {
+  componentId: string;
+  componentType: PayComponentType;
+  amountOrFormula: Pick<SalaryStructureAmountConfig, 'amount' | 'percentage'>;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+}
+
+export interface UpdateSalaryStructureRequest {
+  amountOrFormula?: Pick<SalaryStructureAmountConfig, 'amount' | 'percentage'>;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+}
+
+/** Effective-dated change: closes the current row the day before and opens a new one. */
+export interface ReviseSalaryStructureRequest {
+  amountOrFormula: Pick<SalaryStructureAmountConfig, 'amount' | 'percentage'>;
+  effectiveFrom: string;
+}
+
+export interface ReviseSalaryStructureResult {
+  closed: SalaryStructureRecord;
+  created: SalaryStructureRecord;
+}
+
+export interface LockedPayrollPeriodSummary {
+  payrollPeriodId: string;
+  startDate: string;
+  endDate: string;
+  runStatus: PayrollRunStatus;
+}
+
+/** Periods with finalized/paid runs for an employee — structure history there is read-only. */
+export interface SalaryStructurePayrollLock {
+  lockedThrough: string | null;
+  periods: LockedPayrollPeriodSummary[];
 }
 
 export interface PayrollCalculationLine {
@@ -221,7 +282,10 @@ export interface PaymentBatchTransitionResult {
 /** Hypothetical salary-structure overrides for simulation (PAYROLL_LOGIC.md §8). */
 export interface PayrollSalaryStructureOverride {
   salaryStructureId?: string;
+  /** Matches an active row for this component, or adds a hypothetical row when none is active. */
   componentId?: string;
+  /** Drop the matched row from the simulated calculation. */
+  remove?: boolean;
   amount?: string;
   percentage?: number;
   hourly_rate?: string;

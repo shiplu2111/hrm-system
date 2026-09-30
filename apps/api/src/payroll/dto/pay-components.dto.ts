@@ -1,5 +1,6 @@
 import {
   IsEnum,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -16,6 +17,7 @@ export class PayComponentFormulaDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
   percentage?: number;
 }
 

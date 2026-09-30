@@ -9,7 +9,7 @@ import {
   Prisma,
   type PayComponent,
 } from '@prisma/client';
-import type { PayComponentRecord } from '@hrm/shared-types';
+import type { PayComponentRecord, PayComponentUsage } from '@hrm/shared-types';
 import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -18,7 +18,12 @@ import type {
   CreatePayComponentDto,
   UpdatePayComponentDto,
 } from './dto/pay-components.dto';
-import { parseFormulaConfig, parsePayComponentFormula } from './payroll.utils';
+import {
+  formatDateOnly,
+  parseDateOnly,
+  parseFormulaConfig,
+  parsePayComponentFormula,
+} from './payroll.utils';
 import {
   PayFormulaValidationError,
   parsePayFormulaRule,
@@ -38,7 +43,67 @@ export class PayComponentsService {
       where: { companyId },
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
     });
-    return rows.map((row) => this.toRecord(row));
+    const usage = await this.usageByComponent(rows.map((row) => row.id));
+    return rows.map((row) => ({
+      ...this.toRecord(row),
+      usage: usage.get(row.id) ?? { activeEmployeeCount: 0, assignmentCount: 0 },
+    }));
+  }
+
+  private async usageByComponent(
+    componentIds: string[],
+  ): Promise<Map<string, PayComponentUsage>> {
+    const result = new Map<string, PayComponentUsage>();
+    if (componentIds.length === 0) return result;
+
+    const today = parseDateOnly(formatDateOnly(new Date()));
+    const assignments = await this.prisma.unscoped.salaryStructure.findMany({
+      where: { componentId: { in: componentIds } },
+      select: { componentId: true, employeeId: true, effectiveTo: true },
+    });
+
+    const activeEmployees = new Map<string, Set<string>>();
+    for (const row of assignments) {
+      const entry = result.get(row.componentId) ?? {
+        activeEmployeeCount: 0,
+        assignmentCount: 0,
+      };
+      entry.assignmentCount += 1;
+      result.set(row.componentId, entry);
+      if (!row.effectiveTo || row.effectiveTo >= today) {
+        const set = activeEmployees.get(row.componentId) ?? new Set<string>();
+        set.add(row.employeeId);
+        activeEmployees.set(row.componentId, set);
+      }
+    }
+    for (const [componentId, employees] of activeEmployees) {
+      const entry = result.get(componentId);
+      if (entry) entry.activeEmployeeCount = employees.size;
+    }
+    return result;
+  }
+
+  private async assertNameAvailable(
+    companyId: string,
+    type: PayComponent['type'],
+    name: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const clash = await this.prisma.unscoped.payComponent.findFirst({
+      where: {
+        companyId,
+        type,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `A ${type} component named "${name}" already exists`,
+      });
+    }
   }
 
   async create(
@@ -49,6 +114,7 @@ export class PayComponentsService {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     this.assertSupportedCalculationType(dto.calculationType);
     const formula = this.buildFormula(dto.calculationType, dto.formula);
+    await this.assertNameAvailable(companyId, dto.type, dto.name.trim());
 
     try {
       const row = await this.prisma.unscoped.payComponent.create({
@@ -96,12 +162,32 @@ export class PayComponentsService {
     const nextType = dto.calculationType ?? existing.calculationType;
     this.assertSupportedCalculationType(nextType);
 
-    const formula =
-      dto.formula === null
-        ? null
-        : dto.formula !== undefined
-          ? this.buildFormula(nextType, dto.formula)
-          : (existing.formula as Prisma.JsonValue | null);
+    if (nextType !== existing.calculationType) {
+      const usage = await this.prisma.unscoped.salaryStructure.count({
+        where: { componentId },
+      });
+      if (usage > 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message:
+            'Calculation type cannot change while the component is assigned to employees — create a new component instead',
+        });
+      }
+    }
+    if (dto.name !== undefined) {
+      await this.assertNameAvailable(
+        companyId,
+        existing.type,
+        dto.name.trim(),
+        componentId,
+      );
+    }
+
+    const typeChanged = nextType !== existing.calculationType;
+    const formulaTouched = dto.formula !== undefined || typeChanged;
+    const formula = formulaTouched
+      ? this.buildFormula(nextType, dto.formula ?? undefined)
+      : (existing.formula as Prisma.JsonValue | null);
 
     const row = await this.prisma.unscoped.payComponent.update({
       where: { id: componentId },
@@ -110,7 +196,7 @@ export class PayComponentsService {
         ...(dto.calculationType !== undefined
           ? { calculationType: dto.calculationType }
           : {}),
-        ...(dto.formula !== undefined
+        ...(formulaTouched
           ? { formula: (formula ?? Prisma.JsonNull) as Prisma.InputJsonValue }
           : {}),
       },

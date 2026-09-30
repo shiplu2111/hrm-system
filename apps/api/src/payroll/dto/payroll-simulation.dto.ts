@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsNumber,
   IsOptional,
@@ -18,6 +19,10 @@ export class PayrollSalaryStructureOverrideDto {
   @IsOptional()
   @IsUUID()
   componentId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  remove?: boolean;
 
   @IsOptional()
   @IsString()

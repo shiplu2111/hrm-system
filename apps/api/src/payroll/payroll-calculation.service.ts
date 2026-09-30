@@ -7,6 +7,7 @@ import type {
 import { computePayrollFromStructures } from './payroll-calculation.core';
 import {
   applySalaryStructureOverrides,
+  buildHypotheticalStructureRows,
   computePayrollDelta,
   type StructureRow,
 } from './payroll-calculation.helpers';
@@ -88,10 +89,27 @@ export class PayrollCalculationService {
       include: { component: true },
     });
 
+    const effective = structures.filter((row) =>
+      isEffectiveOn(row.effectiveFrom, row.effectiveTo, asOfDate),
+    );
+    const addedComponentIds = (structureOverrides ?? [])
+      .filter((o) => o.componentId && !o.salaryStructureId && !o.remove)
+      .map((o) => o.componentId as string);
+    const addedComponents = addedComponentIds.length
+      ? await this.prisma.unscoped.payComponent.findMany({
+          where: { id: { in: addedComponentIds }, companyId: employee.companyId },
+        })
+      : [];
+    const hypothetical = buildHypotheticalStructureRows(
+      employeeId,
+      asOfDate,
+      effective,
+      addedComponents,
+      structureOverrides,
+    );
+
     const active = applySalaryStructureOverrides(
-      structures.filter((row) =>
-        isEffectiveOn(row.effectiveFrom, row.effectiveTo, asOfDate),
-      ),
+      [...effective, ...hypothetical],
       structureOverrides,
     );
 

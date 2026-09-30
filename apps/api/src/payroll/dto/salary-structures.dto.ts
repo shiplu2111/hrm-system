@@ -1,9 +1,12 @@
 import {
   IsDateString,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -16,7 +19,19 @@ export class SalaryStructureAmountDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
   percentage?: number;
+}
+
+export class ReviseSalaryStructureDto {
+  @ValidateNested()
+  @Type(() => SalaryStructureAmountDto)
+  amountOrFormula!: SalaryStructureAmountDto;
+
+  @IsDateString()
+  effectiveFrom!: string;
 }
 
 export class CreateSalaryStructureDto {

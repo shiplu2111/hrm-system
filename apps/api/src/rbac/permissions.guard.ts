@@ -9,6 +9,7 @@ import type { PermissionAction } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
 import { PermissionsService, assertPermissionDeclared } from './permissions.service';
+import { SENSITIVE_PERMISSION_ACTIONS } from './rbac.constants';
 import {
   PERMISSION_KEY,
   type RequiredPermission,
@@ -46,6 +47,17 @@ export class PermissionsGuard implements CanActivate {
         code: 'FORBIDDEN',
         message: 'Authentication required',
       });
+    }
+
+    const alternatives = required.orAnyOf ?? [];
+    if (
+      alternatives.some(
+        (alt) =>
+          !SENSITIVE_PERMISSION_ACTIONS.has(alt.action) &&
+          this.permissionsService.hasPermission(user, alt.module, alt.action),
+      )
+    ) {
+      return true;
     }
 
     await this.permissionsService.assertPermission(

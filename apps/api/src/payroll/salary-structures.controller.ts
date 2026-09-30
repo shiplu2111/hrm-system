@@ -18,6 +18,7 @@ import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
   CreateSalaryStructureDto,
   ListSalaryStructuresQueryDto,
+  ReviseSalaryStructureDto,
   UpdateSalaryStructureDto,
 } from './dto/salary-structures.dto';
 import { SalaryStructuresService } from './salary-structures.service';
@@ -41,6 +42,38 @@ export class SalaryStructuresController {
   ) {
     return {
       data: await this.salaryStructuresService.list(employeeId, query.asOf),
+    };
+  }
+
+  @Get('payroll-lock')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({
+    summary: 'Payroll periods finalized for this employee (structure history is read-only there)',
+  })
+  async payrollLock(@Param('employeeId', ParseUUIDPipe) employeeId: string) {
+    return {
+      data: await this.salaryStructuresService.payrollLock(employeeId),
+    };
+  }
+
+  @Post(':structureId/revise')
+  @RequirePermission('payroll', 'edit')
+  @ApiOperation({
+    summary: 'Effective-dated change — closes the current row and opens a new one',
+  })
+  async revise(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('structureId', ParseUUIDPipe) structureId: string,
+    @Body() dto: ReviseSalaryStructureDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.salaryStructuresService.revise(
+        employeeId,
+        structureId,
+        dto,
+        user,
+      ),
     };
   }
 
