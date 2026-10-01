@@ -15,6 +15,7 @@ import {
   Receipt,
   Calculator,
   FileSpreadsheet,
+  FlaskConical,
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
@@ -165,6 +166,12 @@ export const payrollHub: ModuleHubConfig = {
       description: 'Generated payslips and settlement records.',
       page: 'payslips',
       icon: Receipt,
+    },
+    {
+      label: 'Payroll Simulator',
+      description: 'What-if pay projections. Nothing is saved.',
+      page: 'payroll-simulation',
+      icon: FlaskConical,
     },
     {
       label: 'Tax Profiles',

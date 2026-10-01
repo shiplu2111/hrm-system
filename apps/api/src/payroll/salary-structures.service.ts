@@ -8,6 +8,7 @@ import {
   PayComponentCalculationType,
   PayrollRunStatus,
   Prisma,
+  SalaryPayBasis,
   type PayComponent,
   type SalaryStructure,
 } from '@prisma/client';
@@ -138,6 +139,7 @@ export class SalaryStructuresService {
       component,
       parseAmountConfig(dto.amountOrFormula ?? {}),
     );
+    const payBasis = this.normalizePayBasis(component, dto.payBasis);
 
     const effectiveFrom = parseDateOnly(dto.effectiveFrom, 'effectiveFrom');
     const effectiveTo = dto.effectiveTo
@@ -157,25 +159,31 @@ export class SalaryStructuresService {
       effectiveTo,
     );
 
-    const row = await this.prisma.unscoped.salaryStructure.create({
-      data: {
-        employeeId,
-        componentId: dto.componentId,
-        componentType: dto.componentType,
-        amountOrFormula: amountConfig as Prisma.InputJsonValue,
-        effectiveFrom,
-        effectiveTo,
-      },
-      include: { component: { select: { name: true, calculationType: true } } },
-    });
-
-    await this.auditService.log({
-      tenantId: employee.tenantId,
-      userId: user.id,
-      action: 'create',
-      module: 'payroll',
-      recordId: row.id,
-      newValue: this.toRecord(row) as unknown as Record<string, unknown>,
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      const created = await tx.salaryStructure.create({
+        data: {
+          employeeId,
+          componentId: dto.componentId,
+          componentType: dto.componentType,
+          amountOrFormula: amountConfig as Prisma.InputJsonValue,
+          payBasis,
+          effectiveFrom,
+          effectiveTo,
+        },
+        include: { component: { select: { name: true, calculationType: true } } },
+      });
+      await this.auditService.log(
+        {
+          tenantId: employee.tenantId,
+          userId: user.id,
+          action: 'create',
+          module: 'payroll',
+          recordId: created.id,
+          newValue: this.toRecord(created) as unknown as Record<string, unknown>,
+        },
+        tx,
+      );
+      return created;
     });
 
     return this.toRecord(row);
@@ -202,6 +210,10 @@ export class SalaryStructuresService {
             parseAmountConfig(dto.amountOrFormula),
           )
         : existingConfig;
+    const payBasis =
+      dto.payBasis !== undefined
+        ? this.normalizePayBasis(component, dto.payBasis)
+        : existing.payBasis;
 
     const effectiveFrom = dto.effectiveFrom
       ? parseDateOnly(dto.effectiveFrom, 'effectiveFrom')
@@ -230,31 +242,38 @@ export class SalaryStructuresService {
 
     const oldRange = { from: existing.effectiveFrom, to: existing.effectiveTo };
     const newRange = { from: effectiveFrom, to: effectiveTo };
-    const affected = sameAmountConfig(existingConfig, amountConfig)
-      ? changedDateRanges(oldRange, newRange)
-      : [oldRange, newRange];
+    const affected =
+      sameAmountConfig(existingConfig, amountConfig) && payBasis === existing.payBasis
+        ? changedDateRanges(oldRange, newRange)
+        : [oldRange, newRange];
     await this.assertRangesUnlocked(employeeId, affected);
 
-    const row = await this.prisma.unscoped.salaryStructure.update({
-      where: { id: structureId },
-      data: {
-        ...(dto.amountOrFormula !== undefined
-          ? { amountOrFormula: amountConfig as Prisma.InputJsonValue }
-          : {}),
-        ...(dto.effectiveFrom !== undefined ? { effectiveFrom } : {}),
-        ...(dto.effectiveTo !== undefined ? { effectiveTo } : {}),
-      },
-      include: { component: { select: { name: true, calculationType: true } } },
-    });
-
-    await this.auditService.log({
-      tenantId: employee.tenantId,
-      userId: user.id,
-      action: 'update',
-      module: 'payroll',
-      recordId: row.id,
-      oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
-      newValue: this.toRecord(row) as unknown as Record<string, unknown>,
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      const updated = await tx.salaryStructure.update({
+        where: { id: structureId },
+        data: {
+          ...(dto.amountOrFormula !== undefined
+            ? { amountOrFormula: amountConfig as Prisma.InputJsonValue }
+            : {}),
+          ...(dto.payBasis !== undefined ? { payBasis } : {}),
+          ...(dto.effectiveFrom !== undefined ? { effectiveFrom } : {}),
+          ...(dto.effectiveTo !== undefined ? { effectiveTo } : {}),
+        },
+        include: { component: { select: { name: true, calculationType: true } } },
+      });
+      await this.auditService.log(
+        {
+          tenantId: employee.tenantId,
+          userId: user.id,
+          action: 'update',
+          module: 'payroll',
+          recordId: updated.id,
+          oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+          newValue: this.toRecord(updated) as unknown as Record<string, unknown>,
+        },
+        tx,
+      );
+      return updated;
     });
 
     return this.toRecord(row);
@@ -271,15 +290,19 @@ export class SalaryStructuresService {
       { from: existing.effectiveFrom, to: existing.effectiveTo },
     ]);
 
-    await this.prisma.unscoped.salaryStructure.delete({ where: { id: structureId } });
-
-    await this.auditService.log({
-      tenantId: employee.tenantId,
-      userId: user.id,
-      action: 'delete',
-      module: 'payroll',
-      recordId: structureId,
-      oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+    await this.prisma.unscoped.$transaction(async (tx) => {
+      await tx.salaryStructure.delete({ where: { id: structureId } });
+      await this.auditService.log(
+        {
+          tenantId: employee.tenantId,
+          userId: user.id,
+          action: 'delete',
+          module: 'payroll',
+          recordId: structureId,
+          oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+        },
+        tx,
+      );
     });
   }
 
@@ -314,7 +337,14 @@ export class SalaryStructuresService {
       component,
       parseAmountConfig(dto.amountOrFormula),
     );
-    if (sameAmountConfig(parseAmountConfig(existing.amountOrFormula), amountConfig)) {
+    const payBasis =
+      dto.payBasis !== undefined
+        ? this.normalizePayBasis(component, dto.payBasis)
+        : existing.payBasis;
+    if (
+      sameAmountConfig(parseAmountConfig(existing.amountOrFormula), amountConfig) &&
+      payBasis === existing.payBasis
+    ) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'The new amount is the same as the current one',
@@ -348,6 +378,7 @@ export class SalaryStructuresService {
           componentId: existing.componentId,
           componentType: existing.componentType,
           amountOrFormula: amountConfig as Prisma.InputJsonValue,
+          payBasis,
           effectiveFrom,
           effectiveTo: existing.effectiveTo,
         },
@@ -384,6 +415,22 @@ export class SalaryStructuresService {
     });
 
     return { closed: this.toRecord(closed), created: this.toRecord(created) };
+  }
+
+  private normalizePayBasis(
+    component: Pick<PayComponent, 'name' | 'calculationType'>,
+    requested: SalaryPayBasis | undefined,
+  ): SalaryPayBasis {
+    if (component.calculationType === PayComponentCalculationType.fixed) {
+      return requested ?? SalaryPayBasis.monthly;
+    }
+    if (requested && requested !== SalaryPayBasis.monthly) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `"${component.name}" is not a fixed amount — only fixed components can be paid daily or hourly`,
+      });
+    }
+    return SalaryPayBasis.monthly;
   }
 
   /** Keeps only the inputs that apply to the component's calculation type. */
@@ -541,6 +588,7 @@ export class SalaryStructuresService {
       componentName: row.component?.name,
       componentCalculationType: row.component?.calculationType,
       amountOrFormula: parseAmountConfig(row.amountOrFormula),
+      payBasis: row.payBasis,
       effectiveFrom: formatDateOnly(row.effectiveFrom),
       effectiveTo: row.effectiveTo ? formatDateOnly(row.effectiveTo) : null,
       createdAt: row.createdAt.toISOString(),

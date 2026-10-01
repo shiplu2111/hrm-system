@@ -12,6 +12,7 @@ export class CreatePayrollPeriodDto {
   paymentDate!: string;
 }
 
+/** Status is not editable — it follows the period's payroll runs. */
 export class UpdatePayrollPeriodDto {
   @IsOptional()
   @IsDateString()
@@ -24,10 +25,6 @@ export class UpdatePayrollPeriodDto {
   @IsOptional()
   @IsDateString()
   paymentDate?: string;
-
-  @IsOptional()
-  @IsEnum(PayrollPeriodStatus)
-  status?: PayrollPeriodStatus;
 }
 
 export class ListPayrollPeriodsQueryDto {

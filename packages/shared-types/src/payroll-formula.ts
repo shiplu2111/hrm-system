@@ -45,6 +45,7 @@ export interface PayFormulaArithmetic {
 /** Allowed context paths for sandboxed evaluation. */
 export const PAY_FORMULA_REF_PATHS = [
   'employee.worked_hours',
+  'employee.days_worked',
   'employee.hourly_rate',
   'shift.standard_hours',
   'shift.ot_multiplier',

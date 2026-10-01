@@ -1,16 +1,23 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
-import type { LockedPayrollPeriodSummary, PayrollSimulationResult } from '@hrm/shared-types';
+import type { LockedPayrollPeriodSummary, PayrollTotals } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ApiError } from '@/lib/tenant-api-client';
 import { formatDate, formatMoney, formatSignedMoney, payrollCopy } from '@/lib/payroll-copy';
 
+interface PayrollImpactTotals {
+  baseline: PayrollTotals;
+  simulated: PayrollTotals;
+  delta: PayrollTotals;
+}
+
+/** `title` replaces the default "Pay on <date>" heading. */
 export type PayrollImpactState =
-  | { status: 'loading'; asOf: string }
-  | { status: 'ready'; asOf: string; result: PayrollSimulationResult }
-  | { status: 'error'; asOf: string; message: string };
+  | { status: 'loading'; asOf: string; title?: string }
+  | { status: 'ready'; asOf: string; result: PayrollImpactTotals; title?: string }
+  | { status: 'error'; asOf: string; message: string; title?: string };
 
 const CONFIRM_ARM_DELAY_MS = 600;
 
@@ -20,6 +27,10 @@ interface PayrollReviewDialogProps {
   intro?: ReactNode;
   children?: ReactNode;
   impact?: PayrollImpactState | null;
+  /** Rendered under the impact totals, e.g. a per-employee breakdown. */
+  impactDetails?: ReactNode;
+  /** Extra statement the user must tick before confirming. */
+  acknowledgement?: string | null;
   retroPeriods?: LockedPayrollPeriodSummary[];
   confirmLabel: string;
   confirmDisabled?: boolean;
@@ -40,6 +51,8 @@ export function PayrollReviewDialog({
   intro,
   children,
   impact,
+  impactDetails,
+  acknowledgement,
   retroPeriods = [],
   confirmLabel,
   confirmDisabled = false,
@@ -74,7 +87,12 @@ export function PayrollReviewDialog({
 
   const retro = retroPeriods.length > 0;
   const impactFailed = impact?.status === 'error';
-  const needsAcknowledgement = retro || impactFailed;
+  const needsAcknowledgement = retro || impactFailed || Boolean(acknowledgement);
+  const acknowledgementLabel = retro
+    ? copy.acknowledgeRetro
+    : impactFailed
+      ? copy.acknowledgeUnavailable
+      : acknowledgement;
   const impactLoading = impact?.status === 'loading';
   const canConfirm =
     armed && !busy && !confirmDisabled && !impactLoading && (!needsAcknowledgement || acknowledged);
@@ -121,6 +139,7 @@ export function PayrollReviewDialog({
         {children}
 
         {impact ? <ImpactTable impact={impact} /> : null}
+        {impactDetails}
 
         {retro ? (
           <div className="flex items-start gap-3 rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 px-4 py-3">
@@ -147,7 +166,7 @@ export function PayrollReviewDialog({
               onChange={(e) => setAcknowledged(e.target.checked)}
               disabled={busy}
             />
-            <span>{retro ? copy.acknowledgeRetro : copy.acknowledgeUnavailable}</span>
+            <span>{acknowledgementLabel}</span>
           </label>
         ) : null}
 
@@ -191,7 +210,7 @@ function ImpactTable({ impact }: { impact: PayrollImpactState }) {
   return (
     <div className="rounded-lg border border-base overflow-hidden">
       <div className="px-4 py-2.5 bg-[rgb(var(--bg-muted))] text-xs font-semibold text-secondary uppercase tracking-wide">
-        {copy.impactTitle(formatDate(impact.asOf))}
+        {impact.title ?? copy.impactTitle(formatDate(impact.asOf))}
       </div>
       <table className="w-full text-sm" aria-busy={impact.status === 'loading'}>
         <thead>

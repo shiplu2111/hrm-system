@@ -27,6 +27,20 @@ This chain must be respected for every calculation — see RULES.md §2.
 
 Basic Salary, Hourly Rate, Overtime, Allowance, Bonus, Commission, Incentive, Transport, Housing, Meal, and admin-defined custom earnings. Each earning is either a fixed amount, a percentage, or a formula (see §5).
 
+A fixed amount has a **pay basis** on the employee's salary structure row (`salary_structures.pay_basis`):
+
+| Basis | Amount paid for the period |
+|---|---|
+| `monthly` (default) | The amount as entered |
+| `daily` | amount × days attended in the period (present, late, early leave, WFH, business trip = 1; half day = 0.5) |
+| `hourly` | amount × net worked hours in the period |
+
+- Days and hours are rounded to 2 decimals before multiplying, so the payslip's `rate × units` reproduces the line amount.
+- Attendance flagged as not payroll-eligible (e.g. geofence violations) and unpaid leave count as neither days nor hours.
+- Paid leave is not included in daily/hourly pay; it needs its own component.
+- Fixed earnings of any basis add up to `basic_salary`. The sum of hourly-basis fixed earnings is passed to formulas as `employee.hourly_rate`, so overtime uses the contracted rate.
+- Percentage and formula components are always `monthly`.
+
 ## 4. Deductions
 
 Tax, Loan installment, Advance recovery, Unpaid Leave, Late Deduction, Insurance, Pension/Superannuation, and admin-defined custom deductions.
@@ -44,6 +58,8 @@ THEN deduction += (basic_salary / working_days_in_period) * unpaid_days
 ```
 
 Formulas are stored as structured JSON (not raw code) and evaluated by a sandboxed rule interpreter — never `eval()` of user input.
+
+Before a component's rule is changed, admins see a company-wide simulation: every employee with an assignment effective on the preview date is recalculated with and without the proposed rule. Nothing is written (§8). Totals are summed in the company base currency, and employees whose pay can't be calculated are listed separately.
 
 ## 6. Gross → Net Calculation
 

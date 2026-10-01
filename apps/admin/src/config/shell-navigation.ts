@@ -112,6 +112,7 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Salary Components', page: 'salary-components' },
       { label: 'Salary Structures', page: 'salary-structures' },
       { label: 'Payslips', page: 'payslips' },
+      { label: 'Payroll Simulator', page: 'payroll-simulation' },
       { label: 'Payment Batches', page: 'payment-batches' },
       { label: 'Tax Profiles', page: 'tax-profiles' },
       { label: 'Benefits', page: 'benefits' },
@@ -125,7 +126,7 @@ export const adminNavItems: AdminNavItem[] = [
     icon: BarChart3,
     permission: { module: 'employee', action: 'view' },
     children: [
-      { label: 'Reports Hub', page: 'reports-hub' },
+      { label: 'Reports', page: 'reports-hub' },
       { label: 'Scheduled Reports', page: 'reports-scheduled' },
       { label: 'Data Import', page: 'data-import' },
       { label: 'Data Export', page: 'data-export' },

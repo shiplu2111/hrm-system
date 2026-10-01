@@ -1,6 +1,8 @@
-import type { ReportDefinition } from '@hrm/shared-types';
+import type { ReportDefinition, ReportPeriodMode } from '@hrm/shared-types';
 
-export const REPORT_CATALOG: ReportDefinition[] = [
+type CatalogEntry = Omit<ReportDefinition, 'periodMode'> & { periodMode?: ReportPeriodMode };
+
+const DEFINITIONS: CatalogEntry[] = [
   {
     id: 'payroll.employee-summary',
     category: 'payroll',
@@ -126,6 +128,7 @@ export const REPORT_CATALOG: ReportDefinition[] = [
     category: 'hr',
     title: 'Headcount Report',
     description: 'Active employee counts by department and employment type.',
+    periodMode: 'snapshot',
   },
   {
     id: 'hr.new-hires',
@@ -150,32 +153,42 @@ export const REPORT_CATALOG: ReportDefinition[] = [
     category: 'hr',
     title: 'Demographics Report',
     description: 'Workforce breakdown by gender and nationality from employee profiles.',
+    periodMode: 'snapshot',
   },
   {
     id: 'hr.department-summary',
     category: 'hr',
     title: 'Department Summary',
     description: 'Employee distribution and status counts by department.',
+    periodMode: 'snapshot',
   },
   {
     id: 'hr.employment-type-summary',
     category: 'hr',
     title: 'Employment Type Summary',
     description: 'Headcount grouped by employment type.',
+    periodMode: 'snapshot',
   },
   {
     id: 'hr.expiry',
     category: 'hr',
     title: 'Document & Contract Expiry',
     description: 'Documents and contracts expiring within the report window.',
+    periodMode: 'upcoming',
   },
   {
     id: 'hr.probation-ending',
     category: 'hr',
     title: 'Probation Ending Report',
     description: 'Employees whose probation ends in the selected period.',
+    periodMode: 'upcoming',
   },
 ];
+
+export const REPORT_CATALOG: ReportDefinition[] = DEFINITIONS.map((entry) => ({
+  ...entry,
+  periodMode: entry.periodMode ?? 'historical',
+}));
 
 export const REPORT_IDS = new Set(REPORT_CATALOG.map((report) => report.id));
 

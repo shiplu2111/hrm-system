@@ -73,6 +73,15 @@
     background-color: rgb(var(--border-strong));
     border-radius: 9999px;
   }
+
+  /* Simulation surfaces only — real payroll screens never use this hatch. */
+  .simulation-hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      rgb(245 158 11 / 0.14) 0 10px,
+      transparent 10px 20px
+    );
+  }
 }
 
 /* Org chart connectors: each <li> draws its half of the sibling bar plus a drop line. */

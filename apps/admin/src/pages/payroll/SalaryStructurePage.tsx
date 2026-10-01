@@ -19,7 +19,6 @@ import {
 import type {
   EmployeeRecord,
   PayComponentRecord,
-  PayrollCalculationLine,
   PayrollCalculationPreview,
   PayrollSalaryStructureOverride,
   SalaryStructurePayrollLock,
@@ -40,10 +39,12 @@ import { OrgErrorBanner, OrgTableSkeleton } from '@/components/org/OrgScreenPart
 import { PageErrorState, PageLoadingState } from '@/components/org/PageState';
 import { PayrollReviewDialog, type PayrollImpactState } from '@/components/payroll/PayrollReviewDialog';
 import { SalaryStructureChangeModal } from '@/components/payroll/SalaryStructureChangeModal';
+import { PayBreakdownTables } from '@/components/payroll/PayBreakdownTables';
 import {
   formatPeriodList,
   lockedPeriodsIn,
   rangeFullyLocked,
+  structurePayload,
   uniquePeriods,
   type StructureChange,
   type StructureFormMode,
@@ -68,7 +69,6 @@ import {
   describeStructureValue,
   formatDate,
   formatMoney,
-  formatRate,
   payrollCopy,
   todayIso,
 } from '@/lib/payroll-copy';
@@ -102,10 +102,13 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError || err instanceof Error ? err.message : fallback;
 }
 
-function valueOverride(value: StructureValue): Pick<PayrollSalaryStructureOverride, 'amount' | 'percentage'> {
+function valueOverride(
+  value: StructureValue,
+): Pick<PayrollSalaryStructureOverride, 'amount' | 'percentage' | 'payBasis'> {
   return {
     ...(value.amount !== undefined ? { amount: value.amount } : {}),
     ...(value.percentage !== undefined ? { percentage: value.percentage } : {}),
+    ...(value.payBasis !== undefined ? { payBasis: value.payBasis } : {}),
   };
 }
 
@@ -132,8 +135,9 @@ function simulationFor(change: StructureChange, today: string): { asOf: string; 
 }
 
 function formatValue(value: StructureValue, component: PayComponentRecord): string {
+  const { amountOrFormula, payBasis } = structurePayload(value);
   return describeStructureValue(
-    { amountOrFormula: value, componentCalculationType: component.calculationType },
+    { amountOrFormula, payBasis, componentCalculationType: component.calculationType },
     component,
   );
 }
@@ -317,20 +321,20 @@ export function SalaryStructurePage() {
         await createSalaryStructure(selectedId, {
           componentId: change.component.id,
           componentType: change.component.type,
-          amountOrFormula: change.value,
+          ...structurePayload(change.value),
           effectiveFrom: change.effectiveFrom,
           effectiveTo: change.effectiveTo,
         });
         break;
       case 'revise':
         await reviseSalaryStructure(selectedId, change.row.id, {
-          amountOrFormula: change.value,
+          ...structurePayload(change.value),
           effectiveFrom: change.effectiveFrom,
         });
         break;
       case 'correct':
         await updateSalaryStructure(selectedId, change.row.id, {
-          amountOrFormula: change.value,
+          ...structurePayload(change.value),
           effectiveFrom: change.effectiveFrom,
           effectiveTo: change.effectiveTo,
         });
@@ -362,7 +366,7 @@ export function SalaryStructurePage() {
     if (!selectedEmployee) return;
     downloadCsvFile(
       `salary-structure-${selectedEmployee.employeeNumber}.csv`,
-      ['Employee ID', 'Employee', copy.colComponent, 'Type', 'Calculation', copy.colValue, 'Amount', 'Rate (%)', copy.colFrom, copy.colTo, copy.colStatus],
+      ['Employee ID', 'Employee', copy.colComponent, 'Type', 'Calculation', copy.colValue, 'Amount', 'Paid', 'Rate (%)', copy.colFrom, copy.colTo, copy.colStatus],
       visibleRows.map((row) => {
         const component = componentsById.get(row.componentId);
         return [
@@ -373,6 +377,7 @@ export function SalaryStructurePage() {
           row.componentCalculationType ? payrollCopy.calcType[row.componentCalculationType] : '',
           describeStructureValue(row, component),
           row.amountOrFormula.amount ?? '',
+          row.componentCalculationType === 'fixed' ? payrollCopy.payBasis[row.payBasis] : '',
           row.amountOrFormula.percentage ?? '',
           row.effectiveFrom,
           row.effectiveTo ?? '',
@@ -812,20 +817,7 @@ function SummaryTile({
   );
 }
 
-function lineBasis(line: PayrollCalculationLine): string {
-  if (line.calculationType === 'percentage' && line.percentage !== null) {
-    return `${formatRate(line.percentage)}% × ${formatMoney(line.baseAmount)}`;
-  }
-  if (line.calculationType === 'formula') return line.formulaDescription ?? payrollCopy.calcType.formula;
-  return payrollCopy.calcType.fixed;
-}
-
 function Breakdown({ preview }: { preview: PayrollCalculationPreview }) {
-  const sections: Array<{ title: string; lines: PayrollCalculationLine[]; total: string }> = [
-    { title: payrollCopy.common.earnings, lines: preview.earnings, total: preview.grossPay },
-    { title: payrollCopy.common.deductions, lines: preview.deductions, total: preview.totalDeductions },
-  ];
-
   if (preview.earnings.length === 0 && preview.deductions.length === 0) {
     return <p className="mt-5 text-sm text-muted">{copy.breakdownEmpty}</p>;
   }
@@ -835,34 +827,7 @@ function Breakdown({ preview }: { preview: PayrollCalculationPreview }) {
       <h3 className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">
         {copy.breakdown(formatDate(preview.asOfDate))}
       </h3>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {sections.map((section) => (
-          <div key={section.title} className="rounded-lg border border-base overflow-hidden">
-            <div className="px-4 py-2 bg-[rgb(var(--bg-muted))] text-xs font-semibold text-secondary">{section.title}</div>
-            {section.lines.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-muted">{payrollCopy.common.none}</p>
-            ) : (
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                  {section.lines.map((line) => (
-                    <tr key={line.salaryStructureId}>
-                      <td className="px-4 py-2">
-                        <div className="text-primary">{line.componentName}</div>
-                        <div className="text-xs text-muted">{lineBasis(line)}</div>
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-primary">{formatMoney(line.amount)}</td>
-                    </tr>
-                  ))}
-                  <tr className="font-semibold">
-                    <td className="px-4 py-2 text-secondary">{payrollCopy.common.total}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-primary">{formatMoney(section.total)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-          </div>
-        ))}
-      </div>
+      <PayBreakdownTables preview={preview} />
     </div>
   );
 }

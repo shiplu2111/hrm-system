@@ -1,253 +1,415 @@
-import { useState } from 'react';
-import {
-  Printer,
-  Download,
-  FileText,
-  Building2,
-  CheckCircle2,
-  AlertCircle,
-  Calendar,
-  DollarSign,
-  Send,
-  Sparkles,
-} from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, Download, Eye, FilePlus2, Receipt, Search, X } from 'lucide-react';
+import type { PayrollPeriodRecord, PayslipListItem } from '@hrm/shared-types';
+import { usePermissions } from '@hrm/portal-ui';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Select } from '@/components/ui/Form';
-import { samplePayslip, sampleFinalSettlementPayslip, type PayslipData } from '@/data/payrollData';
+import { Input, Select } from '@/components/ui/Form';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { Avatar } from '@/components/ui/Toggle';
+import { DataTable, DataTableBody, DataTableHead, SortableHeader, type SortDirection } from '@/components/ui/DataTable';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { OrgErrorBanner, OrgTableSkeleton } from '@/components/org/OrgScreenParts';
+import { PageErrorState, PageLoadingState } from '@/components/org/PageState';
+import { PayslipViewerModal } from '@/components/payroll/PayslipViewerModal';
+import { useCompany } from '@/context/CompanyContext';
+import { fetchPayslipPdf, generatePayslip, listPayrollPeriods, listPayslips } from '@/lib/payroll-runs-api';
+import { saveBlob } from '@/lib/download';
+import { periodLabel, toCents } from '@/lib/payroll-run-flow';
+import { payslipCopy as copy } from '@/lib/payslip-copy';
+import { formatDate, formatMoney, payrollCopy } from '@/lib/payroll-copy';
+import { downloadCsvFile } from '@/lib/csv';
+import { ApiError } from '@/lib/tenant-api-client';
+
+type Tab = 'all' | 'issued' | 'missing';
+type SortKey = 'employee' | 'period' | 'net';
+
+const errorText = (err: unknown, fallback: string) =>
+  err instanceof ApiError || err instanceof Error ? err.message : fallback;
 
 export function PayslipPage() {
-  const [isFinalSettlement, setIsFinalSettlement] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState('August 2024');
+  const { companyId, loading: companyLoading, error: companyError, refresh: refreshCompanies } = useCompany();
+  const { can } = usePermissions();
+  const canGenerate = can('payroll', 'finalize');
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const periodId = searchParams.get('period') ?? '';
+  const employeeId = searchParams.get('employee') ?? '';
 
-  const slip: PayslipData = isFinalSettlement ? sampleFinalSettlementPayslip : samplePayslip;
+  const [items, setItems] = useState<PayslipListItem[]>([]);
+  const [periods, setPeriods] = useState<PayrollPeriodRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyRun, setBusyRun] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<PayslipListItem | null>(null);
+  const [tab, setTab] = useState<Tab>('all');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDirection }>({ key: 'period', dir: 'desc' });
 
-  const handlePrint = () => {
-    window.print();
+  const load = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextItems, nextPeriods] = await Promise.all([
+        listPayslips(companyId, { payrollPeriodId: periodId || undefined, employeeId: employeeId || undefined }),
+        listPayrollPeriods(companyId),
+      ]);
+      setItems(nextItems);
+      setPeriods(nextPeriods);
+    } catch (err) {
+      setError(errorText(err, copy.loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, periodId, employeeId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const setParam = (key: 'period' | 'employee', value: string) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+
+  const counts = useMemo(
+    () => ({
+      all: items.length,
+      issued: items.filter((item) => item.payslip).length,
+      missing: items.filter((item) => !item.payslip).length,
+    }),
+    [items],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = items.filter(
+      (item) =>
+        (tab === 'all' || (tab === 'issued' ? item.payslip : !item.payslip)) &&
+        (!q ||
+          item.employeeName.toLowerCase().includes(q) ||
+          item.employeeNumber.toLowerCase().includes(q) ||
+          (item.departmentName ?? '').toLowerCase().includes(q)),
+    );
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const byName = a.employeeName.localeCompare(b.employeeName);
+      let cmp = 0;
+      if (sort.key === 'period') cmp = a.periodStartDate.localeCompare(b.periodStartDate);
+      else if (sort.key === 'net') cmp = toCents(a.netPay) - toCents(b.netPay);
+      else cmp = byName;
+      return (cmp || byName) * dir;
+    });
+  }, [items, tab, search, sort]);
+
+  const issuedSequence = useMemo(() => filtered.filter((item) => item.payslip), [filtered]);
+  const employeeName = employeeId ? items.find((item) => item.employeeId === employeeId)?.employeeName : undefined;
+
+  const toggleSort = (key: SortKey) =>
+    setSort((prev) => ({ key, dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc' }));
+
+  const download = async (item: PayslipListItem) => {
+    if (!item.payslip) return;
+    setActionError(null);
+    setBusyRun(item.payrollRunId);
+    try {
+      const { blob, filename } = await fetchPayslipPdf(item.employeeId, item.payslip.id);
+      saveBlob(blob, filename);
+    } catch (err) {
+      setActionError(errorText(err, copy.viewer.error));
+    } finally {
+      setBusyRun(null);
+    }
   };
 
+  const generate = async (item: PayslipListItem) => {
+    if (!companyId) return;
+    setActionError(null);
+    setBusyRun(item.payrollRunId);
+    try {
+      const payslip = await generatePayslip(companyId, item.payrollRunId);
+      const updated: PayslipListItem = {
+        ...item,
+        payslip: { id: payslip.id, generatedAt: payslip.generatedAt, downloadUrl: payslip.downloadUrl ?? '' },
+      };
+      setItems((prev) => prev.map((entry) => (entry.payrollRunId === item.payrollRunId ? updated : entry)));
+      setNotice(copy.generated(item.employeeName));
+    } catch (err) {
+      setActionError(errorText(err, copy.loadError));
+    } finally {
+      setBusyRun(null);
+    }
+  };
+
+  const exportCsv = () =>
+    downloadCsvFile(
+      'payslips.csv',
+      ['Employee ID', copy.colEmployee, 'Department', 'Period start', 'Period end', copy.colPayment, 'Currency', 'Gross pay', 'Deductions', copy.colNet, 'Run status', copy.colStatus, 'Issued at'],
+      filtered.map((item) => [
+        item.employeeNumber,
+        item.employeeName,
+        item.departmentName ?? '',
+        item.periodStartDate,
+        item.periodEndDate,
+        item.paymentDate,
+        item.payCurrency,
+        item.grossPay,
+        item.totalDeductions,
+        item.netPay,
+        item.runStatus,
+        item.payslip ? copy.issued : copy.missing,
+        item.payslip?.generatedAt ?? '',
+      ]),
+    );
+
+  if (companyLoading) return <PageLoadingState />;
+  if (companyError) return <PageErrorState error={companyError} onRetry={() => void refreshCompanies()} />;
+
+  const filtersActive = tab !== 'all' || search.trim() !== '' || periodId !== '';
+  const tabs: Array<{ key: Tab; label: string }> = [
+    { key: 'all', label: copy.tabs.all(counts.all) },
+    { key: 'issued', label: copy.tabs.issued(counts.issued) },
+    { key: 'missing', label: copy.tabs.missing(counts.missing) },
+  ];
+
   return (
-    <div className="p-4 lg:p-6 space-y-6 max-w-[1000px] mx-auto">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
+    <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">Payslip & Settlement Preview</h1>
-          <p className="text-sm text-secondary mt-0.5">
-            Compliant, printable employee salary slips and full & final settlement statements.
-          </p>
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">{payrollCopy.common.eyebrow}</p>
+          <h1 className="text-xl font-bold text-primary">{copy.title}</h1>
+          <p className="text-sm text-secondary mt-0.5 max-w-2xl">{copy.description}</p>
         </div>
+        <CompanySelector />
+      </div>
 
-        <div className="flex items-center gap-2">
-          {/* Mode Switcher */}
-          <div className="surface border border-base rounded-lg p-1 flex items-center gap-1">
-            <button
-              onClick={() => setIsFinalSettlement(false)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                !isFinalSettlement
-                  ? 'bg-accent-600 text-white shadow-sm'
-                  : 'text-secondary hover:text-primary'
-              }`}
-            >
-              Standard Payslip
-            </button>
-            <button
-              onClick={() => setIsFinalSettlement(true)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                isFinalSettlement
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-secondary hover:text-primary'
-              }`}
-            >
-              Final Settlement (Exit)
-            </button>
-          </div>
+      {notice ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg px-4 py-2.5"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {notice}
+        </div>
+      ) : null}
+      {actionError ? <OrgErrorBanner message={actionError} /> : null}
 
-          <Button variant="secondary" onClick={handlePrint}>
-            <Printer className="h-4 w-4" /> Print / PDF
+      {employeeId ? (
+        <div className="flex items-center gap-2 text-sm text-secondary">
+          <span>{copy.employeeFilter(employeeName ?? employeeId)}</span>
+          <Button variant="ghost" size="sm" onClick={() => setParam('employee', '')}>
+            <X className="h-3.5 w-3.5" /> {copy.clearEmployee}
           </Button>
         </div>
-      </div>
+      ) : null}
 
-      {/* Payslip Document Preview (Printable Sheet) */}
-      <div className="surface border border-base rounded-2xl shadow-xl overflow-hidden print:border-none print:shadow-none p-6 sm:p-8 space-y-6 bg-surface">
-        {/* Document Header */}
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-base pb-6">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-xl bg-accent-600 flex items-center justify-center text-white shrink-0">
-              <Building2 className="h-6 w-6" />
+      <Card className="overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-5 py-4 border-b border-base">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex p-1 rounded-lg border border-base surface gap-1" role="tablist">
+              {tabs.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === entry.key}
+                  onClick={() => setTab(entry.key)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    tab === entry.key ? 'bg-accent-600 text-white shadow-sm' : 'text-secondary hover:text-primary'
+                  }`}
+                >
+                  {entry.label}
+                </button>
+              ))}
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-primary">Nexus HR Technologies Inc.</h2>
-              <p className="text-xs text-secondary">
-                100 Market St, Suite 400, San Francisco, CA 94105 · Employer ID: EIN-98-401928
-              </p>
+            <div className="w-56">
+              <Select
+                aria-label={copy.periodFilter}
+                value={periodId}
+                onChange={(e) => setParam('period', e.target.value)}
+                className="h-9 py-1"
+              >
+                <option value="">{copy.allPeriods}</option>
+                {periods.map((period) => (
+                  <option key={period.id} value={period.id}>
+                    {periodLabel(period)}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
-
-          <div className="text-left sm:text-right">
-            <div className="flex sm:justify-end">
-              {isFinalSettlement ? (
-                <span className="px-3 py-1 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-xs font-bold uppercase tracking-wider border border-rose-300 dark:border-rose-800">
-                  Full & Final Settlement
-                </span>
-              ) : (
-                <span className="px-3 py-1 rounded-full bg-accent-100 dark:bg-accent-950/50 text-accent-700 dark:text-accent-300 text-xs font-bold uppercase tracking-wider border border-accent-300 dark:border-accent-800">
-                  Monthly Payslip
-                </span>
-              )}
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+              <Input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={copy.searchPlaceholder}
+                aria-label={copy.searchPlaceholder}
+                className="pl-9 h-9"
+              />
             </div>
-            <div className="text-xs font-mono text-muted mt-1.5">Slip #: {slip.payslipNumber}</div>
-            <div className="text-xs text-secondary mt-0.5">Pay Date: {slip.payDate}</div>
+            <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0}>
+              <Download className="h-4 w-4" /> {payrollCopy.common.exportCsv}
+            </Button>
           </div>
         </div>
 
-        {/* Employee Info Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-[rgb(var(--bg-muted))] text-xs">
-          <div>
-            <span className="text-muted block">Employee Name</span>
-            <span className="font-bold text-primary text-sm">{slip.employeeName}</span>
+        {error ? (
+          <div className="p-5">
+            <OrgErrorBanner message={error} onRetry={() => void load()} />
           </div>
-          <div>
-            <span className="text-muted block">Employee ID</span>
-            <span className="font-semibold text-primary font-mono">{slip.employeeId}</span>
-          </div>
-          <div>
-            <span className="text-muted block">Designation</span>
-            <span className="font-semibold text-primary">{slip.designation}</span>
-          </div>
-          <div>
-            <span className="text-muted block">Department</span>
-            <span className="font-semibold text-primary">{slip.department}</span>
-          </div>
-
-          <div>
-            <span className="text-muted block">Date of Joining</span>
-            <span className="text-secondary">{slip.joiningDate}</span>
-          </div>
-          <div>
-            <span className="text-muted block">Bank Account</span>
-            <span className="font-mono text-secondary">{slip.accountNumber}</span>
-          </div>
-          <div>
-            <span className="text-muted block">PAN / SSN #</span>
-            <span className="font-mono text-secondary">{slip.panOrSsn}</span>
-          </div>
-          <div>
-            <span className="text-muted block">Pay Period</span>
-            <span className="text-secondary">{slip.period}</span>
-          </div>
-        </div>
-
-        {/* Attendance Summary Bar */}
-        <div className="grid grid-cols-3 gap-2 text-center text-xs p-2 rounded-lg border border-base">
-          <div>
-            <span className="text-muted">Working Days: </span>
-            <strong className="text-primary">{slip.workingDays}</strong>
-          </div>
-          <div>
-            <span className="text-muted">Leaves Taken: </span>
-            <strong className="text-primary">{slip.leavesTaken}</strong>
-          </div>
-          <div>
-            <span className="text-muted">Loss of Pay Days: </span>
-            <strong className="text-primary">{slip.lossOfPayDays}</strong>
-          </div>
-        </div>
-
-        {/* Settlement Specific Banner */}
-        {isFinalSettlement && slip.settlementDetails && (
-          <div className="surface border border-rose-500/30 bg-rose-50/20 dark:bg-rose-950/20 rounded-xl p-4 text-xs space-y-2">
-            <div className="font-bold text-rose-700 dark:text-rose-300 uppercase tracking-wider text-[11px]">
-              Exit Clearance & Severance Summary
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div>Last Working Day: <strong className="text-primary">{slip.settlementDetails.lastWorkingDay}</strong></div>
-              <div>Leave Encashment: <strong className="text-primary">${slip.settlementDetails.leaveEncashment}</strong></div>
-              <div>Gratuity (Statutory): <strong className="text-primary">${slip.settlementDetails.gratuity}</strong></div>
-              <div>Asset Clearance: <strong className="text-success-600">✓ Completed</strong></div>
-            </div>
-          </div>
+        ) : loading ? (
+          <OrgTableSkeleton columns={5} rows={6} />
+        ) : items.length === 0 && !periodId && !employeeId ? (
+          <EmptyState
+            icon={Receipt}
+            title={copy.emptyTitle}
+            description={copy.emptyDescription}
+            action={{ label: copy.emptyAction, onClick: () => navigate('/payroll/runs') }}
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            compact
+            icon={Search}
+            title={copy.noMatchTitle}
+            description={copy.noMatchDescription}
+            action={
+              filtersActive
+                ? {
+                    label: copy.clearFilters,
+                    variant: 'secondary',
+                    onClick: () => {
+                      setTab('all');
+                      setSearch('');
+                      setParam('period', '');
+                    },
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <DataTable className="max-h-[65vh] overflow-y-auto">
+            <DataTableHead>
+              <tr>
+                <th className="text-left px-5 py-3">
+                  <SortableHeader label={copy.colEmployee} active={sort.key === 'employee'} direction={sort.dir} onSort={() => toggleSort('employee')} />
+                </th>
+                <th className="text-left px-5 py-3">
+                  <SortableHeader label={copy.colPeriod} active={sort.key === 'period'} direction={sort.dir} onSort={() => toggleSort('period')} />
+                </th>
+                <th className="text-right px-5 py-3">
+                  <SortableHeader label={copy.colNet} active={sort.key === 'net'} direction={sort.dir} onSort={() => toggleSort('net')} />
+                </th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wide">{copy.colStatus}</th>
+                <th className="px-5 py-3">
+                  <span className="sr-only">{payrollCopy.common.actions}</span>
+                </th>
+              </tr>
+            </DataTableHead>
+            <DataTableBody>
+              {filtered.map((item) => {
+                const busy = busyRun === item.payrollRunId;
+                return (
+                  <tr
+                    key={item.payrollRunId}
+                    onClick={() => item.payslip && setViewing(item)}
+                    className={`transition-colors ${item.payslip ? 'cursor-pointer hover:bg-[rgb(var(--bg-hover))]' : ''}`}
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={item.employeeName} size="sm" />
+                        <div className="min-w-0">
+                          <div className="font-medium text-primary truncate">{item.employeeName}</div>
+                          <div className="text-xs text-muted truncate">
+                            {item.employeeNumber}
+                            {item.departmentName ? ` · ${item.departmentName}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="text-primary">{periodLabel({ startDate: item.periodStartDate, endDate: item.periodEndDate })}</div>
+                      <div className="text-xs text-muted">
+                        {copy.colPayment}: {formatDate(item.paymentDate)}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums">
+                      <span className="font-semibold text-primary">{formatMoney(item.netPay)}</span>
+                      <span className="ml-1 text-xs text-muted">{item.payCurrency}</span>
+                    </td>
+                    <td className="px-5 py-3">
+                      {item.payslip ? (
+                        <div>
+                          <StatusPill tone="success">{copy.issued}</StatusPill>
+                          <div className="text-xs text-muted mt-0.5">{copy.issuedOn(formatDate(item.payslip.generatedAt))}</div>
+                        </div>
+                      ) : (
+                        <span title={copy.missingHint}>
+                          <StatusPill tone="warning">
+                            <AlertTriangle className="h-3 w-3 -ml-0.5" aria-hidden />
+                            {copy.missing}
+                          </StatusPill>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {item.payslip ? (
+                          <>
+                            <Button size="sm" variant="secondary" onClick={() => setViewing(item)}>
+                              <Eye className="h-3.5 w-3.5" /> {copy.view}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void download(item)}
+                              disabled={busy}
+                              aria-label={`${copy.download}: ${item.employeeName}`}
+                              title={copy.download}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        ) : canGenerate ? (
+                          <Button size="sm" variant="secondary" onClick={() => void generate(item)} disabled={busy}>
+                            <FilePlus2 className="h-3.5 w-3.5" /> {busy ? copy.generating : copy.generate}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </DataTableBody>
+          </DataTable>
         )}
+      </Card>
 
-        {/* Earnings & Deductions Dual Table */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Earnings Table */}
-          <div className="space-y-3">
-            <div className="text-xs font-bold text-success-700 dark:text-success-300 uppercase tracking-wider border-b border-base pb-2 flex items-center justify-between">
-              <span>Earnings</span>
-              <span>Amount ($)</span>
-            </div>
-            <div className="divide-y divide-[rgb(var(--border-base))] text-xs">
-              {slip.earnings.map((e) => (
-                <div key={e.label} className="py-2 flex items-center justify-between">
-                  <span className="text-secondary">{e.label}</span>
-                  <span className="font-medium text-primary">${e.amount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-            <div className="pt-2 border-t-2 border-base flex items-center justify-between font-bold text-sm text-primary">
-              <span>Gross Earnings</span>
-              <span className="text-success-600 dark:text-success-400">
-                ${slip.grossEarnings.toLocaleString()}
-              </span>
-            </div>
-          </div>
-
-          {/* Deductions Table */}
-          <div className="space-y-3">
-            <div className="text-xs font-bold text-error-700 dark:text-error-300 uppercase tracking-wider border-b border-base pb-2 flex items-center justify-between">
-              <span>Deductions</span>
-              <span>Amount ($)</span>
-            </div>
-            <div className="divide-y divide-[rgb(var(--border-base))] text-xs">
-              {slip.deductions.map((d) => (
-                <div key={d.label} className="py-2 flex items-center justify-between">
-                  <span className="text-secondary">{d.label}</span>
-                  <span className="font-medium text-error-600">-${d.amount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-            <div className="pt-2 border-t-2 border-base flex items-center justify-between font-bold text-sm text-primary">
-              <span>Total Deductions</span>
-              <span className="text-error-600">
-                -${slip.totalDeductions.toLocaleString()}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Net Pay Callout Footer */}
-        <div className="surface border-2 border-success-500/40 rounded-2xl p-5 bg-success-50/20 dark:bg-success-950/20 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <div className="text-xs text-secondary font-medium">Net Take-Home Pay (Disbursed)</div>
-            <div className="text-xs font-medium text-muted mt-0.5">{slip.netPayInWords}</div>
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-success-600 dark:text-success-400">
-            ${slip.netPay.toLocaleString()}
-          </div>
-        </div>
-
-        {/* YTD Summary Bar */}
-        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-base text-xs text-center text-muted">
-          <div>YTD Gross: <strong className="text-primary">${slip.ytdGross.toLocaleString()}</strong></div>
-          <div>YTD Tax Paid: <strong className="text-primary">${slip.ytdTax.toLocaleString()}</strong></div>
-          <div>YTD Net Pay: <strong className="text-primary">${slip.ytdNet.toLocaleString()}</strong></div>
-        </div>
-
-        {/* Signatures Footer */}
-        <div className="grid grid-cols-2 gap-8 pt-8 border-t border-base text-xs text-secondary">
-          <div>
-            <div className="h-10 border-b border-dashed border-base" />
-            <span className="block mt-1">Employer Authorized Signatory</span>
-          </div>
-          <div className="text-right">
-            <div className="h-10 border-b border-dashed border-base" />
-            <span className="block mt-1">Employee Acknowledgement</span>
-          </div>
-        </div>
-      </div>
+      <PayslipViewerModal
+        item={viewing}
+        sequence={issuedSequence}
+        onNavigate={setViewing}
+        onClose={() => setViewing(null)}
+      />
     </div>
   );
 }
-

@@ -7,11 +7,18 @@ export interface ReportColumn {
   label: string;
 }
 
+/**
+ * How a report uses the from/to range: `historical` filters past activity, `upcoming`
+ * looks for dates falling inside a future window, `snapshot` ignores it (current state).
+ */
+export type ReportPeriodMode = 'historical' | 'upcoming' | 'snapshot';
+
 export interface ReportDefinition {
   id: string;
   category: ReportCategory;
   title: string;
   description: string;
+  periodMode: ReportPeriodMode;
 }
 
 export interface ReportPeriod {

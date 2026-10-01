@@ -45,6 +45,7 @@ export class PayrollCalculationController {
         employeeId,
         asOf: dto.asOf,
         structureOverrides: dto.structureOverrides,
+        attendanceOverride: dto.attendance,
       }),
     };
   }

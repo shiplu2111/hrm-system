@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsEnum,
   IsNumber,
   IsObject,
@@ -36,6 +37,20 @@ export class CreatePayComponentDto {
   @IsOptional()
   @IsObject()
   formula?: Record<string, unknown>;
+}
+
+export class PayComponentImpactDto {
+  @IsOptional()
+  @IsEnum(PayComponentCalculationType)
+  calculationType?: PayComponentCalculationType;
+
+  @IsOptional()
+  @IsObject()
+  formula?: Record<string, unknown> | null;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  asOf?: string;
 }
 
 export class UpdatePayComponentDto {

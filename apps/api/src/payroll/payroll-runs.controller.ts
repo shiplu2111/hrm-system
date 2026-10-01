@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -12,7 +14,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  BulkPayrollRunTransitionDto,
+  CalculatePayrollRunsDto,
   CreatePayrollRunDto,
+  GeneratePayrollRunsDto,
   ListPayrollRunsQueryDto,
   PayrollRunTransitionDto,
 } from './dto/payroll-runs.dto';
@@ -51,6 +56,67 @@ export class PayrollRunsController {
   ) {
     return {
       data: await this.payrollRunsService.create(companyId, periodId, dto, user),
+    };
+  }
+
+  @Post('payroll-periods/:periodId/runs/generate')
+  @RequirePermission('payroll', 'create')
+  @ApiOperation({
+    summary: 'Create draft runs for every payable employee with a salary structure in the period',
+  })
+  async generate(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('periodId', ParseUUIDPipe) periodId: string,
+    @Body() dto: GeneratePayrollRunsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.payrollRunsService.generate(companyId, periodId, dto, user),
+    };
+  }
+
+  @Post('payroll-periods/:periodId/runs/calculate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('payroll', 'edit')
+  @ApiOperation({ summary: 'Calculate all recalculable runs of a period (or the given runs)' })
+  async calculateMany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('periodId', ParseUUIDPipe) periodId: string,
+    @Body() dto: CalculatePayrollRunsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.payrollRunsService.calculateMany(companyId, periodId, dto, user),
+    };
+  }
+
+  @Post('payroll-periods/:periodId/runs/transition')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({
+    summary:
+      'Move runs of a period between statuses; approve/finalize/paid require the confirmed count and totals',
+  })
+  async transitionMany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('periodId', ParseUUIDPipe) periodId: string,
+    @Body() dto: BulkPayrollRunTransitionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.payrollRunsService.transitionMany(companyId, periodId, dto, user),
+    };
+  }
+
+  @Get('payroll-runs/:runId/breakdown')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Earnings and deductions behind a run’s totals' })
+  async breakdown(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+  ) {
+    return {
+      data: await this.payrollRunsService.breakdown(companyId, runId),
     };
   }
 

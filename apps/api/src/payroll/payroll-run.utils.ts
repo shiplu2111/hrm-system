@@ -1,26 +1,90 @@
 import { BadRequestException } from '@nestjs/common';
-import type { PayrollRunStatus, PermissionAction } from '@hrm/shared-types';
+import { Decimal } from '@prisma/client/runtime/library';
+import {
+  PAYROLL_RUN_RECALCULABLE_STATUSES,
+  PAYROLL_RUN_TRANSITIONS,
+  type PayrollPeriodStatus,
+  type PayrollPeriodSummary,
+  type PayrollRunStatus,
+  type PermissionAction,
+} from '@hrm/shared-types';
+import { formatMoney } from './payroll.utils';
 
-/** Allowed status transitions (PAYROLL_LOGIC.md §7). */
-export const PAYROLL_RUN_TRANSITIONS: Record<
-  PayrollRunStatus,
-  readonly PayrollRunStatus[]
-> = {
-  draft: ['calculated', 'cancelled'],
-  calculated: ['under_review', 'cancelled'],
-  under_review: ['approved', 'calculated', 'cancelled'],
-  approved: ['finalized', 'under_review', 'cancelled'],
-  finalized: ['paid'],
-  paid: [],
-  cancelled: [],
-};
+export { PAYROLL_RUN_RECALCULABLE_STATUSES, PAYROLL_RUN_TRANSITIONS };
 
-/** Statuses that allow (re)calculation of pay amounts (PAYROLL_LOGIC.md §7). */
-export const PAYROLL_RUN_RECALCULABLE_STATUSES: readonly PayrollRunStatus[] = [
-  'draft',
-  'calculated',
-  'under_review',
-];
+/** Money fields of a run as stored; `*Base` is null until the run is calculated. */
+export interface RunAmounts {
+  status: PayrollRunStatus;
+  grossPay: Decimal;
+  totalDeductions: Decimal;
+  netPay: Decimal;
+  grossPayBase: Decimal | null;
+  totalDeductionsBase: Decimal | null;
+  netPayBase: Decimal | null;
+  baseCurrency: string;
+  exchangeRate: Decimal | null;
+}
+
+/** Base-currency totals of the given runs (falls back to pay currency for runs without a snapshot). */
+export function sumRunAmounts(runs: RunAmounts[]): {
+  grossPay: string;
+  totalDeductions: string;
+  netPay: string;
+} {
+  const zero = new Decimal(0);
+  const sum = runs.reduce(
+    (acc, run) => ({
+      gross: acc.gross.plus(run.grossPayBase ?? run.grossPay),
+      deductions: acc.deductions.plus(run.totalDeductionsBase ?? run.totalDeductions),
+      net: acc.net.plus(run.netPayBase ?? run.netPay),
+    }),
+    { gross: zero, deductions: zero, net: zero },
+  );
+  return {
+    grossPay: formatMoney(sum.gross),
+    totalDeductions: formatMoney(sum.deductions),
+    netPay: formatMoney(sum.net),
+  };
+}
+
+export function summarizePeriodRuns(runs: RunAmounts[]): PayrollPeriodSummary {
+  const statusCounts: Partial<Record<PayrollRunStatus, number>> = {};
+  for (const run of runs) statusCounts[run.status] = (statusCounts[run.status] ?? 0) + 1;
+  const active = runs.filter((run) => run.status !== 'cancelled');
+  return {
+    employeeCount: active.length,
+    statusCounts,
+    ...sumRunAmounts(active),
+    baseCurrency: active.find((run) => run.exchangeRate !== null)?.baseCurrency ?? null,
+  };
+}
+
+/**
+ * Period status follows its runs: no runs → draft, all paid → closed,
+ * anything finalized or paid → processing, otherwise open.
+ */
+export function derivePayrollPeriodStatus(statuses: PayrollRunStatus[]): PayrollPeriodStatus {
+  const active = statuses.filter((status) => status !== 'cancelled');
+  if (active.length === 0) return 'draft';
+  if (active.every((status) => status === 'paid')) return 'closed';
+  if (active.some((status) => status === 'finalized' || status === 'paid')) return 'processing';
+  return 'open';
+}
+
+/** Runs `task` over `items` with at most `limit` in flight. */
+export async function forEachLimited<T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  const queue = [...items];
+  const worker = async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+      await task(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
+}
 
 export function assertPayrollRunTransition(
   from: PayrollRunStatus,

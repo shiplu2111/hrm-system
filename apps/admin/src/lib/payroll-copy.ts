@@ -5,6 +5,7 @@ import type {
   PayFormulaCondition,
   PayFormulaExpression,
   PayFormulaRule,
+  SalaryPayBasis,
   SalaryStructureRecord,
 } from '@hrm/shared-types';
 import { isPayFormulaRule, isPercentageFormula } from '@hrm/shared-types';
@@ -47,6 +48,16 @@ export const payrollCopy = {
     basic: 'basic',
     gross: 'gross',
   },
+  payBasis: {
+    monthly: 'Per pay period',
+    daily: 'Per day worked',
+    hourly: 'Per hour worked',
+  } satisfies Record<SalaryPayBasis, string>,
+  payBasisSuffix: {
+    monthly: '',
+    daily: ' / day',
+    hourly: ' / hour',
+  } satisfies Record<SalaryPayBasis, string>,
   components: {
     title: 'Pay Components',
     description:
@@ -128,6 +139,19 @@ export const payrollCopy = {
         ? 'No employees currently have this component, so no pay changes right now.'
         : `${n === 1 ? '1 employee currently has' : `${n} employees currently have`} this component. Their pay will be calculated with the new settings from the next payroll run.`,
     finalizedNote: 'Finalized payroll is locked and will not change.',
+    impactTitle: (n: number, date: string, currency: string | null) =>
+      `Total pay for ${n} employee${n === 1 ? '' : 's'} on ${date}${currency ? ` (${currency})` : ''}`,
+    impactEmployeesTitle: 'Largest changes',
+    impactColEmployee: 'Employee',
+    impactColNetNow: 'Net now',
+    impactColNetAfter: 'Net after',
+    impactColChange: 'Change',
+    impactMore: (n: number) => `${n} more employee${n === 1 ? '' : 's'} not shown.`,
+    impactUnchanged: (n: number) => `${n} employee${n === 1 ? '' : 's'} see no change.`,
+    impactDownload: 'Download full list (CSV)',
+    impactFailuresTitle: (n: number) =>
+      `Pay could not be calculated for ${n} employee${n === 1 ? '' : 's'} — the totals above leave them out`,
+    acknowledgeFailures: 'I have checked the employees listed above and want to save anyway.',
     deleteBody: (name: string) =>
       `"${name}" has never been assigned. Deleting it removes it from the component list.`,
     noChanges: 'Nothing has changed.',
@@ -174,6 +198,8 @@ export const payrollCopy = {
     lockBanner: (periods: string) =>
       `Finalized payroll for this employee: ${periods}. Entries can’t be edited in ways that change those periods; back-dated changes are settled as retroactive adjustments.`,
     valueFormula: 'Calculated by formula',
+    lineTimeBased: (rate: string, units: string, basis: 'daily' | 'hourly') =>
+      `${rate} × ${units} ${basis === 'daily' ? 'days' : 'hours'} worked`,
     valuePercentage: (rate: string, base: string) => `${rate}% of ${base}`,
     valueDefaultRate: (rate: string, base: string) => `${rate}% of ${base} (component default)`,
     actionRevise: 'Change amount',
@@ -204,6 +230,17 @@ export const payrollCopy = {
     component: 'Pay component',
     chooseComponent: 'Choose a component…',
     amount: 'Amount',
+    amountPerDay: 'Amount per day',
+    amountPerHour: 'Amount per hour',
+    payBasis: 'Paid',
+    payBasisHint: {
+      monthly: 'The full amount is paid every pay period, whatever the attendance.',
+      daily:
+        'Multiplied by the days attended in the pay period; half days count as 0.5. Paid leave is not included — add it as a separate component.',
+      hourly:
+        'Multiplied by the net hours worked in the pay period. Also used as the hourly rate in overtime formulas.',
+    } satisfies Record<SalaryPayBasis, string>,
+    payBasisPreviewHint: 'Pay previews use the attendance recorded so far in that month.',
     percentage: 'Rate (%)',
     percentageDefaultHint: (rate: string) => `Leave blank to use the component default (${rate}%).`,
     percentageBaseHint: (base: string) => `Applied to the employee’s ${base} pay.`,
@@ -351,7 +388,9 @@ export function describeComponentRule(component: PayComponentRecord): string {
 }
 
 export function describeStructureValue(
-  row: Pick<SalaryStructureRecord, 'amountOrFormula' | 'componentCalculationType'>,
+  row: Pick<SalaryStructureRecord, 'amountOrFormula' | 'componentCalculationType'> & {
+    payBasis?: SalaryPayBasis;
+  },
   component?: PayComponentRecord,
 ): string {
   const copy = payrollCopy.structures;
@@ -367,11 +406,12 @@ export function describeStructureValue(
       ? payrollCopy.common.none
       : copy.valueDefaultRate(formatRate(settings.defaultRate), base);
   }
-  return formatMoney(row.amountOrFormula.amount);
+  return `${formatMoney(row.amountOrFormula.amount)}${payrollCopy.payBasisSuffix[row.payBasis ?? 'monthly']}`;
 }
 
 const REF_LABELS: Record<string, string> = {
   'employee.worked_hours': 'worked hours',
+  'employee.days_worked': 'days worked',
   'employee.hourly_rate': 'hourly rate',
   'shift.standard_hours': 'standard shift hours',
   'shift.ot_multiplier': 'overtime multiplier',

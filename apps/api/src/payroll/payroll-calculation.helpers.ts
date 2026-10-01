@@ -1,6 +1,17 @@
-import type { PayComponent, SalaryStructure } from '@prisma/client';
-import type { PayrollSalaryStructureOverride } from '@hrm/shared-types';
+import {
+  PayComponentCalculationType,
+  SalaryPayBasis,
+  type PayComponent,
+  type SalaryStructure,
+} from '@prisma/client';
+import type {
+  PayrollAttendanceOverride,
+  PayrollSalaryStructureOverride,
+  PayrollSimulationAttendance,
+} from '@hrm/shared-types';
 import { Decimal } from '@prisma/client/runtime/library';
+import type { PayrollFormulaContext } from './formula/formula-interpreter';
+import type { PayrollPeriodRange } from './payroll-context.service';
 import { formatMoney, parseAmountConfig, parseMoney } from './payroll.utils';
 
 export type StructureRow = SalaryStructure & { component: PayComponent };
@@ -43,6 +54,10 @@ export function applySalaryStructureOverrides(
       {
         ...row,
         amountOrFormula: merged,
+        ...(match.payBasis !== undefined &&
+        row.component.calculationType === PayComponentCalculationType.fixed
+          ? { payBasis: match.payBasis }
+          : {}),
       },
     ];
   });
@@ -77,6 +92,7 @@ export function buildHypotheticalStructureRows(
       componentType: component.type,
       componentId: component.id,
       amountOrFormula: {},
+      payBasis: SalaryPayBasis.monthly,
       effectiveFrom: asOfDate,
       effectiveTo: null,
       createdAt: asOfDate,
@@ -85,6 +101,44 @@ export function buildHypotheticalStructureRows(
     });
   }
   return rows;
+}
+
+/** Replaces recorded attendance with the simulation's hypothetical figures. */
+export function applyAttendanceOverride(
+  context: PayrollFormulaContext,
+  override?: PayrollAttendanceOverride,
+): PayrollFormulaContext {
+  if (!override) return context;
+  const unpaidDays = override.unpaidDays != null ? new Decimal(override.unpaidDays) : null;
+  return {
+    ...context,
+    employee: {
+      ...context.employee,
+      ...(override.daysWorked != null ? { days_worked: new Decimal(override.daysWorked) } : {}),
+      ...(override.workedHours != null ? { worked_hours: new Decimal(override.workedHours) } : {}),
+    },
+    attendance: unpaidDays
+      ? { status: unpaidDays.gt(0) ? 'unpaid_leave' : 'present', unpaid_days: unpaidDays }
+      : context.attendance,
+  };
+}
+
+export function summarizeAttendance(
+  context: PayrollFormulaContext,
+  period: PayrollPeriodRange,
+): PayrollSimulationAttendance {
+  const dateOnly = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const units = (value: Decimal) => value.toDecimalPlaces(2).toFixed(2);
+  return {
+    periodStart: dateOnly(period.from),
+    periodEnd: dateOnly(period.to),
+    daysWorked: units(context.employee.days_worked),
+    workedHours: units(context.employee.worked_hours),
+    unpaidDays: units(context.attendance.unpaid_days),
+    workingDaysInPeriod: units(context.payroll.working_days_in_period),
+    standardHours: units(context.shift.standard_hours),
+  };
 }
 
 export function computePayrollDelta(

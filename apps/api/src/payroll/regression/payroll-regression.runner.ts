@@ -25,6 +25,7 @@ function toStructureRow(
     componentId: input.componentId,
     componentType: input.componentType,
     amountOrFormula: input.amountOrFormula,
+    payBasis: 'monthly',
     effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
     effectiveTo: null,
     createdAt: new Date(),

@@ -50,6 +50,7 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'salary-structures': '/payroll/salary-structures',
   'payroll-formulas': '/payroll/formulas',
   payslips: '/payroll/payslips',
+  'payroll-simulation': '/payroll/simulation',
   'payment-batches': '/payroll/payment-batches',
   'tax-profiles': '/payroll/tax-profiles',
   benefits: '/payroll/benefits',
@@ -116,6 +117,10 @@ const DYNAMIC_ROUTES: Array<{
   {
     pattern: /^\/employees\/([0-9a-f-]{36})$/i,
     resolve: (m) => ({ page: 'emp-profile', employeeId: m[1] }),
+  },
+  {
+    pattern: /^\/payroll\/runs\/([0-9a-f-]{36})$/i,
+    resolve: () => ({ page: 'payroll-runs' }),
   },
 ];
 

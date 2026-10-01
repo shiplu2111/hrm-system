@@ -10,7 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SalaryStructureComponentType } from '@prisma/client';
+import { SalaryPayBasis, SalaryStructureComponentType } from '@prisma/client';
 
 export class SalaryStructureAmountDto {
   @IsOptional()
@@ -30,6 +30,10 @@ export class ReviseSalaryStructureDto {
   @Type(() => SalaryStructureAmountDto)
   amountOrFormula!: SalaryStructureAmountDto;
 
+  @IsOptional()
+  @IsEnum(SalaryPayBasis)
+  payBasis?: SalaryPayBasis;
+
   @IsDateString()
   effectiveFrom!: string;
 }
@@ -45,6 +49,10 @@ export class CreateSalaryStructureDto {
   @Type(() => SalaryStructureAmountDto)
   amountOrFormula!: SalaryStructureAmountDto;
 
+  @IsOptional()
+  @IsEnum(SalaryPayBasis)
+  payBasis?: SalaryPayBasis;
+
   @IsDateString()
   effectiveFrom!: string;
 
@@ -58,6 +66,10 @@ export class UpdateSalaryStructureDto {
   @ValidateNested()
   @Type(() => SalaryStructureAmountDto)
   amountOrFormula?: SalaryStructureAmountDto;
+
+  @IsOptional()
+  @IsEnum(SalaryPayBasis)
+  payBasis?: SalaryPayBasis;
 
   @IsOptional()
   @IsDateString()

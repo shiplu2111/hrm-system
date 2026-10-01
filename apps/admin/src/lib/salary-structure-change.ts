@@ -1,12 +1,28 @@
 import type {
   LockedPayrollPeriodSummary,
   PayComponentRecord,
+  SalaryPayBasis,
   SalaryStructureAmountConfig,
   SalaryStructureRecord,
 } from '@hrm/shared-types';
 import { addDaysIso, formatDate } from '@/lib/payroll-copy';
 
-export type StructureValue = Pick<SalaryStructureAmountConfig, 'amount' | 'percentage'>;
+export type StructureValue = Pick<SalaryStructureAmountConfig, 'amount' | 'percentage'> & {
+  payBasis?: SalaryPayBasis;
+};
+
+export function rowValue(row: SalaryStructureRecord): StructureValue {
+  return { ...row.amountOrFormula, payBasis: row.payBasis };
+}
+
+/** Splits a form value into the API's amountOrFormula and payBasis fields. */
+export function structurePayload(value: StructureValue): {
+  amountOrFormula: SalaryStructureAmountConfig;
+  payBasis?: SalaryPayBasis;
+} {
+  const { payBasis, ...amountOrFormula } = value;
+  return { amountOrFormula, ...(payBasis ? { payBasis } : {}) };
+}
 
 export type StructureChange =
   | { kind: 'add'; component: PayComponentRecord; value: StructureValue; effectiveFrom: string; effectiveTo: string | null }
@@ -61,7 +77,7 @@ export function correctionLockedPeriods(
   to: string | null,
 ): LockedPayrollPeriodSummary[] {
   const ranges: Array<[string, string | null]> = [];
-  if (!sameStructureValue(value, row.amountOrFormula)) {
+  if (!sameStructureValue(value, rowValue(row))) {
     ranges.push([row.effectiveFrom, row.effectiveTo], [from, to]);
   } else {
     if (from !== row.effectiveFrom) {
@@ -94,5 +110,9 @@ export function formatPeriodList(periods: LockedPayrollPeriodSummary[]): string 
 
 export function sameStructureValue(a: StructureValue, b: StructureValue): boolean {
   const amount = (v: StructureValue) => (v.amount ? Number(v.amount).toFixed(2) : null);
-  return amount(a) === amount(b) && (a.percentage ?? null) === (b.percentage ?? null);
+  return (
+    amount(a) === amount(b) &&
+    (a.percentage ?? null) === (b.percentage ?? null) &&
+    (a.payBasis ?? 'monthly') === (b.payBasis ?? 'monthly')
+  );
 }

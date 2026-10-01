@@ -1,8 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import type {
-  LockedPayrollPeriodSummary,
-  PayComponentRecord,
-  SalaryStructureRecord,
+import {
+  SALARY_PAY_BASES,
+  type LockedPayrollPeriodSummary,
+  type PayComponentRecord,
+  type SalaryPayBasis,
+  type SalaryStructureRecord,
 } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +26,7 @@ import {
   datesOverlap,
   formatPeriodList,
   lockedPeriodsIn,
+  rowValue,
   sameStructureValue as sameValue,
   type StructureChange,
   type StructureFormMode,
@@ -59,6 +62,7 @@ export function SalaryStructureChangeModal({
 
   const [componentId, setComponentId] = useState('');
   const [amount, setAmount] = useState('');
+  const [payBasis, setPayBasis] = useState<SalaryPayBasis>('monthly');
   const [percentage, setPercentage] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -73,9 +77,10 @@ export function SalaryStructureChangeModal({
     setTouched({});
     setSubmitted(false);
     const prevValue = previous && 'value' in previous ? previous.value : null;
-    const baseValue = prevValue ?? row?.amountOrFormula ?? {};
+    const baseValue = prevValue ?? (row ? rowValue(row) : {});
     setComponentId(previous?.component.id ?? row?.componentId ?? '');
     setAmount(baseValue.amount ?? '');
+    setPayBasis(baseValue.payBasis ?? 'monthly');
     setPercentage(baseValue.percentage !== undefined ? formatRate(baseValue.percentage) : '');
     if (mode.kind === 'add') {
       setFrom(previous?.kind === 'add' ? previous.effectiveFrom : todayIso());
@@ -105,10 +110,10 @@ export function SalaryStructureChangeModal({
   const pctSettings = component ? percentageSettings(component) : null;
 
   const value: StructureValue = useMemo(() => {
-    if (calc === 'fixed') return { amount: amount.trim() };
+    if (calc === 'fixed') return { amount: amount.trim(), payBasis };
     if (calc === 'percentage') return percentage.trim() ? { percentage: Number(percentage) } : {};
     return {};
-  }, [calc, amount, percentage]);
+  }, [calc, amount, payBasis, percentage]);
 
   const errors = useMemo(() => {
     const e = copy.errors;
@@ -151,7 +156,7 @@ export function SalaryStructureChangeModal({
     }
 
     if (mode.kind === 'correct' && row && !next.form && !next.amount && !next.percentage) {
-      if (sameValue(value, row.amountOrFormula) && from === row.effectiveFrom && (to || null) === row.effectiveTo) {
+      if (sameValue(value, rowValue(row)) && from === row.effectiveFrom && (to || null) === row.effectiveTo) {
         next.form = e.noChange;
       }
     }
@@ -160,7 +165,7 @@ export function SalaryStructureChangeModal({
       if (!from) next.from = e.dateRequired;
       else if (from <= row.effectiveFrom) next.from = e.reviseAfterStart(formatDate(row.effectiveFrom));
       else if (row.effectiveTo && from > row.effectiveTo) next.from = e.reviseBeforeEnd(formatDate(row.effectiveTo));
-      if (!next.amount && !next.percentage && sameValue(value, row.amountOrFormula)) next.form = e.sameValue;
+      if (!next.amount && !next.percentage && sameValue(value, rowValue(row))) next.form = e.sameValue;
     }
 
     if (mode.kind === 'end' && row) {
@@ -238,6 +243,7 @@ export function SalaryStructureChangeModal({
               onChange={(e) => {
                 setComponentId(e.target.value);
                 setAmount('');
+                setPayBasis('monthly');
                 setPercentage('');
               }}
               onBlur={blur('component')}
@@ -282,7 +288,25 @@ export function SalaryStructureChangeModal({
 
         {mode.kind !== 'end' && calc === 'fixed' ? (
           <div>
-            <Label htmlFor="ss-amount">{copy.amount}</Label>
+            <Label htmlFor="ss-basis">{copy.payBasis}</Label>
+            <Select id="ss-basis" value={payBasis} onChange={(e) => setPayBasis(e.target.value as SalaryPayBasis)}>
+              {SALARY_PAY_BASES.map((basis) => (
+                <option key={basis} value={basis}>
+                  {payrollCopy.payBasis[basis]}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-muted">
+              {copy.payBasisHint[payBasis]} {payBasis !== 'monthly' ? copy.payBasisPreviewHint : null}
+            </p>
+          </div>
+        ) : null}
+
+        {mode.kind !== 'end' && calc === 'fixed' ? (
+          <div>
+            <Label htmlFor="ss-amount">
+              {payBasis === 'daily' ? copy.amountPerDay : payBasis === 'hourly' ? copy.amountPerHour : copy.amount}
+            </Label>
             <Input
               id="ss-amount"
               inputMode="decimal"

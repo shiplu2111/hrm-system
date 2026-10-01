@@ -51,12 +51,14 @@ import { TimesheetPage } from '@/pages/attendance/TimesheetPage';
 import { GeofencePage } from '@/pages/attendance/GeofencePage';
 import { DevicesPage } from '@/pages/attendance/DevicesPage';
 import { AttendanceMethodsPage } from '@/pages/attendance/AttendanceMethodsPage';
-import { PayrollRunWizardPage } from '@/pages/payroll/PayrollRunWizardPage';
+import { PayrollPeriodsPage } from '@/pages/payroll/PayrollPeriodsPage';
+import { PayrollPeriodPage } from '@/pages/payroll/PayrollPeriodPage';
 import { PaySchedulePage } from '@/pages/payroll/PaySchedulePage';
 import { SalaryComponentsPage } from '@/pages/payroll/SalaryComponentsPage';
 import { SalaryStructurePage } from '@/pages/payroll/SalaryStructurePage';
 import { FormulaBuilderPage } from '@/pages/payroll/FormulaBuilderPage';
 import { PayslipPage } from '@/pages/payroll/PayslipPage';
+import { PayrollSimulationPage } from '@/pages/payroll/PayrollSimulationPage';
 import { PaymentBatchPage } from '@/pages/payroll/PaymentBatchPage';
 import { TaxProfilesPage } from '@/pages/payroll/TaxProfilesPage';
 import { BenefitsPage } from '@/pages/payroll/BenefitsPage';
@@ -77,6 +79,7 @@ import { EmployeeEngagementPage } from '@/pages/talent/EmployeeEngagementPage';
 import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
+import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
 import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
 
@@ -131,12 +134,14 @@ function PageRoutes() {
       <Route path="/leave/balances" element={<LeaveBalancePage />} />
       <Route path="/leave/holidays" element={<HolidayCalendarPage />} />
 
-      <Route path="/payroll/runs" element={<PayrollRunWizardPage />} />
+      <Route path="/payroll/runs" element={<PayrollPeriodsPage />} />
+      <Route path="/payroll/runs/:periodId" element={<PayrollPeriodPage />} />
       <Route path="/payroll/schedules" element={<PaySchedulePage />} />
       <Route path="/payroll/salary-components" element={<SalaryComponentsPage />} />
       <Route path="/payroll/salary-structures" element={<SalaryStructurePage />} />
       <Route path="/payroll/formulas" element={<FormulaBuilderPage />} />
       <Route path="/payroll/payslips" element={<PayslipPage />} />
+      <Route path="/payroll/simulation" element={<PayrollSimulationPage />} />
       <Route path="/payroll/payment-batches" element={<PaymentBatchPage />} />
       <Route path="/payroll/tax-profiles" element={<TaxProfilesPage />} />
       <Route path="/payroll/benefits" element={<BenefitsPage />} />
@@ -157,7 +162,7 @@ function PageRoutes() {
       <Route path="/talent/health-safety" element={<HealthSafetyPage />} />
       <Route path="/talent/vendors-contractors" element={<VendorContractorPage />} />
 
-      <Route path="/reports" element={<ReportsHubPage />} />
+      <Route path="/reports" element={<ReportsPage />} />
       <Route path="/reports/scheduled" element={<ReportsHubPage />} />
       <Route path="/reports/import" element={<ReportsHubPage />} />
       <Route path="/reports/export" element={<ReportsHubPage />} />

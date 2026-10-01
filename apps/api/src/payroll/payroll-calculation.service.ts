@@ -1,15 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { PayComponentCalculationType, Prisma } from '@prisma/client';
 import type {
+  PayrollAttendanceOverride,
   PayrollCalculationPreview,
   PayrollSalaryStructureOverride,
+  PayrollSimulationAttendance,
   PayrollSimulationResult,
 } from '@hrm/shared-types';
 import { computePayrollFromStructures } from './payroll-calculation.core';
 import {
+  applyAttendanceOverride,
   applySalaryStructureOverrides,
   buildHypotheticalStructureRows,
   computePayrollDelta,
-  type StructureRow,
+  summarizeAttendance,
 } from './payroll-calculation.helpers';
 import { PrismaService } from '../database/prisma.service';
 import { PayrollContextService } from './payroll-context.service';
@@ -24,6 +28,13 @@ export interface PayrollComputeOptions {
   employeeId: string;
   asOf?: string;
   structureOverrides?: PayrollSalaryStructureOverride[];
+  /** Hypothetical component rules; callers must validate the formula first. */
+  componentOverrides?: Array<{
+    componentId: string;
+    calculationType: PayComponentCalculationType;
+    formula: Prisma.JsonValue | null;
+  }>;
+  attendanceOverride?: PayrollAttendanceOverride;
 }
 
 @Injectable()
@@ -49,24 +60,31 @@ export class PayrollCalculationService {
   async simulate(
     options: PayrollComputeOptions,
   ): Promise<PayrollSimulationResult> {
-    const baseline = await this.compute({
+    const baseline = await this.computeDetailed({
       employeeId: options.employeeId,
       asOf: options.asOf,
     });
-    const simulated = await this.compute(options);
+    const simulated = await this.computeDetailed(options);
 
     return {
       employeeId: options.employeeId,
-      asOfDate: baseline.asOfDate,
-      baseline,
-      simulated,
-      delta: computePayrollDelta(baseline, simulated),
+      asOfDate: baseline.preview.asOfDate,
+      baseline: baseline.preview,
+      simulated: simulated.preview,
+      delta: computePayrollDelta(baseline.preview, simulated.preview),
+      attendance: { baseline: baseline.attendance, simulated: simulated.attendance },
     };
   }
 
   async compute(
     options: PayrollComputeOptions,
   ): Promise<PayrollCalculationPreview> {
+    return (await this.computeDetailed(options)).preview;
+  }
+
+  private async computeDetailed(
+    options: PayrollComputeOptions,
+  ): Promise<{ preview: PayrollCalculationPreview; attendance: PayrollSimulationAttendance | null }> {
     const { employeeId, asOf, structureOverrides } = options;
 
     const employee = await this.prisma.scoped.employee.findFirst({
@@ -111,35 +129,42 @@ export class PayrollCalculationService {
     const active = applySalaryStructureOverrides(
       [...effective, ...hypothetical],
       structureOverrides,
-    );
+    ).map((row) => {
+      const rule = options.componentOverrides?.find((o) => o.componentId === row.componentId);
+      return rule
+        ? {
+            ...row,
+            component: {
+              ...row.component,
+              calculationType: rule.calculationType,
+              formula: rule.formula,
+            },
+          }
+        : row;
+    });
 
-    return this.computeFromStructures(
-      employeeId,
-      employee.companyId,
-      asOfDate,
-      active,
-    );
-  }
-
-  private async computeFromStructures(
-    employeeId: string,
-    companyId: string,
-    asOfDate: Date,
-    active: StructureRow[],
-  ): Promise<PayrollCalculationPreview> {
     const superannuationRates =
       await this.superannuationPayroll.resolveRatesForEmployee(
         employeeId,
         asOfDate,
       );
 
-    return computePayrollFromStructures({
+    let attendance: PayrollSimulationAttendance | null = null;
+    const preview = await computePayrollFromStructures({
       employeeId,
-      companyId,
+      companyId: employee.companyId,
       asOfDate,
       active,
-      buildContext: (opts) => this.payrollContext.buildContext(opts),
+      buildContext: async (opts) => {
+        const context = applyAttendanceOverride(
+          await this.payrollContext.buildContext(opts),
+          options.attendanceOverride,
+        );
+        attendance = summarizeAttendance(context, opts.period);
+        return context;
+      },
       superannuationRates,
     });
+    return { preview, attendance };
   }
 }

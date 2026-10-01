@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
   CreatePayComponentDto,
+  PayComponentImpactDto,
   UpdatePayComponentDto,
 } from './dto/pay-components.dto';
 import { PayComponentsService } from './pay-components.service';
@@ -60,6 +61,22 @@ export class PayComponentsController {
         dto,
         user,
       ),
+    };
+  }
+
+  @Post(':componentId/impact')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('payroll', 'edit')
+  @ApiOperation({
+    summary: 'Preview the company-wide pay impact of a rule change (nothing is saved)',
+  })
+  async impact(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('componentId', ParseUUIDPipe) componentId: string,
+    @Body() dto: PayComponentImpactDto,
+  ) {
+    return {
+      data: await this.payComponentsService.impact(companyId, componentId, dto),
     };
   }
 

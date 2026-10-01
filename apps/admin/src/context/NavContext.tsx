@@ -58,6 +58,7 @@ export type PageKey =
   | 'salary-structures'
   | 'payroll-formulas'
   | 'payslips'
+  | 'payroll-simulation'
   | 'payment-batches'
   | 'tax-profiles'
   | 'benefits'

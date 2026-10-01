@@ -104,6 +104,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Salary Structures', page: 'salary-structures' },
       { label: 'Formula & Rules Engine', page: 'payroll-formulas' },
       { label: 'Payslips & Settlement', page: 'payslips' },
+      { label: 'Payroll Simulator', page: 'payroll-simulation' },
       { label: 'Payment Batches', page: 'payment-batches' },
       { label: 'Tax Profiles', page: 'tax-profiles' },
       { label: 'Benefits & Superannuation', page: 'benefits' },
@@ -155,7 +156,7 @@ export const navGroups: NavGroup[] = [
     icon: BarChart3,
     hidden: true,
     items: [
-      { label: 'Reports Hub', page: 'reports-hub' },
+      { label: 'Reports', page: 'reports-hub' },
       { label: 'Scheduled Deliveries', page: 'reports-scheduled' },
       { label: 'Data Import Wizard', page: 'data-import' },
       { label: 'Export Templates', page: 'data-export' },

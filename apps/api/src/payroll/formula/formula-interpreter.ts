@@ -11,6 +11,8 @@ import type {
 export interface PayrollFormulaContext {
   employee: {
     worked_hours: Decimal;
+    /** Attended days in the period; half days count as 0.5 */
+    days_worked: Decimal;
     hourly_rate: Decimal;
   };
   shift: {
@@ -204,6 +206,7 @@ function resolveRef(
     case 'employee': {
       const bucket = context.employee;
       if (field === 'worked_hours') return bucket.worked_hours;
+      if (field === 'days_worked') return bucket.days_worked;
       if (field === 'hourly_rate') return bucket.hourly_rate;
       break;
     }
@@ -259,6 +262,7 @@ export function createPayrollFormulaContext(
   return {
     employee: {
       worked_hours: partial.employee?.worked_hours ?? ZERO,
+      days_worked: partial.employee?.days_worked ?? ZERO,
       hourly_rate: partial.employee?.hourly_rate ?? ZERO,
     },
     shift: {

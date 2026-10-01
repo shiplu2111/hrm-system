@@ -2190,6 +2190,15 @@ enum SalaryStructureComponentType {
   @@map("salary_structure_component_type")
 }
 
+/// How a fixed amount is paid: per period, per day worked, or per hour worked
+enum SalaryPayBasis {
+  monthly
+  daily
+  hourly
+
+  @@map("salary_pay_basis")
+}
+
 enum PayrollPeriodStatus {
   draft
   open
@@ -2217,6 +2226,7 @@ model SalaryStructure {
   componentType   SalaryStructureComponentType @map("component_type")
   componentId     String                       @map("component_id") @db.Uuid
   amountOrFormula Json                         @map("amount_or_formula")
+  payBasis        SalaryPayBasis               @default(monthly) @map("pay_basis")
   effectiveFrom   DateTime                     @map("effective_from") @db.Date
   effectiveTo     DateTime?                    @map("effective_to") @db.Date
   createdAt       DateTime                     @default(now()) @map("created_at")
@@ -2270,6 +2280,8 @@ model PayrollRun {
   totalDeductionsBase Decimal?      @map("total_deductions_base") @db.Decimal(14, 2)
   netPayBase       Decimal?         @map("net_pay_base") @db.Decimal(14, 2)
   status           PayrollRunStatus @default(draft)
+  /// Earnings/deductions breakdown captured at calculation; payslips are rendered from it
+  calculationSnapshot Json?         @map("calculation_snapshot")
   finalizedAt      DateTime?        @map("finalized_at")
   locked           Boolean          @default(false)
   createdAt        DateTime         @default(now()) @map("created_at")

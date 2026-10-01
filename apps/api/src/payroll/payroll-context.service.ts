@@ -14,6 +14,14 @@ const DEFAULT_OT_MULTIPLIER = new Decimal('1.5');
 const DEFAULT_WORKING_DAYS = new Decimal(22);
 const ZERO = new Decimal(0);
 
+const WORKED_STATUSES = new Set<AttendanceRecordStatus>([
+  AttendanceRecordStatus.present,
+  AttendanceRecordStatus.late,
+  AttendanceRecordStatus.early_leave,
+  AttendanceRecordStatus.wfh,
+  AttendanceRecordStatus.business_trip,
+]);
+
 export interface PayrollPeriodRange {
   from: Date;
   to: Date;
@@ -92,6 +100,7 @@ export class PayrollContextService {
     );
 
     let workedMinutes = 0;
+    let daysWorked = 0;
     let unpaidDays = 0;
     let hasUnpaidLeave = false;
 
@@ -105,12 +114,17 @@ export class PayrollContextService {
         continue;
       }
 
-      if (
-        row.status === AttendanceRecordStatus.half_day &&
-        row.payrollEligible === false
-      ) {
-        unpaidDays += 0.5;
-        hasUnpaidLeave = true;
+      if (row.status === AttendanceRecordStatus.half_day) {
+        daysWorked += 0.5;
+        if (row.payrollEligible === false) {
+          unpaidDays += 0.5;
+          hasUnpaidLeave = true;
+        }
+      } else if (row.payrollEligible === false) {
+        // Flagged attendance (e.g. outside geofence) waits for review before it counts.
+        continue;
+      } else if (WORKED_STATUSES.has(row.status)) {
+        daysWorked += 1;
       }
 
       const minutes = netWorkedMinutes(row);
@@ -176,6 +190,7 @@ export class PayrollContextService {
     return createPayrollFormulaContext({
       employee: {
         worked_hours: workedHours,
+        days_worked: new Decimal(daysWorked),
         hourly_rate: hourlyRate,
       },
       shift: {

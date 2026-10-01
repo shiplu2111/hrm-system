@@ -1,19 +1,20 @@
 import type { ReportColumn, ReportExportFormat } from '@hrm/shared-types';
 import * as XLSX from 'xlsx';
 
+type ReportCell = string | number | null | undefined;
+
+const DECIMAL_STRING = /^-?\d+\.\d+$/;
+
 export function serializeReportCsv(
   columns: ReportColumn[],
   rows: Array<Record<string, string | number | null>>,
 ): string {
-  const header = columns.map((col) => escapeCsv(col.label)).join(',');
-  const body = rows
-    .map((row) =>
-      columns
-        .map((col) => escapeCsv(formatCell(row[col.key])))
-        .join(','),
-    )
-    .join('\n');
-  return `${header}\n${body}`;
+  const lines = [
+    columns.map((col) => escapeCsv(col.label)).join(','),
+    ...rows.map((row) => columns.map((col) => escapeCsv(row[col.key])).join(',')),
+  ];
+  // BOM so Excel opens the file as UTF-8 instead of the system code page.
+  return `\uFEFF${lines.join('\r\n')}`;
 }
 
 export function serializeReportXlsx(
@@ -23,7 +24,7 @@ export function serializeReportXlsx(
 ): Buffer {
   const data = [
     columns.map((col) => col.label),
-    ...rows.map((row) => columns.map((col) => formatCell(row[col.key]))),
+    ...rows.map((row) => columns.map((col) => toSheetCell(row[col.key]))),
   ];
   const worksheet = XLSX.utils.aoa_to_sheet(data);
   const workbook = XLSX.utils.book_new();
@@ -41,14 +42,19 @@ export function fileExtensionForFormat(format: ReportExportFormat): string {
   return format === 'xlsx' ? 'xlsx' : 'csv';
 }
 
-function formatCell(value: string | number | null | undefined): string {
+/** Amounts arrive as fixed-point strings; store them as numbers so they can be summed. */
+function toSheetCell(value: ReportCell): string | number {
   if (value === null || value === undefined) return '';
-  return String(value);
+  if (typeof value === 'number') return value;
+  return DECIMAL_STRING.test(value) ? Number(value) : value;
 }
 
-function escapeCsv(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
+export function escapeCsv(value: ReportCell): string {
+  if (value === null || value === undefined) return '';
+  let text = String(value);
+  // Spreadsheet apps execute cells starting with these characters as formulas.
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text) && !/^-\d+(\.\d+)?$/.test(text)) {
+    text = `'${text}`;
   }
-  return value;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

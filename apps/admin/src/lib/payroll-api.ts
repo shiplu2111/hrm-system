@@ -1,9 +1,11 @@
 import type {
   CreatePayComponentRequest,
   CreateSalaryStructureRequest,
+  PayComponentImpactRequest,
+  PayComponentImpactResult,
   PayComponentRecord,
   PayrollCalculationPreview,
-  PayrollSalaryStructureOverride,
+  PayrollSimulationRequest,
   PayrollSimulationResult,
   ReviseSalaryStructureRequest,
   ReviseSalaryStructureResult,
@@ -16,6 +18,18 @@ import { tenantApiRequest } from './tenant-api-client';
 
 export function listPayComponents(companyId: string): Promise<PayComponentRecord[]> {
   return tenantApiRequest<PayComponentRecord[]>(`/companies/${companyId}/pay-components`);
+}
+
+/** Company-wide what-if for a component rule change; nothing is saved. */
+export function previewPayComponentImpact(
+  companyId: string,
+  componentId: string,
+  input: PayComponentImpactRequest,
+): Promise<PayComponentImpactResult> {
+  return tenantApiRequest<PayComponentImpactResult>(
+    `/companies/${companyId}/pay-components/${componentId}/impact`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
 }
 
 export function createPayComponent(
@@ -103,9 +117,10 @@ export function previewPayroll(
   return tenantApiRequest<PayrollCalculationPreview>(`/employees/${employeeId}/payroll/preview${qs}`);
 }
 
+/** What-if calculation; nothing is saved (PAYROLL_LOGIC.md §8). */
 export function simulatePayroll(
   employeeId: string,
-  input: { asOf?: string; structureOverrides?: PayrollSalaryStructureOverride[] },
+  input: PayrollSimulationRequest,
 ): Promise<PayrollSimulationResult> {
   return tenantApiRequest<PayrollSimulationResult>(`/employees/${employeeId}/payroll/simulate`, {
     method: 'POST',

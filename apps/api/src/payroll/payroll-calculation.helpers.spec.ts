@@ -1,7 +1,11 @@
+import { Decimal } from '@prisma/client/runtime/library';
+import { createPayrollFormulaContext } from './formula/formula-interpreter';
 import {
+  applyAttendanceOverride,
   applySalaryStructureOverrides,
   buildHypotheticalStructureRows,
   computePayrollDelta,
+  summarizeAttendance,
 } from './payroll-calculation.helpers';
 
 describe('Payroll simulation helpers', () => {
@@ -88,5 +92,42 @@ describe('Payroll simulation helpers', () => {
       { componentId: 'comp-pf', percentage: 5 },
     ]);
     expect(merged[1].amountOrFormula).toEqual({ percentage: 5 });
+  });
+
+  describe('attendance overrides', () => {
+    const recorded = createPayrollFormulaContext({
+      employee: { days_worked: new Decimal(20), worked_hours: new Decimal('160.5') },
+      attendance: { status: 'present', unpaid_days: new Decimal(0) },
+      payroll: { working_days_in_period: new Decimal(22) },
+      shift: { standard_hours: new Decimal(176) },
+    });
+
+    it('keeps recorded attendance when nothing is overridden', () => {
+      expect(applyAttendanceOverride(recorded, undefined)).toBe(recorded);
+      expect(applyAttendanceOverride(recorded, {}).employee.days_worked.toString()).toBe('20');
+    });
+
+    it('replaces only the overridden figures and flags unpaid leave', () => {
+      const simulated = applyAttendanceOverride(recorded, { daysWorked: '18.5', unpaidDays: '2' });
+      expect(simulated.employee.days_worked.toString()).toBe('18.5');
+      expect(simulated.employee.worked_hours.toString()).toBe('160.5');
+      expect(simulated.attendance).toEqual({ status: 'unpaid_leave', unpaid_days: new Decimal(2) });
+    });
+
+    it('summarizes the figures with the local pay month', () => {
+      const summary = summarizeAttendance(recorded, {
+        from: new Date(2026, 8, 1),
+        to: new Date(2026, 8, 30, 23, 59, 59, 999),
+      });
+      expect(summary).toEqual({
+        periodStart: '2026-09-01',
+        periodEnd: '2026-09-30',
+        daysWorked: '20.00',
+        workedHours: '160.50',
+        unpaidDays: '0.00',
+        workingDaysInPeriod: '22.00',
+        standardHours: '176.00',
+      });
+    });
   });
 });

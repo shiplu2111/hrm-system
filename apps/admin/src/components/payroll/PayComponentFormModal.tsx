@@ -259,7 +259,7 @@ export function PayComponentFormModal({
                 {PAY_FORMULA_REF_PATHS.map((ref) => (
                   <li key={ref}>
                     <code className="font-mono text-[11px] text-primary">{ref}</code>{' '}
-                    <span className="text-muted">â€” {refLabel(ref)}</span>
+                    <span className="text-muted">— {refLabel(ref)}</span>
                   </li>
                 ))}
               </ul>

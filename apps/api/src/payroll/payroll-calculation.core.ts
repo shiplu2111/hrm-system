@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { PayComponentCalculationType } from '@prisma/client';
+import { PayComponentCalculationType, SalaryPayBasis } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import type { PayrollCalculationLine, PayrollCalculationPreview } from '@hrm/shared-types';
 import type { PayrollFormulaContext } from './formula/formula-interpreter';
@@ -56,6 +56,41 @@ export async function computePayrollFromStructures(input: {
 
   const earnings = active.filter((row) => row.componentType === 'earning');
   const deductions = active.filter((row) => row.componentType === 'deduction');
+  const period = resolvePayrollPeriod(asOfDate);
+
+  const timeBased = active.some(
+    (row) =>
+      row.component.calculationType === PayComponentCalculationType.fixed &&
+      row.payBasis !== SalaryPayBasis.monthly,
+  );
+  const timeWorked: TimeWorked | null = timeBased
+    ? await buildContext({
+        employeeId,
+        companyId,
+        period,
+        basicSalary: new Decimal(0),
+        grossEarnings: new Decimal(0),
+      }).then((ctx) => ({
+        days: ctx.employee.days_worked,
+        hours: ctx.employee.worked_hours,
+      }))
+    : null;
+
+  // Hourly-paid staff: formulas such as overtime use their contracted rate, not basic ÷ standard hours.
+  const hourlyRate = earnings
+    .filter(
+      (row) =>
+        row.component.calculationType === PayComponentCalculationType.fixed &&
+        row.payBasis === SalaryPayBasis.hourly,
+    )
+    .reduce<Decimal | null>((sum, row) => {
+      const amount = parseAmountConfig(row.amountOrFormula).amount;
+      return amount ? (sum ?? new Decimal(0)).plus(parseMoney(amount)) : sum;
+    }, null);
+  const formulaOverrides = (row: StructureRow): Record<string, unknown> => ({
+    ...(hourlyRate ? { hourly_rate: hourlyRate.toFixed(2) } : {}),
+    ...(parseAmountConfig(row.amountOrFormula) as Record<string, unknown>),
+  });
 
   const earningLines: PayrollCalculationLine[] = [];
   let gross = new Decimal(0);
@@ -63,7 +98,7 @@ export async function computePayrollFromStructures(input: {
 
   for (const row of earnings) {
     if (row.component.calculationType === PayComponentCalculationType.fixed) {
-      const line = computeFixedLine(row);
+      const line = computeFixedLine(row, timeWorked);
       earningLines.push(line);
       const amount = parseMoney(line.amount);
       gross = gross.plus(amount);
@@ -77,7 +112,6 @@ export async function computePayrollFromStructures(input: {
     }
   }
 
-  const period = resolvePayrollPeriod(asOfDate);
   let formulaContext = await buildContext({
     employeeId,
     companyId,
@@ -91,14 +125,13 @@ export async function computePayrollFromStructures(input: {
       continue;
     }
 
-    const amountConfig = parseAmountConfig(row.amountOrFormula);
     formulaContext = await buildContext({
       employeeId,
       companyId,
       period,
       basicSalary: basic,
       grossEarnings: gross,
-      overrides: amountConfig as Record<string, unknown>,
+      overrides: formulaOverrides(row),
     });
 
     const line = computeFormulaLine(row, formulaContext);
@@ -111,7 +144,7 @@ export async function computePayrollFromStructures(input: {
 
   for (const row of deductions) {
     if (row.component.calculationType === PayComponentCalculationType.fixed) {
-      const line = computeFixedLine(row);
+      const line = computeFixedLine(row, timeWorked);
       deductionLines.push(line);
       totalDeductions = totalDeductions.plus(parseMoney(line.amount));
       continue;
@@ -136,14 +169,13 @@ export async function computePayrollFromStructures(input: {
       continue;
     }
 
-    const amountConfig = parseAmountConfig(row.amountOrFormula);
     formulaContext = await buildContext({
       employeeId,
       companyId,
       period,
       basicSalary: basic,
       grossEarnings: gross,
-      overrides: amountConfig as Record<string, unknown>,
+      overrides: formulaOverrides(row),
     });
 
     const line = computeFormulaLine(row, formulaContext);
@@ -175,7 +207,12 @@ export async function computePayrollFromStructures(input: {
   });
 }
 
-function computeFixedLine(row: StructureRow): PayrollCalculationLine {
+interface TimeWorked {
+  days: Decimal;
+  hours: Decimal;
+}
+
+function computeFixedLine(row: StructureRow, timeWorked: TimeWorked | null): PayrollCalculationLine {
   const config = parseAmountConfig(row.amountOrFormula);
   if (!config.amount) {
     throw new BadRequestException({
@@ -183,16 +220,29 @@ function computeFixedLine(row: StructureRow): PayrollCalculationLine {
       message: `Fixed component "${row.component.name}" is missing amount`,
     });
   }
-  const amount = parseMoney(config.amount);
-  return {
+  const rate = parseMoney(config.amount);
+  const base = {
     salaryStructureId: row.id,
     componentId: row.componentId,
     componentName: row.component.name,
     componentType: row.componentType,
-    calculationType: 'fixed',
+    calculationType: 'fixed' as const,
     baseAmount: null,
     percentage: null,
-    amount: formatMoney(amount),
+    payBasis: row.payBasis,
+  };
+
+  if (row.payBasis === SalaryPayBasis.monthly || !timeWorked) {
+    return { ...base, amount: formatMoney(rate), rate: null, units: null };
+  }
+
+  // Rounded before multiplying so the payslip's "rate × units" reproduces the amount exactly.
+  const units = (row.payBasis === SalaryPayBasis.daily ? timeWorked.days : timeWorked.hours).toDecimalPlaces(2);
+  return {
+    ...base,
+    amount: formatMoney(rate.mul(units)),
+    rate: formatMoney(rate),
+    units: units.toString(),
   };
 }
 

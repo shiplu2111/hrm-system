@@ -55,6 +55,7 @@ export const PAGE_VIEW_PERMISSIONS: Partial<Record<PageKey, PagePermission>> = {
   'salary-structures': { module: 'payroll', action: 'view' },
   'payroll-formulas': { module: 'payroll', action: 'view' },
   payslips: { module: 'payroll', action: 'view' },
+  'payroll-simulation': { module: 'payroll', action: 'view' },
   'payment-batches': { module: 'payroll', action: 'view' },
   'tax-profiles': { module: 'payroll', action: 'view' },
   benefits: { module: 'payroll', action: 'view' },

@@ -9,25 +9,58 @@ import {
   Prisma,
   type PayComponent,
 } from '@prisma/client';
-import type { PayComponentRecord, PayComponentUsage } from '@hrm/shared-types';
+import { Decimal } from '@prisma/client/runtime/library';
+import type {
+  PayComponentImpactEmployee,
+  PayComponentImpactFailure,
+  PayComponentImpactResult,
+  PayComponentRecord,
+  PayComponentUsage,
+  PayrollTotals,
+} from '@hrm/shared-types';
 import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type {
   CreatePayComponentDto,
+  PayComponentImpactDto,
   UpdatePayComponentDto,
 } from './dto/pay-components.dto';
 import {
   formatDateOnly,
+  formatMoney,
   parseDateOnly,
   parseFormulaConfig,
+  parseMoney,
   parsePayComponentFormula,
 } from './payroll.utils';
 import {
   PayFormulaValidationError,
   parsePayFormulaRule,
 } from './formula/formula-validator';
+import { computePayrollDelta } from './payroll-calculation.helpers';
+import { PayrollCalculationService } from './payroll-calculation.service';
+
+const ZERO = new Decimal(0);
+/** Keeps a company-wide preview from flooding the connection pool. */
+const IMPACT_CONCURRENCY = 4;
+
+function pickTotals(preview: PayrollTotals): PayrollTotals {
+  return {
+    grossPay: preview.grossPay,
+    totalDeductions: preview.totalDeductions,
+    netPay: preview.netPay,
+  };
+}
+
+function toTotals(sum: { gross: Decimal; deductions: Decimal; net: Decimal }): PayrollTotals {
+  return {
+    grossPay: formatMoney(sum.gross),
+    totalDeductions: formatMoney(sum.deductions),
+    netPay: formatMoney(sum.net),
+  };
+}
 
 @Injectable()
 export class PayComponentsService {
@@ -35,6 +68,7 @@ export class PayComponentsService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly payrollCalculation: PayrollCalculationService,
   ) {}
 
   async list(companyId: string): Promise<PayComponentRecord[]> {
@@ -117,23 +151,28 @@ export class PayComponentsService {
     await this.assertNameAvailable(companyId, dto.type, dto.name.trim());
 
     try {
-      const row = await this.prisma.unscoped.payComponent.create({
-        data: {
-          companyId,
-          name: dto.name.trim(),
-          type: dto.type,
-          calculationType: dto.calculationType,
-          formula: (formula ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-        },
-      });
-
-      await this.auditService.log({
-        tenantId: company.tenantId,
-        userId: user.id,
-        action: 'create',
-        module: 'payroll',
-        recordId: row.id,
-        newValue: this.toRecord(row) as unknown as Record<string, unknown>,
+      const row = await this.prisma.unscoped.$transaction(async (tx) => {
+        const created = await tx.payComponent.create({
+          data: {
+            companyId,
+            name: dto.name.trim(),
+            type: dto.type,
+            calculationType: dto.calculationType,
+            formula: (formula ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+          },
+        });
+        await this.auditService.log(
+          {
+            tenantId: company.tenantId,
+            userId: user.id,
+            action: 'create',
+            module: 'payroll',
+            recordId: created.id,
+            newValue: this.toRecord(created) as unknown as Record<string, unknown>,
+          },
+          tx,
+        );
+        return created;
       });
 
       return this.toRecord(row);
@@ -189,30 +228,165 @@ export class PayComponentsService {
       ? this.buildFormula(nextType, dto.formula ?? undefined)
       : (existing.formula as Prisma.JsonValue | null);
 
-    const row = await this.prisma.unscoped.payComponent.update({
-      where: { id: componentId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.calculationType !== undefined
-          ? { calculationType: dto.calculationType }
-          : {}),
-        ...(formulaTouched
-          ? { formula: (formula ?? Prisma.JsonNull) as Prisma.InputJsonValue }
-          : {}),
-      },
-    });
-
-    await this.auditService.log({
-      tenantId: company.tenantId,
-      userId: user.id,
-      action: 'update',
-      module: 'payroll',
-      recordId: row.id,
-      oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
-      newValue: this.toRecord(row) as unknown as Record<string, unknown>,
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      const updated = await tx.payComponent.update({
+        where: { id: componentId },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.calculationType !== undefined
+            ? { calculationType: dto.calculationType }
+            : {}),
+          ...(formulaTouched
+            ? { formula: (formula ?? Prisma.JsonNull) as Prisma.InputJsonValue }
+            : {}),
+        },
+      });
+      await this.auditService.log(
+        {
+          tenantId: company.tenantId,
+          userId: user.id,
+          action: 'update',
+          module: 'payroll',
+          recordId: updated.id,
+          oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+          newValue: this.toRecord(updated) as unknown as Record<string, unknown>,
+        },
+        tx,
+      );
+      return updated;
     });
 
     return this.toRecord(row);
+  }
+
+  /**
+   * Company-wide what-if for a rule change: every employee with an effective
+   * assignment is recalculated with and without the proposed rule. Read-only.
+   */
+  async impact(
+    companyId: string,
+    componentId: string,
+    dto: PayComponentImpactDto,
+  ): Promise<PayComponentImpactResult> {
+    const existing = await this.findOrThrow(companyId, componentId);
+    const nextType = dto.calculationType ?? existing.calculationType;
+    const typeChanged = nextType !== existing.calculationType;
+    if (typeChanged) {
+      const usage = await this.prisma.unscoped.salaryStructure.count({
+        where: { componentId },
+      });
+      if (usage > 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message:
+            'Calculation type cannot change while the component is assigned to employees — create a new component instead',
+        });
+      }
+    }
+    const formula =
+      dto.formula !== undefined || typeChanged
+        ? this.buildFormula(nextType, dto.formula ?? undefined)
+        : (existing.formula as Prisma.JsonValue | null);
+
+    const asOfDate = dto.asOf
+      ? parseDateOnly(dto.asOf, 'asOf')
+      : parseDateOnly(formatDateOnly(new Date()));
+    const asOf = formatDateOnly(asOfDate);
+
+    const assignments = await this.prisma.unscoped.salaryStructure.findMany({
+      where: {
+        componentId,
+        effectiveFrom: { lte: asOfDate },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: asOfDate } }],
+        employee: { deletedAt: null },
+      },
+      select: {
+        employee: {
+          select: { id: true, employeeNumber: true, firstName: true, lastName: true },
+        },
+      },
+    });
+    const employees = [
+      ...new Map(assignments.map((a) => [a.employee.id, a.employee])).values(),
+    ].sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber));
+
+    const override = [
+      { componentId, calculationType: nextType, formula: formula as Prisma.JsonValue | null },
+    ];
+    const rows: PayComponentImpactEmployee[] = [];
+    const failures: PayComponentImpactFailure[] = [];
+    const totals = {
+      baseline: { gross: ZERO, deductions: ZERO, net: ZERO },
+      simulated: { gross: ZERO, deductions: ZERO, net: ZERO },
+    };
+    let baseCurrency: string | null = null;
+
+    const queue = [...employees];
+    const worker = async () => {
+      for (let employee = queue.shift(); employee; employee = queue.shift()) {
+        const identity = {
+          employeeId: employee.id,
+          employeeNumber: employee.employeeNumber,
+          fullName: `${employee.firstName} ${employee.lastName}`.trim(),
+        };
+        try {
+          const result = await this.payrollCalculation.simulate({
+            employeeId: employee.id,
+            asOf,
+            componentOverrides: override,
+          });
+          baseCurrency ??= result.baseline.currency?.baseCurrency ?? null;
+          for (const side of ['baseline', 'simulated'] as const) {
+            const preview = result[side];
+            const fx = preview.currency;
+            totals[side].gross = totals[side].gross.plus(
+              parseMoney(fx?.grossPayBase ?? preview.grossPay),
+            );
+            totals[side].deductions = totals[side].deductions.plus(
+              parseMoney(fx?.totalDeductionsBase ?? preview.totalDeductions),
+            );
+            totals[side].net = totals[side].net.plus(
+              parseMoney(fx?.netPayBase ?? preview.netPay),
+            );
+          }
+          rows.push({
+            ...identity,
+            payCurrency: result.baseline.currency?.payCurrency ?? null,
+            baseline: pickTotals(result.baseline),
+            simulated: pickTotals(result.simulated),
+            delta: result.delta,
+          });
+        } catch (error) {
+          failures.push({
+            ...identity,
+            message: error instanceof Error ? error.message : 'Calculation failed',
+          });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(IMPACT_CONCURRENCY, employees.length) }, worker),
+    );
+
+    rows.sort((a, b) => {
+      const diff = parseMoney(b.delta.netPay).abs().comparedTo(parseMoney(a.delta.netPay).abs());
+      return diff !== 0 ? diff : a.employeeNumber.localeCompare(b.employeeNumber);
+    });
+    failures.sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber));
+
+    const baseline = toTotals(totals.baseline);
+    const simulated = toTotals(totals.simulated);
+    return {
+      componentId,
+      asOfDate: asOf,
+      employeeCount: employees.length,
+      baseCurrency,
+      baseline,
+      simulated,
+      delta: computePayrollDelta(baseline, simulated),
+      employees: rows,
+      failures,
+    };
   }
 
   async remove(
@@ -233,15 +407,19 @@ export class PayComponentsService {
       });
     }
 
-    await this.prisma.unscoped.payComponent.delete({ where: { id: componentId } });
-
-    await this.auditService.log({
-      tenantId: company.tenantId,
-      userId: user.id,
-      action: 'delete',
-      module: 'payroll',
-      recordId: componentId,
-      oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+    await this.prisma.unscoped.$transaction(async (tx) => {
+      await tx.payComponent.delete({ where: { id: componentId } });
+      await this.auditService.log(
+        {
+          tenantId: company.tenantId,
+          userId: user.id,
+          action: 'delete',
+          module: 'payroll',
+          recordId: componentId,
+          oldValue: this.toRecord(existing) as unknown as Record<string, unknown>,
+        },
+        tx,
+      );
     });
   }
 

@@ -132,7 +132,10 @@ leave_requests
 ```
 salary_structures
   id, employee_id, component_type (earning|deduction), component_id,
-  amount_or_formula, effective_from, effective_to, created_at, updated_at
+  amount_or_formula, pay_basis (monthly|daily|hourly, default monthly),
+  effective_from, effective_to, created_at, updated_at
+  -- pay_basis applies to fixed components: monthly = amount per period,
+  --   daily = amount × days worked, hourly = amount × net hours worked
 
 pay_components
   id, company_id, name, type (earning|deduction), calculation_type
@@ -149,7 +152,11 @@ payroll_periods
 payroll_runs
   id, payroll_period_id, employee_id, gross_pay, total_deductions, net_pay,
   status (draft|calculated|under_review|approved|finalized|paid|cancelled),
+  calculation_snapshot(json, nullable),
   finalized_at, locked, created_at, updated_at, deleted_at (soft-delete)
+  -- calculation_snapshot: earnings/deductions lines captured when the run is
+  --   calculated; the payslip is rendered from it so it matches the approved totals.
+  --   Null for runs calculated before the column existed (payslip falls back to a live calculation).
 
 payslips
   id, payroll_run_id, file_key, generated_at, created_at, updated_at

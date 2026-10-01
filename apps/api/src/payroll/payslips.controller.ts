@@ -3,6 +3,8 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Post,
+  Query,
   Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -10,6 +12,7 @@ import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { ListPayslipsQueryDto } from './dto/payslips.dto';
 import { PayslipService } from './payslip.service';
 
 @ApiTags('payslips')
@@ -48,6 +51,17 @@ export class PayslipsController {
     res.send(buffer);
   }
 
+  @Get('companies/:companyId/payslips')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Finalized and paid runs of a company with their payslips' })
+  async listForCompany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListPayslipsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.payslipService.listForCompany(companyId, query, user) };
+  }
+
   @Get('companies/:companyId/payroll-runs/:runId/payslip')
   @RequirePermission('payroll', 'view')
   async getForRun(
@@ -55,5 +69,16 @@ export class PayslipsController {
     @Param('runId', ParseUUIDPipe) runId: string,
   ) {
     return { data: await this.payslipService.getForRun(companyId, runId) };
+  }
+
+  @Post('companies/:companyId/payroll-runs/:runId/payslip')
+  @RequirePermission('payroll', 'finalize')
+  @ApiOperation({ summary: 'Generate a missing payslip for a finalized run (idempotent)' })
+  async generateForRun(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.payslipService.generateForCompanyRun(companyId, runId, user) };
   }
 }

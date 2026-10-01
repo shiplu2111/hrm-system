@@ -1,9 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type {
   ReportCatalogView,
+  ReportDefinition,
   ReportExportFormat,
   ReportResult,
 } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { AttendanceReportsService } from './attendance-reports.service';
 import { HrReportsService } from './hr-reports.service';
@@ -15,7 +22,8 @@ import {
   serializeReportXlsx,
 } from './report-export.util';
 import { resolveReportDateRange, type ReportDateRange } from './report-date.util';
-import { findReportDefinition, REPORT_CATALOG, REPORT_IDS } from './reports.constants';
+import { canRunReportCategory } from './report-access';
+import { findReportDefinition, REPORT_CATALOG } from './reports.constants';
 
 export interface ReportExportPayload {
   buffer: Buffer | string;
@@ -32,19 +40,23 @@ export class ReportsService {
     private readonly hrReports: HrReportsService,
   ) {}
 
-  async getCatalog(companyId: string): Promise<ReportCatalogView> {
+  async getCatalog(companyId: string, user: AuthenticatedUser): Promise<ReportCatalogView> {
     await this.companyScope.assertCompanyInTenant(companyId);
-    return { reports: REPORT_CATALOG };
+    return {
+      reports: REPORT_CATALOG.filter((report) => canRunReportCategory(user, report.category)),
+    };
   }
 
   async runReport(
     companyId: string,
     reportId: string,
+    user: AuthenticatedUser,
     from?: string,
     to?: string,
   ): Promise<ReportResult> {
     await this.companyScope.assertCompanyInTenant(companyId);
-    this.assertKnownReport(reportId);
+    const definition = this.findKnownReport(reportId);
+    this.assertCanRun(user, definition);
     const range = resolveReportDateRange(from, to);
     return this.generate(companyId, reportId, range);
   }
@@ -52,11 +64,12 @@ export class ReportsService {
   async exportReport(
     companyId: string,
     reportId: string,
+    user: AuthenticatedUser,
     format: ReportExportFormat,
     from?: string,
     to?: string,
   ): Promise<ReportExportPayload> {
-    const result = await this.runReport(companyId, reportId, from, to);
+    const result = await this.runReport(companyId, reportId, user, from, to);
     const safeTitle = result.title.replace(/[^\w\-]+/g, '_').slice(0, 60);
     const filename = `${safeTitle}_${result.period.from}_${result.period.to}.${fileExtensionForFormat(format)}`;
 
@@ -75,18 +88,22 @@ export class ReportsService {
     };
   }
 
-  private assertKnownReport(reportId: string): void {
-    if (!REPORT_IDS.has(reportId)) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: `Report "${reportId}" was not found`,
-      });
-    }
+  private findKnownReport(reportId: string): ReportDefinition {
     const definition = findReportDefinition(reportId);
     if (!definition) {
       throw new NotFoundException({
         code: 'NOT_FOUND',
         message: `Report "${reportId}" was not found`,
+      });
+    }
+    return definition;
+  }
+
+  private assertCanRun(user: AuthenticatedUser, definition: ReportDefinition): void {
+    if (!canRunReportCategory(user, definition.category)) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: `You don't have access to ${definition.category === 'hr' ? 'HR' : definition.category} reports`,
       });
     }
   }
