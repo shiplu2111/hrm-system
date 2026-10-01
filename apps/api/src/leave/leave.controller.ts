@@ -23,6 +23,7 @@ import {
   CreateLeaveTypeDto,
   LeaveApprovalActionDto,
   ListLeaveRequestsQueryDto,
+  PreviewLeaveRequestDto,
   RunYearEndDto,
   UpdateLeavePolicyDto,
   UpdateLeaveTypeDto,
@@ -166,10 +167,36 @@ export class LeaveRequestsController {
     return { data: result.data, meta: { total: result.total } };
   }
 
+  @Get('companies/:companyId/leave-requests/approvals')
+  @RequirePermission('leave', 'approve')
+  @ApiOperation({
+    summary: 'Pending leave requests awaiting the current user at their workflow step',
+  })
+  async approvals(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.leaveRequestsService.listApprovals(companyId, user) };
+  }
+
   @Get('leave-requests/:requestId')
   @RequirePermission('leave', 'view')
   async get(@Param('requestId', ParseUUIDPipe) requestId: string) {
     return { data: await this.leaveRequestsService.get(requestId) };
+  }
+
+  @Post('employees/:employeeId/leave-requests/preview')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('leave', 'create')
+  @ApiOperation({
+    summary: 'Dry-run a leave request: working days, balance impact and blocking issues',
+  })
+  async preview(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Body() dto: PreviewLeaveRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.leaveRequestsService.preview(employeeId, dto, user) };
   }
 
   @Post('employees/:employeeId/leave-requests')

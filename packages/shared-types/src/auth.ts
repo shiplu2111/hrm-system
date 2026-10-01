@@ -20,6 +20,8 @@ export interface AuthUser {
   roleId: string;
   employeeId: string | null;
   permissions: PermissionClaim[];
+  /** Set when an admin issued a temporary password; every API except change-password/logout returns 403 until cleared. */
+  mustChangePassword?: boolean;
 }
 
 export interface LoginRequest {
@@ -41,6 +43,7 @@ export interface AccessTokenClaims {
   role_id: string;
   employee_id: string | null;
   permissions: PermissionClaim[];
+  must_change_password?: boolean;
 }
 
 /** Active tenant membership for multi-tenant login (AUTH_FLOW.md §5). */
@@ -55,4 +58,52 @@ export interface TenantMembershipView {
 
 export interface SwitchTenantResponse extends AuthTokens {
   user: AuthUser & { roleName: string };
+}
+
+/** Admin-managed login for an employee (MODULES.md §08). */
+export interface EmployeePortalAccessView {
+  employeeId: string;
+  userId: string;
+  email: string;
+  roleId: string;
+  roleName: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  isLocked: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export interface EmployeePortalAccessState {
+  access: EmployeePortalAccessView | null;
+  /** Work email from the employee profile, used to prefill a new login. */
+  suggestedEmail: string | null;
+  /** False for terminated employees — logins cannot be created or re-enabled. */
+  canGrant: boolean;
+  /** Why the signed-in admin cannot change this login, if they cannot. */
+  manageBlockedReason: EmployeePortalManageBlockedReason | null;
+}
+
+export type EmployeePortalManageBlockedReason = 'self' | 'role_privilege';
+
+export interface EmployeePortalRoleOption {
+  id: string;
+  name: string;
+}
+
+export interface CreateEmployeePortalAccessRequest {
+  email: string;
+  roleId: string;
+}
+
+export interface UpdateEmployeePortalAccessRequest {
+  email?: string;
+  roleId?: string;
+  isActive?: boolean;
+}
+
+/** Returned once when a login is created or its password is reset; never retrievable again. */
+export interface EmployeePortalCredentialsResult {
+  access: EmployeePortalAccessView;
+  temporaryPassword: string;
 }

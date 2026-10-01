@@ -20,6 +20,8 @@ export interface LeaveApprovalStep {
   actedByEmployeeId: string | null;
   actedAt: string | null;
   comment: string | null;
+  /** Resolved display name of whoever acted on the step */
+  actedByName?: string | null;
 }
 
 export interface LeaveTypeRecord {
@@ -115,11 +117,21 @@ export interface LeaveBalanceRecord {
   updatedAt: string;
 }
 
+export interface LeaveRequestEmployeeSummary {
+  id: string;
+  fullName: string;
+  employeeNumber: string;
+  departmentName: string | null;
+  designationName: string | null;
+}
+
 export interface LeaveRequestRecord {
   id: string;
   employeeId: string;
+  employee?: LeaveRequestEmployeeSummary;
   leaveTypeId: string;
   leaveTypeName?: string;
+  leaveTypeIsPaid?: boolean;
   startDate: string;
   endDate: string;
   halfDay: boolean;
@@ -136,6 +148,91 @@ export interface LeaveRequestRecord {
   localId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LeaveRequestPreviewInput {
+  leaveTypeId: string;
+  startDate: string;
+  endDate: string;
+  halfDay?: boolean;
+}
+
+export type LeaveRequestIssueCode =
+  | 'invalid_range'
+  | 'no_policy'
+  | 'probation'
+  | 'half_day_not_allowed'
+  | 'half_day_multi_day'
+  | 'no_working_days'
+  | 'overlap'
+  | 'insufficient_balance'
+  | 'negative_cap_exceeded'
+  | 'negative_balance'
+  | 'exceeds_with_pending'
+  | 'starts_in_past';
+
+export interface LeaveRequestIssue {
+  code: LeaveRequestIssueCode;
+  /** Errors block submission; warnings are shown to the requester and approver */
+  severity: 'error' | 'warning';
+  message: string;
+  /** Values interpolated into `message`, for clients that localize by `code` */
+  params?: Record<string, string | number>;
+}
+
+/** Server-side dry run of a leave request, using the same rules as submission. */
+export interface LeaveRequestPreview {
+  totalDays: number;
+  calendarDays: number;
+  excludedDates: Array<{ date: string; reason: 'weekend' | 'public_holiday' }>;
+  isPaid: boolean;
+  /** Null for unpaid leave, which does not draw on a balance */
+  balance: {
+    available: number;
+    /** Other submitted requests of this type awaiting approval */
+    pending: number;
+    afterRequest: number;
+    afterPending: number;
+  } | null;
+  policy: {
+    halfDayAllowed: boolean;
+    allowNegativeBalance: boolean;
+    negativeBalanceCap: number | null;
+    probationRestricted: boolean;
+  } | null;
+  approvalSteps: string[];
+  overlapping: Array<{
+    id: string;
+    leaveTypeName: string;
+    startDate: string;
+    endDate: string;
+    status: LeaveRequestStatus;
+  }>;
+  issues: LeaveRequestIssue[];
+  canSubmit: boolean;
+}
+
+export type LeaveStatusTone = 'neutral' | 'warning' | 'success' | 'error';
+
+/** Status pill mapping (DESIGN_SYSTEM.md §5). */
+export const LEAVE_REQUEST_STATUS_META: Record<
+  LeaveRequestStatus,
+  { label: string; tone: LeaveStatusTone }
+> = {
+  draft: { label: 'Draft', tone: 'neutral' },
+  pending: { label: 'Pending', tone: 'warning' },
+  approved: { label: 'Approved', tone: 'success' },
+  rejected: { label: 'Rejected', tone: 'error' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
+};
+
+/** "Manager" and "Skip-level Manager" steps follow the requester's reporting line. */
+export function leaveApproverLabel(roleName: string): string {
+  if (roleName === 'Manager' || roleName === 'Direct Manager') return 'Direct manager';
+  if (roleName === 'Skip-level Manager' || roleName === 'Skip Level Manager') {
+    return 'Skip-level manager';
+  }
+  return roleName;
 }
 
 /** @deprecated snake_case DTO — prefer LeaveRequestRecord */

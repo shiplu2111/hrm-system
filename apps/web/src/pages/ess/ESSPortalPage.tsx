@@ -10,7 +10,6 @@ import {
   LogIn,
   LogOut as LogOutIcon,
   Coffee,
-  Plus,
   Menu,
   X,
   LifeBuoy,
@@ -18,9 +17,6 @@ import {
 import type {
   AttendanceDayRecord,
   EmployeeRecord,
-  LeaveBalanceRecord,
-  LeaveRequestRecord,
-  LeaveTypeRecord,
   RosterRecord,
 } from '@hrm/shared-types';
 import { useAppTranslation } from '@hrm/i18n';
@@ -35,28 +31,20 @@ import {
   CardBody,
   CardHeader,
   CardTitle,
-  Input,
-  Label,
-  Modal,
-  Select,
-  Textarea,
 } from '@hrm/portal-ui';
 import {
   breakEnd,
   breakStart,
   clockIn,
   clockOut,
-  createLeaveRequest,
   formatAttendanceMinutes,
   getEmployeeDashboard,
   getEmployeeProfile,
-  getLeaveBalances,
-  listLeaveRequests,
-  listLeaveTypes,
   listRosters,
 } from '@/lib/ess-api';
 import { EmployeeDashboardHome } from '@/components/ess/EmployeeDashboardHome';
 import { HelpSupportView } from '@/components/ess/HelpSupportView';
+import { EssLeaveView } from '@/components/leave/EssLeaveView';
 import { HelpWidget } from '@/components/support/HelpWidget';
 import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher';
 import type { EmployeeDashboardView } from '@hrm/shared-types';
@@ -116,18 +104,10 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
   const [profile, setProfile] = useState<EmployeeRecord | null>(null);
   const [dashboard, setDashboard] = useState<EmployeeDashboardView | null>(null);
   const [attendance, setAttendance] = useState<AttendanceDayRecord | null>(null);
-  const [balances, setBalances] = useState<LeaveBalanceRecord[]>([]);
-  const [requests, setRequests] = useState<LeaveRequestRecord[]>([]);
-  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRecord[]>([]);
   const [rosters, setRosters] = useState<RosterRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
-  const [leaveTypeId, setLeaveTypeId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('');
 
   const refresh = useCallback(async () => {
     if (!employeeId) {
@@ -139,27 +119,20 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
     setError(null);
     try {
       const emp = await getEmployeeProfile(employeeId);
+      setProfile(emp);
       const today = new Date().toISOString().slice(0, 10);
       const from = today;
       const toDate = new Date();
       toDate.setDate(toDate.getDate() + 14);
       const to = toDate.toISOString().slice(0, 10);
 
-      const [dash, bal, reqs, types, rosterRows] = await Promise.all([
+      const [dash, rosterRows] = await Promise.all([
         getEmployeeDashboard(employeeId),
-        getLeaveBalances(employeeId),
-        listLeaveRequests(emp.companyId, employeeId),
-        listLeaveTypes(emp.companyId),
         listRosters(emp.companyId, employeeId, { from, to }),
       ]);
-      setProfile(emp);
       setDashboard(dash);
       setAttendance(dash.attendance);
-      setBalances(bal);
-      setRequests(reqs);
-      setLeaveTypes(types);
       setRosters(rosterRows);
-      if (!leaveTypeId && types[0]) setLeaveTypeId(types[0].id);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         onLogout();
@@ -169,11 +142,21 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, [employeeId, leaveTypeId, onLogout, t]);
+  }, [employeeId, onLogout, t]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const refreshDashboard = useCallback(() => {
+    if (!employeeId) return;
+    getEmployeeDashboard(employeeId)
+      .then((dash) => {
+        setDashboard(dash);
+        setAttendance(dash.attendance);
+      })
+      .catch(() => undefined);
+  }, [employeeId]);
 
   async function runAttendanceAction(
     action: 'clock-in' | 'clock-out' | 'break-start' | 'break-end',
@@ -204,28 +187,6 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t('errors.attendanceAction'));
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function submitLeaveRequest() {
-    if (!employeeId || !leaveTypeId || !startDate || !endDate) return;
-    setActionLoading(true);
-    setError(null);
-    try {
-      await createLeaveRequest(employeeId, {
-        leaveTypeId,
-        startDate,
-        endDate,
-        reason: reason.trim() || undefined,
-        submit: true,
-      });
-      setLeaveModalOpen(false);
-      setReason('');
-      await refresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('errors.submitLeave'));
     } finally {
       setActionLoading(false);
     }
@@ -329,7 +290,7 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
               {view === 'home' && dashboard ? (
                 <EmployeeDashboardHome
                   dashboard={dashboard}
-                  employeeId={employeeId}
+                  employeeId={employeeId ?? ''}
                   companyId={profile?.companyId ?? ''}
                   actionLoading={actionLoading}
                   onClockIn={() => void runAttendanceAction('clock-in')}
@@ -404,52 +365,13 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
                 </Card>
               )}
 
-              {view === 'leave' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-sm font-semibold text-primary">{t('leave.balances')}</h2>
-                    <Button variant="primary" size="sm" onClick={() => setLeaveModalOpen(true)}>
-                      <Plus className="h-4 w-4" /> {t('leave.requestLeave')}
-                    </Button>
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    {balances.map((bal) => (
-                      <Card key={bal.id}>
-                        <CardBody className="text-sm">
-                          <div className="font-medium">{bal.leaveTypeName ?? t('dashboard.leaveFallback')}</div>
-                          <div className="text-muted mt-1">
-                            {t('common.daysRemaining', {
-                              balance: bal.balanceDays.toFixed(1),
-                              entitlement: bal.entitlementDays,
-                            })}
-                          </div>
-                        </CardBody>
-                      </Card>
-                    ))}
-                  </div>
-                  <Card>
-                    <CardHeader><CardTitle>{t('leave.myRequests')}</CardTitle></CardHeader>
-                    <CardBody className="divide-y divide-[rgb(var(--border-base))]">
-                      {requests.length === 0 ? (
-                        <p className="text-sm text-muted">{t('leave.noRequests')}</p>
-                      ) : (
-                        requests.map((req) => (
-                          <div key={req.id} className="py-3 flex justify-between gap-3 text-sm">
-                            <div>
-                              <div className="font-medium">{req.leaveTypeName ?? t('dashboard.leaveFallback')}</div>
-                              <div className="text-muted">
-                                {t('common.dateRange', { start: req.startDate, end: req.endDate })}
-                              </div>
-                            </div>
-                            <Badge tone={req.status === 'approved' ? 'success' : req.status === 'rejected' ? 'error' : 'warning'} className="capitalize shrink-0">
-                              {t(`leave.status.${req.status}`, { defaultValue: req.status })}
-                            </Badge>
-                          </div>
-                        ))
-                      )}
-                    </CardBody>
-                  </Card>
-                </div>
+              {view === 'leave' && employeeId && profile && (
+                <EssLeaveView
+                  employeeId={employeeId}
+                  companyId={profile.companyId}
+                  onUnauthorized={onLogout}
+                  onChanged={refreshDashboard}
+                />
               )}
 
               {view === 'roster' && (
@@ -480,42 +402,6 @@ export function ESSPortalPage({ onLogout }: { onLogout: () => void }) {
         </div>
       </main>
 
-      <Modal
-        open={leaveModalOpen}
-        onClose={() => setLeaveModalOpen(false)}
-        title={t('leave.modalTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setLeaveModalOpen(false)}>{t('common.cancel')}</Button>
-            <Button variant="primary" disabled={actionLoading} onClick={() => void submitLeaveRequest()}>
-              {t('common.submit')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <Label>{t('leave.leaveType')}</Label>
-            <Select value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)}>
-              {leaveTypes.map((leaveType) => (
-                <option key={leaveType.id} value={leaveType.id}>{leaveType.name}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label>{t('leave.startDate')}</Label>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>{t('leave.endDate')}</Label>
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>{t('leave.reason')}</Label>
-            <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
-          </div>
-        </div>
-      </Modal>
       <HelpWidget />
     </div>
   );

@@ -2,6 +2,12 @@ export { ThemeProvider, useTheme } from './context/ThemeContext';
 export { AuthProvider, useAuth } from './context/AuthContext';
 export { PortalLoginPage } from './auth/PortalLoginPage';
 export {
+  ForcedPasswordChangePage,
+  evaluatePasswordRules,
+  type ForcedPasswordChangeCopy,
+  type PasswordRuleKey,
+} from './auth/ForcedPasswordChangePage';
+export {
   ApiError,
   assertPortalAccess,
   applyPortalAuthBundle,
@@ -12,9 +18,12 @@ export {
   isAdminPortalUser,
   isEmployeePortalUser,
   listPortalTenants,
+  notifySessionExpired,
   portalApiRequest,
+  portalChangePassword,
   portalDownload,
   portalLogin,
+  SESSION_EXPIRED_EVENT,
   setPortalToken,
   switchPortalTenant,
   validatePortalSession,
@@ -34,6 +43,7 @@ export { PermissionGate, AnyPermissionGate } from './components/rbac/PermissionG
 
 export { Button } from './components/ui/Button';
 export { Badge } from './components/ui/Badge';
+export { StatusPill, type StatusPillTone } from './components/ui/StatusPill';
 export { Card, CardHeader, CardTitle, CardBody } from './components/ui/Card';
 export { Modal } from './components/ui/Modal';
 export { Input, Label, Select, Textarea } from './components/ui/Form';

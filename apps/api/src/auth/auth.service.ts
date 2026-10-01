@@ -377,18 +377,22 @@ export class AuthService {
     }
 
     const passwordHash = await hashPassword(newPassword);
-    await this.prisma.unscoped.user.update({
+    const updated = await this.prisma.unscoped.user.update({
       where: { id: userId },
       data: {
         passwordHash,
         failedLoginAttempts: 0,
         lockedUntil: null,
+        mustChangePassword: false,
+      },
+      include: {
+        role: { include: { permissions: true } },
       },
     });
 
     await this.logoutAll(userId);
 
-    return this.issueTokenBundle(user, context, generateTokenFamilyId());
+    return this.issueTokenBundle(updated, context, generateTokenFamilyId());
   }
 
   buildAuthenticatedUser(user: UserWithRole): AuthenticatedUser {
@@ -400,6 +404,7 @@ export class AuthService {
       employeeId: user.employeeId,
       email: user.email,
       permissions: this.toPermissionClaims(user.role.permissions),
+      mustChangePassword: user.mustChangePassword,
     };
   }
 
@@ -440,6 +445,7 @@ export class AuthService {
       role_name: user.roleName,
       employee_id: user.employeeId,
       permissions: user.permissions,
+      ...(user.mustChangePassword ? { must_change_password: true } : {}),
     };
 
     return this.jwtService.signAsync(

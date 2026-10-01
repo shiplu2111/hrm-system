@@ -48,10 +48,12 @@ export class LifecycleController {
   }
 
   @Post()
-  @RequirePermission('employee', 'edit')
+  @RequirePermission('employee', 'view')
   @ApiOperation({
     summary:
       'Record a lifecycle event (promotion, transfer, confirmation, etc.)',
+    description:
+      'Baseline employee:view; each event type is further gated by role and permission (LIFECYCLE_ACTION_POLICY).',
   })
   async createEvent(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
@@ -59,6 +61,7 @@ export class LifecycleController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
   ): Promise<ApiEnvelope<Awaited<ReturnType<LifecycleService['createEvent']>>>> {
+    await this.lifecycleService.assertCanRecordEvent(employeeId, dto.eventType, user);
     return {
       data: await this.lifecycleService.createEvent(employeeId, dto, user, {
         ipAddress: req.ip,

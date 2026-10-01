@@ -25,6 +25,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import type { AuthenticatedUser } from './auth.types';
+import { AllowPendingPasswordChange } from './allow-pending-password-change.decorator';
 import { AUTH_CONSTANTS } from './auth.constants';
 import { AuthService } from './auth.service';
 import {
@@ -223,6 +224,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @AllowPendingPasswordChange()
   @RequirePermission('employee', 'view')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Logout current session (revoke refresh token)' })
@@ -253,6 +255,7 @@ export class AuthController {
   }
 
   @Post('change-password')
+  @AllowPendingPasswordChange()
   @RequirePermission('employee', 'view')
   @ApiBearerAuth('access-token')
   @Throttle({
@@ -282,6 +285,7 @@ export class AuthController {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresIn: tokens.expiresIn,
+        user: tokens.user,
       },
     };
   }
@@ -341,6 +345,7 @@ interface AuthLoginResponse {
     roleName: string;
     employeeId: string | null;
     permissions: { module: string; action: string }[];
+    mustChangePassword?: boolean;
   };
 }
 

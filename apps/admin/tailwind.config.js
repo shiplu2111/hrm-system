@@ -1,6 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    '../../packages/portal-ui/src/**/*.{js,ts,jsx,tsx}',
+  ],
   darkMode: 'class',
   theme: {
     extend: {
@@ -34,6 +38,9 @@ export default {
           400: '#f87171', 500: '#ef4444', 600: '#dc2626', 700: '#b91c1c',
           800: '#991b1b', 900: '#7f1d1d',
         },
+      },
+      fontSize: {
+        '2xs': ['11px', '16px'],
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

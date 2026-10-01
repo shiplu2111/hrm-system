@@ -2,12 +2,17 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 import {
+  SESSION_EXPIRED_EVENT,
   clearPortalToken,
+  getPortalToken,
+  getPortalTokenKey,
+  portalChangePassword,
   portalLogin,
   validatePortalSession,
   type PortalKind,
@@ -21,6 +26,7 @@ interface AuthContextValue {
   login: (email: string, password: string, tenantSubdomain?: string) => Promise<void>;
   logout: () => void;
   refreshSession: () => void;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -59,9 +65,36 @@ export function AuthProvider({
     setIsAuthenticated(!!session);
   }, [portal]);
 
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      await portalChangePassword(portal, currentPassword, newPassword);
+      refreshSession();
+    },
+    [portal, refreshSession],
+  );
+
+  useEffect(() => {
+    const onSessionExpired = (event: Event) => {
+      const detail = (event as CustomEvent<{ portal: PortalKind }>).detail;
+      if (detail?.portal === portal) logout();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === getPortalTokenKey(portal)) {
+        if (!getPortalToken(portal)) logout();
+      }
+    };
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [portal, logout]);
+
   const value = useMemo(
-    () => ({ portal, isAuthenticated, user, login, logout, refreshSession }),
-    [portal, isAuthenticated, user, login, logout, refreshSession],
+    () => ({ portal, isAuthenticated, user, login, logout, refreshSession, changePassword }),
+    [portal, isAuthenticated, user, login, logout, refreshSession, changePassword],
   );
 
   return (

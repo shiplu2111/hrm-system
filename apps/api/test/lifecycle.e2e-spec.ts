@@ -8,9 +8,13 @@ describe('Employee Lifecycle Events (MODULES.md §05)', () => {
   let prisma: PrismaClient;
   let adminToken: string;
   let payrollToken: string;
+  let hrToken: string;
+  let hrEmployeeId: string | null;
+  let employeeToken: string;
   let employeeId: string;
   let designationId: string;
   let createdEventId: string;
+  let payrollRevisionEventId: string | undefined;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -36,15 +40,30 @@ describe('Employee Lifecycle Events (MODULES.md §05)', () => {
       .expect(201);
     payrollToken = payrollLogin.body.data.accessToken as string;
 
+    const hrLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'hr@cmsnbd.com', password: 'password', tenantSubdomain: 'demo' })
+      .expect(201);
+    hrToken = hrLogin.body.data.accessToken as string;
+    hrEmployeeId = hrLogin.body.data.user.employeeId as string | null;
+
+    const employeeLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'employee@cmsnbd.com', password: 'password', tenantSubdomain: 'demo' })
+      .expect(201);
+    employeeToken = employeeLogin.body.data.accessToken as string;
+
     const employees = await request(app.getHttpServer())
       .get('/api/v1/employees')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
     const target = employees.body.data.find(
-      (e: { employeeNumber: string }) => e.employeeNumber === 'EMP-010',
+      (e: { employeeNumber: string; employmentStatus: string }) =>
+        !['EMP-001', 'EMP-002'].includes(e.employeeNumber) &&
+        e.employmentStatus !== 'terminated',
     );
-    employeeId = target?.id ?? employees.body.data[0].id;
+    employeeId = target.id as string;
 
     const companies = await request(app.getHttpServer())
       .get('/api/v1/organization/companies')
@@ -65,12 +84,44 @@ describe('Employee Lifecycle Events (MODULES.md §05)', () => {
         .delete({ where: { id: createdEventId } })
         .catch(() => undefined);
     }
+    if (payrollRevisionEventId) {
+      await prisma.employeeLifecycleEvent
+        .delete({ where: { id: payrollRevisionEventId } })
+        .catch(() => undefined);
+    }
     await prisma.$disconnect();
     await app.close();
   });
 
-  it('denies lifecycle create without employee:edit', async () => {
+  it('denies termination for roles other than HR Admin / Company Owner', async () => {
+    for (const token of [payrollToken, employeeToken]) {
+      const response = await request(app.getHttpServer())
+        .post(`/api/v1/employees/${employeeId}/lifecycle-events`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          eventType: 'termination',
+          effectiveDate: '2026-04-01',
+          details: { reason: 'E2E should be denied' },
+        })
+        .expect(403);
+      expect(response.body.error.message).toContain('Only HR Admin or Company Owner');
+    }
+  });
+
+  it('denies promotion for Payroll Admin', async () => {
     await request(app.getHttpServer())
+      .post(`/api/v1/employees/${employeeId}/lifecycle-events`)
+      .set('Authorization', `Bearer ${payrollToken}`)
+      .send({
+        eventType: 'promotion',
+        effectiveDate: '2026-04-01',
+        details: { newDesignationId: designationId },
+      })
+      .expect(403);
+  });
+
+  it('allows Payroll Admin to record a salary revision', async () => {
+    const response = await request(app.getHttpServer())
       .post(`/api/v1/employees/${employeeId}/lifecycle-events`)
       .set('Authorization', `Bearer ${payrollToken}`)
       .send({
@@ -78,7 +129,31 @@ describe('Employee Lifecycle Events (MODULES.md §05)', () => {
         effectiveDate: '2026-04-01',
         details: { previousAmount: 50000, newAmount: 55000 },
       })
+      .expect(201);
+    payrollRevisionEventId = response.body.data.id as string;
+  });
+
+  it('denies recording lifecycle events on your own record', async () => {
+    expect(hrEmployeeId).toBeTruthy();
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/employees/${hrEmployeeId}/lifecycle-events`)
+      .set('Authorization', `Bearer ${hrToken}`)
+      .send({
+        eventType: 'salary_revision',
+        effectiveDate: '2026-04-01',
+        details: { previousAmount: 50000, newAmount: 90000 },
+      })
       .expect(403);
+    expect(response.body.error.message).toContain('your own employee record');
+  });
+
+  it('rejects rehire for an employee who is not terminated', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/employees/${employeeId}/lifecycle-events`)
+      .set('Authorization', `Bearer ${hrToken}`)
+      .send({ eventType: 'rehire', effectiveDate: '2026-04-01', details: {} })
+      .expect(400);
   });
 
   it('records promotion with audit logs', async () => {

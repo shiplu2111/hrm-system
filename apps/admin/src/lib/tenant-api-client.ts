@@ -1,3 +1,5 @@
+import { notifySessionExpired } from '@hrm/portal-ui';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const TOKEN_KEY = 'hrm_admin_access_token';
 const LEGACY_TOKEN_KEY = 'hrm_tenant_access_token';
@@ -76,6 +78,7 @@ export async function tenantApiRequest<T>(
 
     if (response.status === 401 && !path.startsWith('/auth/')) {
       setTenantAccessToken(null);
+      notifySessionExpired('admin');
     }
 
     throw new ApiError(

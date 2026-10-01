@@ -1,5 +1,6 @@
 import {
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -8,6 +9,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
 import { ApiKeyAuthService } from '../api-access/api-key-auth.service';
 import { OAuthTokenAuthService } from '../api-access/oauth-token-auth.service';
+import { ALLOW_PENDING_PASSWORD_CHANGE_KEY } from './allow-pending-password-change.decorator';
+import { AUTH_ERROR_CODES } from './auth.constants';
 
 /**
  * Accepts JWT, scoped API keys (`hrm_live_*`), or OAuth access tokens (`oat_*`).
@@ -55,10 +58,27 @@ export class UnifiedAuthGuard extends AuthGuard('jwt') {
     }
 
     const activated = (await super.canActivate(context)) as boolean;
-    const jwtUser = request.user as { authMethod?: string } | undefined;
+    const jwtUser = request.user as
+      | { authMethod?: string; mustChangePassword?: boolean }
+      | undefined;
     if (jwtUser) {
       jwtUser.authMethod = 'jwt';
+      if (jwtUser.mustChangePassword && !this.allowsPendingPasswordChange(context)) {
+        throw new ForbiddenException({
+          code: AUTH_ERROR_CODES.PASSWORD_CHANGE_REQUIRED,
+          message: 'You must change your temporary password before continuing',
+        });
+      }
     }
     return activated;
+  }
+
+  private allowsPendingPasswordChange(context: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(
+        ALLOW_PENDING_PASSWORD_CHANGE_KEY,
+        [context.getHandler(), context.getClass()],
+      ) === true
+    );
   }
 }

@@ -159,7 +159,20 @@ export class OrganizationService {
       });
     }
 
-    await this.prisma.unscoped.department.delete({ where: { id: departmentId } });
+    const designationCount = await this.prisma.unscoped.designation.count({
+      where: { departmentId },
+    });
+    if (designationCount > 0) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: 'Cannot delete department that designations belong to',
+      });
+    }
+
+    await this.deleteOrConflict(
+      () => this.prisma.unscoped.department.delete({ where: { id: departmentId } }),
+      'Department is still referenced by job requisitions or offer letters',
+    );
   }
 
   // --- Job levels ---
@@ -221,7 +234,10 @@ export class OrganizationService {
         message: 'Job level is referenced by designations',
       });
     }
-    await this.prisma.unscoped.jobLevel.delete({ where: { id } });
+    await this.deleteOrConflict(
+      () => this.prisma.unscoped.jobLevel.delete({ where: { id } }),
+      'Job level is still referenced by job requisitions',
+    );
   }
 
   // --- Designations ---
@@ -305,7 +321,10 @@ export class OrganizationService {
         message: 'Designation is assigned to employees',
       });
     }
-    await this.prisma.unscoped.designation.delete({ where: { id } });
+    await this.deleteOrConflict(
+      () => this.prisma.unscoped.designation.delete({ where: { id } }),
+      'Designation is still referenced by job requisitions, offer letters or performance reviews',
+    );
   }
 
   // --- Employment types ---
@@ -348,7 +367,10 @@ export class OrganizationService {
         message: 'Employment type is assigned to employees',
       });
     }
-    await this.prisma.unscoped.employmentType.delete({ where: { id } });
+    await this.deleteOrConflict(
+      () => this.prisma.unscoped.employmentType.delete({ where: { id } }),
+      'Employment type is still referenced by job requisitions or offer letters',
+    );
   }
 
   // --- Teams ---
@@ -565,6 +587,24 @@ export class OrganizationService {
       error.code === 'P2002'
     ) {
       throw new ConflictException({ code: 'CONFLICT', message });
+    }
+  }
+
+  /** Records referenced elsewhere (requisitions, offers, etc.) fail on a restricted FK. */
+  private async deleteOrConflict(
+    remove: () => Promise<unknown>,
+    message: string,
+  ): Promise<void> {
+    try {
+      await remove();
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new ConflictException({ code: 'CONFLICT', message });
+      }
+      throw error;
     }
   }
 }

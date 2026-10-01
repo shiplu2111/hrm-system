@@ -5,12 +5,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { RosterRecord } from '@hrm/shared-types';
-import { buildRosterDisplay } from '@hrm/shared-types';
+import type {
+  BulkAssignRosterResult,
+  BulkClearRosterResult,
+  LocationOption,
+  RosterRecord,
+} from '@hrm/shared-types';
+import { buildRosterDisplay, ROSTER_BULK_MAX_CELLS } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { LocaleContextService } from '../locale/locale-context.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type {
+  BulkAssignRosterDto,
+  BulkClearRosterDto,
   CreateRosterDto,
   ListRostersQueryDto,
   UpdateRosterDto,
@@ -32,7 +39,7 @@ export class RostersService {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const page = Math.max(1, query.page ?? 1);
-    const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50));
+    const pageSize = Math.min(1000, Math.max(1, query.pageSize ?? 50));
 
     const where: Prisma.RosterWhereInput = {
       employee: { companyId, deletedAt: null },
@@ -160,6 +167,113 @@ export class RostersService {
   async remove(companyId: string, rosterId: string): Promise<void> {
     await this.findRosterOrThrow(companyId, rosterId);
     await this.prisma.unscoped.roster.delete({ where: { id: rosterId } });
+  }
+
+  async listLocations(companyId: string): Promise<LocationOption[]> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    return this.prisma.unscoped.location.findMany({
+      where: { companyId },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, timezone: true },
+    });
+  }
+
+  /** Assigns every (employee, date) pair; existing entries are skipped unless `overwrite`. */
+  async bulkAssign(
+    companyId: string,
+    dto: BulkAssignRosterDto,
+  ): Promise<BulkAssignRosterResult> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    this.assertBulkSize(dto.employeeIds.length, dto.dates.length);
+    await this.assertEmployees(companyId, dto.employeeIds);
+    await this.assertShift(companyId, dto.shiftId);
+    if (dto.locationId) {
+      await this.assertLocation(companyId, dto.locationId);
+    }
+
+    const dates = dto.dates.map((d) => parseDateString(d));
+    const locationId = dto.locationId ?? null;
+
+    return this.prisma.unscoped.$transaction(async (tx) => {
+      const existing = await tx.roster.findMany({
+        where: { employeeId: { in: dto.employeeIds }, date: { in: dates } },
+        select: { id: true, employeeId: true, date: true, shiftId: true, locationId: true },
+      });
+      const taken = new Set(
+        existing.map((row) => `${row.employeeId}:${formatDateValue(row.date)}`),
+      );
+
+      const toCreate: Prisma.RosterCreateManyInput[] = [];
+      for (const employeeId of dto.employeeIds) {
+        for (const date of dates) {
+          if (!taken.has(`${employeeId}:${formatDateValue(date)}`)) {
+            toCreate.push({ employeeId, shiftId: dto.shiftId, date, locationId });
+          }
+        }
+      }
+
+      const toUpdate = dto.overwrite
+        ? existing.filter(
+            (row) => row.shiftId !== dto.shiftId || row.locationId !== locationId,
+          )
+        : [];
+
+      const created = toCreate.length
+        ? (await tx.roster.createMany({ data: toCreate, skipDuplicates: true })).count
+        : 0;
+      const updated = toUpdate.length
+        ? (
+            await tx.roster.updateMany({
+              where: { id: { in: toUpdate.map((row) => row.id) } },
+              data: { shiftId: dto.shiftId, locationId },
+            })
+          ).count
+        : 0;
+
+      return {
+        created,
+        updated,
+        skipped: dto.employeeIds.length * dates.length - created - updated,
+      };
+    });
+  }
+
+  async bulkClear(
+    companyId: string,
+    dto: BulkClearRosterDto,
+  ): Promise<BulkClearRosterResult> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    this.assertBulkSize(dto.employeeIds.length, dto.dates.length);
+
+    const { count } = await this.prisma.unscoped.roster.deleteMany({
+      where: {
+        employeeId: { in: dto.employeeIds },
+        employee: { companyId },
+        date: { in: dto.dates.map((d) => parseDateString(d)) },
+      },
+    });
+    return { deleted: count };
+  }
+
+  private assertBulkSize(employeeCount: number, dateCount: number) {
+    if (employeeCount * dateCount > ROSTER_BULK_MAX_CELLS) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `Bulk roster changes are limited to ${ROSTER_BULK_MAX_CELLS} employee-days per request`,
+      });
+    }
+  }
+
+  private async assertEmployees(companyId: string, employeeIds: string[]) {
+    const found = await this.prisma.scoped.employee.count({
+      where: { id: { in: employeeIds }, companyId, deletedAt: null },
+    });
+    if (found !== employeeIds.length) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'One or more employees were not found in this company',
+      });
+    }
   }
 
   private includeRelations() {

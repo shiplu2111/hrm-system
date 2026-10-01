@@ -11,6 +11,8 @@ import { CompanyScopeService } from '../organization/company-scope.service';
 import type { ListWorkflowInstancesQueryDto } from './dto/workflow.dto';
 import { WorkflowEngineService } from './workflow-engine.service';
 
+const PENDING_SCAN_BATCH = 500;
+
 @Injectable()
 export class WorkflowInstancesService {
   constructor(
@@ -59,6 +61,7 @@ export class WorkflowInstancesService {
   async listPendingForUser(
     companyId: string,
     user: AuthenticatedUser,
+    entityType?: WorkflowEntityType,
   ): Promise<WorkflowInstanceRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
@@ -67,61 +70,73 @@ export class WorkflowInstancesService {
       select: { name: true },
     });
     const roleName = role?.name ?? '';
+    const isOverseer = roleName === 'Company Owner' || roleName === 'HR Admin';
 
-    const pending = await this.prisma.unscoped.workflowInstance.findMany({
-      where: {
-        companyId,
-        status: WorkflowInstanceStatus.pending,
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    });
-
-    const filtered: WorkflowInstance[] = [];
-    for (const row of pending) {
-      const record = this.engine.toRecord(row);
-      const current = record.steps.find((s) => s.status === 'pending');
-      if (!current) continue;
-
-      const requester = await this.prisma.unscoped.employee.findFirst({
-        where: { id: row.requesterEmployeeId },
-        select: { managerId: true },
+    const assigned: WorkflowInstanceRecord[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const batch: WorkflowInstance[] = await this.prisma.unscoped.workflowInstance.findMany({
+        where: {
+          companyId,
+          status: WorkflowInstanceStatus.pending,
+          ...(entityType ? { entityType } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: PENDING_SCAN_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
+      if (batch.length === 0) break;
+      cursor = batch[batch.length - 1].id;
 
-      if (current.assigneeType === 'direct_manager') {
-        if (user.employeeId && user.employeeId === requester?.managerId) {
-          filtered.push(row);
-          continue;
+      const managerOf = await this.loadManagerIds(batch.map((row) => row.requesterEmployeeId));
+      const needsSkipLevel = new Set<string>();
+      const candidates = batch.map((row) => {
+        const record = this.engine.toRecord(row);
+        const current = record.steps.find((s) => s.status === 'pending');
+        const managerId = managerOf.get(row.requesterEmployeeId) ?? null;
+        if (current?.assigneeType === 'skip_level_manager' && managerId) {
+          needsSkipLevel.add(managerId);
         }
-        if (roleName === 'Company Owner' || roleName === 'HR Admin') {
-          filtered.push(row);
+        return { record, current, managerId };
+      });
+      const skipLevelOf = await this.loadManagerIds([...needsSkipLevel], true);
+
+      for (const { record, current, managerId } of candidates) {
+        if (!current) continue;
+        if (current.assigneeType === 'direct_manager') {
+          if ((user.employeeId && user.employeeId === managerId) || isOverseer) {
+            assigned.push(record);
+          }
+        } else if (current.assigneeType === 'skip_level_manager') {
+          const skipLevelId = managerId ? skipLevelOf.get(managerId) : undefined;
+          if ((user.employeeId && user.employeeId === skipLevelId) || isOverseer) {
+            assigned.push(record);
+          }
+        } else if (roleName === current.roleName || roleName === 'Company Owner') {
+          assigned.push(record);
         }
-        continue;
       }
 
-      if (current.assigneeType === 'skip_level_manager') {
-        const manager = requester?.managerId
-          ? await this.prisma.unscoped.employee.findFirst({
-              where: { id: requester.managerId, deletedAt: null },
-              select: { managerId: true },
-            })
-          : null;
-        if (user.employeeId && user.employeeId === manager?.managerId) {
-          filtered.push(row);
-          continue;
-        }
-        if (roleName === 'Company Owner' || roleName === 'HR Admin') {
-          filtered.push(row);
-        }
-        continue;
-      }
-
-      if (roleName === current.roleName || roleName === 'Company Owner') {
-        filtered.push(row);
-      }
+      if (batch.length < PENDING_SCAN_BATCH) break;
     }
 
-    return filtered.map((row) => this.engine.toRecord(row));
+    return assigned;
+  }
+
+  /** Maps each employee id to its manager id (null when the employee has none). */
+  private async loadManagerIds(
+    employeeIds: string[],
+    activeOnly = false,
+  ): Promise<Map<string, string | null>> {
+    if (employeeIds.length === 0) return new Map();
+    const rows = await this.prisma.unscoped.employee.findMany({
+      where: {
+        id: { in: [...new Set(employeeIds)] },
+        ...(activeOnly ? { deletedAt: null } : {}),
+      },
+      select: { id: true, managerId: true },
+    });
+    return new Map(rows.map((row) => [row.id, row.managerId]));
   }
 
   async findByEntity(

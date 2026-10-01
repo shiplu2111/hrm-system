@@ -7,17 +7,25 @@ import {
 import {
   LeaveRequestStatus,
   Prisma,
+  WorkflowEntityType,
+  type LeavePolicy,
   type LeaveRequest,
 } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
-import type { LeaveRequestRecord } from '@hrm/shared-types';
+import type {
+  LeaveApprovalStep,
+  LeaveRequestIssue,
+  LeaveRequestPreview,
+  LeaveRequestRecord,
+} from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { WorkflowInstancesService } from '../workflow/workflow-instances.service';
 import type {
   CreateLeaveRequestDto,
   LeaveApprovalActionDto,
   ListLeaveRequestsQueryDto,
+  PreviewLeaveRequestDto,
 } from './dto/leave.dto';
 import { LeaveAttendanceService } from './leave-attendance.service';
 import { LeaveBalancesService } from './leave-balances.service';
@@ -29,10 +37,64 @@ import {
 import {
   calculateLeaveDays,
   decimal,
+  eachDateInRange,
   formatDateValue,
+  isWeekend,
   parseApprovalChain,
   parseDateString,
 } from './leave.utils';
+
+const MAX_REQUEST_CALENDAR_DAYS = 366;
+
+const REQUEST_INCLUDE = {
+  leaveType: { select: { name: true, isPaid: true } },
+  employee: {
+    select: {
+      id: true,
+      companyId: true,
+      tenantId: true,
+      firstName: true,
+      lastName: true,
+      employeeNumber: true,
+      department: { select: { name: true } },
+      designation: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.LeaveRequestInclude;
+
+type LeaveRequestRow = Prisma.LeaveRequestGetPayload<{ include: typeof REQUEST_INCLUDE }>;
+
+type RequestEmployee = {
+  id: string;
+  tenantId: string;
+  companyId: string;
+  firstName: string;
+  lastName: string;
+  probationEndDate: Date | null;
+};
+
+type BalanceWarning = {
+  projectedBalance: number;
+  exceedsBalance: boolean;
+  negativeCapExceeded: boolean;
+};
+
+interface RequestEvaluation {
+  policy: LeavePolicy | null;
+  startDate: Date;
+  endDate: Date;
+  totalDays: number;
+  balanceWarning: BalanceWarning | null;
+  preview: LeaveRequestPreview;
+}
+
+function roundDays(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function formatDays(value: number): string {
+  return `${roundDays(value)} day${value === 1 ? '' : 's'}`;
+}
 
 @Injectable()
 export class LeaveRequestsService {
@@ -43,6 +105,7 @@ export class LeaveRequestsService {
     private readonly leaveAttendanceService: LeaveAttendanceService,
     private readonly notificationEngine: NotificationEngineService,
     private readonly leaveWorkflow: LeaveWorkflowService,
+    private readonly workflowInstances: WorkflowInstancesService,
   ) {}
 
   async list(
@@ -67,20 +130,66 @@ export class LeaveRequestsService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { leaveType: { select: { name: true, isPaid: true } } },
+        include: REQUEST_INCLUDE,
       }),
       this.prisma.unscoped.leaveRequest.count({ where }),
     ]);
 
-    return {
-      data: await Promise.all(rows.map((row) => this.toRecord(row))),
-      total,
-    };
+    const records = await Promise.all(rows.map((row) => this.toRecord(row)));
+    return { data: await this.withActorNames(records), total };
+  }
+
+  /**
+   * Pending leave requests whose current workflow step the user can act on
+   * (direct manager, skip-level manager or role step), oldest start date first.
+   */
+  async listApprovals(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<LeaveRequestRecord[]> {
+    const instances = await this.workflowInstances.listPendingForUser(
+      companyId,
+      user,
+      WorkflowEntityType.leave_request,
+    );
+    const requestIds = instances.map((instance) => instance.entityId);
+    if (requestIds.length === 0) return [];
+
+    const rows = await this.prisma.unscoped.leaveRequest.findMany({
+      where: {
+        id: { in: requestIds },
+        status: LeaveRequestStatus.pending,
+        employee: { companyId, deletedAt: null },
+        ...(user.employeeId ? { employeeId: { not: user.employeeId } } : {}),
+      },
+      orderBy: [{ startDate: 'asc' }, { createdAt: 'asc' }],
+      include: REQUEST_INCLUDE,
+    });
+
+    const records = await Promise.all(rows.map((row) => this.toRecord(row)));
+    return this.withActorNames(records);
   }
 
   async get(requestId: string): Promise<LeaveRequestRecord> {
     const row = await this.findRequestOrThrow(requestId);
-    return this.toRecord(row);
+    const [record] = await this.withActorNames([await this.toRecord(row)]);
+    return record;
+  }
+
+  async preview(
+    employeeId: string,
+    dto: PreviewLeaveRequestDto,
+    user: AuthenticatedUser,
+  ): Promise<LeaveRequestPreview> {
+    const employee = await this.assertEmployee(employeeId);
+    this.assertOwnRequest(user, employeeId, 'Cannot preview leave for another employee');
+    const evaluation = await this.evaluateRequest(employee, {
+      leaveTypeId: dto.leaveTypeId,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      halfDay: dto.halfDay ?? false,
+    });
+    return evaluation.preview;
   }
 
   async create(
@@ -89,118 +198,31 @@ export class LeaveRequestsService {
     user: AuthenticatedUser,
   ): Promise<LeaveRequestRecord> {
     const employee = await this.assertEmployee(employeeId);
-    if (user.employeeId && user.employeeId !== employeeId) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Cannot create leave for another employee',
-      });
-    }
+    this.assertOwnRequest(user, employeeId, 'Cannot create leave for another employee');
 
-    const startDate = parseDateString(dto.startDate);
-    const endDate = parseDateString(dto.endDate);
-    if (startDate > endDate) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'startDate must be on or before endDate',
-      });
-    }
-
-    const leaveType = await this.prisma.unscoped.leaveType.findFirst({
-      where: { id: dto.leaveTypeId, companyId: employee.companyId },
-    });
-    if (!leaveType) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Leave type not found',
-      });
-    }
-
-    const policy = await this.balancesService.findEffectivePolicy(
-      employee.companyId,
-      dto.leaveTypeId,
-      startDate,
-    );
-    if (!policy) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'No effective leave policy for this type',
-      });
-    }
-
-    this.validateProbation(employee, policy.probationRestricted, startDate);
-    if (dto.halfDay && !policy.halfDayAllowed) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Half-day leave is not allowed for this leave type',
-      });
-    }
-
-    const holidayDates = await this.leaveAttendanceService.getHolidayDatesForEmployee(
-      employee.companyId,
-      startDate,
-      endDate,
-    );
-
-    const totalDays = calculateLeaveDays({
-      startDate,
-      endDate,
+    const evaluation = await this.evaluateRequest(employee, {
+      leaveTypeId: dto.leaveTypeId,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
       halfDay: dto.halfDay ?? false,
-      holidayDates,
-      deductPublicHolidays: policy.deductPublicHolidays,
     });
-
-    if (totalDays <= 0) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Leave request must cover at least one working day',
-      });
-    }
-
-    const balanceWarning = await this.buildBalanceWarning(
-      employeeId,
-      dto.leaveTypeId,
-      decimal(totalDays),
-      policy.allowNegativeBalance,
-      policy.negativeBalanceCap ? Number(policy.negativeBalanceCap) : null,
-      leaveType.isPaid,
-    );
-
-    if (
-      leaveType.isPaid &&
-      !policy.allowNegativeBalance &&
-      balanceWarning.exceedsBalance
-    ) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Insufficient leave balance',
-      });
-    }
-
-    if (
-      leaveType.isPaid &&
-      policy.allowNegativeBalance &&
-      balanceWarning.negativeCapExceeded
-    ) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Request exceeds negative balance cap',
-      });
-    }
+    this.throwOnBlockingIssue(evaluation.preview.issues);
+    const policy = evaluation.policy!;
 
     const row = await this.prisma.unscoped.leaveRequest.create({
       data: {
         employeeId,
         leaveTypeId: dto.leaveTypeId,
-        startDate,
-        endDate,
+        startDate: evaluation.startDate,
+        endDate: evaluation.endDate,
         halfDay: dto.halfDay ?? false,
-        totalDays,
-        reason: dto.reason?.trim() ?? null,
+        totalDays: evaluation.totalDays,
+        reason: dto.reason?.trim() || null,
         status: dto.submit ? LeaveRequestStatus.pending : LeaveRequestStatus.draft,
         approvalChain: [] as Prisma.InputJsonValue,
         localId: dto.localId ?? null,
       },
-      include: { leaveType: { select: { name: true, isPaid: true } } },
+      include: REQUEST_INCLUDE,
     });
 
     if (dto.submit) {
@@ -217,12 +239,12 @@ export class LeaveRequestsService {
         data: {
           approvalChain: approvalChain as unknown as Prisma.InputJsonValue,
         },
-        include: { leaveType: { select: { name: true, isPaid: true } } },
+        include: REQUEST_INCLUDE,
       });
-      return this.toRecord(updated, balanceWarning);
+      return this.toRecord(updated, evaluation.balanceWarning);
     }
 
-    return this.toRecord(row, balanceWarning);
+    return this.toRecord(row, evaluation.balanceWarning);
   }
 
   async submit(requestId: string, user: AuthenticatedUser): Promise<LeaveRequestRecord> {
@@ -233,25 +255,20 @@ export class LeaveRequestsService {
         message: 'Only draft requests can be submitted',
       });
     }
-    if (user.employeeId && user.employeeId !== row.employeeId) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Cannot submit another employee\'s request',
-      });
-    }
+    this.assertOwnRequest(user, row.employeeId, 'Cannot submit another employee\'s request');
 
     const employee = await this.assertEmployee(row.employeeId);
-    const policy = await this.balancesService.findEffectivePolicy(
-      employee.companyId,
-      row.leaveTypeId,
-      row.startDate,
+    const evaluation = await this.evaluateRequest(
+      employee,
+      {
+        leaveTypeId: row.leaveTypeId,
+        startDate: formatDateValue(row.startDate),
+        endDate: formatDateValue(row.endDate),
+        halfDay: row.halfDay,
+      },
+      row.id,
     );
-    if (!policy) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'No effective leave policy',
-      });
-    }
+    this.throwOnBlockingIssue(evaluation.preview.issues);
 
     const approvalChain = await this.leaveWorkflow.startForLeaveRequest({
       companyId: employee.companyId,
@@ -259,16 +276,17 @@ export class LeaveRequestsService {
       requestId,
       requesterEmployeeId: row.employeeId,
       requesterUserId: user.id,
-      policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(policy),
+      policyApprovalSteps: this.leaveWorkflow.policyApprovalSteps(evaluation.policy!),
     });
 
     const updated = await this.prisma.unscoped.leaveRequest.update({
       where: { id: requestId },
       data: {
         status: LeaveRequestStatus.pending,
+        totalDays: evaluation.totalDays,
         approvalChain: approvalChain as unknown as Prisma.InputJsonValue,
       },
-      include: { leaveType: { select: { name: true, isPaid: true } } },
+      include: REQUEST_INCLUDE,
     });
 
     return this.toRecord(updated);
@@ -286,6 +304,7 @@ export class LeaveRequestsService {
         message: 'Request is not pending approval',
       });
     }
+    this.assertNotOwnApproval(user, row.employeeId);
 
     const employee = await this.assertEmployee(row.employeeId);
     const policy = await this.balancesService.findEffectivePolicy(
@@ -304,7 +323,7 @@ export class LeaveRequestsService {
     const transition = await this.leaveWorkflow.approve({
       requestId,
       user,
-      comment: dto.comment,
+      comment: dto.comment?.trim() || null,
       audit: {
         tenantId: employee.tenantId,
         module: 'leave',
@@ -354,14 +373,15 @@ export class LeaveRequestsService {
         approvalChain: updatedChain as unknown as Prisma.InputJsonValue,
         deductedAt,
       },
-      include: { leaveType: { select: { name: true, isPaid: true } } },
+      include: REQUEST_INCLUDE,
     });
 
     if (status === LeaveRequestStatus.approved) {
       await this.emitLeaveNotification('leave.approved', updated, employee);
     }
 
-    return this.toRecord(updated);
+    const [record] = await this.withActorNames([await this.toRecord(updated)]);
+    return record;
   }
 
   async reject(
@@ -376,6 +396,7 @@ export class LeaveRequestsService {
         message: 'Request is not pending approval',
       });
     }
+    this.assertNotOwnApproval(user, row.employeeId);
 
     const employee = await this.assertEmployee(row.employeeId);
     const policy = await this.balancesService.findEffectivePolicy(
@@ -394,7 +415,7 @@ export class LeaveRequestsService {
     const transition = await this.leaveWorkflow.reject({
       requestId,
       user,
-      comment: dto.comment,
+      comment: dto.comment?.trim() || null,
       audit: {
         tenantId: employee.tenantId,
         module: 'leave',
@@ -417,12 +438,13 @@ export class LeaveRequestsService {
         status: LeaveRequestStatus.rejected,
         approvalChain: updatedChain as unknown as Prisma.InputJsonValue,
       },
-      include: { leaveType: { select: { name: true, isPaid: true } } },
+      include: REQUEST_INCLUDE,
     });
 
     await this.emitLeaveNotification('leave.rejected', updated, employee);
 
-    return this.toRecord(updated);
+    const [record] = await this.withActorNames([await this.toRecord(updated)]);
+    return record;
   }
 
   async cancel(requestId: string, user: AuthenticatedUser): Promise<LeaveRequestRecord> {
@@ -433,17 +455,12 @@ export class LeaveRequestsService {
         message: 'Only draft or pending requests can be cancelled',
       });
     }
-    if (user.employeeId && user.employeeId !== row.employeeId) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Cannot cancel another employee\'s request',
-      });
-    }
+    this.assertOwnRequest(user, row.employeeId, 'Cannot cancel another employee\'s request');
 
     const updated = await this.prisma.unscoped.leaveRequest.update({
       where: { id: requestId },
       data: { status: LeaveRequestStatus.cancelled },
-      include: { leaveType: { select: { name: true, isPaid: true } } },
+      include: REQUEST_INCLUDE,
     });
 
     await this.leaveWorkflow.cancelForLeaveRequest(requestId);
@@ -451,60 +468,298 @@ export class LeaveRequestsService {
     return this.toRecord(updated);
   }
 
-  private validateProbation(
-    employee: { probationEndDate: Date | null },
-    probationRestricted: boolean,
-    startDate: Date,
-  ) {
+  /**
+   * Single source of truth for request rules, shared by preview, create and submit.
+   * Balance figures use accrual as of today, matching deduction on approval.
+   */
+  private async evaluateRequest(
+    employee: RequestEmployee,
+    input: { leaveTypeId: string; startDate: string; endDate: string; halfDay: boolean },
+    excludeRequestId?: string,
+  ): Promise<RequestEvaluation> {
+    const leaveType = await this.prisma.unscoped.leaveType.findFirst({
+      where: { id: input.leaveTypeId, companyId: employee.companyId },
+    });
+    if (!leaveType) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Leave type not found',
+      });
+    }
+
+    const startDate = parseDateString(input.startDate);
+    const endDate = parseDateString(input.endDate);
+    const issues: LeaveRequestIssue[] = [];
+    const preview: LeaveRequestPreview = {
+      totalDays: 0,
+      calendarDays: 0,
+      excludedDates: [],
+      isPaid: leaveType.isPaid,
+      balance: null,
+      policy: null,
+      approvalSteps: [],
+      overlapping: [],
+      issues,
+      canSubmit: false,
+    };
+    const result: RequestEvaluation = {
+      policy: null,
+      startDate,
+      endDate,
+      totalDays: 0,
+      balanceWarning: null,
+      preview,
+    };
+
+    if (startDate > endDate) {
+      issues.push({
+        code: 'invalid_range',
+        severity: 'error',
+        message: 'startDate must be on or before endDate',
+      });
+      return result;
+    }
+
+    const dates = eachDateInRange(startDate, endDate);
+    preview.calendarDays = dates.length;
+    if (dates.length > MAX_REQUEST_CALENDAR_DAYS) {
+      issues.push({
+        code: 'invalid_range',
+        severity: 'error',
+        message: `A single request can cover at most ${MAX_REQUEST_CALENDAR_DAYS} calendar days`,
+        params: { max: MAX_REQUEST_CALENDAR_DAYS },
+      });
+      return result;
+    }
+
+    const policy = await this.balancesService.findEffectivePolicy(
+      employee.companyId,
+      leaveType.id,
+      startDate,
+    );
+    result.policy = policy;
+    if (policy) {
+      preview.policy = {
+        halfDayAllowed: policy.halfDayAllowed,
+        allowNegativeBalance: policy.allowNegativeBalance,
+        negativeBalanceCap:
+          policy.negativeBalanceCap !== null ? Number(policy.negativeBalanceCap) : null,
+        probationRestricted: policy.probationRestricted,
+      };
+      preview.approvalSteps = this.leaveWorkflow
+        .policyApprovalSteps(policy)
+        .map((step) => step.roleName);
+    } else {
+      issues.push({
+        code: 'no_policy',
+        severity: 'error',
+        message: `No ${leaveType.name} policy is in effect on ${input.startDate}`,
+        params: { leaveType: leaveType.name, date: input.startDate },
+      });
+    }
+
     if (
-      probationRestricted &&
+      policy?.probationRestricted &&
       employee.probationEndDate &&
       startDate <= employee.probationEndDate
     ) {
+      const probationEnd = formatDateValue(employee.probationEndDate);
+      issues.push({
+        code: 'probation',
+        severity: 'error',
+        message: `${leaveType.name} cannot be taken during probation, which ends on ${probationEnd}`,
+        params: { leaveType: leaveType.name, date: probationEnd },
+      });
+    }
+
+    if (input.halfDay && policy && !policy.halfDayAllowed) {
+      issues.push({
+        code: 'half_day_not_allowed',
+        severity: 'error',
+        message: 'Half-day leave is not allowed for this leave type',
+      });
+    }
+    if (input.halfDay && input.startDate !== input.endDate) {
+      issues.push({
+        code: 'half_day_multi_day',
+        severity: 'error',
+        message: 'A half-day request must start and end on the same day',
+      });
+    }
+
+    const holidayDates = await this.leaveAttendanceService.getHolidayDatesForEmployee(
+      employee.companyId,
+      startDate,
+      endDate,
+    );
+    const deductPublicHolidays = policy?.deductPublicHolidays ?? false;
+    for (const date of dates) {
+      const key = formatDateValue(date);
+      if (isWeekend(date)) {
+        preview.excludedDates.push({ date: key, reason: 'weekend' });
+      } else if (!deductPublicHolidays && holidayDates.has(key)) {
+        preview.excludedDates.push({ date: key, reason: 'public_holiday' });
+      }
+    }
+    const workingDays = calculateLeaveDays({
+      startDate,
+      endDate,
+      halfDay: false,
+      holidayDates,
+      deductPublicHolidays,
+    });
+    const totalDays = input.halfDay ? (workingDays > 0 ? 0.5 : 0) : workingDays;
+    result.totalDays = totalDays;
+    preview.totalDays = totalDays;
+
+    if (totalDays <= 0) {
+      issues.push({
+        code: 'no_working_days',
+        severity: 'error',
+        message: 'Leave request must cover at least one working day',
+      });
+    }
+
+    const overlapping = await this.prisma.unscoped.leaveRequest.findMany({
+      where: {
+        employeeId: employee.id,
+        status: { in: [LeaveRequestStatus.pending, LeaveRequestStatus.approved] },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+        ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}),
+      },
+      orderBy: { startDate: 'asc' },
+      include: { leaveType: { select: { name: true } } },
+    });
+    for (const other of overlapping) {
+      const summary = {
+        id: other.id,
+        leaveTypeName: other.leaveType.name,
+        startDate: formatDateValue(other.startDate),
+        endDate: formatDateValue(other.endDate),
+        status: other.status,
+      };
+      preview.overlapping.push(summary);
+      issues.push({
+        code: 'overlap',
+        severity: 'error',
+        message: `Overlaps a ${other.status} ${summary.leaveTypeName} request (${summary.startDate} to ${summary.endDate})`,
+        params: {
+          leaveType: summary.leaveTypeName,
+          status: other.status,
+          start: summary.startDate,
+          end: summary.endDate,
+        },
+      });
+    }
+
+    if (leaveType.isPaid) {
+      const available = await this.balancesService.getAvailableBalance(
+        employee.id,
+        leaveType.id,
+        new Date(),
+      );
+      const pendingAggregate = await this.prisma.unscoped.leaveRequest.aggregate({
+        where: {
+          employeeId: employee.id,
+          leaveTypeId: leaveType.id,
+          status: LeaveRequestStatus.pending,
+          ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}),
+        },
+        _sum: { totalDays: true },
+      });
+      const pending = roundDays(Number(pendingAggregate._sum.totalDays ?? 0));
+      const afterRequest = roundDays(available - totalDays);
+      const afterPending = roundDays(afterRequest - pending);
+      preview.balance = { available, pending, afterRequest, afterPending };
+
+      const allowNegative = policy?.allowNegativeBalance ?? false;
+      const cap =
+        policy?.negativeBalanceCap !== null && policy?.negativeBalanceCap !== undefined
+          ? Number(policy.negativeBalanceCap)
+          : null;
+      const negativeCapExceeded = allowNegative && cap !== null && afterRequest < -cap;
+      result.balanceWarning = {
+        projectedBalance: afterRequest,
+        exceedsBalance: afterRequest < 0,
+        negativeCapExceeded,
+      };
+
+      if (policy && totalDays > 0) {
+        if (!allowNegative && afterRequest < 0) {
+          issues.push({
+            code: 'insufficient_balance',
+            severity: 'error',
+            message: `Insufficient leave balance: ${formatDays(available)} available, ${formatDays(totalDays)} requested`,
+            params: { available, requested: totalDays },
+          });
+        } else if (negativeCapExceeded) {
+          issues.push({
+            code: 'negative_cap_exceeded',
+            severity: 'error',
+            message: `Request exceeds the negative balance cap of ${formatDays(cap!)}`,
+            params: { cap: cap!, after: afterRequest },
+          });
+        } else if (afterRequest < 0) {
+          issues.push({
+            code: 'negative_balance',
+            severity: 'warning',
+            message: `This takes the balance to ${afterRequest} days; approvers will see it flagged`,
+            params: { after: afterRequest },
+          });
+        }
+        if (afterRequest >= 0 && afterPending < 0) {
+          issues.push({
+            code: 'exceeds_with_pending',
+            severity: 'warning',
+            message: `${formatDays(pending)} of this leave type is already pending; if approved first, this request would exceed the balance`,
+            params: { pending },
+          });
+        }
+      }
+    }
+
+    if (startDate < parseDateString(formatDateValue(new Date()))) {
+      issues.push({
+        code: 'starts_in_past',
+        severity: 'warning',
+        message: 'This request starts in the past',
+      });
+    }
+
+    preview.canSubmit = !issues.some((issue) => issue.severity === 'error');
+    return result;
+  }
+
+  private throwOnBlockingIssue(issues: LeaveRequestIssue[]): void {
+    const blocking = issues.find((issue) => issue.severity === 'error');
+    if (blocking) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'Leave cannot be taken during probation for this leave type',
+        message: blocking.message,
       });
     }
   }
 
-  private async buildBalanceWarning(
-    employeeId: string,
-    leaveTypeId: string,
-    totalDays: Decimal,
-    allowNegative: boolean,
-    negativeCap: number | null,
-    isPaid: boolean,
-  ) {
-    if (!isPaid) {
-      return {
-        projectedBalance: 0,
-        exceedsBalance: false,
-        negativeCapExceeded: false,
-      };
+  private assertOwnRequest(user: AuthenticatedUser, employeeId: string, message: string) {
+    if (user.employeeId && user.employeeId !== employeeId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message });
     }
-
-    const available = await this.balancesService.getAvailableBalance(
-      employeeId,
-      leaveTypeId,
-      new Date(),
-    );
-    const projected = available - Number(totalDays);
-    return {
-      projectedBalance: projected,
-      exceedsBalance: projected < 0,
-      negativeCapExceeded:
-        allowNegative && negativeCap !== null ? projected < -negativeCap : false,
-    };
   }
 
-  private async findRequestOrThrow(requestId: string) {
+  private assertNotOwnApproval(user: AuthenticatedUser, requesterEmployeeId: string) {
+    if (user.employeeId && user.employeeId === requesterEmployeeId) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You cannot approve or reject your own leave request',
+      });
+    }
+  }
+
+  private async findRequestOrThrow(requestId: string): Promise<LeaveRequestRow> {
     const row = await this.prisma.unscoped.leaveRequest.findFirst({
       where: { id: requestId },
-      include: {
-        employee: { select: { companyId: true, tenantId: true } },
-        leaveType: { select: { name: true, isPaid: true } },
-      },
+      include: REQUEST_INCLUDE,
     });
     if (!row) {
       throw new NotFoundException({
@@ -545,7 +800,7 @@ export class LeaveRequestsService {
     });
   }
 
-  private async assertEmployee(employeeId: string) {
+  private async assertEmployee(employeeId: string): Promise<RequestEmployee> {
     const row = await this.prisma.scoped.employee.findFirst({
       where: { id: employeeId, deletedAt: null },
       select: {
@@ -566,32 +821,57 @@ export class LeaveRequestsService {
     return row;
   }
 
+  /** Pending requests carry a live balance check so approvers see overdrafts (LEAVE_LOGIC.md §7). */
+  private async buildPendingBalanceWarning(row: LeaveRequestRow): Promise<BalanceWarning | null> {
+    if (row.status !== LeaveRequestStatus.pending || !row.leaveType.isPaid) return null;
+    const available = await this.balancesService.getAvailableBalance(
+      row.employeeId,
+      row.leaveTypeId,
+      new Date(),
+    );
+    const projected = roundDays(available - Number(row.totalDays));
+    if (projected >= 0) return null;
+
+    const policy = await this.balancesService.findEffectivePolicy(
+      row.employee.companyId,
+      row.leaveTypeId,
+      row.startDate,
+    );
+    const cap =
+      policy?.allowNegativeBalance && policy.negativeBalanceCap !== null
+        ? Number(policy.negativeBalanceCap)
+        : null;
+    return {
+      projectedBalance: projected,
+      exceedsBalance: true,
+      negativeCapExceeded: policy?.allowNegativeBalance
+        ? cap !== null && projected < -cap
+        : true,
+    };
+  }
+
   private async toRecord(
-    row: LeaveRequest & { leaveType?: { name: string; isPaid: boolean } },
-    balanceWarning?: {
-      projectedBalance: number;
-      exceedsBalance: boolean;
-      negativeCapExceeded: boolean;
-    } | null,
+    row: LeaveRequestRow,
+    balanceWarning?: BalanceWarning | null,
   ): Promise<LeaveRequestRecord> {
     const warning =
-      balanceWarning ??
-      (row.status === 'pending'
-        ? await this.buildBalanceWarning(
-            row.employeeId,
-            row.leaveTypeId,
-            decimal(row.totalDays),
-            false,
-            null,
-            row.leaveType?.isPaid ?? true,
-          )
-        : null);
+      balanceWarning !== undefined
+        ? balanceWarning
+        : await this.buildPendingBalanceWarning(row);
 
     return {
       id: row.id,
       employeeId: row.employeeId,
+      employee: {
+        id: row.employee.id,
+        fullName: `${row.employee.firstName} ${row.employee.lastName}`.trim(),
+        employeeNumber: row.employee.employeeNumber,
+        departmentName: row.employee.department?.name ?? null,
+        designationName: row.employee.designation?.name ?? null,
+      },
       leaveTypeId: row.leaveTypeId,
-      leaveTypeName: row.leaveType?.name,
+      leaveTypeName: row.leaveType.name,
+      leaveTypeIsPaid: row.leaveType.isPaid,
       startDate: formatDateValue(row.startDate),
       endDate: formatDateValue(row.endDate),
       halfDay: row.halfDay,
@@ -601,13 +881,60 @@ export class LeaveRequestsService {
       approvalChain: parseApprovalChain(row.approvalChain),
       deductedAt: row.deductedAt?.toISOString() ?? null,
       balanceWarning:
-        warning &&
-        (warning.exceedsBalance || warning.negativeCapExceeded)
+        warning && (warning.exceedsBalance || warning.negativeCapExceeded)
           ? warning
           : null,
       localId: row.localId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  /** Resolves `actedByName` on approval steps in one pass over all records. */
+  private async withActorNames(records: LeaveRequestRecord[]): Promise<LeaveRequestRecord[]> {
+    const steps = records.flatMap((record) => record.approvalChain);
+    const employeeIds = [
+      ...new Set(steps.map((s) => s.actedByEmployeeId).filter((id): id is string => !!id)),
+    ];
+    const userIds = [
+      ...new Set(
+        steps
+          .filter((s) => !s.actedByEmployeeId && s.actedByUserId)
+          .map((s) => s.actedByUserId as string),
+      ),
+    ];
+    if (employeeIds.length === 0 && userIds.length === 0) return records;
+
+    const [employees, users] = await Promise.all([
+      employeeIds.length
+        ? this.prisma.unscoped.employee.findMany({
+            where: { id: { in: employeeIds } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        : [],
+      userIds.length
+        ? this.prisma.unscoped.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, email: true },
+          })
+        : [],
+    ]);
+    const employeeNames = new Map(
+      employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()]),
+    );
+    const userNames = new Map(users.map((u) => [u.id, u.email]));
+
+    const nameFor = (step: LeaveApprovalStep): string | null =>
+      (step.actedByEmployeeId && employeeNames.get(step.actedByEmployeeId)) ||
+      (step.actedByUserId && userNames.get(step.actedByUserId)) ||
+      null;
+
+    return records.map((record) => ({
+      ...record,
+      approvalChain: record.approvalChain.map((step) => ({
+        ...step,
+        actedByName: nameFor(step),
+      })),
+    }));
   }
 }

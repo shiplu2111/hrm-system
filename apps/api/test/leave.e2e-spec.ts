@@ -129,6 +129,34 @@ describe('Leave (LEAVE_LOGIC.md)', () => {
     expect(created.body.data.approvalChain).toHaveLength(2);
   });
 
+  it('lists the submitted request in the manager approval inbox only', async () => {
+    const managerInbox = await request(app.getHttpServer())
+      .get(`/api/v1/companies/${companyId}/leave-requests/approvals`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .expect(200);
+    expect(managerInbox.body.data.map((r: { id: string }) => r.id)).toContain(requestId);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/companies/${companyId}/leave-requests/approvals`)
+      .set('Authorization', `Bearer ${employeeToken}`)
+      .expect(403);
+  });
+
+  it('lets HR preview their own leave', async () => {
+    const me = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'hr@cmsnbd.com', password: 'password', tenantSubdomain: 'demo' })
+      .expect(201);
+    const hrEmployeeId = me.body.data.user.employeeId as string;
+
+    const preview = await request(app.getHttpServer())
+      .post(`/api/v1/employees/${hrEmployeeId}/leave-requests/preview`)
+      .set('Authorization', `Bearer ${hrToken}`)
+      .send({ leaveTypeId, startDate: '2099-08-03', endDate: '2099-08-04' })
+      .expect(200);
+    expect(preview.body.data.totalDays).toBe(2);
+  });
+
   it('manager approves first step', async () => {
     const response = await request(app.getHttpServer())
       .post(`/api/v1/leave-requests/${requestId}/approve`)
@@ -180,8 +208,8 @@ describe('Leave (LEAVE_LOGIC.md)', () => {
       .set('Authorization', `Bearer ${employeeToken}`)
       .send({
         leaveTypeId,
-        startDate: '2099-08-02',
-        endDate: '2099-08-02',
+        startDate: '2099-08-03',
+        endDate: '2099-08-03',
         halfDay: true,
         submit: false,
       })
@@ -189,5 +217,20 @@ describe('Leave (LEAVE_LOGIC.md)', () => {
 
     expect(created.body.data.totalDays).toBe(0.5);
     await prisma.leaveRequest.delete({ where: { id: created.body.data.id } });
+  });
+
+  it('rejects a request that covers no working days', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/employees/${employeeId}/leave-requests`)
+      .set('Authorization', `Bearer ${employeeToken}`)
+      .send({
+        leaveTypeId,
+        startDate: '2099-08-01',
+        endDate: '2099-08-02',
+        submit: false,
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toMatch(/working day/i);
   });
 });

@@ -1,165 +1,55 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ArrowLeft,
-  TrendingUp,
-  ArrowRightLeft,
-  DollarSign,
-  CheckCircle2,
-  Ban,
-  LogOut,
-  RotateCcw,
-  Loader2,
-} from 'lucide-react';
-import type { EmployeeRecord, LifecycleEventType } from '@hrm/shared-types';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import type { EmployeeRecord, LifecycleEventRecord } from '@hrm/shared-types';
+import { useAuth } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Timeline, TimelineSection } from '@/components/ui/Timeline';
+import { LifecycleActionPanel } from '@/components/people/LifecycleActionPanel';
 import { lifecycleEventsToTimelineItems } from '@/lib/lifecycle-display';
+import {
+  LIFECYCLE_ACTIONS,
+  evaluateActionKind,
+  type LifecycleActionKind,
+} from '@/lib/lifecycle-actions';
 import { useNav } from '@/context/NavContext';
 import { useCompany } from '@/context/CompanyContext';
 import { getEmployee } from '@/lib/employees-api';
-import { createLifecycleEvent, listLifecycleEvents } from '@/lib/lifecycle-api';
-import {
-  listDepartments,
-  listDesignations,
-  listEmploymentTypes,
-} from '@/lib/organization-api';
+import { listLifecycleEvents } from '@/lib/lifecycle-api';
 import { ApiError } from '@/lib/tenant-api-client';
-
-type ActionKey =
-  | 'promotion'
-  | 'transfer'
-  | 'salary_revision'
-  | 'probation'
-  | 'confirmation'
-  | 'suspension'
-  | 'resignation'
-  | 'termination'
-  | 'rehire';
-
-const actions: {
-  type: ActionKey;
-  eventType: LifecycleEventType;
-  label: string;
-  description: string;
-  icon: typeof TrendingUp;
-}[] = [
-  { type: 'promotion', eventType: 'promotion', label: 'Promotion', description: 'Promote to a higher role', icon: TrendingUp },
-  { type: 'transfer', eventType: 'transfer', label: 'Transfer', description: 'Move department or location', icon: ArrowRightLeft },
-  { type: 'salary_revision', eventType: 'salary_revision', label: 'Salary Revision', description: 'Adjust compensation', icon: DollarSign },
-  { type: 'probation', eventType: 'probation', label: 'Extend Probation', description: 'Update probation end date', icon: CheckCircle2 },
-  { type: 'confirmation', eventType: 'confirmation', label: 'Confirmation', description: 'Confirm after probation', icon: CheckCircle2 },
-  { type: 'suspension', eventType: 'suspension', label: 'Suspension', description: 'Temporarily suspend employee', icon: Ban },
-  { type: 'resignation', eventType: 'resignation', label: 'Resignation', description: 'Voluntary exit', icon: LogOut },
-  { type: 'termination', eventType: 'termination', label: 'Termination', description: 'Involuntary exit', icon: LogOut },
-  { type: 'rehire', eventType: 'rehire', label: 'Rehire', description: 'Re-engage former employee', icon: RotateCcw },
-];
 
 export function LifecycleEventsPage() {
   const { navigate, selectedEmployeeId } = useNav();
   const { companyId } = useCompany();
+  const { user } = useAuth();
   const [emp, setEmp] = useState<EmployeeRecord | null>(null);
-  const [events, setEvents] = useState<Awaited<ReturnType<typeof listLifecycleEvents>>>([]);
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
-  const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
-  const [employmentTypes, setEmploymentTypes] = useState<{ id: string; name: string }[]>([]);
+  const [events, setEvents] = useState<LifecycleEventRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<ActionKey | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
-  const [notes, setNotes] = useState('');
-  const [form, setForm] = useState<Record<string, string>>({});
+  const [activeAction, setActiveAction] = useState<LifecycleActionKind | null>(null);
 
   const load = useCallback(async () => {
-    if (!selectedEmployeeId || !companyId) return;
+    if (!selectedEmployeeId) return;
     setLoading(true);
     setError(null);
     try {
-      const [employee, history, depts, desigs, types] = await Promise.all([
+      const [employee, history] = await Promise.all([
         getEmployee(selectedEmployeeId),
         listLifecycleEvents(selectedEmployeeId),
-        listDepartments(companyId),
-        listDesignations(companyId),
-        listEmploymentTypes(companyId),
       ]);
       setEmp(employee);
       setEvents(history);
-      setDepartments(depts.map((d) => ({ id: d.id, name: d.name })));
-      setDesignations(desigs.map((d) => ({ id: d.id, name: d.name })));
-      setEmploymentTypes(types.map((t) => ({ id: t.id, name: t.name })));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [selectedEmployeeId, companyId]);
+  }, [selectedEmployeeId]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  const buildDetails = (action: ActionKey): Record<string, unknown> => {
-    const base = notes ? { notes } : {};
-    switch (action) {
-      case 'promotion':
-        return { ...base, newDesignationId: form.newDesignationId, ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}) };
-      case 'transfer':
-        return {
-          ...base,
-          ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}),
-          ...(form.newManagerId ? { newManagerId: form.newManagerId } : {}),
-        };
-      case 'salary_revision':
-        return { ...base, previousAmount: Number(form.previousAmount), newAmount: Number(form.newAmount), currency: form.currency || 'AUD' };
-      case 'probation':
-        return { ...base, newProbationEndDate: form.newProbationEndDate };
-      case 'confirmation':
-        return { ...base, confirmationDate: form.confirmationDate || effectiveDate };
-      case 'suspension':
-        return { ...base, reason: form.reason };
-      case 'resignation':
-        return { ...base, ...(form.reason ? { reason: form.reason } : {}), ...(form.lastWorkingDate ? { lastWorkingDate: form.lastWorkingDate } : {}) };
-      case 'termination':
-        return { ...base, reason: form.reason, ...(form.lastWorkingDate ? { lastWorkingDate: form.lastWorkingDate } : {}) };
-      case 'rehire':
-        return {
-          ...base,
-          ...(form.newHireDate ? { newHireDate: form.newHireDate } : {}),
-          ...(form.newDepartmentId ? { newDepartmentId: form.newDepartmentId } : {}),
-          ...(form.newDesignationId ? { newDesignationId: form.newDesignationId } : {}),
-        };
-      default:
-        return base;
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!selectedEmployeeId || !activeAction) return;
-    const actionMeta = actions.find((a) => a.type === activeAction);
-    if (!actionMeta) return;
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      await createLifecycleEvent(selectedEmployeeId, {
-        eventType: actionMeta.eventType,
-        effectiveDate,
-        details: buildDetails(activeAction),
-      });
-      setActiveAction(null);
-      setForm({});
-      setNotes('');
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Submit failed');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   if (!selectedEmployeeId) {
     return (
@@ -202,7 +92,7 @@ export function LifecycleEventsPage() {
             </div>
             <div className="text-sm text-secondary">{emp.designation?.name ?? '—'} · {emp.department?.name ?? '—'}</div>
           </div>
-          <Badge tone="success" dot>{emp.employmentStatus}</Badge>
+          <Badge tone={emp.employmentStatus === 'terminated' ? 'error' : 'success'} dot>{emp.employmentStatus}</Badge>
         </CardBody>
       </Card>
 
@@ -212,20 +102,32 @@ export function LifecycleEventsPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {actions.map((action) => {
+        {LIFECYCLE_ACTIONS.map((action) => {
           const Icon = action.icon;
+          const decision = evaluateActionKind(user, action.kind, emp);
           return (
-            <Card key={action.type} className="hover:shadow-card-hover cursor-pointer" onClick={() => { setActiveAction(action.type); setForm({}); }}>
-              <CardBody className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 flex items-center justify-center">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-primary">{action.label}</div>
-                  <div className="text-xs text-secondary mt-0.5">{action.description}</div>
-                </div>
-              </CardBody>
-            </Card>
+            <button
+              key={action.kind}
+              type="button"
+              disabled={!decision.allowed}
+              title={decision.allowed ? undefined : decision.message}
+              onClick={() => setActiveAction(action.kind)}
+              className="text-left disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Card className={decision.allowed ? 'hover:shadow-card-hover h-full' : 'h-full'}>
+                <CardBody className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 flex items-center justify-center shrink-0">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-primary">{action.label}</div>
+                    <div className="text-xs text-secondary mt-0.5">
+                      {decision.allowed ? action.description : decision.message}
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            </button>
           );
         })}
       </div>
@@ -243,103 +145,16 @@ export function LifecycleEventsPage() {
         </CardBody>
       </Card>
 
-      <Modal
-        open={activeAction !== null}
-        onClose={() => setActiveAction(null)}
-        title={actions.find((a) => a.type === activeAction)?.label ?? 'Lifecycle Event'}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setActiveAction(null)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void handleSubmit()} disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit'}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <Label>Effective Date</Label>
-            <Input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
-          </div>
-
-          {activeAction === 'promotion' && (
-            <>
-              <div><Label>New Designation</Label>
-                <Select value={form.newDesignationId ?? ''} onChange={(e) => setForm({ ...form, newDesignationId: e.target.value })}>
-                  <option value="">Select…</option>
-                  {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>New Department (optional)</Label>
-                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
-                  <option value="">Same</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-            </>
-          )}
-
-          {activeAction === 'transfer' && (
-            <>
-              <div><Label>New Department</Label>
-                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
-                  <option value="">Select…</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-            </>
-          )}
-
-          {activeAction === 'salary_revision' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>Previous Amount</Label><Input type="number" value={form.previousAmount ?? ''} onChange={(e) => setForm({ ...form, previousAmount: e.target.value })} /></div>
-              <div><Label>New Amount</Label><Input type="number" value={form.newAmount ?? ''} onChange={(e) => setForm({ ...form, newAmount: e.target.value })} /></div>
-            </div>
-          )}
-
-          {activeAction === 'probation' && (
-            <div><Label>New Probation End Date</Label><Input type="date" value={form.newProbationEndDate ?? ''} onChange={(e) => setForm({ ...form, newProbationEndDate: e.target.value })} /></div>
-          )}
-
-          {activeAction === 'confirmation' && (
-            <div><Label>Confirmation Date</Label><Input type="date" value={form.confirmationDate ?? effectiveDate} onChange={(e) => setForm({ ...form, confirmationDate: e.target.value })} /></div>
-          )}
-
-          {(activeAction === 'suspension' || activeAction === 'termination') && (
-            <div><Label>Reason</Label><Input value={form.reason ?? ''} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
-          )}
-
-          {activeAction === 'resignation' && (
-            <>
-              <div><Label>Reason (optional)</Label><Input value={form.reason ?? ''} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
-              <div><Label>Last Working Date</Label><Input type="date" value={form.lastWorkingDate ?? ''} onChange={(e) => setForm({ ...form, lastWorkingDate: e.target.value })} /></div>
-            </>
-          )}
-
-          {activeAction === 'rehire' && (
-            <>
-              <div><Label>New Hire Date</Label><Input type="date" value={form.newHireDate ?? ''} onChange={(e) => setForm({ ...form, newHireDate: e.target.value })} /></div>
-              <div><Label>Department</Label>
-                <Select value={form.newDepartmentId ?? ''} onChange={(e) => setForm({ ...form, newDepartmentId: e.target.value })}>
-                  <option value="">Select…</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-              <div><Label>Designation</Label>
-                <Select value={form.newDesignationId ?? ''} onChange={(e) => setForm({ ...form, newDesignationId: e.target.value })}>
-                  <option value="">Select…</option>
-                  {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-            </>
-          )}
-
-          <div>
-            <Label>Notes</Label>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-        </div>
-      </Modal>
+      {companyId ? (
+        <LifecycleActionPanel
+          open={activeAction !== null}
+          kind={activeAction}
+          employee={emp}
+          companyId={companyId}
+          onClose={() => setActiveAction(null)}
+          onRecorded={() => void load()}
+        />
+      ) : null}
     </div>
   );
 }

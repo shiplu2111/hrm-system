@@ -7,6 +7,8 @@ import type {
   EngagementSurveyAnswerInput,
   EngagementSurveyRecord,
   LeaveBalanceRecord,
+  LeaveRequestPreview,
+  LeaveRequestPreviewInput,
   LeaveRequestRecord,
   LeaveTypeRecord,
   RosterRecord,
@@ -92,10 +94,30 @@ export function listLeaveRequests(
   companyId: string,
   employeeId: string,
 ): Promise<LeaveRequestRecord[]> {
-  const qs = `?employeeId=${encodeURIComponent(employeeId)}`;
+  const qs = `?employeeId=${encodeURIComponent(employeeId)}&pageSize=100`;
   return portalApiRequest<LeaveRequestRecord[]>(
     PORTAL,
     `/companies/${companyId}/leave-requests${qs}`,
+  );
+}
+
+export function previewLeaveRequest(
+  employeeId: string,
+  input: LeaveRequestPreviewInput,
+  signal?: AbortSignal,
+): Promise<LeaveRequestPreview> {
+  return portalApiRequest<LeaveRequestPreview>(
+    PORTAL,
+    `/employees/${employeeId}/leave-requests/preview`,
+    { method: 'POST', body: JSON.stringify(input), signal },
+  );
+}
+
+export function cancelLeaveRequest(requestId: string): Promise<LeaveRequestRecord> {
+  return portalApiRequest<LeaveRequestRecord>(
+    PORTAL,
+    `/leave-requests/${requestId}/cancel`,
+    { method: 'POST' },
   );
 }
 

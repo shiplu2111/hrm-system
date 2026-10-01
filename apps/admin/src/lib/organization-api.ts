@@ -6,6 +6,7 @@ import type {
   DesignationRecord,
   JobLevelRecord,
   NamedOrgEntity,
+  OrgChartData,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -15,6 +16,10 @@ function companyPath(companyId: string, resource: string): string {
 
 export function listCompanies(): Promise<CompanySummary[]> {
   return tenantApiRequest<CompanySummary[]>('/organization/companies');
+}
+
+export function getOrgChart(companyId: string): Promise<OrgChartData> {
+  return tenantApiRequest<OrgChartData>(companyPath(companyId, 'org-chart'));
 }
 
 // Departments

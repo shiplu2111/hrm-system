@@ -35,6 +35,7 @@ export interface PortalSessionUser {
   roleName: string;
   employeeId: string | null;
   permissions: PermissionClaim[];
+  mustChangePassword?: boolean;
 }
 
 interface JwtPayload {
@@ -44,6 +45,7 @@ interface JwtPayload {
   role_name?: string;
   employee_id: string | null;
   permissions?: PermissionClaim[];
+  must_change_password?: boolean;
   exp?: number;
 }
 
@@ -64,6 +66,10 @@ interface ApiEnvelope<T> {
 
 interface ApiErrorBody {
   error?: { code?: string; message?: string };
+}
+
+export function getPortalTokenKey(portal: PortalKind): string {
+  return TOKEN_KEYS[portal];
 }
 
 export function getPortalToken(portal: PortalKind): string | null {
@@ -97,6 +103,18 @@ export function clearPortalToken(portal: PortalKind): void {
   localStorage.removeItem(TOKEN_KEYS[portal]);
   localStorage.removeItem(REFRESH_TOKEN_KEYS[portal]);
   localStorage.removeItem(SESSION_KEYS[portal]);
+}
+
+export const SESSION_EXPIRED_EVENT = 'hrm:session-expired';
+
+/** Clears stored credentials and tells the mounted AuthProvider to show the login page. */
+export function notifySessionExpired(portal: PortalKind): void {
+  clearPortalToken(portal);
+  window.dispatchEvent(
+    new CustomEvent<{ portal: PortalKind }>(SESSION_EXPIRED_EVENT, {
+      detail: { portal },
+    }),
+  );
 }
 
 export function getPortalSession(portal: PortalKind): PortalSessionUser | null {
@@ -167,6 +185,7 @@ export function validatePortalSession(portal: PortalKind): PortalSessionUser | n
     roleName: payload.role_name ?? '',
     employeeId: payload.employee_id ?? null,
     permissions: payload.permissions ?? [],
+    mustChangePassword: payload.must_change_password === true,
   };
 
   try {
@@ -350,7 +369,7 @@ export async function portalApiRequest<T>(
     const errorBody = payload as ApiErrorBody;
 
     if (response.status === 401 && !retried && !path.startsWith('/auth/')) {
-      clearPortalToken(portal);
+      notifySessionExpired(portal);
       throw new ApiError(
         errorBody.error?.message ?? 'Session expired',
         401,
@@ -366,6 +385,24 @@ export async function portalApiRequest<T>(
   }
 
   return (payload as ApiEnvelope<T>).data;
+}
+
+/** Replaces the password and swaps in the fresh token bundle the API issues (all other sessions are revoked). */
+export async function portalChangePassword(
+  portal: PortalKind,
+  currentPassword: string,
+  newPassword: string,
+): Promise<PortalSessionUser> {
+  const data = await portalApiRequest<{
+    accessToken: string;
+    refreshToken: string;
+    user: PortalSessionUser;
+  }>(portal, '/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  applyPortalAuthBundle(portal, data);
+  return data.user;
 }
 
 export async function listPortalTenants(

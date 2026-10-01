@@ -279,7 +279,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
   })),
   'HR Admin': [
     { module: 'employee', actions: ['view', 'create', 'edit'] },
-    { module: 'leave', actions: ['view', 'approve'] },
+    { module: 'leave', actions: ['view', 'create', 'approve'] },
     { module: 'payroll', actions: ['view', 'create', 'edit'] },
     { module: 'attendance', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
     { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
@@ -294,14 +294,14 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
   ],
   'Payroll Admin': [
     { module: 'employee', actions: ['view'] },
-    { module: 'leave', actions: ['view'] },
+    { module: 'leave', actions: ['view', 'create'] },
     { module: 'payroll', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
     { module: 'attendance', actions: ['view'] },
     { module: 'contractors', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
   ],
   Manager: [
     { module: 'employee', actions: ['view'] },
-    { module: 'leave', actions: ['view', 'approve'] },
+    { module: 'leave', actions: ['view', 'create', 'approve'] },
     { module: 'attendance', actions: ['view', 'approve'] },
     { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'training', actions: ['view', 'create', 'edit'] },

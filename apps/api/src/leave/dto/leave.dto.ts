@@ -213,6 +213,7 @@ export class CreateLeaveRequestDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   reason?: string;
 
   @IsOptional()
@@ -224,9 +225,25 @@ export class CreateLeaveRequestDto {
   localId?: string;
 }
 
+export class PreviewLeaveRequestDto {
+  @IsUUID()
+  leaveTypeId!: string;
+
+  @IsDateString()
+  startDate!: string;
+
+  @IsDateString()
+  endDate!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  halfDay?: boolean;
+}
+
 export class LeaveApprovalActionDto {
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   comment?: string;
 }
 

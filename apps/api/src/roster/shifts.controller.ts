@@ -23,7 +23,7 @@ export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 
   @Get()
-  @RequirePermission('settings', 'view')
+  @RequirePermission('attendance', 'view')
   @ApiOperation({ summary: 'List shift definitions for a company' })
   async list(
     @Param('companyId', ParseUUIDPipe) companyId: string,
@@ -32,7 +32,7 @@ export class ShiftsController {
   }
 
   @Get(':shiftId')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('attendance', 'view')
   async get(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('shiftId', ParseUUIDPipe) shiftId: string,

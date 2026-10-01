@@ -540,6 +540,7 @@ model Employee {
   lifecycleEvents EmployeeLifecycleEvent[]
   attendanceRecords AttendanceRecord[]
   attendanceSyncEvents AttendanceSyncEvent[]
+  attendanceCorrections AttendanceCorrection[] @relation("AttendanceCorrectionSubject")
   rosters           Roster[]
   leaveBalances     LeaveBalance[]
   leaveRequests     LeaveRequest[]
@@ -890,6 +891,7 @@ model AttendanceRecord {
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   breaks   Break[]
   syncEvents AttendanceSyncEvent[]
+  corrections AttendanceCorrection[]
 
   /// Idempotent sync: replaying the same (employee_id, local_id) must never duplicate (OFFLINE_SYNC.md §2)
   @@unique([employeeId, localId], map: "attendance_records_employee_id_local_id_key")
@@ -945,6 +947,55 @@ model AttendanceSyncEvent {
   @@unique([employeeId, localId], map: "attendance_sync_events_employee_id_local_id_key")
   @@index([attendanceRecordId])
   @@map("attendance_sync_events")
+}
+
+enum AttendanceCorrectionKind {
+  regularization
+  flag_approval
+
+  @@map("attendance_correction_kind")
+}
+
+enum AttendanceCorrectionStatus {
+  pending
+  approved
+  rejected
+
+  @@map("attendance_correction_status")
+}
+
+/// Linked adjustment for an attendance day (ATTENDANCE_LOGIC.md §7–§8). `original_values` keeps the
+/// record as captured before the correction was applied, for audit.
+model AttendanceCorrection {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  tenantId              String                     @map("tenant_id") @db.Uuid
+  companyId             String                     @map("company_id") @db.Uuid
+  employeeId            String                     @map("employee_id") @db.Uuid
+  attendanceRecordId    String?                    @map("attendance_record_id") @db.Uuid
+  date                  DateTime                   @db.Date
+  kind                  AttendanceCorrectionKind
+  status                AttendanceCorrectionStatus @default(pending)
+  reason                String
+  originalValues        Json                       @default("{}") @map("original_values")
+  requestedClockInAt    DateTime?                  @map("requested_clock_in_at")
+  requestedClockOutAt   DateTime?                  @map("requested_clock_out_at")
+  requestedStatus       AttendanceRecordStatus?    @map("requested_status")
+  useServerTime         Boolean                    @default(false) @map("use_server_time")
+  requestedByUserId     String                     @map("requested_by_user_id") @db.Uuid
+  reviewedByUserId      String?                    @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt            DateTime?                  @map("reviewed_at")
+  reviewComment         String?                    @map("review_comment")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+
+  employee         Employee          @relation("AttendanceCorrectionSubject", fields: [employeeId], references: [id], onDelete: Restrict)
+  attendanceRecord AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([employeeId, date])
+  @@index([attendanceRecordId])
+  @@map("attendance_corrections")
 }
 
 // ---------------------------------------------------------------------------
@@ -4891,6 +4942,7 @@ model User {
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime? @map("locked_until")
   lastLoginAt         DateTime? @map("last_login_at")
+  mustChangePassword  Boolean   @default(false) @map("must_change_password")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 

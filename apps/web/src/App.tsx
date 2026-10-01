@@ -6,10 +6,11 @@ import {
 } from '@hrm/portal-ui';
 import { useEffect } from 'react';
 import { EmployeeLoginPage } from '@/pages/auth/EmployeeLoginPage';
+import { EmployeePasswordChangePage } from '@/pages/auth/EmployeePasswordChangePage';
 import { ESSPortalPage } from '@/pages/ess/ESSPortalPage';
 
 function EmployeeApp() {
-  const { isAuthenticated, login, logout, user } = useAuth();
+  const { isAuthenticated, login, logout, user, changePassword } = useAuth();
 
   useEffect(() => {
     if (isAuthenticated && user && !isEmployeePortalUser(user)) {
@@ -19,6 +20,16 @@ function EmployeeApp() {
 
   if (!isAuthenticated) {
     return <EmployeeLoginPage onLogin={login} />;
+  }
+
+  if (user?.mustChangePassword) {
+    return (
+      <EmployeePasswordChangePage
+        email={user.email}
+        onSubmit={changePassword}
+        onSignOut={logout}
+      />
+    );
   }
 
   return <ESSPortalPage onLogout={logout} />;

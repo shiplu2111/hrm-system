@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  BulkAssignRosterDto,
+  BulkClearRosterDto,
   CreateRosterDto,
   ListRostersQueryDto,
   UpdateRosterDto,
@@ -38,6 +40,35 @@ export class RostersController {
   ) {
     const result = await this.rostersService.list(companyId, query);
     return { data: result.data, meta: { total: result.total } };
+  }
+
+  @Get('locations')
+  @RequirePermission('attendance', 'view')
+  @ApiOperation({ summary: 'Locations available for roster assignment' })
+  async listLocations(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['listLocations']>>>> {
+    return { data: await this.rostersService.listLocations(companyId) };
+  }
+
+  @Post('bulk')
+  @RequirePermission('attendance', 'create')
+  @ApiOperation({ summary: 'Assign a shift to many employees across many dates' })
+  async bulkAssign(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: BulkAssignRosterDto,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['bulkAssign']>>>> {
+    return { data: await this.rostersService.bulkAssign(companyId, dto) };
+  }
+
+  @Post('bulk-clear')
+  @RequirePermission('attendance', 'delete')
+  @ApiOperation({ summary: 'Remove roster entries for many employees across many dates' })
+  async bulkClear(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: BulkClearRosterDto,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['bulkClear']>>>> {
+    return { data: await this.rostersService.bulkClear(companyId, dto) };
   }
 
   @Get(':rosterId')

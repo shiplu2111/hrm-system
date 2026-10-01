@@ -1,5 +1,6 @@
 import {
   AuthProvider,
+  ForcedPasswordChangePage,
   PortalLoginPage,
   isAdminPortalUser,
   useAuth,
@@ -177,7 +178,7 @@ function PageRoutes() {
 }
 
 function AdminApp() {
-  const { isAuthenticated, login, logout, user } = useAuth();
+  const { isAuthenticated, login, logout, user, changePassword } = useAuth();
 
   useEffect(() => {
     if (isAuthenticated && user && !isAdminPortalUser(user)) {
@@ -187,6 +188,16 @@ function AdminApp() {
 
   if (!isAuthenticated) {
     return <PortalLoginPage portal="admin" onLogin={login} />;
+  }
+
+  if (user?.mustChangePassword) {
+    return (
+      <ForcedPasswordChangePage
+        email={user.email}
+        onSubmit={changePassword}
+        onSignOut={logout}
+      />
+    );
   }
 
   return (

@@ -10,6 +10,7 @@ export interface AccessTokenPayload {
   role_name: string;
   employee_id: string | null;
   permissions: PermissionClaim[];
+  must_change_password?: boolean;
 }
 
 export interface AuthenticatedUser {
@@ -20,6 +21,7 @@ export interface AuthenticatedUser {
   employeeId: string | null;
   email: string;
   permissions: PermissionClaim[];
+  mustChangePassword?: boolean;
   authMethod?: 'jwt' | 'api_key' | 'oauth';
   apiKeyId?: string;
   oauthClientId?: string;

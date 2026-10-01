@@ -75,6 +75,78 @@
   }
 }
 
+/* Org chart connectors: each <li> draws its half of the sibling bar plus a drop line. */
+.org-tree ul {
+  display: flex;
+  justify-content: center;
+  position: relative;
+  padding-top: 20px;
+}
+.org-tree li {
+  list-style: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 6px 0;
+}
+.org-tree li::before,
+.org-tree li::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 20px;
+  border-top: 1px solid rgb(var(--border-strong));
+}
+.org-tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 1px solid rgb(var(--border-strong));
+}
+.org-tree li:only-child {
+  padding-top: 0;
+}
+.org-tree li:only-child::before,
+.org-tree li:only-child::after {
+  display: none;
+}
+.org-tree li:first-child::before,
+.org-tree li:last-child::after {
+  border: 0 none;
+}
+.org-tree li:last-child::before {
+  border-right: 1px solid rgb(var(--border-strong));
+  border-radius: 0 6px 0 0;
+}
+.org-tree li:first-child::after {
+  border-radius: 6px 0 0 0;
+}
+.org-tree ul ul::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 20px;
+  border-left: 1px solid rgb(var(--border-strong));
+}
+.org-tree li.is-vacancy::before,
+.org-tree li.is-vacancy::after {
+  border-style: dashed;
+}
+.org-tree > ul {
+  padding-top: 0;
+  gap: 48px;
+}
+.org-tree > ul > li {
+  padding-top: 0;
+}
+.org-tree > ul > li::before,
+.org-tree > ul > li::after {
+  display: none;
+}
+
 /* Smooth theme transition */
 .theme-transition,
 .theme-transition * {

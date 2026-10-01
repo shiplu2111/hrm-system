@@ -72,6 +72,42 @@ export function startOfLocalCalendarDay(
   return utcDateFromLocalKey(localDateKey(instant, timezone));
 }
 
+function timezoneOffsetMs(instant: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+  return asUtc - Math.floor(instant.getTime() / 1000) * 1000;
+}
+
+/** Instant for a wall-clock time ("HH:mm") on a local calendar date in `timezone`. */
+export function zonedTimeToUtc(dateKey: string, time: string, timezone: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  if (!year || !month || !day || hour === undefined || minute === undefined || Number.isNaN(hour) || Number.isNaN(minute)) {
+    throw new Error(`Invalid local date/time: ${dateKey} ${time}`);
+  }
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const first = guess - timezoneOffsetMs(new Date(guess), timezone);
+  const second = guess - timezoneOffsetMs(new Date(first), timezone);
+  return new Date(second);
+}
+
+/** Next calendar date key (YYYY-MM-DD). */
+export function addDaysToKey(dateKey: string, days: number): string {
+  const date = utcDateFromLocalKey(dateKey);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 /** Parse YYYY-MM-DD input as a local branch calendar date (UTC row key). */
 export function parseLocalDateInput(dateInput: string): Date {
   return utcDateFromLocalKey(dateInput);

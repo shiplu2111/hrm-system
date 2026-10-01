@@ -1,237 +1,432 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Loader2 } from 'lucide-react';
-import type { DesignationRecord } from '@hrm/shared-types';
-import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BadgeCheck, Plus } from 'lucide-react';
+import type { DesignationRecord, JobLevelRecord } from '@hrm/shared-types';
+import { usePermission } from '@hrm/portal-ui';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { FieldError } from '@/components/ui/FieldError';
 import { Input, Label, Select } from '@/components/ui/Form';
-import { Dropdown, DropdownItem, DropdownDivider } from '@/components/ui/Dropdown';
-import { CompanySelector } from '@/components/org/CompanySelector';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import {
+  DataTable,
+  DataTableBody,
+  DataTableHead,
+  SortableHeader,
+  type SortDirection,
+} from '@/components/ui/DataTable';
 import { OrgPageState } from '@/components/org/OrgPageState';
+import {
+  OrgErrorBanner,
+  OrgFormModal,
+  OrgPageHeader,
+  OrgRowActions,
+  OrgSearchInput,
+  OrgTableSkeleton,
+  UsageBadge,
+} from '@/components/org/OrgScreenParts';
+import { useEmployeeUsage } from '@/hooks/useEmployeeUsage';
+import { useOrgForm } from '@/hooks/useOrgForm';
+import { flattenDepartments, type FlatDepartment } from '@/lib/department-tree';
+import { validateOrgName } from '@/lib/org-validation';
 import {
   createDesignation,
   deleteDesignation,
-  listDepartments,
+  getDepartmentTree,
   listDesignations,
   listJobLevels,
   updateDesignation,
 } from '@/lib/organization-api';
 import { ApiError } from '@/lib/tenant-api-client';
 
+type DesignationForm = {
+  name: string;
+  departmentId: string;
+  jobLevelId: string;
+  salaryGrade: string;
+};
+
+type SortKey = 'name' | 'department' | 'jobLevel' | 'salaryGrade' | 'employees';
+
+const EMPTY_FORM: DesignationForm = { name: '', departmentId: '', jobLevelId: '', salaryGrade: '' };
+const SALARY_GRADE_MAX = 20;
+
 function DesignationsContent({ companyId }: { companyId: string }) {
+  const canCreate = usePermission('settings', 'create');
+  const usage = useEmployeeUsage(companyId, 'designationId');
   const [rows, setRows] = useState<DesignationRecord[]>([]);
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
-  const [jobLevels, setJobLevels] = useState<{ id: string; code: string; name: string }[]>([]);
-  const [search, setSearch] = useState('');
+  const [departments, setDepartments] = useState<FlatDepartment[]>([]);
+  const [jobLevels, setJobLevels] = useState<JobLevelRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [jobLevelFilter, setJobLevelFilter] = useState('');
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDirection }>({ key: 'name', dir: 'asc' });
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DesignationRecord | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    departmentId: '',
-    jobLevelId: '',
-    salaryGrade: '',
-  });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<DesignationRecord | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
-      const [designations, depts, levels] = await Promise.all([
+      const [designations, tree, levels] = await Promise.all([
         listDesignations(companyId),
-        listDepartments(companyId),
+        getDepartmentTree(companyId),
         listJobLevels(companyId),
       ]);
       setRows(designations);
-      setDepartments(depts.map((d) => ({ id: d.id, name: d.name })));
-      setJobLevels(levels.map((l) => ({ id: l.id, code: l.code, name: l.name })));
+      setDepartments(flattenDepartments(tree));
+      setJobLevels(levels);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load');
+      setLoadError(err instanceof ApiError ? err.message : 'Failed to load designations');
     } finally {
       setLoading(false);
     }
   }, [companyId]);
 
   useEffect(() => {
+    setLoading(true);
     void load();
   }, [load]);
 
-  const filtered = rows.filter((d) =>
-    d.name.toLowerCase().includes(search.toLowerCase()),
+  const departmentPath = useMemo(
+    () => new Map(departments.map((d) => [d.node.id, d.path.join(' › ')])),
+    [departments],
   );
+  const levelRank = useMemo(() => new Map(jobLevels.map((l) => [l.id, l.rank])), [jobLevels]);
 
-  const openAdd = () => {
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = rows.filter(
+      (d) =>
+        (!q ||
+          d.name.toLowerCase().includes(q) ||
+          (d.salaryGrade ?? '').toLowerCase().includes(q)) &&
+        (!departmentFilter ||
+          (departmentFilter === 'none' ? !d.departmentId : d.departmentId === departmentFilter)) &&
+        (!jobLevelFilter ||
+          (jobLevelFilter === 'none' ? !d.jobLevelId : d.jobLevelId === jobLevelFilter)),
+    );
+    const value = (d: DesignationRecord): string | number => {
+      switch (sort.key) {
+        case 'department':
+          return d.departmentId ? (departmentPath.get(d.departmentId) ?? d.department?.name ?? '') : '\uffff';
+        case 'jobLevel':
+          return d.jobLevelId ? (levelRank.get(d.jobLevelId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+        case 'salaryGrade':
+          return d.salaryGrade ?? '\uffff';
+        case 'employees':
+          return usage.countFor(d.id) ?? 0;
+        default:
+          return d.name;
+      }
+    };
+    const factor = sort.dir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const va = value(a);
+      const vb = value(b);
+      const cmp =
+        typeof va === 'number' && typeof vb === 'number'
+          ? va - vb
+          : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base', numeric: true });
+      return cmp * factor || a.name.localeCompare(b.name);
+    });
+  }, [rows, search, departmentFilter, jobLevelFilter, sort, departmentPath, levelRank, usage]);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((prev) => ({ key, dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc' }));
+
+  const validate = useCallback(
+    (values: DesignationForm) => {
+      const sameDepartment = rows.filter((r) => (r.departmentId ?? '') === values.departmentId);
+      const deptName = values.departmentId ? departmentPath.get(values.departmentId) : null;
+      return {
+        name: validateOrgName(
+          values.name,
+          'Designation name',
+          sameDepartment,
+          editing?.id,
+          deptName ? `in ${deptName}` : 'without a department',
+        ),
+        salaryGrade:
+          values.salaryGrade.trim().length > SALARY_GRADE_MAX
+            ? `Salary grade must be ${SALARY_GRADE_MAX} characters or fewer.`
+            : undefined,
+      };
+    },
+    [rows, departmentPath, editing],
+  );
+  const form = useOrgForm<DesignationForm>(EMPTY_FORM, validate);
+
+  const openCreate = () => {
     setEditing(null);
-    setForm({ name: '', departmentId: '', jobLevelId: '', salaryGrade: '' });
+    setSaveError(null);
+    form.reset({
+      ...EMPTY_FORM,
+      departmentId: departmentFilter && departmentFilter !== 'none' ? departmentFilter : '',
+    });
     setModalOpen(true);
   };
 
-  const openEdit = (d: DesignationRecord) => {
-    setEditing(d);
-    setForm({
-      name: d.name,
-      departmentId: d.departmentId ?? '',
-      jobLevelId: d.jobLevelId ?? '',
-      salaryGrade: d.salaryGrade ?? '',
+  const openEdit = (row: DesignationRecord) => {
+    setEditing(row);
+    setSaveError(null);
+    form.reset({
+      name: row.name,
+      departmentId: row.departmentId ?? '',
+      jobLevelId: row.jobLevelId ?? '',
+      salaryGrade: row.salaryGrade ?? '',
     });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) return;
-    setError(null);
+    form.touchAll();
+    if (!form.isValid) return;
+    setSaving(true);
+    setSaveError(null);
+    const payload = {
+      name: form.values.name.trim(),
+      departmentId: form.values.departmentId || null,
+      jobLevelId: form.values.jobLevelId || null,
+      salaryGrade: form.values.salaryGrade.trim() || null,
+    };
     try {
-      const payload = {
-        name: form.name.trim(),
-        departmentId: form.departmentId || null,
-        jobLevelId: form.jobLevelId || null,
-        salaryGrade: form.salaryGrade.trim() || null,
-      };
-      if (editing) {
-        await updateDesignation(companyId, editing.id, payload);
-      } else {
-        await createDesignation(companyId, payload);
-      }
+      if (editing) await updateDesignation(companyId, editing.id, payload);
+      else await createDesignation(companyId, payload);
       setModalOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Save failed');
+      setSaveError(err instanceof ApiError ? err.message : 'Could not save the designation');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this designation?')) return;
-    try {
-      await deleteDesignation(companyId, id);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Delete failed');
-    }
-  };
+  const filtersActive = Boolean(search || departmentFilter || jobLevelFilter);
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-primary">Designations</h1>
-          <p className="text-sm text-secondary mt-0.5">
-            Job titles linked to departments and job levels.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <CompanySelector />
-          <Button variant="primary" onClick={openAdd}>
-            <Plus className="h-4 w-4" /> Add Designation
-          </Button>
-        </div>
-      </div>
+      <OrgPageHeader
+        title="Designations"
+        description="Job titles, each optionally tied to a department, a job level and a salary grade."
+        actionLabel="Add designation"
+        onAction={openCreate}
+      />
 
-      {error && (
-        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">
-          {error}
-        </div>
-      )}
+      {loadError ? <OrgErrorBanner message={loadError} onRetry={() => void load()} /> : null}
 
       <Card>
-        <CardHeader className="flex items-center justify-between gap-3">
-          <CardTitle>All Designations</CardTitle>
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search…"
-              className="pl-9 h-9"
-            />
+        <CardHeader className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <OrgSearchInput value={search} onChange={setSearch} placeholder="Search name or grade" />
+          <div className="flex flex-col sm:flex-row gap-2 lg:ml-auto">
+            <Select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="h-9 sm:w-56"
+              aria-label="Filter by department"
+            >
+              <option value="">All departments</option>
+              <option value="none">No department</option>
+              {departments.map((d) => (
+                <option key={d.node.id} value={d.node.id}>
+                  {`${'\u00A0\u00A0'.repeat(d.depth)}${d.node.name}`}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={jobLevelFilter}
+              onChange={(e) => setJobLevelFilter(e.target.value)}
+              className="h-9 sm:w-48"
+              aria-label="Filter by job level"
+            >
+              <option value="">All job levels</option>
+              <option value="none">No job level</option>
+              {jobLevels.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.code} — {l.name}
+                </option>
+              ))}
+            </Select>
           </div>
         </CardHeader>
-        <CardBody className="p-0">
-          {loading ? (
-            <div className="py-12 flex justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-muted" />
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Name</th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden md:table-cell">Department</th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden lg:table-cell">Job Level</th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden sm:table-cell">Grade</th>
-                  <th className="w-12" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {filtered.map((d) => (
+
+        {loading ? (
+          <OrgTableSkeleton columns={5} />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            compact
+            icon={BadgeCheck}
+            title="No designations yet"
+            description="Designations are the job titles you assign to employees, such as Software Engineer or HR Manager."
+            action={canCreate ? { label: 'Add first designation', onClick: openCreate, icon: Plus } : undefined}
+          />
+        ) : visible.length === 0 ? (
+          <p className="text-sm text-muted text-center py-10">
+            No designations match the current filters.
+          </p>
+        ) : (
+          <DataTable className="max-h-[65vh] overflow-y-auto">
+            <DataTableHead>
+              <tr>
+                <th className="text-left px-5 py-2.5">
+                  <SortableHeader label="Name" active={sort.key === 'name'} direction={sort.dir} onSort={() => toggleSort('name')} />
+                </th>
+                <th className="text-left px-5 py-2.5 hidden md:table-cell">
+                  <SortableHeader label="Department" active={sort.key === 'department'} direction={sort.dir} onSort={() => toggleSort('department')} />
+                </th>
+                <th className="text-left px-5 py-2.5 hidden lg:table-cell">
+                  <SortableHeader label="Job level" active={sort.key === 'jobLevel'} direction={sort.dir} onSort={() => toggleSort('jobLevel')} />
+                </th>
+                <th className="text-left px-5 py-2.5 hidden sm:table-cell">
+                  <SortableHeader label="Grade" active={sort.key === 'salaryGrade'} direction={sort.dir} onSort={() => toggleSort('salaryGrade')} />
+                </th>
+                <th className="text-left px-5 py-2.5 hidden sm:table-cell">
+                  <SortableHeader label="Employees" active={sort.key === 'employees'} direction={sort.dir} onSort={() => toggleSort('employees')} />
+                </th>
+                <th className="w-12" />
+              </tr>
+            </DataTableHead>
+            <DataTableBody>
+              {visible.map((d) => {
+                const count = usage.countFor(d.id);
+                return (
                   <tr key={d.id} className="hover:bg-[rgb(var(--bg-hover))]">
                     <td className="px-5 py-3 font-medium text-primary">{d.name}</td>
-                    <td className="px-5 py-3 text-secondary hidden md:table-cell">{d.department?.name ?? '—'}</td>
+                    <td className="px-5 py-3 text-secondary hidden md:table-cell">
+                      {d.departmentId ? (departmentPath.get(d.departmentId) ?? d.department?.name) : '—'}
+                    </td>
                     <td className="px-5 py-3 text-secondary hidden lg:table-cell">
-                      {d.jobLevel ? `${d.jobLevel.code} — ${d.jobLevel.name}` : '—'}
+                      {d.jobLevel ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Badge tone="neutral">{d.jobLevel.code}</Badge>
+                          {d.jobLevel.name}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-5 py-3 text-secondary hidden sm:table-cell">{d.salaryGrade ?? '—'}</td>
-                    <td className="px-5 py-3">
-                      <Dropdown
-                        trigger={
-                          <button type="button" className="text-muted hover:text-primary p-1">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                        }
-                      >
-                        <DropdownItem icon={<Pencil className="h-4 w-4" />} onClick={() => openEdit(d)}>Edit</DropdownItem>
-                        <DropdownDivider />
-                        <DropdownItem icon={<Trash2 className="h-4 w-4" />} onClick={() => void handleDelete(d.id)}>Delete</DropdownItem>
-                      </Dropdown>
+                    <td className="px-5 py-3 text-sm hidden sm:table-cell tabular-nums">
+                      <UsageBadge count={count} noun="employee" />
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <OrgRowActions
+                        label={d.name}
+                        onEdit={() => openEdit(d)}
+                        onDelete={() => setDeleting(d)}
+                        deleteBlockedReason={count ? `Assigned to ${count} employee(s)` : null}
+                      />
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </CardBody>
+                );
+              })}
+            </DataTableBody>
+          </DataTable>
+        )}
+        {!loading && rows.length > 0 ? (
+          <div className="px-5 py-2.5 border-t border-base text-xs text-muted">
+            {filtersActive ? `${visible.length} of ${rows.length}` : rows.length} designation
+            {rows.length === 1 ? '' : 's'}
+          </div>
+        ) : null}
       </Card>
 
-      <Modal
+      <OrgFormModal
         open={modalOpen}
+        title={editing ? 'Edit designation' : 'Add designation'}
+        submitLabel={editing ? 'Save changes' : 'Create designation'}
+        saving={saving}
+        error={saveError}
         onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Designation' : 'Add Designation'}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void handleSave()}>{editing ? 'Save' : 'Create'}</Button>
-          </>
-        }
+        onSubmit={() => void handleSave()}
       >
-        <div className="space-y-4">
+        <div>
+          <Label htmlFor="designation-name">Name *</Label>
+          <Input
+            id="designation-name"
+            autoFocus
+            value={form.values.name}
+            onChange={(e) => form.setField('name', e.target.value)}
+            onBlur={() => form.touch('name')}
+            aria-invalid={Boolean(form.showError('name'))}
+            placeholder="e.g. Senior Software Engineer"
+          />
+          <FieldError message={form.showError('name')} />
+        </div>
+        <div>
+          <Label htmlFor="designation-department">Department</Label>
+          <Select
+            id="designation-department"
+            value={form.values.departmentId}
+            onChange={(e) => form.setField('departmentId', e.target.value)}
+          >
+            <option value="">No specific department</option>
+            {departments.map((d) => (
+              <option key={d.node.id} value={d.node.id}>
+                {`${'\u00A0\u00A0\u00A0'.repeat(d.depth)}${d.depth > 0 ? '└ ' : ''}${d.node.name}`}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </div>
-          <div>
-            <Label>Department</Label>
-            <Select value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-              <option value="">None</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label>Job Level</Label>
-            <Select value={form.jobLevelId} onChange={(e) => setForm({ ...form, jobLevelId: e.target.value })}>
+            <Label htmlFor="designation-level">Job level</Label>
+            <Select
+              id="designation-level"
+              value={form.values.jobLevelId}
+              onChange={(e) => form.setField('jobLevelId', e.target.value)}
+            >
               <option value="">None</option>
               {jobLevels.map((l) => (
-                <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
+                <option key={l.id} value={l.id}>
+                  {l.code} — {l.name}
+                </option>
               ))}
             </Select>
+            {jobLevels.length === 0 ? (
+              <p className="mt-1 text-xs text-muted">No job levels defined yet.</p>
+            ) : null}
           </div>
           <div>
-            <Label>Salary Grade</Label>
-            <Input value={form.salaryGrade} onChange={(e) => setForm({ ...form, salaryGrade: e.target.value })} placeholder="e.g. G5" />
+            <Label htmlFor="designation-grade">Salary grade</Label>
+            <Input
+              id="designation-grade"
+              value={form.values.salaryGrade}
+              onChange={(e) => form.setField('salaryGrade', e.target.value)}
+              onBlur={() => form.touch('salaryGrade')}
+              aria-invalid={Boolean(form.showError('salaryGrade'))}
+              placeholder="e.g. G5"
+            />
+            <FieldError message={form.showError('salaryGrade')} />
           </div>
         </div>
-      </Modal>
+      </OrgFormModal>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete designation?"
+        confirmLabel="Delete designation"
+        description={
+          deleting ? (
+            <>
+              <span className="font-medium text-primary">{deleting.name}</span> will be permanently
+              removed.
+            </>
+          ) : null
+        }
+        onConfirm={async () => {
+          if (!deleting) return;
+          await deleteDesignation(companyId, deleting.id);
+          await Promise.all([load(), usage.reload()]);
+        }}
+        onClose={() => setDeleting(null)}
+      />
     </div>
   );
 }

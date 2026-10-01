@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { evaluateLifecycleAction } from '@hrm/shared-types';
 import {
   EmploymentStatus,
   LifecycleEventType,
@@ -87,6 +89,42 @@ export class LifecycleService {
 
     await this.getEmployeeOrThrow(row.employeeId);
     return this.toResponse(row);
+  }
+
+  /**
+   * Per-event role gate for user-initiated requests (LIFECYCLE_ACTION_POLICY).
+   * Internal callers such as the performance module authorize separately.
+   */
+  async assertCanRecordEvent(
+    employeeId: string,
+    eventType: LifecycleEventType,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const employee = await this.getEmployeeOrThrow(employeeId, {
+      includeDeleted: eventType === LifecycleEventType.rehire,
+    });
+    const isIntegration = user.authMethod === 'api_key' || user.authMethod === 'oauth';
+
+    const decision = evaluateLifecycleAction(
+      user,
+      eventType,
+      { employeeId, employmentStatus: employee.employmentStatus },
+      { enforceRoles: !isIntegration },
+    );
+
+    if (decision.allowed) return;
+
+    if (decision.reason === 'status') {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: decision.message,
+      });
+    }
+
+    throw new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: decision.message,
+    });
   }
 
   async createEvent(

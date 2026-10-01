@@ -28,6 +28,7 @@ import {
 } from '@hrm/portal-ui';
 import { formatAttendanceMinutes, createEmployeeKudos, getEngagementSurvey, listCompanyEmployees, submitEngagementSurveyResponse } from '@/lib/ess-api';
 import { useEffect, useState } from 'react';
+import { LeaveStatusPill } from '@/components/leave/LeaveStatusPill';
 
 function formatTime(iso: string | null, emDash: string): string {
   if (!iso) return emDash;
@@ -363,18 +364,7 @@ export function EmployeeDashboardHome({
                       {t('common.dateRange', { start: req.startDate, end: req.endDate })}
                     </div>
                   </div>
-                  <Badge
-                    tone={
-                      req.status === 'approved'
-                        ? 'success'
-                        : req.status === 'rejected'
-                          ? 'error'
-                          : 'warning'
-                    }
-                    className="capitalize shrink-0"
-                  >
-                    {t(`leave.status.${req.status}`, { defaultValue: req.status })}
-                  </Badge>
+                  <LeaveStatusPill status={req.status} />
                 </div>
               ))
             )}

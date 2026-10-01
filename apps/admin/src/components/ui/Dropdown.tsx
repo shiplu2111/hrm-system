@@ -1,11 +1,15 @@
 import {
   cloneElement,
   isValidElement,
+  useCallback,
+  useLayoutEffect,
+  useRef,
   useState,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
 interface DropdownProps {
@@ -53,6 +57,17 @@ function renderTrigger(
   );
 }
 
+const MENU_GAP = 8;
+const VIEWPORT_MARGIN = 8;
+
+interface MenuPosition {
+  top: number;
+  left?: number;
+  right?: number;
+  maxHeight: number;
+  placement: 'below' | 'above';
+}
+
 export function Dropdown({
   trigger,
   children,
@@ -61,35 +76,93 @@ export function Dropdown({
   onOpenChange,
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<MenuPosition | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
 
-  const setOpenState = (next: boolean) => {
+  const setOpenState = useCallback((next: boolean) => {
     setOpen(next);
-    onOpenChange?.(next);
-  };
+    if (!next) setPosition(null);
+    onOpenChangeRef.current?.(next);
+  }, []);
 
   const toggle = () => setOpenState(!open);
 
+  /** Portaled + fixed so scroll containers (e.g. tables with overflow) cannot clip the menu. */
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    const menu = menuRef.current;
+    if (!anchor || !menu) return;
+    const rect = anchor.getBoundingClientRect();
+    const menuHeight = menu.scrollHeight;
+    const spaceBelow = window.innerHeight - rect.bottom - MENU_GAP - VIEWPORT_MARGIN;
+    const spaceAbove = rect.top - MENU_GAP - VIEWPORT_MARGIN;
+    const placement = menuHeight > spaceBelow && spaceAbove > spaceBelow ? 'above' : 'below';
+    const maxHeight = Math.max(120, placement === 'below' ? spaceBelow : spaceAbove);
+    const height = Math.min(menuHeight, maxHeight);
+    setPosition({
+      top: placement === 'below' ? rect.bottom + MENU_GAP : rect.top - MENU_GAP - height,
+      ...(align === 'right'
+        ? { right: Math.max(VIEWPORT_MARGIN, window.innerWidth - rect.right) }
+        : { left: Math.max(VIEWPORT_MARGIN, rect.left) }),
+      maxHeight,
+      placement,
+    });
+  }, [align]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenState(false);
+    };
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, updatePosition, setOpenState]);
+
   return (
     <div
+      ref={anchorRef}
       className="relative inline-block"
-      onBlur={(e) =>
-        !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpenState(false)
-      }
+      onBlur={(e) => {
+        const next = e.relatedTarget as Node | null;
+        if (!e.currentTarget.contains(next) && !menuRef.current?.contains(next)) {
+          setOpenState(false);
+        }
+      }}
     >
       {renderTrigger(trigger, open, toggle)}
-      {open && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpenState(false)} />
-          <div
-            role="menu"
-            className={`absolute z-40 mt-2 ${width} surface rounded-xl border shadow-elevated py-1.5 animate-scale-in origin-top ${
-              align === 'right' ? 'right-0' : 'left-0'
-            }`}
-          >
-            <div onClick={() => setOpenState(false)}>{children}</div>
-          </div>
-        </>
-      )}
+      {open &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setOpenState(false)} />
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{
+                top: position?.top ?? 0,
+                left: position?.left,
+                right: position?.right,
+                maxHeight: position?.maxHeight,
+                visibility: position ? 'visible' : 'hidden',
+              }}
+              className={`fixed z-[61] ${width} surface rounded-xl border shadow-elevated py-1.5 overflow-y-auto scrollbar-thin animate-scale-in ${
+                position?.placement === 'above' ? 'origin-bottom' : 'origin-top'
+              }`}
+            >
+              <div onClick={() => setOpenState(false)}>{children}</div>
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

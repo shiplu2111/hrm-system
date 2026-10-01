@@ -54,7 +54,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Employment Types', page: 'org-employment-types' },
       { label: 'Teams', page: 'org-teams' },
       { label: 'Cost Centres', page: 'org-cost-centres' },
-      { label: 'Org Chart', page: 'org-chart', hidden: true },
+      { label: 'Org Chart', page: 'org-chart' },
     ],
   },
   {

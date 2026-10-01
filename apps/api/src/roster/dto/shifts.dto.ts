@@ -1,16 +1,21 @@
 import { ShiftType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
-  IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class ShiftRuleDto {
@@ -18,21 +23,34 @@ export class ShiftRuleDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(240)
   graceMinutes?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1440)
   halfDayAfterMinutes?: number;
 
   @IsOptional()
+  @IsBoolean()
   appliesOnWeekend?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  weekendDays?: number[];
 }
 
 export class CreateShiftDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   name!: string;
 
   @IsOptional()
@@ -65,18 +83,22 @@ export class CreateShiftDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1440)
   minimumMinutes?: number;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   lateRule?: ShiftRuleDto;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   earlyLeaveRule?: ShiftRuleDto;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   weekendRule?: ShiftRuleDto;
 
   @IsOptional()
@@ -88,6 +110,7 @@ export class UpdateShiftDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   name?: string;
 
   @IsOptional()
@@ -122,18 +145,22 @@ export class UpdateShiftDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1440)
   minimumMinutes?: number | null;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   lateRule?: ShiftRuleDto | null;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   earlyLeaveRule?: ShiftRuleDto | null;
 
   @IsOptional()
-  @IsObject()
+  @ValidateNested()
+  @Type(() => ShiftRuleDto)
   weekendRule?: ShiftRuleDto | null;
 
   @IsOptional()

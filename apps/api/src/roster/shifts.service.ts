@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Shift } from '@prisma/client';
 import type { ShiftRecord } from '@hrm/shared-types';
+import { computeShiftDuration } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type { CreateShiftDto, UpdateShiftDto } from './dto/shifts.dto';
+import { OVERTIME_RULE_KIND } from './ot-rules.service';
 import { formatTimeValue, parseTimeString } from './roster.utils';
 
 @Injectable()
@@ -23,8 +25,12 @@ export class ShiftsService {
     const rows = await this.prisma.unscoped.shift.findMany({
       where: { companyId },
       orderBy: { name: 'asc' },
+      include: { _count: { select: { rosters: true } } },
     });
-    return rows.map((row) => this.toRecord(row));
+    return rows.map((row) => ({
+      ...this.toRecord(row),
+      assignmentCount: row._count.rosters,
+    }));
   }
 
   async get(companyId: string, shiftId: string): Promise<ShiftRecord> {
@@ -34,6 +40,8 @@ export class ShiftsService {
 
   async create(companyId: string, dto: CreateShiftDto): Promise<ShiftRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    await this.assertUniqueName(companyId, dto.name);
+    this.assertTiming(dto.startTime, dto.endTime, dto.breakMinutes ?? 0);
     if (dto.otRuleId) {
       await this.assertOtRule(companyId, dto.otRuleId);
     }
@@ -67,8 +75,22 @@ export class ShiftsService {
     shiftId: string,
     dto: UpdateShiftDto,
   ): Promise<ShiftRecord> {
-    await this.findShiftOrThrow(companyId, shiftId);
+    const existing = await this.findShiftOrThrow(companyId, shiftId);
 
+    if (dto.name !== undefined) {
+      await this.assertUniqueName(companyId, dto.name, shiftId);
+    }
+    if (
+      dto.startTime !== undefined ||
+      dto.endTime !== undefined ||
+      dto.breakMinutes !== undefined
+    ) {
+      this.assertTiming(
+        dto.startTime ?? formatTimeValue(existing.startTime),
+        dto.endTime ?? formatTimeValue(existing.endTime),
+        dto.breakMinutes ?? existing.breakMinutes,
+      );
+    }
     if (dto.otRuleId) {
       await this.assertOtRule(companyId, dto.otRuleId);
     }
@@ -124,7 +146,7 @@ export class ShiftsService {
     if (rosterCount > 0) {
       throw new ConflictException({
         code: 'CONFLICT',
-        message: 'Shift is assigned on rosters and cannot be deleted',
+        message: `Shift is assigned on ${rosterCount} roster day(s) and cannot be deleted`,
       });
     }
 
@@ -161,6 +183,7 @@ export class ShiftsService {
       where: {
         id: otRuleId,
         OR: [{ companyId }, { companyId: null, countryId: company.countryId }],
+        ruleJson: { path: ['kind'], equals: OVERTIME_RULE_KIND },
       },
     });
 
@@ -168,6 +191,43 @@ export class ShiftsService {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'OT rule not found for this company',
+      });
+    }
+  }
+
+  private async assertUniqueName(
+    companyId: string,
+    name: string,
+    excludeId?: string,
+  ) {
+    const clash = await this.prisma.unscoped.shift.findFirst({
+      where: {
+        companyId,
+        name: { equals: name.trim(), mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `A shift named "${name.trim()}" already exists`,
+      });
+    }
+  }
+
+  private assertTiming(startTime: string, endTime: string, breakMinutes: number) {
+    const duration = computeShiftDuration(startTime, endTime, breakMinutes);
+    if (!duration) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Start and end time must be valid HH:mm values',
+      });
+    }
+    if (breakMinutes >= duration.grossMinutes) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Break must be shorter than the shift',
       });
     }
   }

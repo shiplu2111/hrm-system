@@ -11,10 +11,18 @@ import {
   History,
   Palmtree,
   Pencil,
+  CheckCircle2,
+  KeyRound,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { EmployeePersonalInfo, EmployeeRecord, EmploymentStatus } from '@hrm/shared-types';
-import { PermissionGate } from '@hrm/portal-ui';
+import type {
+  EmployeePersonalInfo,
+  EmployeeRecord,
+  EmploymentStatus,
+  LifecycleEventRecord,
+} from '@hrm/shared-types';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -25,7 +33,12 @@ import { EmployeeFormWizard } from '@/components/people/EmployeeFormWizard';
 import { EmployeeProfileDocumentsTab } from '@/components/people/EmployeeProfileDocumentsTab';
 import { EmployeeProfileLifecycleTab } from '@/components/people/EmployeeProfileLifecycleTab';
 import { EmployeeLeaveBalances } from '@/components/leave/EmployeeLeaveBalances';
+import { EmployeePortalAccessTab } from '@/components/people/EmployeePortalAccessTab';
+import { LifecycleActionPanel } from '@/components/people/LifecycleActionPanel';
+import { LifecycleActionsMenu } from '@/components/people/LifecycleActionsMenu';
 import { useNav } from '@/context/NavContext';
+import { EVENT_LABELS } from '@/lib/lifecycle-display';
+import type { LifecycleActionKind } from '@/lib/lifecycle-actions';
 import { getEmployee, listEmployees, updateEmployee } from '@/lib/employees-api';
 import {
   listCostCentres,
@@ -36,7 +49,7 @@ import {
 import { useCompany } from '@/context/CompanyContext';
 import { ApiError } from '@/lib/tenant-api-client';
 
-type Tab = 'personal' | 'employment' | 'leave' | 'documents' | 'lifecycle';
+type Tab = 'personal' | 'employment' | 'leave' | 'documents' | 'lifecycle' | 'access';
 
 const tabs: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
@@ -44,6 +57,7 @@ const tabs: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: 'leave', label: 'Leave', icon: Palmtree },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'lifecycle', label: 'Lifecycle History', icon: History },
+  { key: 'access', label: 'Portal Access', icon: KeyRound },
 ];
 
 const statusTone: Record<
@@ -75,6 +89,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export function EmployeeProfilePage() {
   const { navigate, selectedEmployeeId } = useNav();
   const { companyId } = useCompany();
+  const canViewAccess = usePermission('settings', 'view');
+  const visibleTabs = tabs.filter((tab) => tab.key !== 'access' || canViewAccess);
   const [emp, setEmp] = useState<EmployeeRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,6 +98,9 @@ export function EmployeeProfilePage() {
   const [activeTab, setActiveTab] = useState<Tab>('personal');
   const [editMode, setEditMode] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleActionKind | null>(null);
+  const [lifecycleRefreshKey, setLifecycleRefreshKey] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
   const [employmentTypes, setEmploymentTypes] = useState<{ id: string; name: string }[]>([]);
@@ -182,6 +201,21 @@ export function EmployeeProfilePage() {
     void load();
   }, [load]);
 
+  const handleLifecycleRecorded = async (event: LifecycleEventRecord) => {
+    setNotice(`${EVENT_LABELS[event.eventType]} recorded for ${event.effectiveDate}.`);
+    setLifecycleRefreshKey((key) => key + 1);
+    setActiveTab('lifecycle');
+    setEditMode(false);
+    if (!selectedEmployeeId) return;
+    try {
+      const record = await getEmployee(selectedEmployeeId);
+      setEmp(record);
+      applyEmployeeToForm(record);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to refresh profile');
+    }
+  };
+
   const buildPersonalInfo = (): EmployeePersonalInfo => ({
     contact: {
       email: form.email || undefined,
@@ -269,6 +303,24 @@ export function EmployeeProfilePage() {
         </div>
       ) : null}
 
+      {notice ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 text-sm text-success-700 dark:text-success-400 bg-success-50 dark:bg-success-950/30 border border-success-200 dark:border-success-800 rounded-lg px-4 py-2"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="text-muted hover:text-primary"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
       <Card>
         <CardBody className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
           <Avatar name={emp.fullName} size="lg" />
@@ -301,8 +353,9 @@ export function EmployeeProfilePage() {
               </Button>
             </div>
           ) : (
-            <PermissionGate module="employee" action="edit">
-              <div className="flex gap-2 shrink-0">
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <LifecycleActionsMenu employee={emp} onSelect={setLifecycleAction} />
+              <PermissionGate module="employee" action="edit">
                 <Button variant="secondary" onClick={() => setWizardOpen(true)}>
                   <Pencil className="h-4 w-4" /> Edit employee
                 </Button>
@@ -311,14 +364,14 @@ export function EmployeeProfilePage() {
                     Quick edit {activeTab === 'personal' ? 'personal' : 'employment'}
                   </Button>
                 )}
-              </div>
-            </PermissionGate>
+              </PermissionGate>
+            </div>
           )}
         </CardBody>
       </Card>
 
       <div className="flex gap-1 border-b border-base overflow-x-auto scrollbar-thin">
-        {tabs.map(({ key, label, icon: Icon }) => (
+        {visibleTabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
@@ -740,17 +793,38 @@ export function EmployeeProfilePage() {
       ) : null}
 
       {activeTab === 'lifecycle' ? (
-        <EmployeeProfileLifecycleTab employeeId={selectedEmployeeId} />
+        <EmployeeProfileLifecycleTab
+          employeeId={selectedEmployeeId}
+          refreshKey={lifecycleRefreshKey}
+        />
+      ) : null}
+
+      {activeTab === 'access' && canViewAccess ? (
+        <EmployeePortalAccessTab
+          key={`${selectedEmployeeId}-${lifecycleRefreshKey}`}
+          employeeId={selectedEmployeeId}
+          employeeName={emp.fullName}
+        />
       ) : null}
 
       {companyId ? (
-        <EmployeeFormWizard
-          open={wizardOpen}
-          onClose={() => setWizardOpen(false)}
-          companyId={companyId}
-          employeeId={selectedEmployeeId}
-          onSuccess={() => void load()}
-        />
+        <>
+          <EmployeeFormWizard
+            open={wizardOpen}
+            onClose={() => setWizardOpen(false)}
+            companyId={companyId}
+            employeeId={selectedEmployeeId}
+            onSuccess={() => void load()}
+          />
+          <LifecycleActionPanel
+            open={lifecycleAction !== null}
+            kind={lifecycleAction}
+            employee={emp}
+            companyId={companyId}
+            onClose={() => setLifecycleAction(null)}
+            onRecorded={(event) => void handleLifecycleRecorded(event)}
+          />
+        </>
       ) : null}
     </div>
   );

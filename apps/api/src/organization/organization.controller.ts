@@ -11,8 +11,11 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { CompanyScopeService } from './company-scope.service';
+import { OrgChartService } from './org-chart.service';
 import {
   CreateCostCentreDto,
   CreateDepartmentDto,
@@ -34,6 +37,7 @@ export class OrganizationController {
   constructor(
     private readonly organizationService: OrganizationService,
     private readonly companyScope: CompanyScopeService,
+    private readonly orgChartService: OrgChartService,
   ) {}
 
   @Get('companies')
@@ -43,6 +47,18 @@ export class OrganizationController {
   @ApiOperation({ summary: 'List companies for the authenticated tenant' })
   async listCompanies() {
     return { data: await this.companyScope.listCompanies() };
+  }
+
+  @Get('companies/:companyId/org-chart')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'Reporting structure with vacated seats and open requisition openings',
+  })
+  async getOrgChart(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.orgChartService.getOrgChart(companyId, user) };
   }
 
   // Departments
