@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateInjuryLogEntryDto,
   ListInjuryLogQueryDto,
@@ -27,18 +28,23 @@ export class InjuryLogService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly rulesService: HealthSafetyRulesService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListInjuryLogQueryDto,
+    user: AuthenticatedUser,
   ): Promise<InjuryLogEntryRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.injuryLogEntry.findMany({
       where: {
         companyId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         incidentId: query.incidentId,
       },
       include: {
@@ -58,6 +64,7 @@ export class InjuryLogService {
     user: AuthenticatedUser,
   ): Promise<InjuryLogEntryRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     const employee = await this.prisma.unscoped.employee.findFirst({
       where: {

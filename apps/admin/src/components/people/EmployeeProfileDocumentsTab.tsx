@@ -5,6 +5,7 @@ import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -43,6 +44,7 @@ export function EmployeeProfileDocumentsTab({
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EmployeeDocumentRecord | null>(null);
   const [form, setForm] = useState({
     documentTypeId: '',
     expiryDate: '',
@@ -53,6 +55,7 @@ export function EmployeeProfileDocumentsTab({
   const selectedType = docTypes.find((t) => t.id === form.documentTypeId);
 
   const canCreate = usePermission('employee', 'create');
+  const canEdit = usePermission('employee', 'edit');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,7 +88,7 @@ export function EmployeeProfileDocumentsTab({
         fields: form.fieldValues,
         expiryDate: form.expiryDate || null,
       });
-      if (form.file) {
+      if (form.file && canEdit) {
         await uploadEmployeeDocumentFile(employeeId, created.id, form.file);
       }
       setModalOpen(false);
@@ -95,6 +98,16 @@ export function EmployeeProfileDocumentsTab({
       setError(err instanceof ApiError ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleVerify = async (documentId: string) => {
+    setError(null);
+    try {
+      await verifyEmployeeDocument(employeeId, documentId);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Verification failed');
     }
   };
 
@@ -209,9 +222,7 @@ export function EmployeeProfileDocumentsTab({
                                 <Button
                                   variant="secondary"
                                   size="sm"
-                                  onClick={() =>
-                                    void verifyEmployeeDocument(employeeId, doc.id).then(load)
-                                  }
+                                  onClick={() => void handleVerify(doc.id)}
                                 >
                                   <Check className="h-3.5 w-3.5" /> Verify
                                 </Button>
@@ -221,9 +232,7 @@ export function EmployeeProfileDocumentsTab({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() =>
-                                  void deleteEmployeeDocument(employeeId, doc.id).then(load)
-                                }
+                                onClick={() => setDeleteTarget(doc)}
                                 aria-label="Delete document"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -240,6 +249,23 @@ export function EmployeeProfileDocumentsTab({
           )}
         </CardBody>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete document"
+        description={
+          deleteTarget
+            ? `Delete ${deleteTarget.documentTypeName}? This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteEmployeeDocument(employeeId, deleteTarget.id);
+          await load();
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
 
       <Modal
         open={modalOpen}
@@ -344,16 +370,18 @@ export function EmployeeProfileDocumentsTab({
               )}
             </div>
           ))}
-          <div>
-            <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
-            <Input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={(e) =>
-                setForm({ ...form, file: e.target.files?.[0] ?? null })
-              }
-            />
-          </div>
+          {canEdit ? (
+            <div>
+              <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
+              <Input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(e) =>
+                  setForm({ ...form, file: e.target.files?.[0] ?? null })
+                }
+              />
+            </div>
+          ) : null}
         </div>
       </Modal>
     </div>

@@ -12,6 +12,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { formatDateValue } from '../contracts/employment-contract.utils';
 import type {
   CreateEmployeeCertificationDto,
@@ -43,13 +44,18 @@ export class TrainingCertificationsService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly trainingService: TrainingService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async listCertifications(
     companyId: string,
     query: ListCertificationsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeCertificationRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const today = startOfUtcDay(new Date());
     const windowEnd = new Date(today);
@@ -58,7 +64,7 @@ export class TrainingCertificationsService {
     const rows = await this.prisma.unscoped.employeeCertification.findMany({
       where: {
         companyId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         status: query.status,
         ...(query.expiringOnly
           ? {
@@ -81,6 +87,7 @@ export class TrainingCertificationsService {
   ): Promise<EmployeeCertificationRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     await this.assertEmployeeInCompany(dto.employeeId, companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     if (dto.courseId) {
       const course = await this.trainingService.getCourseOrThrow(dto.courseId);
@@ -132,6 +139,7 @@ export class TrainingCertificationsService {
     user: AuthenticatedUser,
   ): Promise<EmployeeCertificationRecord> {
     const existing = await this.getCertificationOrThrow(certificationId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     if (dto.courseId) {
       const course = await this.trainingService.getCourseOrThrow(dto.courseId);
@@ -192,6 +200,7 @@ export class TrainingCertificationsService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const existing = await this.getCertificationOrThrow(certificationId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     await this.prisma.unscoped.employeeCertification.delete({
       where: { id: certificationId },

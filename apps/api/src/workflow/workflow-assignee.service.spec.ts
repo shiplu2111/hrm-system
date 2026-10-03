@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { WorkflowInstanceStep } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
+import type { DataScopeService } from '../rbac/data-scope.service';
 import { WorkflowAssigneeService } from './workflow-assignee.service';
 
 describe('WorkflowAssigneeService (ROLES_PERMISSIONS.md §6)', () => {
@@ -34,8 +35,10 @@ describe('WorkflowAssigneeService (ROLES_PERMISSIONS.md §6)', () => {
     };
   };
   let service: WorkflowAssigneeService;
+  let dataScope: { canAccessEmployee: jest.Mock };
 
   beforeEach(() => {
+    dataScope = { canAccessEmployee: jest.fn().mockResolvedValue(true) };
     prisma = {
       unscoped: {
         employee: {
@@ -46,7 +49,10 @@ describe('WorkflowAssigneeService (ROLES_PERMISSIONS.md §6)', () => {
         },
       },
     };
-    service = new WorkflowAssigneeService(prisma as unknown as PrismaService);
+    service = new WorkflowAssigneeService(
+      prisma as unknown as PrismaService,
+      dataScope as unknown as DataScopeService,
+    );
   });
 
   it('allows the requester direct manager on direct_manager steps', async () => {
@@ -109,6 +115,31 @@ describe('WorkflowAssigneeService (ROLES_PERMISSIONS.md §6)', () => {
         user,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('denies a team-scoped role step holder for requesters outside their reporting line', async () => {
+    prisma.unscoped.role.findUnique.mockResolvedValue({ name: 'Manager' });
+    dataScope.canAccessEmployee.mockResolvedValue(false);
+    const user: AuthenticatedUser = {
+      id: 'u5',
+      tenantId: 't1',
+      roleId: 'r5',
+      roleName: 'Manager',
+      employeeId: 'mgr-2',
+      email: 'mgr2@test.com',
+      permissions: [],
+    };
+
+    await expect(
+      service.assertCanActOnStep({
+        requesterEmployeeId: 'emp-1',
+        step: { ...hrStep, roleName: 'Manager' },
+        user,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(dataScope.canAccessEmployee).toHaveBeenCalledWith(user, 'emp-1', {
+      includeSelf: false,
+    });
   });
 
   it('denies unrelated users', async () => {

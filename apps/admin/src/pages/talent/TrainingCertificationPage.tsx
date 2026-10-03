@@ -17,6 +17,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -99,6 +100,9 @@ function attendanceTone(status: TrainingAttendanceRecord['status']) {
 
 export function TrainingCertificationPage() {
   const { companyId } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('training', 'create');
+  const canEdit = can('training', 'edit');
   const [view, setView] = useState<View>('catalog');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -411,13 +415,19 @@ export function TrainingCertificationPage() {
           <h1 className="text-xl font-bold text-primary">Training & Certification</h1>
           <p className="mt-1 text-sm text-secondary">Catalog, attendance, certifications, expiry alerts, and skill matrix.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setCourseModal(true)}><Plus className="h-4 w-4" /> Add course</Button>
-          <Button variant="secondary" onClick={() => setCertModal(true)}><Award className="h-4 w-4" /> Add certification</Button>
-          <Button variant="secondary" onClick={() => setSkillModal(true)}><Grid3X3 className="h-4 w-4" /> Add skill</Button>
-          <Button variant="secondary" onClick={() => setSessionModal(true)}><CalendarClock className="h-4 w-4" /> Schedule session</Button>
-          <Button onClick={() => setAssignModal(true)}><UserPlus className="h-4 w-4" /> Register attendance</Button>
-        </div>
+        {(canCreate || canEdit) && (
+          <div className="flex flex-wrap gap-2">
+            {canCreate && (
+              <>
+                <Button variant="secondary" onClick={() => setCourseModal(true)}><Plus className="h-4 w-4" /> Add course</Button>
+                <Button variant="secondary" onClick={() => setCertModal(true)}><Award className="h-4 w-4" /> Add certification</Button>
+                <Button variant="secondary" onClick={() => setSkillModal(true)}><Grid3X3 className="h-4 w-4" /> Add skill</Button>
+                <Button variant="secondary" onClick={() => setSessionModal(true)}><CalendarClock className="h-4 w-4" /> Schedule session</Button>
+              </>
+            )}
+            {canEdit && <Button onClick={() => setAssignModal(true)}><UserPlus className="h-4 w-4" /> Register attendance</Button>}
+          </div>
+        )}
       </header>
 
       {error && (
@@ -527,7 +537,7 @@ export function TrainingCertificationPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="accent">{SESSION_STATUS_LABELS[session.status]}</Badge>
                       <Badge tone="info">{session.currency} {session.totalCost.toLocaleString()}</Badge>
-                      <Button size="sm" variant="secondary" onClick={() => setCostModalSessionId(session.id)}>Add cost</Button>
+                      {canEdit && <Button size="sm" variant="secondary" onClick={() => setCostModalSessionId(session.id)}>Add cost</Button>}
                     </div>
                   </div>
                   {session.costs.length > 0 && (
@@ -663,7 +673,7 @@ export function TrainingCertificationPage() {
           <section className="surface rounded-xl border border-base p-5 shadow-card">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-primary">Skill catalog</h2>
-              <Button size="sm" variant="secondary" onClick={() => setAssignSkillModal(true)}>Assign</Button>
+              {canEdit && <Button size="sm" variant="secondary" onClick={() => setAssignSkillModal(true)}>Assign</Button>}
             </div>
             <div className="space-y-2">
               {skills.map((skill) => (

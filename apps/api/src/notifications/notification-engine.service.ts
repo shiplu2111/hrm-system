@@ -7,6 +7,7 @@ import {
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationRecipientsService } from './notification-recipients.service';
 import { NotificationRulesService } from './notification-rules.service';
+import { escapeHtml } from '../settings/mail.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import { isWebhookEventType } from '../webhooks/webhook.constants';
 
@@ -104,7 +105,7 @@ export class NotificationEngineService {
             recipientUserId: recipient.userId,
             subject: emailSubject,
             text: body,
-            html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+            html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
             payload,
           });
         }

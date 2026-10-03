@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/Button';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { FieldError } from '@/components/ui/FieldError';
 import { StepProgress, type StepProgressItem } from '@/components/ui/StepProgress';
+import { useNav } from '@/context/NavContext';
+import { billingCopy } from '@/lib/billing-copy';
 import {
   createDefaultEmployeeFormState,
   type EmployeeFormErrors,
@@ -181,6 +183,14 @@ export function EmployeeFormWizard({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planLimitHit, setPlanLimitHit] = useState(false);
+  const canViewPlan = usePermission('settings', 'view');
+  const { navigate } = useNav();
+
+  const showSaveError = (err: unknown, fallback: string) => {
+    setError(err instanceof ApiError ? err.message : fallback);
+    setPlanLimitHit(err instanceof ApiError && err.code === 'PLAN_EMPLOYEE_LIMIT_REACHED');
+  };
 
   const currentStep = STEP_KEYS[stepIndex];
   const activeEmployeeId = savedEmployeeId ?? editEmployeeId ?? null;
@@ -211,6 +221,7 @@ export function EmployeeFormWizard({
     setTaxIdMasked(null);
     setBankMasked(null);
     setError(null);
+    setPlanLimitHit(false);
   }, [editEmployeeId]);
 
   const loadReferenceData = useCallback(async () => {
@@ -386,7 +397,7 @@ export function EmployeeFormWizard({
       }
       setStepIndex((i) => Math.min(i + 1, STEP_KEYS.length - 1));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Save failed');
+      showSaveError(err, 'Save failed');
     } finally {
       setSubmitting(false);
     }
@@ -416,7 +427,7 @@ export function EmployeeFormWizard({
       onSuccess?.(record);
       onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save employee');
+      showSaveError(err, 'Failed to save employee');
     } finally {
       setSubmitting(false);
     }
@@ -955,8 +966,20 @@ export function EmployeeFormWizard({
       <div className="space-y-6">
         <StepProgress steps={WIZARD_STEPS} currentIndex={stepIndex} />
         {error ? (
-          <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-2">
-            {error}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-error-600 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-2">
+            <span className="flex-1">{error}</span>
+            {planLimitHit && canViewPlan ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  onClose();
+                  navigate('billing');
+                }}
+              >
+                {billingCopy.limitError.viewPlan}
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {loading ? (

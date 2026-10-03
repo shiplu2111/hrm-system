@@ -42,14 +42,18 @@ export class EmploymentContractsController {
   async list(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmploymentContractsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.contractsService.list(companyId, query) };
+    return { data: await this.contractsService.list(companyId, query, user) };
   }
 
   @Get('employment-contracts/:contractId')
   @RequirePermission('employee', 'view')
-  async get(@Param('contractId', ParseUUIDPipe) contractId: string) {
-    return { data: await this.contractsService.get(contractId) };
+  async get(
+    @Param('contractId', ParseUUIDPipe) contractId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.contractsService.get(contractId, user) };
   }
 
   @Post('companies/:companyId/employment-contracts')
@@ -109,8 +113,9 @@ export class EmploymentContractsController {
     return { data: await this.contractsService.submitRenewal(contractId, user) };
   }
 
+  /** employee:approve for company-wide roles; team-scoped managers act via their workflow step. */
   @Post('employment-contracts/:contractId/approve-renewal')
-  @RequirePermission('employee', 'edit')
+  @RequirePermission('employee', 'view')
   async approveRenewal(
     @Param('contractId', ParseUUIDPipe) contractId: string,
     @Body() dto: ContractRenewalActionDto,
@@ -122,7 +127,7 @@ export class EmploymentContractsController {
   }
 
   @Post('employment-contracts/:contractId/reject-renewal')
-  @RequirePermission('employee', 'edit')
+  @RequirePermission('employee', 'view')
   async rejectRenewal(
     @Param('contractId', ParseUUIDPipe) contractId: string,
     @Body() dto: ContractRenewalActionDto,
@@ -178,9 +183,10 @@ export class EmploymentContractsController {
   async getDocumentUrl(
     @Param('contractId', ParseUUIDPipe) contractId: string,
     @Param('documentId', ParseUUIDPipe) documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.contractsService.getDocumentFileUrl(contractId, documentId),
+      data: await this.contractsService.getDocumentFileUrl(contractId, documentId, user),
     };
   }
 

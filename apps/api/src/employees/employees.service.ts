@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EmploymentStatus, Prisma } from '@prisma/client';
+import { SubscriptionService } from '../billing/subscription.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
@@ -29,9 +30,10 @@ export class EmployeesService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly webhookEmitter: WebhookEmitterService,
+    private readonly subscriptions: SubscriptionService,
   ) {}
 
-  async listEmployees(companyId?: string) {
+  async listEmployees(companyId?: string, employeeIds?: { in: string[] }) {
     const tenantId = getTenantIdFromSession();
     if (!tenantId) {
       throw new ForbiddenException({
@@ -48,6 +50,7 @@ export class EmployeesService {
       where: {
         deletedAt: null,
         ...(companyId ? { companyId } : {}),
+        ...(employeeIds ? { id: employeeIds } : {}),
       },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
       include: employeeInclude,
@@ -83,6 +86,9 @@ export class EmployeesService {
 
     await this.companyScope.assertCompanyInTenant(dto.companyId);
     await this.validateEmployeeReferences(dto.companyId, dto);
+    if (dto.employmentStatus !== EmploymentStatus.terminated) {
+      await this.subscriptions.assertEmployeeSeats(tenantId);
+    }
 
     try {
       const created = await this.prisma.scoped.employee.create({
@@ -153,6 +159,14 @@ export class EmployeesService {
         code: 'VALIDATION_ERROR',
         message: 'Employee cannot be their own manager',
       });
+    }
+
+    if (
+      existing.employmentStatus === EmploymentStatus.terminated &&
+      dto.employmentStatus != null &&
+      dto.employmentStatus !== EmploymentStatus.terminated
+    ) {
+      await this.subscriptions.assertEmployeeSeats(existing.tenantId);
     }
 
     try {
@@ -235,7 +249,7 @@ export class EmployeesService {
     const uniqueIds = [...new Set(employeeIds)];
     const existing = await this.prisma.scoped.employee.findMany({
       where: { id: { in: uniqueIds }, deletedAt: null },
-      select: { id: true },
+      select: { id: true, tenantId: true, employmentStatus: true },
     });
 
     if (existing.length !== uniqueIds.length) {
@@ -243,6 +257,13 @@ export class EmployeesService {
         code: 'NOT_FOUND',
         message: 'One or more employees were not found',
       });
+    }
+
+    if (employmentStatus !== EmploymentStatus.terminated && existing.length > 0) {
+      const reinstated = existing.filter(
+        (row) => row.employmentStatus === EmploymentStatus.terminated,
+      ).length;
+      await this.subscriptions.assertEmployeeSeats(existing[0].tenantId, reinstated);
     }
 
     const result = await this.prisma.scoped.employee.updateMany({

@@ -9,6 +9,7 @@ import {
   Search,
   Ticket,
 } from 'lucide-react';
+import { usePermission } from '@hrm/portal-ui';
 import type {
   KbArticleListItem,
   SupportTicketPriority,
@@ -50,6 +51,8 @@ const tabs: { id: PanelTab; label: string; icon: typeof Search }[] = [
 ];
 
 export function HelpWidget() {
+  const canCreateTicket = usePermission('support', 'create');
+  const visibleTabs = tabs.filter((item) => item.id !== 'contact' || canCreateTicket);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>('search');
   const [query, setQuery] = useState('');
@@ -149,8 +152,12 @@ export function HelpWidget() {
             </button>
           </header>
 
-          <nav className="grid grid-cols-3 border-b border-base bg-[rgb(var(--bg-muted))]/60">
-            {tabs.map((item) => {
+          <nav
+            className={`grid border-b border-base bg-[rgb(var(--bg-muted))]/60 ${
+              visibleTabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+            }`}
+          >
+            {visibleTabs.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
               return (
@@ -220,7 +227,7 @@ export function HelpWidget() {
               </div>
             )}
 
-            {!loading && tab === 'contact' && (
+            {!loading && tab === 'contact' && canCreateTicket && (
               submitted ? (
                 <div className="flex flex-col items-center gap-3 py-8 text-center">
                   <CheckCircle2 className="h-10 w-10 text-success-600" />

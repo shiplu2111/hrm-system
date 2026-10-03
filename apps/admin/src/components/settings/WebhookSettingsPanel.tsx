@@ -8,6 +8,7 @@ import {
   Unplug,
   Webhook,
 } from 'lucide-react';
+import { usePermission } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label } from '@/components/ui/Form';
@@ -32,6 +33,7 @@ import {
 } from '@hrm/shared-types';
 
 export function WebhookSettingsPanel() {
+  const canEdit = usePermission('settings', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [webhooks, setWebhooks] = useState<TenantWebhookRecord[]>([]);
@@ -155,17 +157,19 @@ export function WebhookSettingsPanel() {
               HTTP POST dispatch for employee.created, leave.approved, payroll.finalized
             </p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => {
-              setNewSecret(null);
-              setName('');
-              setUrl('');
-              setModalOpen(true);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" /> Add endpoint
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewSecret(null);
+                setName('');
+                setUrl('');
+                setModalOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add endpoint
+            </Button>
+          )}
         </div>
 
         {pingStatus && (
@@ -206,7 +210,7 @@ export function WebhookSettingsPanel() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  {hook.status === 'active' && (
+                  {hook.status === 'active' && canEdit && (
                     <>
                       <Button
                         variant="secondary"

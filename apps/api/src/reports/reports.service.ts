@@ -12,6 +12,7 @@ import type {
 } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { AttendanceReportsService } from './attendance-reports.service';
 import { HrReportsService } from './hr-reports.service';
 import { PayrollReportsService } from './payroll-reports.service';
@@ -38,6 +39,7 @@ export class ReportsService {
     private readonly payrollReports: PayrollReportsService,
     private readonly attendanceReports: AttendanceReportsService,
     private readonly hrReports: HrReportsService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async getCatalog(companyId: string, user: AuthenticatedUser): Promise<ReportCatalogView> {
@@ -58,7 +60,12 @@ export class ReportsService {
     const definition = this.findKnownReport(reportId);
     this.assertCanRun(user, definition);
     const range = resolveReportDateRange(from, to);
-    return this.generate(companyId, reportId, range);
+    return this.generate(
+      companyId,
+      reportId,
+      range,
+      await this.dataScope.employeeIdFilter(user),
+    );
   }
 
   async exportReport(
@@ -112,15 +119,16 @@ export class ReportsService {
     companyId: string,
     reportId: string,
     range: ReportDateRange,
+    employeeIds: { in: string[] } | undefined,
   ): Promise<ReportResult> {
     if (reportId.startsWith('payroll.')) {
-      return this.payrollReports.generate(companyId, reportId, range);
+      return this.payrollReports.generate(companyId, reportId, range, employeeIds);
     }
     if (reportId.startsWith('attendance.')) {
-      return this.attendanceReports.generate(companyId, reportId, range);
+      return this.attendanceReports.generate(companyId, reportId, range, employeeIds);
     }
     if (reportId.startsWith('hr.')) {
-      return this.hrReports.generate(companyId, reportId, range);
+      return this.hrReports.generate(companyId, reportId, range, employeeIds);
     }
     throw new BadRequestException({
       code: 'VALIDATION_ERROR',

@@ -49,8 +49,9 @@ export class TimesheetsController {
   async listEntries(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListTimesheetEntriesQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.entriesService.list(companyId, query) };
+    return { data: await this.entriesService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/timesheet-entries')

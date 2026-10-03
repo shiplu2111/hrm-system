@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Upload, MapPin, Plus, Trash2, Check, Building2 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select } from '@/components/ui/Form';
@@ -13,6 +14,10 @@ const branches = [
 ];
 
 export function CompanyProfilePage() {
+  const { can } = usePermissions();
+  const canCreate = can('settings', 'create');
+  const canEdit = can('settings', 'edit');
+  const canDelete = can('settings', 'delete');
   const [branchList, setBranchList] = useState(branches);
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [newBranch, setNewBranch] = useState({ name: '', location: '' });
@@ -97,12 +102,14 @@ export function CompanyProfilePage() {
             <CardTitle>Branches & Locations</CardTitle>
             <p className="text-xs text-muted mt-0.5">Physical offices and locations for this organization</p>
           </div>
-          <Button variant="primary" size="sm" onClick={() => setShowAddBranch((s) => !s)}>
-            <Plus className="h-3.5 w-3.5" /> Add Branch
-          </Button>
+          {canCreate && (
+            <Button variant="primary" size="sm" onClick={() => setShowAddBranch((s) => !s)}>
+              <Plus className="h-3.5 w-3.5" /> Add Branch
+            </Button>
+          )}
         </CardHeader>
         <CardBody className="p-0">
-          {showAddBranch && (
+          {showAddBranch && canCreate && (
             <div className="px-5 py-4 border-b border-base bg-[rgb(var(--bg-muted))] animate-fade-in">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                 <div>
@@ -136,7 +143,7 @@ export function CompanyProfilePage() {
                   </div>
                 </div>
                 <Badge tone="neutral">{b.employees} employees</Badge>
-                {!b.isHQ && (
+                {!b.isHQ && canDelete && (
                   <button
                     onClick={() => setBranchList((prev) => prev.filter((x) => x.id !== b.id))}
                     className="text-muted hover:text-error-600 p-1.5 rounded-lg hover:bg-error-50 dark:hover:bg-error-950/40 transition-colors opacity-0 group-hover:opacity-100"
@@ -151,10 +158,12 @@ export function CompanyProfilePage() {
       </Card>
 
       {/* Save bar */}
-      <div className="flex justify-end gap-3">
-        <Button variant="secondary">Cancel</Button>
-        <Button variant="primary">Save Changes</Button>
-      </div>
+      {canEdit && (
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary">Cancel</Button>
+          <Button variant="primary">Save Changes</Button>
+        </div>
+      )}
     </div>
   );
 }

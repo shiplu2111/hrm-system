@@ -1,5 +1,6 @@
 export * from './common';
 export * from './auth';
+export * from './roles';
 export * from './employee';
 export * from './lifecycle';
 export * from './documents';
@@ -39,3 +40,4 @@ export * from './employee-relations';
 export * from './engagement';
 export * from './health-safety';
 export * from './contractors';
+export * from './audit';

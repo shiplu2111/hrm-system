@@ -30,10 +30,11 @@ export class LifecycleController {
   @ApiQuery({ name: 'eventType', required: false, enum: LifecycleEventType })
   async listEvents(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('eventType') eventType?: LifecycleEventType,
   ): Promise<ApiEnvelope<Awaited<ReturnType<LifecycleService['listEvents']>>>> {
     return {
-      data: await this.lifecycleService.listEvents(employeeId, eventType),
+      data: await this.lifecycleService.listEvents(employeeId, user, eventType),
     };
   }
 
@@ -43,8 +44,9 @@ export class LifecycleController {
   async getEvent(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('eventId', ParseUUIDPipe) eventId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<LifecycleService['getEvent']>>>> {
-    return { data: await this.lifecycleService.getEvent(eventId) };
+    return { data: await this.lifecycleService.getEvent(eventId, user) };
   }
 
   @Post()

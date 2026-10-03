@@ -19,6 +19,8 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
@@ -60,18 +62,24 @@ export class EmploymentContractsService {
     private readonly workflowEngine: WorkflowEngineService,
     private readonly workflowAssignee: WorkflowAssigneeService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly permissions: PermissionsService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListEmploymentContractsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmploymentContractRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.employmentContract.findMany({
       where: {
         companyId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         ...(query.status ? { status: query.status } : {}),
       },
       orderBy: [{ status: 'asc' }, { endDate: 'asc' }, { createdAt: 'desc' }],
@@ -86,9 +94,13 @@ export class EmploymentContractsService {
     return records;
   }
 
-  async get(contractId: string): Promise<EmploymentContractRecord> {
+  async get(
+    contractId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmploymentContractRecord> {
     const row = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const workflow = await this.contractWorkflow.findForContract(contractId);
     return this.toRecord(row, workflow);
   }
@@ -99,6 +111,7 @@ export class EmploymentContractsService {
     user: AuthenticatedUser,
   ): Promise<EmploymentContractRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId, { includeSelf: false });
     const employee = await this.assertEmployee(dto.employeeId, companyId);
 
     this.validateDates(dto.startDate, dto.endDate);
@@ -160,6 +173,9 @@ export class EmploymentContractsService {
   ): Promise<EmploymentContractRecord> {
     const existing = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId, {
+      includeSelf: false,
+    });
 
     if (dto.startDate && dto.endDate) {
       this.validateDates(dto.startDate, dto.endDate);
@@ -268,6 +284,9 @@ export class EmploymentContractsService {
   ): Promise<EmploymentContractRecord> {
     const existing = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId, {
+      includeSelf: false,
+    });
     this.validateDates(dto.startDate, dto.endDate);
 
     const row = await this.prisma.unscoped.employmentContract.create({
@@ -321,6 +340,7 @@ export class EmploymentContractsService {
   ): Promise<EmploymentContractRecord> {
     const row = await this.findOrThrow(renewalContractId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId, { includeSelf: false });
 
     if (row.status !== EmploymentContractStatus.draft) {
       throw new BadRequestException({
@@ -355,6 +375,7 @@ export class EmploymentContractsService {
   ): Promise<EmploymentContractRecord> {
     const row = await this.findOrThrow(renewalContractId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.assertCanDecideRenewal(user, row.employeeId);
 
     if (!row.renewedFromId) {
       throw new BadRequestException({
@@ -401,6 +422,7 @@ export class EmploymentContractsService {
   ): Promise<EmploymentContractRecord> {
     const row = await this.findOrThrow(renewalContractId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.assertCanDecideRenewal(user, row.employeeId);
 
     if (!row.renewedFromId) {
       throw new BadRequestException({
@@ -427,6 +449,18 @@ export class EmploymentContractsService {
     await this.emitRenewalOutcome('contract.renewal.rejected', row);
 
     return this.toRecord(row, transition.instance);
+  }
+
+  /** The workflow engine still checks the user is eligible for the current step. */
+  private async assertCanDecideRenewal(
+    user: AuthenticatedUser,
+    employeeId: string,
+  ): Promise<void> {
+    if (await this.dataScope.isOrgWide(user)) {
+      await this.permissions.assertPermission(user, 'employee', 'approve');
+      return;
+    }
+    await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
   }
 
   private async emitApprovalPending(
@@ -500,6 +534,9 @@ export class EmploymentContractsService {
     assertValidDocumentUpload(file);
     const contract = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(contract.companyId);
+    await this.dataScope.assertEmployeeInScope(user, contract.employeeId, {
+      includeSelf: false,
+    });
 
     const storageKey = this.storageService.buildEmploymentContractKey(
       contract.tenantId,
@@ -537,9 +574,14 @@ export class EmploymentContractsService {
     return this.toDocumentRecord(doc);
   }
 
-  async getDocumentFileUrl(contractId: string, documentId: string) {
+  async getDocumentFileUrl(
+    contractId: string,
+    documentId: string,
+    user: AuthenticatedUser,
+  ) {
     const contract = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(contract.companyId);
+    await this.dataScope.assertEmployeeInScope(user, contract.employeeId);
 
     const doc = await this.prisma.unscoped.employmentContractDocument.findFirst({
       where: { id: documentId, contractId },
@@ -562,6 +604,9 @@ export class EmploymentContractsService {
   ): Promise<void> {
     const contract = await this.findOrThrow(contractId);
     await this.companyScope.assertCompanyInTenant(contract.companyId);
+    await this.dataScope.assertEmployeeInScope(user, contract.employeeId, {
+      includeSelf: false,
+    });
 
     const doc = await this.prisma.unscoped.employmentContractDocument.findFirst({
       where: { id: documentId, contractId },

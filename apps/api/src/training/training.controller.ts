@@ -55,8 +55,11 @@ export class TrainingController {
   @Get('companies/:companyId/training/summary')
   @RequirePermission('training', 'view')
   @ApiOperation({ summary: 'Training dashboard summary' })
-  async summary(@Param('companyId', ParseUUIDPipe) companyId: string) {
-    return { data: await this.trainingService.getSummary(companyId) };
+  async summary(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingService.getSummary(companyId, user) };
   }
 
   @Get('companies/:companyId/training/courses')
@@ -166,9 +169,10 @@ export class TrainingController {
   async listAttendance(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListTrainingAttendanceQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.trainingSessionsService.listAttendance(companyId, query),
+      data: await this.trainingSessionsService.listAttendance(companyId, query, user),
     };
   }
 
@@ -232,9 +236,10 @@ export class TrainingController {
   async listEmployeeSkills(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmployeeSkillsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.trainingSkillsService.listEmployeeSkills(companyId, query),
+      data: await this.trainingSkillsService.listEmployeeSkills(companyId, query, user),
     };
   }
 
@@ -277,9 +282,10 @@ export class TrainingController {
   async listCertifications(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListCertificationsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.trainingCertificationsService.listCertifications(companyId, query),
+      data: await this.trainingCertificationsService.listCertifications(companyId, query, user),
     };
   }
 

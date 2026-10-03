@@ -10,6 +10,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateSafetyInspectionDto,
   UpdateSafetyComplianceDto,
@@ -32,6 +33,7 @@ export class SafetyComplianceService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly rulesService: HealthSafetyRulesService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async getSummary(companyId: string): Promise<HealthSafetySummary> {
@@ -103,12 +105,21 @@ export class SafetyComplianceService {
     };
   }
 
-  async listCompliance(companyId: string): Promise<SafetyComplianceRecordView[]> {
+  async listCompliance(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<SafetyComplianceRecordView[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
     await this.syncComplianceFromRules(companyId);
 
+    const employeeScope = await this.dataScope.employeeIdFilter(user);
     const rows = await this.prisma.unscoped.safetyComplianceRecord.findMany({
-      where: { companyId },
+      where: {
+        companyId,
+        ...(employeeScope
+          ? { OR: [{ employeeId: null }, { employeeId: employeeScope }] }
+          : {}),
+      },
       include: {
         employee: { select: { firstName: true, lastName: true } },
       },
@@ -133,6 +144,9 @@ export class SafetyComplianceService {
       throw new NotFoundException('Compliance record not found');
     }
     await this.companyScope.assertCompanyInTenant(existing.companyId);
+    if (existing.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
+    }
 
     const row = await this.prisma.unscoped.safetyComplianceRecord.update({
       where: { id: recordId },

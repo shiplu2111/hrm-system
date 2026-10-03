@@ -32,8 +32,9 @@ export class AssetsController {
   async listAssets(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListCompanyAssetsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.assetsService.list(companyId, query) };
+    return { data: await this.assetsService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/assets')
@@ -77,7 +78,8 @@ export class AssetsController {
   async listAssignments(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListAssetAssignmentsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.assetsService.listAssignments(companyId, query) };
+    return { data: await this.assetsService.listAssignments(companyId, query, user) };
   }
 }

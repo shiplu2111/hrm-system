@@ -24,40 +24,46 @@ export class PayrollReportsService {
     companyId: string,
     reportId: string,
     range: ReportDateRange,
+    employeeIds?: { in: string[] },
   ): Promise<ReportResult> {
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      companyId,
+      deletedAt: null,
+      id: employeeIds,
+    };
     switch (reportId) {
       case 'payroll.employee-summary':
-        return this.employeeSummary(companyId, range);
+        return this.employeeSummary(employeeWhere, range);
       case 'payroll.activity-summary':
-        return this.activitySummary(companyId, range);
+        return this.activitySummary(employeeWhere, range);
       case 'payroll.superannuation-summary':
-        return this.superannuationSummary(companyId, range);
+        return this.superannuationSummary(employeeWhere, range);
       case 'payroll.register':
-        return this.register(companyId, range);
+        return this.register(employeeWhere, range);
       case 'payroll.salary-summary':
-        return this.salarySummary(companyId, range);
+        return this.salarySummary(employeeWhere, range);
       case 'payroll.earnings':
-        return this.earnings(companyId, range);
+        return this.earnings(employeeWhere, range);
       case 'payroll.deductions':
-        return this.deductions(companyId, range);
+        return this.deductions(employeeWhere, range);
       case 'payroll.tax':
-        return this.tax(companyId, range);
+        return this.tax(employeeWhere, range);
       case 'payroll.overtime':
-        return this.overtime(companyId, range);
+        return this.overtime(employeeWhere, range);
       case 'payroll.variance':
-        return this.variance(companyId, range);
+        return this.variance(employeeWhere, range);
       case 'payroll.payment':
-        return this.payment(companyId, range);
+        return this.payment(companyId, employeeWhere, range);
       default:
         throw new Error(`Unknown payroll report: ${reportId}`);
     }
   }
 
-  private async loadRuns(companyId: string, range: ReportDateRange) {
+  private async loadRuns(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange) {
     return this.prisma.unscoped.payrollRun.findMany({
       where: {
         deletedAt: null,
-        employee: { companyId, deletedAt: null },
+        employee: employeeWhere,
         payrollPeriod: {
           startDate: { lte: range.to },
           endDate: { gte: range.from },
@@ -99,10 +105,10 @@ export class PayrollReportsService {
   }
 
   private async employeeSummary(
-    companyId: string,
+    employeeWhere: Prisma.EmployeeWhereInput,
     range: ReportDateRange,
   ): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+    const runs = await this.loadRuns(employeeWhere, range);
     const byEmployee = new Map<
       string,
       { employeeNumber: string; name: string; department: string; gross: number; deductions: number; net: number; runs: number }
@@ -157,10 +163,10 @@ export class PayrollReportsService {
   }
 
   private async activitySummary(
-    companyId: string,
+    employeeWhere: Prisma.EmployeeWhereInput,
     range: ReportDateRange,
   ): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+    const runs = await this.loadRuns(employeeWhere, range);
     const byStatus = new Map<string, { count: number; net: number }>();
 
     for (const run of runs) {
@@ -189,10 +195,10 @@ export class PayrollReportsService {
   }
 
   private async superannuationSummary(
-    companyId: string,
+    employeeWhere: Prisma.EmployeeWhereInput,
     range: ReportDateRange,
   ): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+    const runs = await this.loadRuns(employeeWhere, range);
     const columns = [
       { key: 'employeeNumber', label: 'Employee #' },
       { key: 'employeeName', label: 'Employee' },
@@ -224,8 +230,8 @@ export class PayrollReportsService {
     };
   }
 
-  private async register(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async register(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const columns = [
       { key: 'runId', label: 'Run ID' },
       { key: 'employeeNumber', label: 'Employee #' },
@@ -256,8 +262,8 @@ export class PayrollReportsService {
     };
   }
 
-  private async salarySummary(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range).then((items) =>
+  private async salarySummary(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range).then((items) =>
       items.filter(
         (run) =>
           run.status === PayrollRunStatus.finalized ||
@@ -295,8 +301,8 @@ export class PayrollReportsService {
     };
   }
 
-  private async earnings(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async earnings(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const columns = [
       { key: 'employeeNumber', label: 'Employee #' },
       { key: 'employeeName', label: 'Employee' },
@@ -312,8 +318,8 @@ export class PayrollReportsService {
     return { ...this.baseMeta('payroll.earnings', range, rows.length), columns, rows };
   }
 
-  private async deductions(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async deductions(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const columns = [
       { key: 'employeeNumber', label: 'Employee #' },
       { key: 'employeeName', label: 'Employee' },
@@ -329,10 +335,10 @@ export class PayrollReportsService {
     return { ...this.baseMeta('payroll.deductions', range, rows.length), columns, rows };
   }
 
-  private async tax(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async tax(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const taxProfiles = await this.prisma.unscoped.employeeTaxProfile.findMany({
-      where: { employee: { companyId, deletedAt: null } },
+      where: { employee: employeeWhere },
       select: { employeeId: true, taxIdNumber: true },
     });
     const taxByEmployee = new Map(
@@ -359,8 +365,8 @@ export class PayrollReportsService {
     return { ...this.baseMeta('payroll.tax', range, rows.length), columns, rows };
   }
 
-  private async overtime(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async overtime(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const columns = [
       { key: 'employeeNumber', label: 'Employee #' },
       { key: 'employeeName', label: 'Employee' },
@@ -380,8 +386,8 @@ export class PayrollReportsService {
     return { ...this.baseMeta('payroll.overtime', range, rows.length), columns, rows };
   }
 
-  private async variance(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const runs = await this.loadRuns(companyId, range);
+  private async variance(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const runs = await this.loadRuns(employeeWhere, range);
     const byEmployeePeriod = new Map<string, { period: string; net: number; employeeNumber: string; name: string }[]>();
 
     for (const run of runs) {
@@ -427,7 +433,11 @@ export class PayrollReportsService {
     return { ...this.baseMeta('payroll.variance', range, rows.length), columns, rows };
   }
 
-  private async payment(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async payment(
+    companyId: string,
+    employeeWhere: Prisma.EmployeeWhereInput,
+    range: ReportDateRange,
+  ): Promise<ReportResult> {
     const batches = await this.prisma.unscoped.paymentBatch.findMany({
       where: {
         companyId,
@@ -435,6 +445,7 @@ export class PayrollReportsService {
       },
       include: {
         items: {
+          where: { employee: employeeWhere },
           include: {
             employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
           },

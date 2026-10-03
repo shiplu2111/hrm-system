@@ -38,6 +38,8 @@ import {
   mergeSelfAssessment,
   parseAssessmentPayload,
 } from './performance-assessment.utils';
+import { DataScopeService } from '../rbac/data-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import { Performance360Service } from './performance-360.service';
 import { PerformanceLifecycleService } from './performance-lifecycle.service';
 import { PerformanceReviewWorkflowService } from './performance-review-workflow.service';
@@ -82,16 +84,20 @@ export class PerformanceReviewsService {
     private readonly reviewWorkflow: PerformanceReviewWorkflowService,
     private readonly feedback360: Performance360Service,
     private readonly performanceLifecycle: PerformanceLifecycleService,
+    private readonly permissions: PermissionsService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async listParticipants(
     companyId: string,
     cycleId: string,
+    user: AuthenticatedUser,
   ): Promise<PerformanceReviewParticipantRecord[]> {
     await this.assertCycleInCompany(cycleId, companyId);
+    const employeeId = await this.dataScope.employeeIdFilter(user);
 
     const rows = await this.prisma.unscoped.performanceReviewParticipant.findMany({
-      where: { companyId, reviewCycleId: cycleId },
+      where: { companyId, reviewCycleId: cycleId, employeeId },
       include: {
         employee: {
           select: {
@@ -107,7 +113,7 @@ export class PerformanceReviewsService {
     });
 
     const reviews = await this.prisma.unscoped.employeePerformanceReview.findMany({
-      where: { reviewCycleId: cycleId },
+      where: { reviewCycleId: cycleId, employeeId },
       select: { id: true, employeeId: true, status: true },
     });
     const reviewByEmployee = new Map(
@@ -155,13 +161,18 @@ export class PerformanceReviewsService {
       if (!employee) {
         throw new NotFoundException(`Employee ${employeeId} not found in company`);
       }
+      await this.dataScope.assertEmployeeInScope(user, employeeId);
     }
+    const scopeFilter = await this.dataScope.employeeIdFilter(user);
 
     await this.prisma.unscoped.$transaction(async (tx) => {
       await tx.performanceReviewParticipant.deleteMany({
         where: {
           reviewCycleId: cycleId,
-          employeeId: { notIn: uniqueEmployeeIds },
+          AND: [
+            { employeeId: { notIn: uniqueEmployeeIds } },
+            { employeeId: scopeFilter },
+          ],
         },
       });
 
@@ -190,7 +201,7 @@ export class PerformanceReviewsService {
       newValue: { participantCount: uniqueEmployeeIds.length },
     });
 
-    return this.listParticipants(companyId, cycleId);
+    return this.listParticipants(companyId, cycleId, user);
   }
 
   async launchReviewCycle(
@@ -218,6 +229,9 @@ export class PerformanceReviewsService {
         code: 'VALIDATION_ERROR',
         message: 'Add at least one participating employee before launching',
       });
+    }
+    for (const participant of participants) {
+      await this.dataScope.assertEmployeeInScope(user, participant.employeeId);
     }
 
     let createdCount = 0;
@@ -285,14 +299,18 @@ export class PerformanceReviewsService {
   async listReviews(
     companyId: string,
     query: ListEmployeePerformanceReviewsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.employeePerformanceReview.findMany({
       where: {
         companyId,
         reviewCycleId: query.reviewCycleId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         status: query.status as EmployeePerformanceReviewStatus | undefined,
         managerEmployeeId: query.managerEmployeeId,
       },
@@ -309,8 +327,12 @@ export class PerformanceReviewsService {
     return Promise.all(rows.map((row) => this.toReviewRecord(row as ReviewWithRelations)));
   }
 
-  async getReview(reviewId: string): Promise<EmployeePerformanceReviewRecord> {
+  async getReview(
+    reviewId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmployeePerformanceReviewRecord> {
     const row = await this.getReviewOrThrow(reviewId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     return this.toReviewRecord(row);
   }
 
@@ -320,7 +342,7 @@ export class PerformanceReviewsService {
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
     const review = await this.getReviewOrThrow(reviewId);
-    this.assertCanEditSelf(review, user);
+    await this.assertCanEditSelf(review, user);
 
     if (
       review.status !== EmployeePerformanceReviewStatus.not_started &&
@@ -356,7 +378,7 @@ export class PerformanceReviewsService {
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
     const review = await this.getReviewOrThrow(reviewId);
-    this.assertCanEditSelf(review, user);
+    await this.assertCanEditSelf(review, user);
 
     const row = await this.prisma.unscoped.employeePerformanceReview.update({
       where: { id: reviewId },
@@ -472,7 +494,7 @@ export class PerformanceReviewsService {
 
     if (!cycle.requiresWorkflowApproval) {
       await this.finalizeReview(reviewId, user);
-      return this.getReview(reviewId);
+      return this.toReviewRecord(await this.getReviewOrThrow(reviewId));
     }
 
     return this.toReviewRecord(row as ReviewWithRelations);
@@ -484,6 +506,7 @@ export class PerformanceReviewsService {
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
     const review = await this.getReviewOrThrow(reviewId);
+    await this.dataScope.assertEmployeeInScope(user, review.employeeId, { includeSelf: false });
     if (review.status !== EmployeePerformanceReviewStatus.pending_approval) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -523,7 +546,7 @@ export class PerformanceReviewsService {
 
     if (result.fullyApproved) {
       await this.finalizeReview(reviewId, user);
-      return this.getReview(reviewId);
+      return this.toReviewRecord(await this.getReviewOrThrow(reviewId));
     }
 
     return this.toReviewRecord(row as ReviewWithRelations);
@@ -535,6 +558,7 @@ export class PerformanceReviewsService {
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
     const review = await this.getReviewOrThrow(reviewId);
+    await this.dataScope.assertEmployeeInScope(user, review.employeeId, { includeSelf: false });
     if (review.status !== EmployeePerformanceReviewStatus.pending_approval) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -641,14 +665,8 @@ export class PerformanceReviewsService {
     reviewId: string,
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
-    if (user.roleName !== 'HR Admin' && user.roleName !== 'Company Owner') {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Only HR can approve promotion recommendations',
-      });
-    }
-
     const review = await this.getReviewOrThrow(reviewId);
+    await this.assertPromotionAuthority(user, review, 'approve');
     if (review.promotionRecommendationStatus !== 'submitted') {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -670,14 +688,8 @@ export class PerformanceReviewsService {
     dto: WorkflowReviewActionDto,
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
-    if (user.roleName !== 'HR Admin' && user.roleName !== 'Company Owner') {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Only HR can reject promotion recommendations',
-      });
-    }
-
     const review = await this.getReviewOrThrow(reviewId);
+    await this.assertPromotionAuthority(user, review, 'approve');
     if (review.promotionRecommendationStatus !== 'submitted') {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -704,14 +716,8 @@ export class PerformanceReviewsService {
     dto: ExecutePromotionFromReviewDto,
     user: AuthenticatedUser,
   ): Promise<EmployeePerformanceReviewRecord> {
-    if (user.roleName !== 'HR Admin' && user.roleName !== 'Company Owner') {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Only HR can execute promotion recommendations',
-      });
-    }
-
     const review = await this.getReviewOrThrow(reviewId);
+    await this.assertPromotionAuthority(user, review, 'edit');
     if (review.status !== EmployeePerformanceReviewStatus.approved) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -720,12 +726,13 @@ export class PerformanceReviewsService {
     }
 
     await this.performanceLifecycle.executePromotionRecommendation(review, user, dto);
-    return this.getReview(reviewId);
+    return this.toReviewRecord(await this.getReviewOrThrow(reviewId));
   }
 
   async listPerformanceHistory(
     companyId: string,
     employeeId: string,
+    user: AuthenticatedUser,
   ): Promise<
     Array<{
       reviewCycleName: string;
@@ -735,6 +742,7 @@ export class PerformanceReviewsService {
     }>
   > {
     await this.companyScope.assertCompanyInTenant(companyId);
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const rows = await this.prisma.unscoped.employeePerformanceReview.findMany({
       where: {
         companyId,
@@ -823,12 +831,29 @@ export class PerformanceReviewsService {
     return cycle;
   }
 
-  private assertCanEditSelf(
+  /** Promotions change the employee record, so they need employee permissions on top of performance:approve. */
+  private async assertPromotionAuthority(
+    user: AuthenticatedUser,
+    review: ReviewWithRelations,
+    employeeAction: 'approve' | 'edit',
+  ): Promise<void> {
+    await this.permissions.assertPermission(user, 'employee', employeeAction);
+    await this.dataScope.assertEmployeeInScope(user, review.employeeId, { includeSelf: false });
+  }
+
+  private async hasHrOverride(user: AuthenticatedUser): Promise<boolean> {
+    return (
+      this.permissions.hasPermission(user, 'performance', 'edit') &&
+      (await this.dataScope.isOrgWide(user))
+    );
+  }
+
+  private async assertCanEditSelf(
     review: ReviewWithRelations,
     user: AuthenticatedUser,
-  ): void {
+  ): Promise<void> {
     if (user.employeeId === review.employeeId) return;
-    if (user.roleName === 'HR Admin' || user.roleName === 'Company Owner') return;
+    if (await this.hasHrOverride(user)) return;
     throw new ForbiddenException({
       code: 'FORBIDDEN',
       message: 'Only the review subject can edit self assessment',
@@ -839,8 +864,11 @@ export class PerformanceReviewsService {
     review: ReviewWithRelations,
     user: AuthenticatedUser,
   ): Promise<void> {
-    if (user.employeeId && user.employeeId === review.managerEmployeeId) return;
-    if (user.roleName === 'HR Admin' || user.roleName === 'Company Owner') return;
+    if (user.employeeId && user.employeeId === review.managerEmployeeId) {
+      await this.dataScope.assertEmployeeInScope(user, review.employeeId, { includeSelf: false });
+      return;
+    }
+    if (await this.hasHrOverride(user)) return;
     throw new ForbiddenException({
       code: 'FORBIDDEN',
       message: 'Only the assigned manager or HR can edit manager assessment',

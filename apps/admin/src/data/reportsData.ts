@@ -24,6 +24,8 @@ export interface ScheduledReport {
 export interface ExportTemplate {
   id: string;
   entity: string;
+  /** RBAC module whose view permission is required to export this dataset. */
+  module: 'employee' | 'payroll' | 'attendance' | 'leave';
   description: string;
   recordCount: number;
   availableFormats: ('CSV' | 'Excel' | 'JSON')[];
@@ -176,6 +178,7 @@ export const exportTemplates: ExportTemplate[] = [
   {
     id: 'et-1',
     entity: 'Employee Master Database',
+    module: 'employee',
     description: 'Complete personal, contractual, compensation, and departmental profiles of active & former staff.',
     recordCount: 1284,
     availableFormats: ['CSV', 'Excel', 'JSON'],
@@ -184,6 +187,7 @@ export const exportTemplates: ExportTemplate[] = [
   {
     id: 'et-2',
     entity: 'Payroll Ledger & YTD Records',
+    module: 'payroll',
     description: 'Historical gross-to-net calculations, tax withholdings, bonuses, and payment transaction IDs.',
     recordCount: 14200,
     availableFormats: ['CSV', 'Excel'],
@@ -192,6 +196,7 @@ export const exportTemplates: ExportTemplate[] = [
   {
     id: 'et-3',
     entity: 'Time & Attendance Raw Logs',
+    module: 'attendance',
     description: 'Daily clock-in, clock-out, GPS coordinates, geofence validations, and shift schedules.',
     recordCount: 38400,
     availableFormats: ['CSV', 'JSON'],
@@ -200,6 +205,7 @@ export const exportTemplates: ExportTemplate[] = [
   {
     id: 'et-4',
     entity: 'Leave Requests & Balance Statements',
+    module: 'leave',
     description: 'Accrual histories, approved/rejected leaves, encashments, and holiday calendars.',
     recordCount: 2450,
     availableFormats: ['CSV', 'Excel'],
@@ -208,6 +214,7 @@ export const exportTemplates: ExportTemplate[] = [
   {
     id: 'et-5',
     entity: 'Expense & Reimbursement Invoices',
+    module: 'payroll',
     description: 'Approved claims, receipt links, categories, payment batches, and approval timestamps.',
     recordCount: 890,
     availableFormats: ['CSV', 'Excel'],

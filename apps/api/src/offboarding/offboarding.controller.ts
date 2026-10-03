@@ -101,8 +101,9 @@ export class OffboardingController {
   async listOffboardings(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmployeeOffboardingsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.offboardingService.list(companyId, query) };
+    return { data: await this.offboardingService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/employee-offboardings')
@@ -119,8 +120,9 @@ export class OffboardingController {
   @RequirePermission('employee', 'view')
   async getOffboarding(
     @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.offboardingService.get(offboardingId) };
+    return { data: await this.offboardingService.get(offboardingId, user) };
   }
 
   @Post('employee-offboardings/:offboardingId/tasks/:taskId/complete')

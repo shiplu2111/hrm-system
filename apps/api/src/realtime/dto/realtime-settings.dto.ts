@@ -1,27 +1,35 @@
 import {
   IsBoolean,
   IsObject,
-  IsOptional,
-  ValidateNested,
+  registerDecorator,
+  type ValidationOptions,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import type { RealtimeBroadcastMap } from '@hrm/shared-types';
+import { DEFAULT_REALTIME_BROADCAST } from '../realtime.constants';
 
-class LiveBroadcastDto {
-  @IsOptional()
-  @IsBoolean()
-  'leave.approved'?: boolean;
+const KNOWN_EVENTS = new Set(Object.keys(DEFAULT_REALTIME_BROADCAST));
 
-  @IsOptional()
-  @IsBoolean()
-  'leave.rejected'?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  'payroll.finalized'?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  'attendance.late'?: boolean;
+/** Every key must be a known event type and every value a boolean. */
+function IsLiveBroadcastMap(options?: ValidationOptions) {
+  return (target: object, propertyName: string) =>
+    registerDecorator({
+      name: 'isLiveBroadcastMap',
+      target: target.constructor,
+      propertyName,
+      options: {
+        message: `liveBroadcast keys must be known event types (${[...KNOWN_EVENTS].join(', ')}) with boolean values`,
+        ...options,
+      },
+      validator: {
+        validate: (value: unknown) =>
+          !!value &&
+          typeof value === 'object' &&
+          !Array.isArray(value) &&
+          Object.entries(value).every(
+            ([key, flag]) => KNOWN_EVENTS.has(key) && typeof flag === 'boolean',
+          ),
+      },
+    });
 }
 
 export class UpdateRealtimeNotificationSettingsDto {
@@ -29,7 +37,6 @@ export class UpdateRealtimeNotificationSettingsDto {
   enabled!: boolean;
 
   @IsObject()
-  @ValidateNested()
-  @Type(() => LiveBroadcastDto)
-  liveBroadcast!: LiveBroadcastDto;
+  @IsLiveBroadcastMap()
+  liveBroadcast!: Partial<RealtimeBroadcastMap>;
 }

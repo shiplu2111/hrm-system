@@ -8,9 +8,6 @@ import {
   Database,
   Globe,
   Sliders,
-  Mail,
-  Smartphone,
-  MessageSquare,
   Key,
   Lock,
   Search,
@@ -28,10 +25,7 @@ import {
   ArrowRight,
   Sparkles,
   ExternalLink,
-  ChevronRight,
-  ChevronDown,
   Layers,
-  FileCode,
   HardDrive,
   RefreshCw,
 } from 'lucide-react';
@@ -41,64 +35,65 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
-import { SmtpSettingsPanel } from '@/components/settings/SmtpSettingsPanel';
-import { RealtimeNotificationSettingsPanel } from '@/components/settings/RealtimeNotificationSettingsPanel';
+import { NotificationSettingsScreen } from '@/components/settings/notifications/NotificationSettingsScreen';
 import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
 import { WebhookSettingsPanel } from '@/components/settings/WebhookSettingsPanel';
 import { ExchangeRatesPanel } from '@/components/settings/ExchangeRatesPanel';
 import {
-  notificationRules,
-  notificationChannels,
   workflowList,
   sampleWorkflowNodes,
   loginHistory,
-  auditLogs,
   apiKeys,
   integrationConnectors,
   backupRecords,
   languagesList,
-  type NotificationRule,
   type WorkflowItem,
-  type AuditLogItem,
   type ApiKeyItem,
   type IntegrationConnector,
   type BackupRecord,
 } from '@/data/settingsData';
-import { useNav } from '@/context/NavContext';
+import { usePermissions } from '@hrm/portal-ui';
+import { canViewPage } from '@/config/page-permissions';
+import { useNav, type PageKey } from '@/context/NavContext';
+
+type SettingsGroup =
+  | 'general'
+  | 'notifications'
+  | 'workflows'
+  | 'security'
+  | 'integrations'
+  | 'backup-i18n';
+
+function groupForPage(page: PageKey): SettingsGroup | null {
+  switch (page) {
+    case 'settings-integrations':
+      return 'integrations';
+    case 'settings-notifications':
+      return 'notifications';
+    case 'settings-security':
+      return 'security';
+    case 'settings-backup':
+      return 'backup-i18n';
+    case 'settings-general':
+    case 'settings-hub':
+      return 'general';
+    default:
+      return null;
+  }
+}
 
 export function SettingsHubPage() {
   const { current, navigate } = useNav();
-  const [activeGroup, setActiveGroup] = useState<
-    'general' | 'notifications' | 'workflows' | 'security' | 'integrations' | 'backup-i18n'
-  >('notifications');
+  const { can } = usePermissions();
+  const canViewAuditLog = can('audit', 'view');
+  const [activeGroup, setActiveGroup] = useState<SettingsGroup>(
+    () => groupForPage(current) ?? 'general',
+  );
 
   useEffect(() => {
-    if (current === 'settings-integrations') {
-      setActiveGroup('integrations');
-    } else if (current === 'settings-notifications') {
-      setActiveGroup('notifications');
-    } else if (current === 'settings-security') {
-      setActiveGroup('security');
-    } else if (current === 'settings-backup') {
-      setActiveGroup('backup-i18n');
-    } else if (current === 'settings-general' || current === 'settings-hub') {
-      setActiveGroup('general');
-    }
+    const group = groupForPage(current);
+    if (group) setActiveGroup(group);
   }, [current]);
-
-  // ---------------- MODULE 34: NOTIFICATION ENGINE STATE ----------------
-  const [rules, setRules] = useState<NotificationRule[]>(notificationRules);
-  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
-
-  const toggleChannel = (ruleId: string, channel: keyof NotificationRule['channels']) => {
-    setRules((prev) =>
-      prev.map((r) =>
-        r.id === ruleId
-          ? { ...r, channels: { ...r.channels, [channel]: !r.channels[channel] } }
-          : r
-      )
-    );
-  };
 
   // ---------------- MODULE 35: WORKFLOW BUILDER STATE ----------------
   const [workflows, setWorkflows] = useState<WorkflowItem[]>(workflowList);
@@ -113,8 +108,6 @@ export function SettingsHubPage() {
   const [passwordMinLength, setPasswordMinLength] = useState(10);
   const [requireSpecialChar, setRequireSpecialChar] = useState(true);
   const [requireNumbers, setRequireNumbers] = useState(true);
-  const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLogItem | null>(auditLogs[0]);
-  const [auditDiffModalOpen, setAuditDiffModalOpen] = useState(false);
 
   // ---------------- MODULE 43: INTEGRATIONS & API KEYS STATE ----------------
   const [keysList, setKeysList] = useState<ApiKeyItem[]>(apiKeys);
@@ -167,14 +160,15 @@ export function SettingsHubPage() {
     }, 1500);
   };
 
-  const settingsNavItems = [
-    { key: 'notifications' as const, label: 'Notification Engine', icon: Bell, badge: `${rules.length} Rules`, desc: 'Channels & Multi-Channel Triggers', page: 'settings-notifications' as const },
+  const allSettingsNavItems = [
+    { key: 'notifications' as const, label: 'Notifications & Email', icon: Bell, badge: 'SMTP', desc: 'Event channels, live delivery & SMTP', page: 'settings-notifications' as const },
     { key: 'workflows' as const, label: 'Workflow Builder', icon: GitBranch, badge: 'Visual', desc: 'Approval Engines & Multi-Step Logic', page: 'settings-workflows' as const },
     { key: 'security' as const, label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'SOC2', desc: '2FA, SSO, Login Audit & Code Diff', page: 'settings-security' as const },
     { key: 'integrations' as const, label: 'Integrations & API', icon: Webhook, badge: 'REST API', desc: 'API Keys, Webhooks & Connectors', page: 'settings-integrations' as const },
     { key: 'backup-i18n' as const, label: 'Backup & Multi-Currency', icon: Database, badge: 'i18n', desc: 'Automated Snapshots & Currencies', page: 'settings-backup' as const },
     { key: 'general' as const, label: 'General System Settings', icon: Sliders, desc: 'Timezones, Formats & System Identity', page: 'settings-general' as const },
   ];
+  const settingsNavItems = allSettingsNavItems.filter((item) => canViewPage(item.page, can));
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -239,190 +233,7 @@ export function SettingsHubPage() {
           {/* ================= GROUP 1: NOTIFICATION ENGINE (MODULE 34) ================= */}
           {activeGroup === 'notifications' && (
             <div className="space-y-6">
-              <SmtpSettingsPanel />
-              <RealtimeNotificationSettingsPanel />
-
-              {/* Channel Provider Cards */}
-              <div>
-                <h3 className="text-sm font-bold text-primary mb-3 flex items-center gap-2">
-                  <Bell className="h-4 w-4 text-accent-500" /> Multi-Channel Delivery Providers
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                  {notificationChannels.map((chan) => (
-                    <div
-                      key={chan.id}
-                      className="surface border border-base rounded-xl p-3.5 flex flex-col justify-between space-y-3 hover:border-strong transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="h-9 w-9 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 dark:text-accent-400 flex items-center justify-center">
-                          {chan.type === 'Email' && <Mail className="h-4 w-4" />}
-                          {chan.type === 'Push' && <Bell className="h-4 w-4" />}
-                          {chan.type === 'SMS' && <MessageSquare className="h-4 w-4" />}
-                          {chan.type === 'WhatsApp' && <Smartphone className="h-4 w-4" />}
-                        </div>
-                        <Badge
-                          tone={
-                            chan.status === 'Connected'
-                              ? 'success'
-                              : chan.status === 'Configured'
-                              ? 'accent'
-                              : 'neutral'
-                          }
-                          dot={chan.status === 'Connected'}
-                        >
-                          {chan.status}
-                        </Badge>
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-primary">{chan.name}</div>
-                        <div className="text-[11px] text-muted mt-0.5">{chan.provider}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Notification Rules Table with Channel Toggles & Expandable Drawer */}
-              <Card>
-                <CardHeader className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Notification Trigger Matrix</CardTitle>
-                    <p className="text-xs text-secondary mt-0.5">
-                      Toggle active delivery channels and configure recipient escalations per event.
-                    </p>
-                  </div>
-                  <Badge tone="neutral">{rules.length} Trigger Rules</Badge>
-                </CardHeader>
-                <CardBody className="p-0">
-                  <div className="divide-y divide-[rgb(var(--border-base))] text-sm">
-                    {rules.map((rule) => {
-                      const isExpanded = expandedRuleId === rule.id;
-                      return (
-                        <div key={rule.id} className="transition-colors hover:bg-[rgb(var(--bg-hover))]/50">
-                          {/* Row Summary */}
-                          <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div
-                              className="flex items-center gap-3 cursor-pointer flex-1"
-                              onClick={() => setExpandedRuleId(isExpanded ? null : rule.id)}
-                            >
-                              <button className="text-muted hover:text-primary">
-                                {isExpanded ? (
-                                  <ChevronDown className="h-4 w-4" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4" />
-                                )}
-                              </button>
-                              <div>
-                                <div className="font-semibold text-primary text-xs sm:text-sm">
-                                  {rule.eventName}
-                                </div>
-                                <div className="text-[11px] text-muted">{rule.category}</div>
-                              </div>
-                            </div>
-
-                            {/* Channel Toggle Buttons */}
-                            <div className="flex items-center gap-2">
-                              {/* In-App */}
-                              <button
-                                onClick={() => toggleChannel(rule.id, 'inApp')}
-                                className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                                  rule.channels.inApp
-                                    ? 'bg-accent-50 text-accent-700 dark:bg-accent-950/40 dark:text-accent-300 border-accent-300 dark:border-accent-800'
-                                    : 'surface border-base text-muted opacity-40'
-                                }`}
-                                title="In-App Notification"
-                              >
-                                In-App
-                              </button>
-
-                              {/* Push */}
-                              <button
-                                onClick={() => toggleChannel(rule.id, 'push')}
-                                className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                                  rule.channels.push
-                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
-                                    : 'surface border-base text-muted opacity-40'
-                                }`}
-                                title="Mobile Push Notification"
-                              >
-                                Push
-                              </button>
-
-                              {/* Email */}
-                              <button
-                                onClick={() => toggleChannel(rule.id, 'email')}
-                                className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                                  rule.channels.email
-                                    ? 'bg-success-50 text-success-700 dark:bg-success-950/40 dark:text-success-300 border-success-300 dark:border-success-800'
-                                    : 'surface border-base text-muted opacity-40'
-                                }`}
-                                title="Email Notification"
-                              >
-                                Email
-                              </button>
-
-                              {/* SMS */}
-                              <button
-                                onClick={() => toggleChannel(rule.id, 'sms')}
-                                className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                                  rule.channels.sms
-                                    ? 'bg-warning-50 text-warning-700 dark:bg-warning-950/40 dark:text-warning-300 border-warning-300 dark:border-warning-800'
-                                    : 'surface border-base text-muted opacity-40'
-                                }`}
-                                title="SMS Gateway"
-                              >
-                                SMS
-                              </button>
-
-                              {/* WhatsApp */}
-                              <button
-                                onClick={() => toggleChannel(rule.id, 'whatsapp')}
-                                className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
-                                  rule.channels.whatsapp
-                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                                    : 'surface border-base text-muted opacity-40'
-                                }`}
-                                title="WhatsApp Business"
-                              >
-                                WA
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Expandable Drawer for Recipient & Timing Config */}
-                          {isExpanded && (
-                            <div className="bg-[rgb(var(--bg-muted))]/60 p-4 border-t border-base space-y-3 animate-fadeIn text-xs">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                  <span className="text-muted block font-semibold mb-1">Target Recipients</span>
-                                  <div className="flex flex-wrap gap-1">
-                                    {rule.recipients.map((rcp) => (
-                                      <Badge key={rcp} tone="accent">
-                                        {rcp}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="text-muted block font-semibold mb-1">Dispatch Timing</span>
-                                  <span className="text-primary font-medium">{rule.timing}</span>
-                                </div>
-                              </div>
-
-                              <div>
-                                <span className="text-muted block font-semibold mb-1">Notification Template Preview</span>
-                                <div className="surface border border-base rounded-lg p-2.5 font-mono text-secondary text-[11px]">
-                                  {rule.templatePreview}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardBody>
-              </Card>
+              <NotificationSettingsScreen />
             </div>
           )}
 
@@ -750,73 +561,21 @@ export function SettingsHubPage() {
                 </CardBody>
               </Card>
 
-              {/* Audit Log Table with Code Diff Viewer */}
-              <Card>
-                <CardHeader className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>System Audit Log & State Changes</CardTitle>
-                    <p className="text-xs text-secondary mt-0.5">
-                      Click any row to inspect before vs after field-level differences.
-                    </p>
-                  </div>
-                  <Badge tone="accent">Full Immutability</Badge>
-                </CardHeader>
-                <CardBody className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-[rgb(var(--bg-muted))] border-b border-base text-xs">
-                        <tr>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Timestamp</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">User</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Action</th>
-                          <th className="text-left px-5 py-2.5 font-semibold text-secondary">Target Entity</th>
-                          <th className="text-right px-5 py-2.5 font-semibold text-secondary">Inspector</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[rgb(var(--border-base))] text-xs">
-                        {auditLogs.map((log) => (
-                          <tr
-                            key={log.id}
-                            onClick={() => {
-                              setSelectedAuditLog(log);
-                              if (log.diff) setAuditDiffModalOpen(true);
-                            }}
-                            className="hover:bg-[rgb(var(--bg-hover))] cursor-pointer transition-colors"
-                          >
-                            <td className="px-5 py-3 font-mono text-muted">{log.timestamp}</td>
-                            <td className="px-5 py-3 font-semibold text-primary">{log.user}</td>
-                            <td className="px-5 py-3">
-                              <Badge
-                                tone={
-                                  log.action === 'CREATE'
-                                    ? 'success'
-                                    : log.action === 'UPDATE'
-                                    ? 'accent'
-                                    : log.action === 'DELETE'
-                                    ? 'error'
-                                    : 'neutral'
-                                }
-                              >
-                                {log.action}
-                              </Badge>
-                            </td>
-                            <td className="px-5 py-3 text-secondary font-medium">{log.record}</td>
-                            <td className="px-5 py-3 text-right">
-                              {log.diff ? (
-                                <span className="text-accent-600 font-semibold flex items-center justify-end gap-1">
-                                  <FileCode className="h-3.5 w-3.5" /> View Diff
-                                </span>
-                              ) : (
-                                <span className="text-muted">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardBody>
-              </Card>
+              {canViewAuditLog && (
+                <Card>
+                  <CardBody className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-primary">Audit log</div>
+                      <p className="text-xs text-secondary mt-0.5">
+                        Search every recorded change by module, user, date range or record ID.
+                      </p>
+                    </div>
+                    <Button variant="secondary" onClick={() => navigate('audit-log')}>
+                      Open audit log <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </CardBody>
+                </Card>
+              )}
             </div>
           )}
 
@@ -995,38 +754,6 @@ export function SettingsHubPage() {
           )}
         </main>
       </div>
-
-      {/* ================= MODAL: AUDIT CODE DIFF VIEWER ================= */}
-      <Modal
-        open={auditDiffModalOpen}
-        onClose={() => setAuditDiffModalOpen(false)}
-        title={`Audit State Inspector: ${selectedAuditLog?.record}`}
-        description={`User: ${selectedAuditLog?.user} · Action: ${selectedAuditLog?.action} · IP: ${selectedAuditLog?.ip}`}
-        footer={
-          <Button variant="secondary" onClick={() => setAuditDiffModalOpen(false)}>
-            Close Inspector
-          </Button>
-        }
-      >
-        <div className="space-y-4">
-          <div className="text-xs font-semibold text-primary">Field-Level Changes:</div>
-          <div className="surface border border-base rounded-xl overflow-hidden font-mono text-xs">
-            {selectedAuditLog?.diff?.map((d) => (
-              <div key={d.field} className="divide-y divide-[rgb(var(--border-base))]">
-                <div className="bg-[rgb(var(--bg-muted))] px-3 py-1.5 font-bold text-primary text-[11px]">
-                  Property: {d.field}
-                </div>
-                <div className="bg-error-50/40 dark:bg-error-950/40 text-error-700 dark:text-error-300 px-3 py-1 flex items-center gap-2">
-                  <span className="font-bold">-</span> {d.before}
-                </div>
-                <div className="bg-success-50/40 dark:bg-success-950/40 text-success-700 dark:text-success-300 px-3 py-1 flex items-center gap-2">
-                  <span className="font-bold">+</span> {d.after}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Modal>
 
       {/* ================= MODAL: GENERATE NEW API KEY ================= */}
       <Modal

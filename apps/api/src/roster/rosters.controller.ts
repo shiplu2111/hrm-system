@@ -13,6 +13,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
   BulkAssignRosterDto,
@@ -27,7 +30,10 @@ import { RostersService } from './rosters.service';
 @ApiBearerAuth('access-token')
 @Controller('companies/:companyId/rosters')
 export class RostersController {
-  constructor(private readonly rostersService: RostersService) {}
+  constructor(
+    private readonly rostersService: RostersService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   @Get()
   @RequirePermission('attendance', 'view')
@@ -37,8 +43,16 @@ export class RostersController {
   async list(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListRostersQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    const result = await this.rostersService.list(companyId, query);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
+    const result = await this.rostersService.list(
+      companyId,
+      query,
+      await this.dataScope.employeeIdFilter(user),
+    );
     return { data: result.data, meta: { total: result.total } };
   }
 
@@ -57,8 +71,9 @@ export class RostersController {
   async bulkAssign(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: BulkAssignRosterDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['bulkAssign']>>>> {
-    return { data: await this.rostersService.bulkAssign(companyId, dto) };
+    return { data: await this.rostersService.bulkAssign(companyId, dto, user) };
   }
 
   @Post('bulk-clear')
@@ -67,8 +82,9 @@ export class RostersController {
   async bulkClear(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: BulkClearRosterDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['bulkClear']>>>> {
-    return { data: await this.rostersService.bulkClear(companyId, dto) };
+    return { data: await this.rostersService.bulkClear(companyId, dto, user) };
   }
 
   @Get(':rosterId')
@@ -76,8 +92,9 @@ export class RostersController {
   async get(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('rosterId', ParseUUIDPipe) rosterId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['get']>>>> {
-    return { data: await this.rostersService.get(companyId, rosterId) };
+    return { data: await this.rostersService.get(companyId, rosterId, user) };
   }
 
   @Post()
@@ -86,8 +103,9 @@ export class RostersController {
   async create(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: CreateRosterDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['create']>>>> {
-    return { data: await this.rostersService.create(companyId, dto) };
+    return { data: await this.rostersService.create(companyId, dto, user) };
   }
 
   @Patch(':rosterId')
@@ -96,8 +114,9 @@ export class RostersController {
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('rosterId', ParseUUIDPipe) rosterId: string,
     @Body() dto: UpdateRosterDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<RostersService['update']>>>> {
-    return { data: await this.rostersService.update(companyId, rosterId, dto) };
+    return { data: await this.rostersService.update(companyId, rosterId, dto, user) };
   }
 
   @Delete(':rosterId')
@@ -106,7 +125,8 @@ export class RostersController {
   async remove(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('rosterId', ParseUUIDPipe) rosterId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
-    await this.rostersService.remove(companyId, rosterId);
+    await this.rostersService.remove(companyId, rosterId, user);
   }
 }

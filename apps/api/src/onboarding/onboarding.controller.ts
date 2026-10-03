@@ -101,8 +101,9 @@ export class OnboardingController {
   async listOnboardings(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmployeeOnboardingsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.onboardingService.list(companyId, query) };
+    return { data: await this.onboardingService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/employee-onboardings')
@@ -119,16 +120,18 @@ export class OnboardingController {
   @RequirePermission('employee', 'view')
   async getOnboarding(
     @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.onboardingService.get(onboardingId) };
+    return { data: await this.onboardingService.get(onboardingId, user) };
   }
 
   @Get('employees/:employeeId/onboarding')
   @RequirePermission('employee', 'view')
   async getEmployeeOnboarding(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.onboardingService.getForEmployee(employeeId) };
+    return { data: await this.onboardingService.getForEmployee(employeeId, user) };
   }
 
   @Post('employee-onboardings/:onboardingId/tasks/:taskId/complete')
@@ -191,7 +194,8 @@ export class OnboardingController {
   @RequirePermission('employee', 'edit')
   async resendWelcome(
     @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.onboardingService.resendWelcome(onboardingId) };
+    return { data: await this.onboardingService.resendWelcome(onboardingId, user) };
   }
 }

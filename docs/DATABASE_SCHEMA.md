@@ -187,7 +187,8 @@ audit_logs
   -- append-only: no updated_at; UPDATE/DELETE blocked by DB trigger + REVOKE
 
 roles
-  id, tenant_id (nullable for system roles), name, created_at, updated_at
+  id, tenant_id (nullable for system roles), name,
+  data_scope (all|team, default all — ROLES_PERMISSIONS.md §5), created_at, updated_at
   UNIQUE (tenant_id, name) WHERE tenant_id IS NOT NULL
   UNIQUE (name) WHERE tenant_id IS NULL
 

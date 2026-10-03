@@ -9,6 +9,7 @@ import {
   TrendingUp,
   ClipboardList,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -49,6 +50,9 @@ type PageTab = 'announcements' | 'kudos' | 'surveys' | 'results' | 'enps';
 
 export function EmployeeEngagementPage() {
   const { companyId } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('engagement', 'create');
+  const canEdit = can('engagement', 'edit');
   const [tab, setTab] = useState<PageTab>('announcements');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -229,17 +233,17 @@ export function EmployeeEngagementPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {tab === 'announcements' && (
+          {tab === 'announcements' && canCreate && canEdit && (
             <Button onClick={() => setAnnouncementModal(true)}>
               <Plus className="h-4 w-4" /> New announcement
             </Button>
           )}
-          { tab === 'kudos' && (
+          { tab === 'kudos' && canCreate && (
             <Button onClick={() => setKudosModal(true)}>
               <Plus className="h-4 w-4" /> Give kudos
             </Button>
           )}
-          {tab === 'surveys' && (
+          {tab === 'surveys' && canCreate && canEdit && (
             <Button onClick={() => setSurveyModal(true)}>
               <Plus className="h-4 w-4" /> New survey
             </Button>
@@ -359,7 +363,7 @@ export function EmployeeEngagementPage() {
                   <td className="px-4 py-4 capitalize">{survey.status}</td>
                   <td className="px-4 py-4">{survey.responseCount}</td>
                   <td className="px-4 py-4 text-right">
-                    {survey.status === 'published' && (
+                    {survey.status === 'published' && canEdit && (
                       <Button size="sm" variant="secondary" onClick={() => void closeSurvey(survey.id).then(load)}>
                         Close
                       </Button>

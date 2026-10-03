@@ -34,6 +34,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       employeeId: payload.employee_id ?? null,
       email: '',
       permissions: payload.permissions ?? [],
+      dataScope: payload.data_scope,
       mustChangePassword: payload.must_change_password === true,
     };
   }

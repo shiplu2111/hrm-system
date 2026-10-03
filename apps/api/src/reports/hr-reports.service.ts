@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LifecycleEventType } from '@prisma/client';
+import { LifecycleEventType, Prisma } from '@prisma/client';
 import type { ReportResult } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { formatDateValue } from '../leave/leave.utils';
@@ -21,26 +21,32 @@ export class HrReportsService {
     companyId: string,
     reportId: string,
     range: ReportDateRange,
+    employeeIds?: { in: string[] },
   ): Promise<ReportResult> {
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      companyId,
+      deletedAt: null,
+      id: employeeIds,
+    };
     switch (reportId) {
       case 'hr.headcount':
-        return this.headcount(companyId, range);
+        return this.headcount(employeeWhere, range);
       case 'hr.new-hires':
-        return this.newHires(companyId, range);
+        return this.newHires(employeeWhere, range);
       case 'hr.terminations':
-        return this.terminations(companyId, range);
+        return this.terminations(employeeWhere, range);
       case 'hr.turnover':
-        return this.turnover(companyId, range);
+        return this.turnover(employeeWhere, range);
       case 'hr.demographics':
-        return this.demographics(companyId, range);
+        return this.demographics(employeeWhere, range);
       case 'hr.department-summary':
-        return this.departmentSummary(companyId, range);
+        return this.departmentSummary(employeeWhere, range);
       case 'hr.employment-type-summary':
-        return this.employmentTypeSummary(companyId, range);
+        return this.employmentTypeSummary(employeeWhere, range);
       case 'hr.expiry':
-        return this.expiry(companyId, range);
+        return this.expiry(employeeWhere, range);
       case 'hr.probation-ending':
-        return this.probationEnding(companyId, range);
+        return this.probationEnding(employeeWhere, range);
       default:
         throw new Error(`Unknown HR report: ${reportId}`);
     }
@@ -60,13 +66,9 @@ export class HrReportsService {
     };
   }
 
-  private employeeFilter(companyId: string) {
-    return { companyId, deletedAt: null };
-  }
-
-  private async headcount(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async headcount(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
-      where: { ...this.employeeFilter(companyId), employmentStatus: 'active' },
+      where: { ...employeeWhere, employmentStatus: 'active' },
       include: {
         department: { select: { name: true } },
         employmentType: { select: { name: true } },
@@ -99,10 +101,10 @@ export class HrReportsService {
     };
   }
 
-  private async newHires(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async newHires(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
       where: {
-        ...this.employeeFilter(companyId),
+        ...employeeWhere,
         hireDate: { gte: range.from, lte: range.to },
       },
       include: {
@@ -129,12 +131,12 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.new-hires', range, rows.length), columns, rows };
   }
 
-  private async terminations(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async terminations(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const events = await this.prisma.unscoped.employeeLifecycleEvent.findMany({
       where: {
         eventType: { in: [LifecycleEventType.termination, LifecycleEventType.resignation] },
         effectiveDate: { gte: range.from, lte: range.to },
-        employee: this.employeeFilter(companyId),
+        employee: employeeWhere,
       },
       include: {
         employee: {
@@ -166,17 +168,17 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.terminations', range, rows.length), columns, rows };
   }
 
-  private async turnover(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async turnover(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const [activeEmployees, terminations] = await Promise.all([
       this.prisma.unscoped.employee.findMany({
-        where: { ...this.employeeFilter(companyId), employmentStatus: 'active' },
+        where: { ...employeeWhere, employmentStatus: 'active' },
         include: { department: { select: { name: true } } },
       }),
       this.prisma.unscoped.employeeLifecycleEvent.findMany({
         where: {
           eventType: { in: [LifecycleEventType.termination, LifecycleEventType.resignation] },
           effectiveDate: { gte: range.from, lte: range.to },
-          employee: this.employeeFilter(companyId),
+          employee: employeeWhere,
         },
         include: { employee: { include: { department: { select: { name: true } } } } },
       }),
@@ -219,9 +221,9 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.turnover', range, rows.length), columns, rows };
   }
 
-  private async demographics(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async demographics(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
-      where: { ...this.employeeFilter(companyId), employmentStatus: 'active' },
+      where: { ...employeeWhere, employmentStatus: 'active' },
       select: { personalInfo: true },
     });
 
@@ -246,9 +248,9 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.demographics', range, rows.length), columns, rows };
   }
 
-  private async departmentSummary(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async departmentSummary(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
-      where: this.employeeFilter(companyId),
+      where: employeeWhere,
       include: { department: { select: { name: true } } },
     });
 
@@ -278,11 +280,11 @@ export class HrReportsService {
   }
 
   private async employmentTypeSummary(
-    companyId: string,
+    employeeWhere: Prisma.EmployeeWhereInput,
     range: ReportDateRange,
   ): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
-      where: { ...this.employeeFilter(companyId), employmentStatus: 'active' },
+      where: { ...employeeWhere, employmentStatus: 'active' },
       include: { employmentType: { select: { name: true } } },
     });
 
@@ -303,12 +305,12 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.employment-type-summary', range, rows.length), columns, rows };
   }
 
-  private async expiry(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async expiry(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const [documents, contracts] = await Promise.all([
       this.prisma.unscoped.employeeDocument.findMany({
         where: {
           expiryDate: { gte: range.from, lte: range.to },
-          employee: this.employeeFilter(companyId),
+          employee: employeeWhere,
           documentType: { tracksExpiry: true },
         },
         include: {
@@ -320,7 +322,7 @@ export class HrReportsService {
       this.prisma.unscoped.employmentContract.findMany({
         where: {
           endDate: { gte: range.from, lte: range.to },
-          employee: this.employeeFilter(companyId),
+          employee: employeeWhere,
         },
         include: {
           employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
@@ -357,10 +359,10 @@ export class HrReportsService {
     return { ...this.baseMeta('hr.expiry', range, rows.length), columns, rows };
   }
 
-  private async probationEnding(companyId: string, range: ReportDateRange): Promise<ReportResult> {
+  private async probationEnding(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
     const employees = await this.prisma.unscoped.employee.findMany({
       where: {
-        ...this.employeeFilter(companyId),
+        ...employeeWhere,
         probationEndDate: { gte: range.from, lte: range.to },
       },
       include: {

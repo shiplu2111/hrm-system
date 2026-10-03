@@ -9,6 +9,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { AttendanceService } from './attendance.service';
 import { AttendanceCaptureDto, AttendanceDateQueryDto } from './dto/attendance.dto';
@@ -17,7 +20,10 @@ import { AttendanceCaptureDto, AttendanceDateQueryDto } from './dto/attendance.d
 @ApiBearerAuth('access-token')
 @Controller('employees/:employeeId/attendance')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   @Get('today')
   @RequirePermission('attendance', 'view')
@@ -25,7 +31,9 @@ export class AttendanceController {
   async getToday(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Query() query: AttendanceDateQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['getDayRecord']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.attendanceService.getDayRecord(employeeId, query.date),
     };
@@ -37,7 +45,9 @@ export class AttendanceController {
   async clockIn(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: AttendanceCaptureDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['clockIn']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return { data: await this.attendanceService.clockIn(employeeId, dto) };
   }
 
@@ -47,7 +57,9 @@ export class AttendanceController {
   async clockOut(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: AttendanceCaptureDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['clockOut']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return { data: await this.attendanceService.clockOut(employeeId, dto) };
   }
 
@@ -57,7 +69,9 @@ export class AttendanceController {
   async breakStart(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: AttendanceCaptureDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['breakStart']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return { data: await this.attendanceService.breakStart(employeeId, dto) };
   }
 
@@ -67,7 +81,9 @@ export class AttendanceController {
   async breakEnd(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: AttendanceCaptureDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['breakEnd']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return { data: await this.attendanceService.breakEnd(employeeId, dto) };
   }
 }

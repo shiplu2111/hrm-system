@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { validateCustomFieldValues } from '../custom-fields/field-validation.utils';
 import { PrismaService } from '../database/prisma.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
 import { OnboardingTaskSyncService } from '../onboarding/onboarding-task-sync.service';
@@ -24,9 +25,11 @@ export class EmployeeDocumentsService {
     private readonly auditService: AuditService,
     private readonly storageService: StorageService,
     private readonly onboardingTaskSync: OnboardingTaskSyncService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async listDocuments(employeeId: string) {
+  async listDocuments(employeeId: string, user: AuthenticatedUser) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     await this.assertEmployee(employeeId);
 
     const rows = await this.prisma.unscoped.employeeDocument.findMany({
@@ -47,7 +50,8 @@ export class EmployeeDocumentsService {
     return rows.map((row) => this.toResponse(row));
   }
 
-  async getDocument(employeeId: string, documentId: string) {
+  async getDocument(employeeId: string, documentId: string, user: AuthenticatedUser) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     await this.assertEmployee(employeeId);
     const row = await this.getDocOrThrow(employeeId, documentId);
     return this.toResponse(row);
@@ -59,6 +63,7 @@ export class EmployeeDocumentsService {
     user: AuthenticatedUser,
     meta?: { ipAddress?: string; device?: string },
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const employee = await this.assertEmployee(employeeId);
 
     const docType = await this.prisma.unscoped.documentType.findFirst({
@@ -135,6 +140,7 @@ export class EmployeeDocumentsService {
     user: AuthenticatedUser,
     meta?: { ipAddress?: string; device?: string },
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const employee = await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
 
@@ -213,6 +219,7 @@ export class EmployeeDocumentsService {
   ) {
     assertValidDocumentUpload(file);
 
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const employee = await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
 
@@ -267,7 +274,12 @@ export class EmployeeDocumentsService {
     return this.toResponse(updated);
   }
 
-  async getDocumentFileUrl(employeeId: string, documentId: string) {
+  async getDocumentFileUrl(
+    employeeId: string,
+    documentId: string,
+    user: AuthenticatedUser,
+  ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
 
@@ -292,6 +304,7 @@ export class EmployeeDocumentsService {
     user: AuthenticatedUser,
     meta?: { ipAddress?: string; device?: string },
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
     const employee = await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
 
@@ -333,6 +346,7 @@ export class EmployeeDocumentsService {
     user: AuthenticatedUser,
     meta?: { ipAddress?: string; device?: string },
   ): Promise<void> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
     const employee = await this.assertEmployee(employeeId);
     const existing = await this.getDocOrThrow(employeeId, documentId);
 

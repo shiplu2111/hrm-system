@@ -2,10 +2,14 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import type { WorkflowInstanceStep } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 
 @Injectable()
 export class WorkflowAssigneeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   async assertCanActOnStep(input: {
     requesterEmployeeId: string;
@@ -46,7 +50,14 @@ export class WorkflowAssigneeService {
       if (roleName === 'Company Owner' || roleName === 'HR Admin') {
         return;
       }
-    } else if (roleName === input.step.roleName || roleName === 'Company Owner') {
+    } else if (roleName === 'Company Owner') {
+      return;
+    } else if (
+      roleName === input.step.roleName &&
+      (await this.dataScope.canAccessEmployee(input.user, input.requesterEmployeeId, {
+        includeSelf: false,
+      }))
+    ) {
       return;
     }
 

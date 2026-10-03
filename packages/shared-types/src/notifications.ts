@@ -78,3 +78,41 @@ export interface UpdateRealtimeNotificationSettingsInput {
   enabled: boolean;
   liveBroadcast: Partial<RealtimeBroadcastMap>;
 }
+
+export type NotificationChannelKey = keyof NotificationRuleConfig['channels'];
+
+/** Editable delivery state of one event: rule on/off, channels, and live WebSocket toast. */
+export interface NotificationEventChannelState {
+  enabled: boolean;
+  channels: NotificationRuleConfig['channels'];
+  /** Live toast over WebSocket; only applies when the in-app channel is on. */
+  live: boolean;
+}
+
+export interface NotificationEventSetting extends NotificationEventChannelState {
+  eventType: NotificationEventType;
+  recipients: NotificationRecipientRole[];
+  /** Recipients come from the event itself (e.g. the current approver), not the rule. */
+  directRecipients: boolean;
+  defaults: NotificationEventChannelState;
+}
+
+export interface NotificationChannelStatus {
+  /** Company SMTP saved with a password — email can't be delivered otherwise. */
+  email: { configured: boolean };
+  /** Platform push provider (Firebase) configured. */
+  push: { configured: boolean };
+}
+
+/** Per-company notification events & channels (NOTIFICATION_LOGIC.md §4, §10; SYSTEM_SETTINGS.md §2a). */
+export interface NotificationEventSettingsView {
+  realtimeEnabled: boolean;
+  events: NotificationEventSetting[];
+  channelStatus: NotificationChannelStatus;
+  updatedAt: string | null;
+}
+
+export interface UpdateNotificationEventSettingsInput {
+  realtimeEnabled: boolean;
+  events: Array<NotificationEventChannelState & { eventType: NotificationEventType }>;
+}

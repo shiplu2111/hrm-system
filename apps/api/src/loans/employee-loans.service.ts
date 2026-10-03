@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import type {
   CreateEmployeeLoanDto,
   ListEmployeeLoansQueryDto,
@@ -44,6 +45,7 @@ export class EmployeeLoansService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly loanPayroll: LoanPayrollService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async list(
@@ -121,6 +123,7 @@ export class EmployeeLoansService {
     });
 
     if (dto.approve === true) {
+      await this.permissions.assertPermission(user, 'payroll', 'approve');
       return this.approve(row.id, user, {
         firstDueDate: dto.firstDueDate,
       });

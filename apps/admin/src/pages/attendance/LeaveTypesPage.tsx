@@ -75,6 +75,7 @@ export function LeaveTypesPage() {
 
 function LeaveTypesScreen({ companyId }: { companyId: string }) {
   const canCreate = usePermission('settings', 'create');
+  const canEdit = usePermission('settings', 'edit');
   const [types, setTypes] = useState<LeaveTypeRecord[]>([]);
   const [policies, setPolicies] = useState<LeavePolicyRecord[]>([]);
   const [roleNames, setRoleNames] = useState<string[]>([]);
@@ -107,10 +108,14 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!canCreate && !canEdit) return;
     listTenantRoles()
       .then((roles) => setRoleNames(roles.map((r) => r.name)))
       .catch(() => setRoleNames([]));
-  }, [load]);
+  }, [canCreate, canEdit]);
 
   const today = todayIso();
   const policiesByType = useMemo(() => {

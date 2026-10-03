@@ -12,7 +12,7 @@ import {
   Clock,
 } from 'lucide-react';
 import type { OfferLetterRecord, OfferLetterTemplate } from '@hrm/shared-types';
-import { useAuth } from '@hrm/portal-ui';
+import { useAuth, usePermission } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -50,6 +50,8 @@ export function OfferLetterPage() {
   const { applicationId: routeApplicationId } = useParams<{ applicationId: string }>();
   const { navigate, openApplication, selectedApplicationId } = useNav();
   const { user } = useAuth();
+  const canEditRecruitment = usePermission('recruitment', 'edit');
+  const canApproveRecruitment = usePermission('recruitment', 'approve');
   const applicationId = routeApplicationId ?? selectedApplicationId;
   const [offer, setOffer] = useState<OfferLetterRecord | null>(null);
   const [candidateName, setCandidateName] = useState('');
@@ -147,7 +149,7 @@ export function OfferLetterPage() {
     );
   }
 
-  if (loading || !offer) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center p-12 text-secondary">
         <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -156,14 +158,24 @@ export function OfferLetterPage() {
     );
   }
 
+  if (!offer) {
+    return (
+      <div className="p-6 text-error-600">
+        {error ?? 'Offer letter not found.'}
+      </div>
+    );
+  }
+
   const isDraft = offer.status === 'draft';
-  const canEdit = isDraft;
+  const canEdit = isDraft && canEditRecruitment;
   const workflowSteps = offer.workflow?.steps ?? [];
   const pendingStep = workflowSteps.find((s) => s.status === 'pending');
   const currentRole = user?.roleName ?? '';
   const canActOnPendingStep =
     Boolean(pendingStep) &&
-    (currentRole === pendingStep?.roleName || currentRole === 'Company Owner');
+    (pendingStep?.assigneeType !== 'role' ||
+      currentRole === pendingStep?.roleName ||
+      currentRole === 'Company Owner');
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -196,7 +208,7 @@ export function OfferLetterPage() {
               <Download className="h-4 w-4" /> Download PDF
             </Button>
           )}
-          {isDraft && (
+          {canEdit && (
             <>
               <Button variant="secondary" disabled={saving} onClick={() => void handleSave()}>
                 Save Draft
@@ -219,30 +231,32 @@ export function OfferLetterPage() {
               </Button>
             </>
           )}
-          {offer.status === 'pending_approval' && pendingStep && (
-            <>
-              <Button
-                variant="primary"
-                disabled={saving || !canActOnPendingStep}
-                title={
-                  canActOnPendingStep
-                    ? undefined
-                    : `Sign in as ${pendingStep?.roleName ?? 'the assigned role'} to approve`
-                }
-                onClick={() => void runAction(() => approveOfferLetter(offer.id))}
-              >
-                <ThumbsUp className="h-4 w-4" /> Approve
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={saving || !canActOnPendingStep}
-                onClick={() => void runAction(() => rejectOfferLetter(offer.id))}
-              >
-                <ThumbsDown className="h-4 w-4" /> Reject
-              </Button>
-            </>
-          )}
-          {offer.status === 'approved' && (
+          {offer.status === 'pending_approval' &&
+            pendingStep &&
+            canApproveRecruitment && (
+              <>
+                <Button
+                  variant="primary"
+                  disabled={saving || !canActOnPendingStep}
+                  title={
+                    canActOnPendingStep
+                      ? undefined
+                      : `Sign in as ${pendingStep?.roleName ?? 'the assigned role'} to approve`
+                  }
+                  onClick={() => void runAction(() => approveOfferLetter(offer.id))}
+                >
+                  <ThumbsUp className="h-4 w-4" /> Approve
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={saving || !canActOnPendingStep}
+                  onClick={() => void runAction(() => rejectOfferLetter(offer.id))}
+                >
+                  <ThumbsDown className="h-4 w-4" /> Reject
+                </Button>
+              </>
+            )}
+          {offer.status === 'approved' && canEditRecruitment && (
             <Button
               variant="primary"
               disabled={saving || !offer.candidateEmail}
@@ -256,7 +270,7 @@ export function OfferLetterPage() {
               <Mail className="h-4 w-4" /> Email Offer to Candidate
             </Button>
           )}
-          {offer.status === 'sent' && (
+          {offer.status === 'sent' && canApproveRecruitment && (
             <Button
               variant="primary"
               disabled={saving}

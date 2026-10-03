@@ -18,7 +18,9 @@ import type {
   JobApplicationRecord,
   JobPostingRecord,
   JobRequisitionRecord,
+  WorkflowInstanceRecord,
 } from '@hrm/shared-types';
+import { PermissionGate, usePermissions } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -65,6 +67,17 @@ function avatarColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) hash = name.charCodeAt(i) + hash * 31;
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function canActOnWorkflowStep(
+  workflow: WorkflowInstanceRecord | null,
+  roleName: string,
+): boolean {
+  if (!workflow) return true;
+  const step = workflow.steps.find((s) => s.status === 'pending');
+  if (!step) return false;
+  if (step.assigneeType !== 'role') return true;
+  return roleName === step.roleName || roleName === 'Company Owner';
 }
 
 function KanbanCard({
@@ -118,6 +131,9 @@ function KanbanCard({
 
 function RecruitmentContent({ companyId }: { companyId: string }) {
   const { openApplication } = useNav();
+  const { user, can } = usePermissions();
+  const canEdit = can('recruitment', 'edit');
+  const canApprove = can('recruitment', 'approve');
   const [requisitions, setRequisitions] = useState<JobRequisitionRecord[]>([]);
   const [postings, setPostings] = useState<JobPostingRecord[]>([]);
   const [applications, setApplications] = useState<JobApplicationRecord[]>([]);
@@ -189,7 +205,7 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
   const openRequisitions = requisitions.filter((r) => r.status === 'open');
 
   const handleDrop = async (stage: ApplicationStage) => {
-    if (!draggedId) return;
+    if (!draggedId || !canEdit) return;
     const application = applications.find((a) => a.id === draggedId);
     if (!application || application.stage === stage) {
       setDraggedId(null);
@@ -334,14 +350,16 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
             requisitions
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setReqOpen(true)}>
-            <Briefcase className="h-4 w-4" /> New Requisition
-          </Button>
-          <Button variant="primary" onClick={() => setAddOpen(true)}>
-            <Plus className="h-4 w-4" /> Add Candidate
-          </Button>
-        </div>
+        <PermissionGate module="recruitment" action="create">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setReqOpen(true)}>
+              <Briefcase className="h-4 w-4" /> New Requisition
+            </Button>
+            <Button variant="primary" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4" /> Add Candidate
+            </Button>
+          </div>
+        </PermissionGate>
       </div>
 
       {error && (
@@ -377,7 +395,7 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {req.status === 'draft' && (
+                  {req.status === 'draft' && canEdit && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -387,40 +405,45 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
                       <Send className="h-3.5 w-3.5" /> Submit for Approval
                     </Button>
                   )}
-                  {req.status === 'pending_approval' && (
-                    <>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={saving}
-                        onClick={() => void handleRequisitionAction('approve', req)}
-                      >
-                        <ThumbsUp className="h-3.5 w-3.5" /> Approve
-                      </Button>
+                  {req.status === 'pending_approval' &&
+                    canApprove &&
+                    canActOnWorkflowStep(req.workflow, user?.roleName ?? '') && (
+                      <>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() => void handleRequisitionAction('approve', req)}
+                        >
+                          <ThumbsUp className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() => void handleRequisitionAction('reject', req)}
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" /> Reject
+                        </Button>
+                      </>
+                    )}
+                  {req.status === 'open' && !req.posting && (
+                    <PermissionGate module="recruitment" action="create">
                       <Button
                         variant="secondary"
                         size="sm"
                         disabled={saving}
-                        onClick={() => void handleRequisitionAction('reject', req)}
+                        onClick={() =>
+                          void handleRequisitionAction('create-posting', req)
+                        }
                       >
-                        <ThumbsDown className="h-3.5 w-3.5" /> Reject
+                        <Megaphone className="h-3.5 w-3.5" /> Create Posting
                       </Button>
-                    </>
-                  )}
-                  {req.status === 'open' && !req.posting && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={saving}
-                      onClick={() =>
-                        void handleRequisitionAction('create-posting', req)
-                      }
-                    >
-                      <Megaphone className="h-3.5 w-3.5" /> Create Posting
-                    </Button>
+                    </PermissionGate>
                   )}
                   {req.status === 'open' &&
-                    req.posting?.status === 'draft' && (
+                    req.posting?.status === 'draft' &&
+                    canEdit && (
                       <Button
                         variant="primary"
                         size="sm"
@@ -510,8 +533,10 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
                 {stageApps.map((app) => (
                   <div
                     key={app.id}
-                    draggable
-                    onDragStart={() => setDraggedId(app.id)}
+                    draggable={canEdit}
+                    onDragStart={() => {
+                      if (canEdit) setDraggedId(app.id);
+                    }}
                     onDragEnd={() => setDraggedId(null)}
                     className={draggedId === app.id ? 'opacity-50' : ''}
                   >
@@ -523,7 +548,7 @@ function RecruitmentContent({ companyId }: { companyId: string }) {
                 ))}
                 {stageApps.length === 0 && (
                   <div className="flex items-center justify-center h-20 text-xs text-muted border-2 border-dashed border-base rounded-lg">
-                    Drop here
+                    {canEdit ? 'Drop here' : 'No applications'}
                   </div>
                 )}
               </div>

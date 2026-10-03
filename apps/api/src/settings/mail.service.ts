@@ -15,6 +15,20 @@ export interface SendMailInput {
   }>;
 }
 
+/** Keeps "Send test email" and queued deliveries from hanging on unreachable hosts. */
+const SMTP_CONNECTION_TIMEOUT_MS = 10_000;
+const SMTP_SOCKET_TIMEOUT_MS = 20_000;
+
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+export const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
 @Injectable()
 export class MailService {
   async sendMail(input: SendMailInput): Promise<void> {
@@ -27,6 +41,9 @@ export class MailService {
         user: input.settings.username,
         pass: input.settings.password ?? '',
       },
+      connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+      socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
     });
 
     try {
@@ -75,8 +92,8 @@ export class MailService {
         'If you received this message, your SMTP settings are working.',
       ].join('\n'),
       html: `<p>This is a test email from your HRM admin panel SMTP configuration.</p>
-<p><strong>Host:</strong> ${settings.host}:${settings.port}<br/>
-<strong>From:</strong> ${settings.fromName} &lt;${settings.fromAddress}&gt;</p>
+<p><strong>Host:</strong> ${escapeHtml(settings.host)}:${settings.port}<br/>
+<strong>From:</strong> ${escapeHtml(settings.fromName)} &lt;${escapeHtml(settings.fromAddress)}&gt;</p>
 <p>If you received this message, your SMTP settings are working.</p>`,
     });
   }

@@ -12,8 +12,10 @@ import type {
   AdminExpiryItem,
   AdminPendingApprovalItem,
 } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { startOfUtcDay } from '../attendance/attendance.utils';
 import { formatDateValue } from '../leave/leave.utils';
 
@@ -32,9 +34,13 @@ export class AdminDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async getAdminDashboard(companyId: string): Promise<AdminDashboardView> {
+  async getAdminDashboard(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<AdminDashboardView> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const company = await this.prisma.unscoped.company.findUniqueOrThrow({
@@ -43,9 +49,11 @@ export class AdminDashboardService {
     });
 
     const today = startOfUtcDay();
+    const employeeScope = await this.dataScope.employeeIdFilter(user);
     const employeeFilter: Prisma.EmployeeWhereInput = {
       companyId,
       deletedAt: null,
+      id: employeeScope,
     };
 
     const [
@@ -97,11 +105,11 @@ export class AdminDashboardService {
           employee: employeeFilter,
         },
       }),
-      this.sumPayrollForMonth(companyId, [
+      this.sumPayrollForMonth(employeeFilter, [
         PayrollRunStatus.finalized,
         PayrollRunStatus.paid,
       ]),
-      this.sumPayrollForMonth(companyId, [
+      this.sumPayrollForMonth(employeeFilter, [
         PayrollRunStatus.draft,
         PayrollRunStatus.calculated,
         PayrollRunStatus.under_review,
@@ -114,7 +122,11 @@ export class AdminDashboardService {
         },
       }),
       this.prisma.unscoped.payrollAdjustment.count({
-        where: { companyId, status: PayrollAdjustmentStatus.pending },
+        where: {
+          companyId,
+          employeeId: employeeScope,
+          status: PayrollAdjustmentStatus.pending,
+        },
       }),
       this.prisma.unscoped.payrollRun.count({
         where: {
@@ -135,9 +147,9 @@ export class AdminDashboardService {
         where: { ...employeeFilter, employmentStatus: 'active' },
         _count: { _all: true },
       }),
-      this.buildAttendanceTrend(companyId, today),
-      this.listPendingApprovals(companyId),
-      this.listExpiryItems(companyId, today),
+      this.buildAttendanceTrend(employeeFilter, today),
+      this.listPendingApprovals(companyId, employeeFilter),
+      this.listExpiryItems(companyId, employeeFilter, today),
     ]);
 
     const pendingApprovalsTotal =
@@ -186,7 +198,7 @@ export class AdminDashboardService {
   }
 
   private async sumPayrollForMonth(
-    companyId: string,
+    employeeFilter: Prisma.EmployeeWhereInput,
     statuses: PayrollRunStatus[],
   ): Promise<number> {
     const now = new Date();
@@ -201,7 +213,7 @@ export class AdminDashboardService {
       where: {
         deletedAt: null,
         status: { in: statuses },
-        employee: { companyId, deletedAt: null },
+        employee: employeeFilter,
         payrollPeriod: {
           startDate: { lte: monthEnd },
           endDate: { gte: monthStart },
@@ -213,7 +225,10 @@ export class AdminDashboardService {
     return Number(result._sum.netPay ?? 0);
   }
 
-  private async buildAttendanceTrend(companyId: string, today: Date) {
+  private async buildAttendanceTrend(
+    employeeFilter: Prisma.EmployeeWhereInput,
+    today: Date,
+  ) {
     const points: { date: string; presentCount: number }[] = [];
     for (let offset = 6; offset >= 0; offset -= 1) {
       const day = new Date(today);
@@ -222,7 +237,7 @@ export class AdminDashboardService {
         where: {
           date: day,
           status: { in: PRESENT_STATUSES },
-          employee: { companyId, deletedAt: null },
+          employee: employeeFilter,
         },
       });
       points.push({
@@ -235,13 +250,14 @@ export class AdminDashboardService {
 
   private async listPendingApprovals(
     companyId: string,
+    employeeFilter: Prisma.EmployeeWhereInput,
   ): Promise<AdminPendingApprovalItem[]> {
     const items: AdminPendingApprovalItem[] = [];
 
     const leaveRows = await this.prisma.unscoped.leaveRequest.findMany({
       where: {
         status: LeaveRequestStatus.pending,
-        employee: { companyId, deletedAt: null },
+        employee: employeeFilter,
       },
       orderBy: { createdAt: 'desc' },
       take: 8,
@@ -263,7 +279,11 @@ export class AdminDashboardService {
     }
 
     const adjustmentRows = await this.prisma.unscoped.payrollAdjustment.findMany({
-      where: { companyId, status: PayrollAdjustmentStatus.pending },
+      where: {
+        companyId,
+        status: PayrollAdjustmentStatus.pending,
+        employee: employeeFilter,
+      },
       orderBy: { createdAt: 'desc' },
       take: 5,
       include: {
@@ -292,6 +312,7 @@ export class AdminDashboardService {
 
   private async listExpiryItems(
     companyId: string,
+    employeeFilter: Prisma.EmployeeWhereInput,
     today: Date,
   ): Promise<AdminExpiryItem[]> {
     const windowEnd = new Date(today);
@@ -302,7 +323,7 @@ export class AdminDashboardService {
     const documents = await this.prisma.unscoped.employeeDocument.findMany({
       where: {
         expiryDate: { gte: today, lte: windowEnd },
-        employee: { companyId, deletedAt: null },
+        employee: employeeFilter,
         documentType: { tracksExpiry: true },
       },
       include: {
@@ -328,8 +349,7 @@ export class AdminDashboardService {
 
     const probationEmployees = await this.prisma.unscoped.employee.findMany({
       where: {
-        companyId,
-        deletedAt: null,
+        ...employeeFilter,
         probationEndDate: { gte: today, lte: windowEnd },
       },
       select: {
@@ -357,7 +377,7 @@ export class AdminDashboardService {
 
     const contracts = await this.prisma.unscoped.employmentContract.findMany({
       where: {
-        employee: { companyId, deletedAt: null },
+        employee: employeeFilter,
         status: 'active',
         endDate: { gte: today, lte: windowEnd },
       },
@@ -384,6 +404,7 @@ export class AdminDashboardService {
     const certifications = await this.prisma.unscoped.employeeCertification.findMany({
       where: {
         companyId,
+        employee: employeeFilter,
         status: 'active',
         expiryDate: { gte: today, lte: windowEnd },
       },

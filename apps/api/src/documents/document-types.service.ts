@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,8 @@ import { CustomFieldEntityType, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
+  assertFieldOptions,
+  findFieldTypeChanges,
   parseOptionsInput,
   slugifyFieldKey,
 } from '../custom-fields/field-validation.utils';
@@ -57,6 +60,7 @@ export class DocumentTypesService {
     meta?: { ipAddress?: string; device?: string },
   ) {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    this.assertFieldSchemas(dto.fields ?? []);
 
     try {
       const created = await this.prisma.unscoped.$transaction(async (tx) => {
@@ -185,6 +189,17 @@ export class DocumentTypesService {
   ) {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     const existing = await this.getTypeOrThrow(companyId, id);
+    this.assertFieldSchemas(fields);
+
+    if (existing._count.employeeDocuments > 0) {
+      const changed = findFieldTypeChanges(existing.fieldDefinitions, fields);
+      if (changed.length) {
+        throw new ConflictException({
+          code: 'FIELD_TYPE_LOCKED',
+          message: `Field type cannot change once documents use it: ${changed.join(', ')}. Add a new field instead.`,
+        });
+      }
+    }
 
     const updated = await this.prisma.unscoped.$transaction(async (tx) => {
       await tx.customFieldDefinition.deleteMany({
@@ -196,7 +211,13 @@ export class DocumentTypesService {
       });
 
       if (fields.length) {
-        await this.createFieldRows(tx, companyId, id, fields);
+        await this.createFieldRows(
+          tx,
+          companyId,
+          id,
+          fields,
+          new Set(existing.fieldDefinitions.map((f) => f.fieldKey)),
+        );
       }
 
       return tx.documentType.findUniqueOrThrow({
@@ -263,18 +284,35 @@ export class DocumentTypesService {
     });
   }
 
+  private assertFieldSchemas(fields: DocumentTypeFieldDto[]): void {
+    for (const field of fields) {
+      assertFieldOptions(field.label, field.fieldType, field.options);
+    }
+  }
+
   private async createFieldRows(
     tx: Prisma.TransactionClient,
     companyId: string,
     documentTypeId: string,
     fields: DocumentTypeFieldDto[],
+    existingKeys: ReadonlySet<string> = new Set(),
   ): Promise<void> {
     const usedKeys = new Set<string>();
 
     for (let i = 0; i < fields.length; i++) {
       const field = fields[i];
-      let fieldKey = field.fieldKey?.trim() || slugifyFieldKey(field.label);
-      while (usedKeys.has(fieldKey)) {
+      const providedKey = field.fieldKey?.trim() ?? '';
+      let fieldKey = existingKeys.has(providedKey)
+        ? providedKey
+        : slugifyFieldKey(providedKey) || slugifyFieldKey(field.label);
+      if (!fieldKey) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: `Field "${field.label}" needs a label with letters or numbers`,
+        });
+      }
+      // New fields must not inherit a removed field's key, or its stored values would resurface.
+      while (usedKeys.has(fieldKey) || (!providedKey && existingKeys.has(fieldKey))) {
         fieldKey = `${fieldKey}_${i + 1}`;
       }
       usedKeys.add(fieldKey);
@@ -290,6 +328,7 @@ export class DocumentTypesService {
           required: field.required ?? false,
           options: parseOptionsInput(field.options) as Prisma.InputJsonValue,
           sortOrder: field.sortOrder ?? i,
+          isActive: field.isActive ?? true,
         },
       });
     }

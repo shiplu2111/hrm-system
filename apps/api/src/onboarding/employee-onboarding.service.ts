@@ -14,6 +14,7 @@ import { CompanyAssetsService } from '../assets/company-assets.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { OnboardingChecklistTemplatesService } from './onboarding-checklist-templates.service';
 import { OnboardingTaskSyncService } from './onboarding-task-sync.service';
 import type {
@@ -66,17 +67,20 @@ export class EmployeeOnboardingService {
     private readonly assetsService: CompanyAssetsService,
     private readonly notificationEngine: NotificationEngineService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListEmployeeOnboardingsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeOnboardingRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const rows = await this.prisma.unscoped.employeeOnboarding.findMany({
       where: {
         companyId,
+        employeeId: await this.dataScope.employeeIdFilter(user),
         ...(query.status ? { status: query.status } : {}),
       },
       include: ONBOARDING_INCLUDE,
@@ -91,14 +95,22 @@ export class EmployeeOnboardingService {
     return records;
   }
 
-  async get(onboardingId: string): Promise<EmployeeOnboardingRecord> {
+  async get(
+    onboardingId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmployeeOnboardingRecord> {
     const row = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const pendingCounts = await this.buildPendingAssetCounts(row);
     return toOnboardingRecord(row, true, pendingCounts);
   }
 
-  async getForEmployee(employeeId: string): Promise<EmployeeOnboardingRecord | null> {
+  async getForEmployee(
+    employeeId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmployeeOnboardingRecord | null> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const row = await this.prisma.unscoped.employeeOnboarding.findUnique({
       where: { employeeId },
       include: ONBOARDING_INCLUDE,
@@ -115,6 +127,7 @@ export class EmployeeOnboardingService {
     user: AuthenticatedUser,
   ): Promise<EmployeeOnboardingRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     const employee = await this.prisma.unscoped.employee.findFirst({
       where: { id: dto.employeeId, companyId, deletedAt: null },
@@ -286,6 +299,7 @@ export class EmployeeOnboardingService {
   ) {
     const onboarding = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(onboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
 
@@ -338,6 +352,9 @@ export class EmployeeOnboardingService {
   ) {
     const onboarding = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(onboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
     if (task.status !== OnboardingTaskStatus.pending) {
@@ -369,6 +386,7 @@ export class EmployeeOnboardingService {
   ) {
     const onboarding = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(onboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
     if (task.taskType !== OnboardingTaskType.provisioning) {
@@ -429,6 +447,7 @@ export class EmployeeOnboardingService {
   ) {
     const onboarding = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(onboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
     if (task.taskType !== OnboardingTaskType.policy_acceptance) {
@@ -473,9 +492,13 @@ export class EmployeeOnboardingService {
     return toTaskRecord(updated);
   }
 
-  async resendWelcome(onboardingId: string): Promise<EmployeeOnboardingRecord> {
+  async resendWelcome(
+    onboardingId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmployeeOnboardingRecord> {
     const row = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     await this.sendWelcomeNotification(onboardingId);
     const refreshed = await this.findOrThrow(onboardingId);
     const pendingCounts = await this.buildPendingAssetCounts(refreshed);

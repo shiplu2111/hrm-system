@@ -14,10 +14,17 @@ import type { UpdateSmtpSettingsDto } from './dto/smtp-settings.dto';
 import {
   type DecryptedSmtpSettings,
   type StoredSmtpSettings,
+  requiresNewPassword,
   sanitizeSmtpForAudit,
   smtpSettingKeyForCompany,
   toSmtpSettingsView,
 } from './smtp-settings.utils';
+
+const passwordReentryRequired = () =>
+  new BadRequestException({
+    code: 'SMTP_PASSWORD_REQUIRED',
+    message: 'Re-enter the SMTP password when changing the host or username',
+  });
 
 @Injectable()
 export class SmtpSettingsService {
@@ -52,11 +59,15 @@ export class SmtpSettingsService {
 
     if (passwordProvided) {
       passwordEnc = this.fieldEncryption.encrypt(dto.password!.trim());
-    } else if (!existingStored && !passwordEnc) {
+    } else if (!existingStored?.passwordEnc) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'SMTP password is required when configuring for the first time',
       });
+    } else if (
+      requiresNewPassword(existingStored, { host: dto.host, username: dto.username ?? '' })
+    ) {
+      throw passwordReentryRequired();
     }
 
     const nextStored: StoredSmtpSettings = {
@@ -131,6 +142,9 @@ export class SmtpSettingsService {
     ) {
       merged.password = overridePassword.trim();
     } else if (stored?.passwordEnc) {
+      if (requiresNewPassword(stored, { host: overrides?.host, username: overrides?.username })) {
+        throw passwordReentryRequired();
+      }
       merged.password = this.fieldEncryption.decrypt(stored.passwordEnc);
     }
 

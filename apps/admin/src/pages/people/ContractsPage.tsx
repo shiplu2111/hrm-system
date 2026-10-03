@@ -14,6 +14,7 @@ import type {
   EmploymentContractType,
   PayFrequency,
 } from '@hrm/shared-types';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -242,9 +243,11 @@ function ContractsContent({ companyId }: { companyId: string }) {
         </div>
         <div className="flex items-center gap-2">
           <CompanySelector />
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> Create Contract
-          </Button>
+          <PermissionGate module="employee" action="create">
+            <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Create Contract
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -612,41 +615,43 @@ function ContractsContent({ companyId }: { companyId: string }) {
             </div>
           </div>
 
-          <div>
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-              Contract Document (optional)
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label>Document Label</Label>
-                <Input
-                  value={form.docLabel}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, docLabel: e.target.value }))
-                  }
-                />
+          <PermissionGate module="employee" action="edit">
+            <div>
+              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+                Contract Document (optional)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Document Label</Label>
+                  <Input
+                    value={form.docLabel}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, docLabel: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>File</Label>
+                  <Input
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        docFile: e.target.files?.[0] ?? null,
+                      }))
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <Label>File</Label>
-                <Input
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      docFile: e.target.files?.[0] ?? null,
-                    }))
-                  }
-                />
-              </div>
+              {!form.docFile && (
+                <p className="text-xs text-muted mt-2 flex items-center gap-1">
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload signed contract PDF after creation from the detail page.
+                </p>
+              )}
             </div>
-            {!form.docFile && (
-              <p className="text-xs text-muted mt-2 flex items-center gap-1">
-                <Upload className="h-3.5 w-3.5" />
-                Upload signed contract PDF after creation from the detail page.
-              </p>
-            )}
-          </div>
+          </PermissionGate>
         </div>
       </Modal>
     </div>

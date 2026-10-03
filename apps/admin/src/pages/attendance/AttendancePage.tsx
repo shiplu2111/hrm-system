@@ -4,6 +4,7 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input, Select, Label } from '@/components/ui/Form';
+import { PermissionGate } from '@hrm/portal-ui';
 import type { AttendanceDayRecord, EmployeeRecord } from '@hrm/shared-types';
 import { listEmployees } from '@/lib/employees-api';
 import {
@@ -229,36 +230,38 @@ export function AttendancePage() {
             </>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-            <Button
-              variant="primary"
-              disabled={loading || !canClockIn}
-              onClick={() => void runAction('clock-in')}
-            >
-              <LogIn className="h-4 w-4" /> Clock In
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={loading || !canBreakStart}
-              onClick={() => void runAction('break-start')}
-            >
-              <Coffee className="h-4 w-4" /> Start Break
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={loading || !canBreakEnd}
-              onClick={() => void runAction('break-end')}
-            >
-              <Coffee className="h-4 w-4" /> End Break
-            </Button>
-            <Button
-              variant="primary"
-              disabled={loading || !canClockOut}
-              onClick={() => void runAction('clock-out')}
-            >
-              <LogOut className="h-4 w-4" /> Clock Out
-            </Button>
-          </div>
+          <PermissionGate module="attendance" action="create">
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+              <Button
+                variant="primary"
+                disabled={loading || !canClockIn}
+                onClick={() => void runAction('clock-in')}
+              >
+                <LogIn className="h-4 w-4" /> Clock In
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={loading || !canBreakStart}
+                onClick={() => void runAction('break-start')}
+              >
+                <Coffee className="h-4 w-4" /> Start Break
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={loading || !canBreakEnd}
+                onClick={() => void runAction('break-end')}
+              >
+                <Coffee className="h-4 w-4" /> End Break
+              </Button>
+              <Button
+                variant="primary"
+                disabled={loading || !canClockOut}
+                onClick={() => void runAction('clock-out')}
+              >
+                <LogOut className="h-4 w-4" /> Clock Out
+              </Button>
+            </div>
+          </PermissionGate>
         </CardBody>
       </Card>
     </div>

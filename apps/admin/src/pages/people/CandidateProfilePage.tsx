@@ -13,10 +13,12 @@ import {
   FileSignature,
 } from 'lucide-react';
 import type {
+  EmployeeRecord,
   InterviewRecommendation,
   InterviewRoundRecord,
   JobApplicationRecord,
 } from '@hrm/shared-types';
+import { usePermissions } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -69,6 +71,10 @@ function InterviewRoundsPanel({
   application: JobApplicationRecord;
   onUpdated: () => void;
 }) {
+  const { can } = usePermissions();
+  const canEdit = can('recruitment', 'edit');
+  const canApprove = can('recruitment', 'approve');
+  const canViewEmployees = can('employee', 'view');
   const [rounds, setRounds] = useState<InterviewRoundRecord[]>([]);
   const [employees, setEmployees] = useState<
     { id: string; firstName: string; lastName: string }[]
@@ -96,9 +102,12 @@ function InterviewRoundsPanel({
     setLoading(true);
     setError(null);
     try {
+      const employeeRequest: Promise<EmployeeRecord[]> = canViewEmployees
+        ? listEmployees(application.companyId).catch(() => [])
+        : Promise.resolve([]);
       const [roundRows, employeeRows] = await Promise.all([
         listInterviewRounds(application.id),
-        listEmployees(application.companyId),
+        employeeRequest,
       ]);
       setRounds(roundRows);
       setEmployees(
@@ -115,7 +124,7 @@ function InterviewRoundsPanel({
     } finally {
       setLoading(false);
     }
-  }, [application.id, application.companyId]);
+  }, [application.id, application.companyId, canViewEmployees]);
 
   useEffect(() => {
     void loadRounds();
@@ -285,30 +294,32 @@ function InterviewRoundsPanel({
                   </div>
                 )}
 
-                {canActOn(round, index) && (
+                {canActOn(round, index) && (canEdit || canApprove) && (
                   <div className="flex flex-wrap gap-2">
-                    {(round.status === 'pending' || round.status === 'scheduled') && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={saving}
-                        onClick={() => openSchedule(round)}
-                      >
-                        <Calendar className="h-3.5 w-3.5" />
-                        {round.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
-                      </Button>
-                    )}
-                    {(round.status === 'pending' || round.status === 'scheduled') && (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={saving}
-                        onClick={() => openComplete(round)}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Submit Feedback
-                      </Button>
-                    )}
-                    {round.status === 'pending' && index > 0 && (
+                    {canEdit &&
+                      (round.status === 'pending' || round.status === 'scheduled') && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() => openSchedule(round)}
+                        >
+                          <Calendar className="h-3.5 w-3.5" />
+                          {round.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
+                        </Button>
+                      )}
+                    {canEdit &&
+                      (round.status === 'pending' || round.status === 'scheduled') && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() => openComplete(round)}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Submit Feedback
+                        </Button>
+                      )}
+                    {canApprove && round.status === 'pending' && index > 0 && (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -462,6 +473,9 @@ function InterviewRoundsPanel({
 
 export function CandidateProfilePage() {
   const { navigate, openOfferLetter, selectedApplicationId } = useNav();
+  const { can } = usePermissions();
+  const canApprove = can('recruitment', 'approve');
+  const canCreateEmployees = can('employee', 'create');
   const [application, setApplication] = useState<JobApplicationRecord | null>(null);
   const [offerAccepted, setOfferAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -701,26 +715,30 @@ export function CandidateProfilePage() {
                   >
                     <FileSignature className="h-4 w-4" /> Offer Letter
                   </Button>
-                  <Button
-                    variant="primary"
-                    disabled={hiring || !offerAccepted}
-                    onClick={() => void handleHire()}
-                  >
-                    {hiring ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" /> Converting…
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="h-4 w-4" /> Convert to Employee
-                      </>
-                    )}
-                  </Button>
-                  <p className="text-xs text-muted">
-                    {offerAccepted
-                      ? 'Creates an employee record from the accepted offer — no manual re-entry.'
-                      : 'Mark the offer letter as accepted before converting to employee.'}
-                  </p>
+                  {canApprove && canCreateEmployees && (
+                    <>
+                    <Button
+                      variant="primary"
+                      disabled={hiring || !offerAccepted}
+                      onClick={() => void handleHire()}
+                    >
+                      {hiring ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" /> Converting…
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="h-4 w-4" /> Convert to Employee
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted">
+                      {offerAccepted
+                        ? 'Creates an employee record from the accepted offer — no manual re-entry.'
+                        : 'Mark the offer letter as accepted before converting to employee.'}
+                    </p>
+                    </>
+                  )}
                 </div>
               )}
               {application.hiredEmployeeId && (

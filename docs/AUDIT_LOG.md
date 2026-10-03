@@ -46,6 +46,15 @@ audit_logs
 - Read access is itself permissioned (see ROLES_PERMISSIONS.md) — typically HR Admin, Payroll Admin, Company Owner, and Super Admin (for platform-level events).
 - Audit log viewing/searching should support filtering by module, user, date range, and record ID — this is what makes it useful during a dispute or financial review, not just a data dump.
 
+### 5a. Implementation
+
+- **Permission:** `audit:view`. The default holders are Company Owner, HR Admin and Payroll Admin (granted in `prisma/seed.ts`); no other system role has it. Gating is by permission, not role name, so a tenant can deliberately grant it to a custom role (ROLES_PERMISSIONS.md §2). Platform-level events are reviewed in the Super Admin portal.
+- **API** (read-only; there are no write endpoints):
+  - `GET /api/v1/tenant/audit-logs` — filters `module`, `userId`, `recordId` (UUID, exact), `action`, `from` (inclusive) and `to` (exclusive) as ISO 8601 date-times, plus `page` / `pageSize` (max 100). Always scoped to the caller's tenant, newest first, with `meta.total`.
+  - `GET /api/v1/tenant/audit-logs/filters` — the modules and users that appear in the tenant's audit trail, for the filter dropdowns.
+- **Redaction on read (§3):** values under password/secret/token/`*Encrypted`/API-key keys are returned as `[redacted]`, and bank account, tax ID, national ID and passport numbers are masked to their last four characters, so older writes cannot leak through the viewer.
+- **Admin screen:** Settings → Audit Log (`/settings/audit-log`). Filters live in the URL so a filtered view can be shared during a review; date filters are whole days in the viewer's local time. Each entry opens a field-by-field before/after comparison with a shortcut to the record's full history.
+
 ## 6. Retention
 
 - Audit logs are retained at least as long as the statutory record-retention period for payroll/financial data in the relevant country (confirm per-country requirement — see country_rules in DATABASE_SCHEMA.md), and are not deleted even if the underlying record is later anonymized/deleted (see SECURITY.md §9).

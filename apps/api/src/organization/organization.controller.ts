@@ -13,6 +13,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ORG_LOOKUP_READERS } from '../rbac/lookup-permissions';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { CompanyScopeService } from './company-scope.service';
 import { OrgChartService } from './org-chart.service';
@@ -41,9 +42,7 @@ export class OrganizationController {
   ) {}
 
   @Get('companies')
-  @RequirePermission('settings', 'view', {
-    orAnyOf: [{ module: 'payroll', action: 'view' }],
-  })
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   @ApiOperation({ summary: 'List companies for the authenticated tenant' })
   async listCompanies() {
     return { data: await this.companyScope.listCompanies() };
@@ -63,7 +62,7 @@ export class OrganizationController {
 
   // Departments
   @Get('companies/:companyId/departments')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listDepartments(
     @Param('companyId', ParseUUIDPipe) companyId: string,
   ) {
@@ -71,7 +70,7 @@ export class OrganizationController {
   }
 
   @Get('companies/:companyId/departments/tree')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async getDepartmentTree(
     @Param('companyId', ParseUUIDPipe) companyId: string,
   ) {
@@ -115,7 +114,7 @@ export class OrganizationController {
 
   // Job levels
   @Get('companies/:companyId/job-levels')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listJobLevels(@Param('companyId', ParseUUIDPipe) companyId: string) {
     return { data: await this.organizationService.listJobLevels(companyId) };
   }
@@ -153,7 +152,7 @@ export class OrganizationController {
 
   // Designations
   @Get('companies/:companyId/designations')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listDesignations(
     @Param('companyId', ParseUUIDPipe) companyId: string,
   ) {
@@ -195,7 +194,7 @@ export class OrganizationController {
 
   // Employment types
   @Get('companies/:companyId/employment-types')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listEmploymentTypes(
     @Param('companyId', ParseUUIDPipe) companyId: string,
   ) {
@@ -243,7 +242,7 @@ export class OrganizationController {
 
   // Teams
   @Get('companies/:companyId/teams')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listTeams(@Param('companyId', ParseUUIDPipe) companyId: string) {
     return { data: await this.organizationService.listTeams(companyId) };
   }
@@ -279,7 +278,7 @@ export class OrganizationController {
 
   // Cost centres
   @Get('companies/:companyId/cost-centres')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
   async listCostCentres(
     @Param('companyId', ParseUUIDPipe) companyId: string,
   ) {

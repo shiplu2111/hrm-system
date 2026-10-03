@@ -1,10 +1,9 @@
 import type {
-  NotificationEventType,
-  RealtimeNotificationSettingsView,
+  NotificationEventSettingsView,
   SendSmtpTestEmailInput,
   SendSmtpTestEmailResult,
   SmtpSettingsView,
-  UpdateRealtimeNotificationSettingsInput,
+  UpdateNotificationEventSettingsInput,
   UpdateSmtpSettingsInput,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
@@ -13,25 +12,18 @@ function companySettingsPath(companyId: string, resource: string): string {
   return `/organization/companies/${companyId}/settings/${resource}`;
 }
 
-export function getRealtimeNotificationSettings(
-  companyId: string,
-): Promise<RealtimeNotificationSettingsView> {
-  return tenantApiRequest<RealtimeNotificationSettingsView>(
-    companySettingsPath(companyId, 'notifications/realtime'),
-  );
+export function getNotificationEventSettings(companyId: string): Promise<NotificationEventSettingsView> {
+  return tenantApiRequest<NotificationEventSettingsView>(companySettingsPath(companyId, 'notifications/events'));
 }
 
-export function updateRealtimeNotificationSettings(
+export function updateNotificationEventSettings(
   companyId: string,
-  input: UpdateRealtimeNotificationSettingsInput,
-): Promise<RealtimeNotificationSettingsView> {
-  return tenantApiRequest<RealtimeNotificationSettingsView>(
-    companySettingsPath(companyId, 'notifications/realtime'),
-    {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    },
-  );
+  input: UpdateNotificationEventSettingsInput,
+): Promise<NotificationEventSettingsView> {
+  return tenantApiRequest<NotificationEventSettingsView>(companySettingsPath(companyId, 'notifications/events'), {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
 export function getSmtpSettings(companyId: string): Promise<SmtpSettingsView> {
@@ -65,70 +57,3 @@ export function sendSmtpTestEmail(
     },
   );
 }
-
-export const REALTIME_EVENT_OPTIONS: Array<{
-  key: NotificationEventType;
-  label: string;
-  description: string;
-}> = [
-  {
-    key: 'leave.approved',
-    label: 'Leave approved',
-    description: 'Notify the employee immediately when leave is fully approved.',
-  },
-  {
-    key: 'leave.rejected',
-    label: 'Leave rejected',
-    description: 'Live toast when a leave request is rejected.',
-  },
-  {
-    key: 'payroll.finalized',
-    label: 'Payroll finalized',
-    description: 'Alert employees when their payslip is ready.',
-  },
-  {
-    key: 'attendance.late',
-    label: 'Late clock-in',
-    description: 'Alert the employee and their manager on late arrival.',
-  },
-  {
-    key: 'contract.expiring',
-    label: 'Contract expiring',
-    description: 'Alert employee, manager, and HR when a contract enters the expiry window.',
-  },
-  {
-    key: 'approval.pending',
-    label: 'Approval pending',
-    description: 'Notify the current approver when a renewal needs action.',
-  },
-  {
-    key: 'contract.renewal.approved',
-    label: 'Contract renewal approved',
-    description: 'Notify when a contract renewal completes all approval steps.',
-  },
-  {
-    key: 'contract.renewal.rejected',
-    label: 'Contract renewal rejected',
-    description: 'Notify when a contract renewal is rejected.',
-  },
-  {
-    key: 'expense.approved',
-    label: 'Expense claim approved',
-    description: 'Notify employee when an expense claim is fully approved.',
-  },
-  {
-    key: 'expense.rejected',
-    label: 'Expense claim rejected',
-    description: 'Notify employee when an expense claim is rejected.',
-  },
-  {
-    key: 'onboarding.welcome',
-    label: 'Onboarding welcome',
-    description: 'Send a welcome message when a new employee onboarding starts.',
-  },
-  {
-    key: 'certification.expiring',
-    label: 'Certification expiring',
-    description: 'Alert employee, manager, and HR when a certification enters the expiry window.',
-  },
-];

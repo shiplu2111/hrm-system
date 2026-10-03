@@ -109,11 +109,45 @@ function fieldError(field: string, label: string, message: string): BadRequestEx
 
 export function parseOptionsInput(options?: string[] | string): string[] {
   if (!options) return [];
-  if (Array.isArray(options)) {
-    return options.map((o) => o.trim()).filter(Boolean);
+  const list = Array.isArray(options) ? options : options.split(',');
+  return [...new Set(list.map((o) => o.trim()).filter(Boolean))];
+}
+
+const OPTION_FIELD_TYPES: ReadonlySet<CustomFieldType> = new Set(['dropdown', 'radio']);
+
+export function fieldTypeNeedsOptions(fieldType: CustomFieldType): boolean {
+  return OPTION_FIELD_TYPES.has(fieldType);
+}
+
+/** Choice fields without options would accept any value, so reject them at definition time. */
+export function assertFieldOptions(
+  label: string,
+  fieldType: CustomFieldType,
+  options?: string[] | string,
+): void {
+  if (fieldTypeNeedsOptions(fieldType) && parseOptionsInput(options).length === 0) {
+    throw new BadRequestException({
+      code: 'VALIDATION_ERROR',
+      message: `Field "${label}" needs at least one option`,
+      details: [{ field: 'options', message: 'At least one option is required' }],
+    });
   }
-  return options
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+}
+
+/** Labels of fields whose type would change while keeping the same key. */
+export function findFieldTypeChanges(
+  existing: Pick<CustomFieldDefinition, 'fieldKey' | 'fieldType' | 'label'>[],
+  next: { fieldKey?: string; fieldType: CustomFieldType }[],
+): string[] {
+  const existingByKey = new Map(existing.map((f) => [f.fieldKey, f]));
+  const changed: string[] = [];
+  for (const field of next) {
+    const key = field.fieldKey?.trim();
+    if (!key) continue;
+    const before = existingByKey.get(key);
+    if (before && before.fieldType !== field.fieldType) {
+      changed.push(before.label);
+    }
+  }
+  return changed;
 }

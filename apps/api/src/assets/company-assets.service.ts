@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { OnboardingTaskSyncService } from '../onboarding/onboarding-task-sync.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   AssignAssetDto,
   CreateCompanyAssetDto,
@@ -31,6 +32,7 @@ export class CompanyAssetsService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
     @Optional()
     @Inject(forwardRef(() => OnboardingTaskSyncService))
     private readonly onboardingSync?: OnboardingTaskSyncService,
@@ -39,8 +41,12 @@ export class CompanyAssetsService {
   async list(
     companyId: string,
     query: ListCompanyAssetsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<CompanyAssetRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.companyAsset.findMany({
       where: {
@@ -136,6 +142,7 @@ export class CompanyAssetsService {
   ): Promise<EmployeeAssetAssignmentRecord> {
     const asset = await this.findOrThrow(assetId);
     const company = await this.companyScope.assertCompanyInTenant(asset.companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     if (asset.status !== AssetStatus.available) {
       throw new BadRequestException({
@@ -228,6 +235,7 @@ export class CompanyAssetsService {
         message: 'Asset is not currently assigned',
       });
     }
+    await this.dataScope.assertEmployeeInScope(user, activeAssignment.employeeId);
 
     const returnedAt = dto.returnedAt
       ? new Date(`${dto.returnedAt}T00:00:00.000Z`)
@@ -273,13 +281,17 @@ export class CompanyAssetsService {
   async listAssignments(
     companyId: string,
     query: ListAssetAssignmentsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeAssetAssignmentRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.employeeAssetAssignment.findMany({
       where: {
         asset: { companyId },
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         ...(query.activeOnly ? { status: AssetAssignmentStatus.active } : {}),
       },
       include: {

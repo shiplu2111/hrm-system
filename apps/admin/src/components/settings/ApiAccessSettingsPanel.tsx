@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Unplug,
 } from 'lucide-react';
+import { usePermission } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select } from '@/components/ui/Form';
@@ -35,6 +36,7 @@ import {
 } from '@hrm/shared-types';
 
 export function ApiAccessSettingsPanel() {
+  const canEdit = usePermission('settings', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<ApiAccessStatus | null>(null);
@@ -194,17 +196,19 @@ export function ApiAccessSettingsPanel() {
               Bearer tokens prefixed with <code className="font-mono">hrm_live_</code>
             </p>
           </div>
-          <Button
-            size="sm"
-            disabled={!status?.apiAccessEnabled}
-            onClick={() => {
-              setNewSecret(null);
-              setKeyName('');
-              setKeyModalOpen(true);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" /> Generate key
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              disabled={!status?.apiAccessEnabled}
+              onClick={() => {
+                setNewSecret(null);
+                setKeyName('');
+                setKeyModalOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Generate key
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -247,7 +251,7 @@ export function ApiAccessSettingsPanel() {
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {key.status === 'active' && (
+                      {key.status === 'active' && canEdit && (
                         <Button variant="danger" size="sm" onClick={() => void handleRevokeKey(key.id)}>
                           Revoke
                         </Button>
@@ -269,17 +273,19 @@ export function ApiAccessSettingsPanel() {
               Authorization code and client credentials flows via <code className="font-mono">/oauth/token</code>
             </p>
           </div>
-          <Button
-            size="sm"
-            disabled={!status?.apiAccessEnabled}
-            onClick={() => {
-              setNewClientSecret(null);
-              setClientName('');
-              setClientModalOpen(true);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" /> Register client
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              disabled={!status?.apiAccessEnabled}
+              onClick={() => {
+                setNewClientSecret(null);
+                setClientName('');
+                setClientModalOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Register client
+            </Button>
+          )}
         </div>
         <div className="divide-y divide-[rgb(var(--border-base))]">
           {clients.length === 0 ? (
@@ -298,7 +304,7 @@ export function ApiAccessSettingsPanel() {
                   <Badge tone={client.status === 'active' ? 'success' : 'neutral'} dot>
                     {client.status}
                   </Badge>
-                  {client.status === 'active' && (
+                  {client.status === 'active' && canEdit && (
                     <Button variant="secondary" size="sm" onClick={() => void handleRevokeClient(client.id)}>
                       <Unplug className="h-3.5 w-3.5" /> Revoke
                     </Button>

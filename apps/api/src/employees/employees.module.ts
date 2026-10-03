@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { PrismaModule } from '../database/prisma.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -8,7 +9,7 @@ import { PortalAccessController } from './portal-access.controller';
 import { PortalAccessService } from './portal-access.service';
 
 @Module({
-  imports: [PrismaModule, OrganizationModule, WebhooksModule],
+  imports: [PrismaModule, OrganizationModule, WebhooksModule, BillingModule],
   controllers: [EmployeesController, PortalAccessController],
   providers: [EmployeesService, PortalAccessService],
   exports: [EmployeesService],

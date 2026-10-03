@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { PayrollAdjustmentsService } from '../payroll/payroll-adjustments.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { OffboardingChecklistTemplatesService } from './offboarding-checklist-templates.service';
 import type {
   ListEmployeeOffboardingsQueryDto,
@@ -63,17 +64,20 @@ export class EmployeeOffboardingService {
     private readonly assetsService: CompanyAssetsService,
     private readonly payrollAdjustmentsService: PayrollAdjustmentsService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListEmployeeOffboardingsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeOffboardingRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const rows = await this.prisma.unscoped.employeeOffboarding.findMany({
       where: {
         companyId,
+        employeeId: await this.dataScope.employeeIdFilter(user),
         ...(query.status ? { status: query.status } : {}),
       },
       include: OFFBOARDING_INCLUDE,
@@ -88,9 +92,13 @@ export class EmployeeOffboardingService {
     return records;
   }
 
-  async get(offboardingId: string): Promise<EmployeeOffboardingRecord> {
+  async get(
+    offboardingId: string,
+    user: AuthenticatedUser,
+  ): Promise<EmployeeOffboardingRecord> {
     const row = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const pendingCounts = await this.buildPendingAssetCounts(row);
     return toOffboardingRecord(row, true, pendingCounts);
   }
@@ -101,6 +109,7 @@ export class EmployeeOffboardingService {
     user: AuthenticatedUser,
   ): Promise<EmployeeOffboardingRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId, { includeSelf: false });
 
     const employee = await this.prisma.unscoped.employee.findFirst({
       where: { id: dto.employeeId, companyId, deletedAt: null },
@@ -268,6 +277,9 @@ export class EmployeeOffboardingService {
   ) {
     const offboarding = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(offboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, offboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(offboardingId, taskId);
     if (task.status !== OffboardingTaskStatus.pending) {
@@ -302,6 +314,9 @@ export class EmployeeOffboardingService {
   ) {
     const offboarding = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(offboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, offboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(offboardingId, taskId);
     if (task.taskType !== OffboardingTaskType.asset_return) {
@@ -368,6 +383,9 @@ export class EmployeeOffboardingService {
   ) {
     const offboarding = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(offboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, offboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(offboardingId, taskId);
     if (task.taskType !== OffboardingTaskType.access_revocation) {
@@ -418,6 +436,9 @@ export class EmployeeOffboardingService {
   ) {
     const offboarding = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(offboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, offboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(offboardingId, taskId);
     if (task.taskType !== OffboardingTaskType.exit_interview) {
@@ -477,6 +498,9 @@ export class EmployeeOffboardingService {
   ) {
     const offboarding = await this.findOrThrow(offboardingId);
     await this.companyScope.assertCompanyInTenant(offboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, offboarding.employeeId, {
+      includeSelf: false,
+    });
 
     const task = await this.getTaskOrThrow(offboardingId, taskId);
     if (task.taskType !== OffboardingTaskType.final_settlement) {

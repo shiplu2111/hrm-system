@@ -13,7 +13,10 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import {
+  RequirePermission,
+  type PermissionRef,
+} from '../rbac/require-permission.decorator';
 import {
   CreateHolidayDto,
   ListHolidaysQueryDto,
@@ -22,6 +25,11 @@ import {
 } from './dto/holidays.dto';
 import { HolidaysService } from './holidays.service';
 
+const HOLIDAY_READERS: PermissionRef[] = [
+  { module: 'attendance', action: 'view' },
+  { module: 'leave', action: 'view' },
+];
+
 @ApiTags('holidays')
 @ApiBearerAuth('access-token')
 @Controller('companies/:companyId/holidays')
@@ -29,7 +37,7 @@ export class HolidaysController {
   constructor(private readonly holidaysService: HolidaysService) {}
 
   @Get('calendar')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: HOLIDAY_READERS })
   @ApiOperation({
     summary:
       'Resolved holiday calendar merging country, state, company, branch, and employee levels',
@@ -44,7 +52,7 @@ export class HolidaysController {
   }
 
   @Get()
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: HOLIDAY_READERS })
   @ApiOperation({
     summary: 'List tenant-managed holidays (company, branch, employee scopes)',
   })

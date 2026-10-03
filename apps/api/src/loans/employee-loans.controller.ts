@@ -51,7 +51,7 @@ export class EmployeeLoansController {
   }
 
   @Post('employee-loans/:loanId/approve')
-  @RequirePermission('payroll', 'edit')
+  @RequirePermission('payroll', 'approve')
   async approve(
     @Param('loanId', ParseUUIDPipe) loanId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -60,7 +60,7 @@ export class EmployeeLoansController {
   }
 
   @Post('employee-loans/:loanId/reject')
-  @RequirePermission('payroll', 'edit')
+  @RequirePermission('payroll', 'approve')
   async reject(
     @Param('loanId', ParseUUIDPipe) loanId: string,
     @Body() dto: RejectEmployeeLoanDto,

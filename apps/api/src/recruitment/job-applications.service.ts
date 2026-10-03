@@ -20,6 +20,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmployeesService } from '../employees/employees.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
 import { ApplicationInterviewRoundsService } from './application-interview-rounds.service';
@@ -68,6 +69,7 @@ export class JobApplicationsService {
     private readonly employeesService: EmployeesService,
     private readonly interviewRoundsService: ApplicationInterviewRoundsService,
     private readonly employeeOnboardingService: EmployeeOnboardingService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async list(
@@ -256,6 +258,7 @@ export class JobApplicationsService {
     dto: HireApplicationDto,
     user: AuthenticatedUser,
   ): Promise<JobApplicationRecord> {
+    await this.permissions.assertPermission(user, 'employee', 'create');
     const existing = await this.findOrThrow(applicationId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
 

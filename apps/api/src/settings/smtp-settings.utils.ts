@@ -27,6 +27,24 @@ export function smtpSettingKeyForCompany(companyId: string): string {
   return `${SMTP_SETTINGS_KEY_PREFIX}${companyId}`;
 }
 
+/**
+ * The saved password may only be reused against the server and account it was saved for,
+ * so a changed host or username can't silently send the stored secret somewhere else.
+ * Undefined fields mean "unchanged".
+ */
+export function requiresNewPassword(
+  stored: StoredSmtpSettings | null,
+  next: { host?: string; username?: string },
+): boolean {
+  if (!stored?.passwordEnc) return true;
+  const hostChanged =
+    next.host !== undefined &&
+    next.host.trim().toLowerCase() !== stored.host.trim().toLowerCase();
+  const usernameChanged =
+    next.username !== undefined && next.username.trim() !== stored.username.trim();
+  return hostChanged || usernameChanged;
+}
+
 export function toSmtpSettingsView(
   stored: StoredSmtpSettings | null,
   updatedAt: string | null,

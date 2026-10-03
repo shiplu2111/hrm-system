@@ -7,6 +7,7 @@ import {
   Plus,
   ShieldCheck,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -57,6 +58,9 @@ const statusTone: Record<WorkplaceIncidentStatus, 'info' | 'warning' | 'success'
 
 export function HealthSafetyPage() {
   const { companyId } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('health_safety', 'create');
+  const canEdit = can('health_safety', 'edit');
   const [tab, setTab] = useState<PageTab>('incidents');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -217,9 +221,11 @@ export function HealthSafetyPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setReportOpen(true)}>
-          <Plus className="h-4 w-4" /> Report incident
-        </Button>
+        {canCreate ? (
+          <Button onClick={() => setReportOpen(true)}>
+            <Plus className="h-4 w-4" /> Report incident
+          </Button>
+        ) : null}
       </div>
 
       {error ? <p className="text-sm text-error-600">{error}</p> : null}
@@ -322,7 +328,7 @@ export function HealthSafetyPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {incident.status !== 'closed' ? (
+                      {incident.status !== 'closed' && canEdit ? (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -348,9 +354,11 @@ export function HealthSafetyPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Injury log</CardTitle>
-            <Button size="sm" onClick={() => setInjuryOpen(true)}>
-              <Plus className="h-4 w-4" /> Add entry
-            </Button>
+            {canCreate ? (
+              <Button size="sm" onClick={() => setInjuryOpen(true)}>
+                <Plus className="h-4 w-4" /> Add entry
+              </Button>
+            ) : null}
           </CardHeader>
           <CardBody className="divide-y divide-[rgb(var(--border-base))]">
             {injuries.map((entry) => (
@@ -396,7 +404,9 @@ export function HealthSafetyPage() {
                     {record.dueDate ?? '—'} · {record.status}
                   </p>
                 </div>
-                {record.status !== 'compliant' ? (
+                {record.status === 'compliant' ? (
+                  <Badge tone="success">Compliant</Badge>
+                ) : canEdit ? (
                   <Button
                     size="sm"
                     variant="secondary"
@@ -405,9 +415,7 @@ export function HealthSafetyPage() {
                   >
                     Mark compliant
                   </Button>
-                ) : (
-                  <Badge tone="success">Compliant</Badge>
-                )}
+                ) : null}
               </div>
             ))}
             {compliance.length === 0 ? (

@@ -144,7 +144,9 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Workflows', page: 'settings-workflows' },
       { label: 'Notifications', page: 'settings-notifications' },
       { label: 'Integrations', page: 'settings-integrations' },
-      { label: 'Security & Audit', page: 'settings-security' },
+      { label: 'Security', page: 'settings-security' },
+      { label: 'Audit Log', page: 'audit-log' },
+      { label: 'Plan & Usage', page: 'billing' },
     ],
   },
 ];

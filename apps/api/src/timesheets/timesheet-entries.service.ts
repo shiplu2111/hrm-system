@@ -23,6 +23,7 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import { buildApprovalPendingVariables } from '../notifications/notification.helpers';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { WorkflowAssigneeService } from '../workflow/workflow-assignee.service';
 import { getCurrentWorkflowStep } from '../workflow/workflow.utils';
 import type {
@@ -56,18 +57,24 @@ export class TimesheetEntriesService {
     private readonly timesheetWorkflow: TimesheetWorkflowService,
     private readonly workflowAssignee: WorkflowAssigneeService,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListTimesheetEntriesQueryDto,
+    user: AuthenticatedUser,
   ): Promise<TimesheetEntryRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
+    const employeeFilter = await this.dataScope.employeeIdFilter(user);
 
     const rows = await this.prisma.unscoped.timesheetEntry.findMany({
       where: {
         companyId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+        employeeId: query.employeeId ?? employeeFilter,
         ...(query.status
           ? { status: query.status as TimesheetEntryStatus }
           : {}),
@@ -101,6 +108,7 @@ export class TimesheetEntriesService {
     options?: { localId?: string; source?: string; timeAnomaly?: boolean },
   ): Promise<TimesheetEntryRecord> {
     const employee = await this.assertEmployee(dto.employeeId, companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
     const project = await this.projectsService.findOrThrow(dto.projectId);
     if (project.companyId !== companyId || !project.isActive) {
       throw new BadRequestException({
@@ -171,6 +179,7 @@ export class TimesheetEntriesService {
   ): Promise<TimesheetEntryRecord> {
     const row = await this.findOrThrow(entryId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
 
     if (row.status !== TimesheetEntryStatus.draft) {
       throw new BadRequestException({
@@ -226,6 +235,7 @@ export class TimesheetEntriesService {
   ): Promise<TimesheetEntryRecord> {
     const row = await this.findOrThrow(entryId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId, { includeSelf: false });
 
     if (row.status !== TimesheetEntryStatus.pending_approval) {
       throw new BadRequestException({
@@ -273,6 +283,7 @@ export class TimesheetEntriesService {
   ): Promise<TimesheetEntryRecord> {
     const row = await this.findOrThrow(entryId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId, { includeSelf: false });
 
     if (row.status !== TimesheetEntryStatus.pending_approval) {
       throw new BadRequestException({

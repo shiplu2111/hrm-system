@@ -12,6 +12,7 @@ import type {
   WorkflowEntityType,
   WorkflowTriggerConfig,
 } from '@hrm/shared-types';
+import { usePermissions } from '@hrm/portal-ui';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -139,6 +140,9 @@ function buildPayload(state: EditorState): SaveWorkflowDefinitionInput {
 
 export function WorkflowBuilderPage() {
   const { companyId, loading: companyLoading, error: companyError } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('settings', 'create');
+  const canEdit = can('settings', 'edit');
   const [workflows, setWorkflows] = useState<WorkflowDefinitionRecord[]>([]);
   const [roles, setRoles] = useState<TenantRoleSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -259,9 +263,11 @@ export function WorkflowBuilderPage() {
         <div className="flex flex-wrap items-center gap-2">
           <CompanySelector />
           {viewMode === 'list' ? (
-            <Button variant="primary" onClick={openCreate}>
-              <Plus className="h-4 w-4" /> New workflow
-            </Button>
+            canCreate && (
+              <Button variant="primary" onClick={openCreate}>
+                <Plus className="h-4 w-4" /> New workflow
+              </Button>
+            )
           ) : (
             <Button variant="secondary" onClick={() => setViewMode('list')}>
               Back to list
@@ -283,30 +289,32 @@ export function WorkflowBuilderPage() {
 
       {viewMode === 'list' && (
         <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-accent-500" />
-                Quick-start templates
-              </CardTitle>
-            </CardHeader>
-            <CardBody className="pt-0 flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => applyTemplate(EXPENSE_HIGH_VALUE_TEMPLATE)}
-              >
-                Expense &gt; $1,000 → Manager → Finance → Director
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => applyTemplate(STANDARD_LEAVE_TEMPLATE)}
-              >
-                Standard leave (Manager → HR Admin)
-              </Button>
-            </CardBody>
-          </Card>
+          {canCreate && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-accent-500" />
+                  Quick-start templates
+                </CardTitle>
+              </CardHeader>
+              <CardBody className="pt-0 flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => applyTemplate(EXPENSE_HIGH_VALUE_TEMPLATE)}
+                >
+                  Expense &gt; $1,000 → Manager → Finance → Director
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => applyTemplate(STANDARD_LEAVE_TEMPLATE)}
+                >
+                  Standard leave (Manager → HR Admin)
+                </Button>
+              </CardBody>
+            </Card>
+          )}
 
           <div className="flex items-center gap-3">
             <Label>Filter by module</Label>
@@ -386,7 +394,7 @@ export function WorkflowBuilderPage() {
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           <Button variant="secondary" size="sm" onClick={() => openEdit(wf)}>
-                            Edit
+                            {canEdit ? 'Edit' : 'View'}
                           </Button>
                         </td>
                       </tr>
@@ -545,14 +553,16 @@ export function WorkflowBuilderPage() {
             <Card className="border-2 border-accent-500/20">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Approval pipeline</CardTitle>
-                <Button variant="primary" size="sm" disabled={saving} onClick={() => void handleSave()}>
-                  {saving ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Check className="h-3.5 w-3.5" />
-                  )}
-                  Save workflow
-                </Button>
+                {(editor.id ? canEdit : canCreate) && (
+                  <Button variant="primary" size="sm" disabled={saving} onClick={() => void handleSave()}>
+                    {saving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                    Save workflow
+                  </Button>
+                )}
               </CardHeader>
               <CardBody className="space-y-4">
                 <WorkflowStepList

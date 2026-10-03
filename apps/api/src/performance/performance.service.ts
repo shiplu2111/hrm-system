@@ -23,6 +23,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   BulkAssignKpiDto,
   CreateEmployeeKpiAssignmentDto,
@@ -70,21 +71,20 @@ export class PerformanceService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async getGoalsSummary(companyId: string): Promise<PerformanceGoalsSummary> {
+  async getGoalsSummary(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<PerformanceGoalsSummary> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    const employeeId = await this.dataScope.employeeIdFilter(user);
 
     const [activeCycleRow, kpiDefinitionCount, assignments] = await Promise.all([
       this.prisma.unscoped.performanceReviewCycle.findFirst({
         where: { companyId, status: PerformanceReviewCycleStatus.active },
-        include: {
-          _count: {
-            select: { kpiAssignments: true, participants: true, reviews: true },
-          },
-          kpiAssignments: { select: { status: true } },
-          reviews: { select: { status: true } },
-        },
+        include: this.cycleInclude(employeeId),
         orderBy: { periodStart: 'desc' },
       }),
       this.prisma.unscoped.kpiDefinition.count({
@@ -93,6 +93,7 @@ export class PerformanceService {
       this.prisma.unscoped.employeeKpiAssignment.findMany({
         where: {
           companyId,
+          employeeId,
           status: EmployeeKpiAssignmentStatus.active,
         },
         select: {
@@ -134,18 +135,15 @@ export class PerformanceService {
     };
   }
 
-  async listReviewCycles(companyId: string): Promise<PerformanceReviewCycleRecord[]> {
+  async listReviewCycles(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<PerformanceReviewCycleRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const rows = await this.prisma.unscoped.performanceReviewCycle.findMany({
       where: { companyId },
-      include: {
-        _count: {
-          select: { kpiAssignments: true, participants: true, reviews: true },
-        },
-        kpiAssignments: { select: { status: true } },
-        reviews: { select: { status: true } },
-      },
+      include: this.cycleInclude(await this.dataScope.employeeIdFilter(user)),
       orderBy: [{ periodStart: 'desc' }, { name: 'asc' }],
     });
 
@@ -177,13 +175,7 @@ export class PerformanceService {
         requiresWorkflowApproval: dto.requiresWorkflowApproval ?? true,
         createdByUserId: user.id,
       },
-      include: {
-        _count: {
-          select: { kpiAssignments: true, participants: true, reviews: true },
-        },
-        kpiAssignments: { select: { status: true } },
-        reviews: { select: { status: true } },
-      },
+      include: this.cycleInclude(),
     });
 
     await this.auditService.log({
@@ -226,13 +218,7 @@ export class PerformanceService {
         status: dto.status,
         requiresWorkflowApproval: dto.requiresWorkflowApproval,
       },
-      include: {
-        _count: {
-          select: { kpiAssignments: true, participants: true, reviews: true },
-        },
-        kpiAssignments: { select: { status: true } },
-        reviews: { select: { status: true } },
-      },
+      include: this.cycleInclude(await this.dataScope.employeeIdFilter(user)),
     });
 
     await this.auditService.log({
@@ -366,14 +352,18 @@ export class PerformanceService {
   async listKpiAssignments(
     companyId: string,
     query: ListEmployeeKpiAssignmentsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeKpiAssignmentRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.employeeKpiAssignment.findMany({
       where: {
         companyId,
         reviewCycleId: query.reviewCycleId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         kpiDefinitionId: query.kpiDefinitionId,
         status: query.status,
       },
@@ -402,6 +392,7 @@ export class PerformanceService {
     }
 
     await this.assertEmployeeInCompany(dto.employeeId, companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     let definition: KpiDefinition | null = null;
     if (dto.kpiDefinitionId) {
@@ -508,6 +499,7 @@ export class PerformanceService {
     const uniqueEmployeeIds = [...new Set(dto.employeeIds)];
     for (const employeeId of uniqueEmployeeIds) {
       await this.assertEmployeeInCompany(employeeId, companyId);
+      await this.dataScope.assertEmployeeInScope(user, employeeId);
     }
 
     const created = await this.prisma.unscoped.$transaction(async (tx) => {
@@ -577,6 +569,7 @@ export class PerformanceService {
     user: AuthenticatedUser,
   ): Promise<EmployeeKpiAssignmentRecord> {
     const existing = await this.getAssignmentOrThrow(assignmentId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
     const cycle = await this.getCycleOrThrow(existing.reviewCycleId);
 
     const measurementPeriodStart = dto.measurementPeriodStart
@@ -630,6 +623,21 @@ export class PerformanceService {
     });
 
     return this.toAssignmentRecord(row as AssignmentWithRelations);
+  }
+
+  private cycleInclude(employeeId?: { in: string[] }) {
+    const where = { employeeId };
+    return {
+      _count: {
+        select: {
+          kpiAssignments: { where },
+          participants: { where },
+          reviews: { where },
+        },
+      },
+      kpiAssignments: { where, select: { status: true } },
+      reviews: { where, select: { status: true } },
+    } satisfies Prisma.PerformanceReviewCycleInclude;
   }
 
   private async getCycleOrThrow(cycleId: string): Promise<PerformanceReviewCycle> {

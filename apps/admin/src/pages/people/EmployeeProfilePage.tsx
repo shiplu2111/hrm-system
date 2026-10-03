@@ -90,7 +90,11 @@ export function EmployeeProfilePage() {
   const { navigate, selectedEmployeeId } = useNav();
   const { companyId } = useCompany();
   const canViewAccess = usePermission('settings', 'view');
-  const visibleTabs = tabs.filter((tab) => tab.key !== 'access' || canViewAccess);
+  const canViewLeave = usePermission('leave', 'view');
+  const visibleTabs = tabs.filter(
+    (tab) =>
+      (tab.key !== 'access' || canViewAccess) && (tab.key !== 'leave' || canViewLeave),
+  );
   const [emp, setEmp] = useState<EmployeeRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -283,8 +287,24 @@ export function EmployeeProfilePage() {
     );
   }
 
-  if (loading || !emp) {
+  if (loading) {
     return <EmployeeProfileSkeleton />;
+  }
+
+  if (!emp) {
+    return (
+      <div className="p-8 text-center text-sm space-y-4">
+        <p className="text-error-600">{error ?? 'Failed to load profile'}</p>
+        <div className="flex justify-center gap-2">
+          <Button variant="secondary" onClick={() => navigate('emp-directory')}>
+            Go to Directory
+          </Button>
+          <Button variant="primary" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -777,7 +797,7 @@ export function EmployeeProfilePage() {
         </Card>
       )}
 
-      {activeTab === 'leave' && companyId ? (
+      {activeTab === 'leave' && canViewLeave && companyId ? (
         <EmployeeLeaveBalances
           employeeId={emp.id}
           companyId={companyId}

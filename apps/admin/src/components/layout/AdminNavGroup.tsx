@@ -36,16 +36,17 @@ export function AdminNavGroup({
     [item.children, can],
   );
 
-  if (!parentAllowed && visibleChildren.length === 0) return null;
-
   const isActive = navItemContainsPage(item, current);
-  const hasChildren = visibleChildren.length > 0;
   const [expanded, setExpanded] = useState(isActive);
 
   useEffect(() => {
     if (isActive) setExpanded(true);
   }, [isActive]);
 
+  if (!parentAllowed && visibleChildren.length === 0) return null;
+
+  const hasChildren = visibleChildren.length > 0;
+  const landingPage = parentAllowed ? item.page : visibleChildren[0]!.page;
   const Icon = item.icon;
 
   if (!hasChildren) {
@@ -67,7 +68,7 @@ export function AdminNavGroup({
         icon={Icon}
         active={isActive}
         collapsed={collapsed}
-        onClick={() => goToPage(visibleChildren[0]?.page ?? item.page)}
+        onClick={() => goToPage(landingPage)}
       />
     );
   }
@@ -83,7 +84,7 @@ export function AdminNavGroup({
       >
         <button
           type="button"
-          onClick={() => goToPage(item.page)}
+          onClick={() => goToPage(landingPage)}
           className={`flex flex-1 items-center gap-2.5 h-9 px-2.5 text-sm font-medium min-w-0 ${
             isActive ? 'text-accent-700 dark:text-accent-300' : 'text-secondary hover:text-primary'
           }`}

@@ -13,6 +13,7 @@ import {
   DollarSign,
   Loader2,
 } from 'lucide-react';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import type { ExpenseCategoryRecord, ExpenseClaimRecord } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -70,6 +71,7 @@ function ExpensesContent({ companyId }: { companyId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const canApprove = usePermission('payroll', 'approve');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [employeeId, setEmployeeId] = useState('');
@@ -245,9 +247,11 @@ function ExpensesContent({ companyId }: { companyId: string }) {
             Finance approval, and queue reimbursements for payroll.
           </p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" /> Submit Expense Claim
-        </Button>
+        <PermissionGate module="payroll" action="create">
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" /> Submit Expense Claim
+          </Button>
+        </PermissionGate>
       </div>
 
       {error && (
@@ -477,7 +481,7 @@ function ExpensesContent({ companyId }: { companyId: string }) {
                         </td>
 
                         <td className="px-5 py-3.5 text-right">
-                          {claim.status === 'pending_approval' && (
+                          {canApprove && claim.status === 'pending_approval' && (
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="primary"
@@ -502,7 +506,7 @@ function ExpensesContent({ companyId }: { companyId: string }) {
                               </Button>
                             </div>
                           )}
-                          {claim.status === 'approved' && (
+                          {canApprove && claim.status === 'approved' && (
                             <Button
                               variant="primary"
                               size="sm"

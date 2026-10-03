@@ -12,9 +12,11 @@ import type {
   RosterRecord,
 } from '@hrm/shared-types';
 import { buildRosterDisplay, ROSTER_BULK_MAX_CELLS } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { LocaleContextService } from '../locale/locale-context.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   BulkAssignRosterDto,
   BulkClearRosterDto,
@@ -30,11 +32,13 @@ export class RostersService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly localeContext: LocaleContextService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListRostersQueryDto,
+    employeeFilter?: { in: string[] },
   ): Promise<{ data: RosterRecord[]; total: number }> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
@@ -43,7 +47,7 @@ export class RostersService {
 
     const where: Prisma.RosterWhereInput = {
       employee: { companyId, deletedAt: null },
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      employeeId: query.employeeId ?? employeeFilter,
       ...(query.locationId ? { locationId: query.locationId } : {}),
       ...(query.from || query.to
         ? {
@@ -85,14 +89,24 @@ export class RostersService {
     };
   }
 
-  async get(companyId: string, rosterId: string): Promise<RosterRecord> {
+  async get(
+    companyId: string,
+    rosterId: string,
+    user: AuthenticatedUser,
+  ): Promise<RosterRecord> {
     const row = await this.findRosterOrThrow(companyId, rosterId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     return this.toRecord(row);
   }
 
-  async create(companyId: string, dto: CreateRosterDto): Promise<RosterRecord> {
+  async create(
+    companyId: string,
+    dto: CreateRosterDto,
+    user: AuthenticatedUser,
+  ): Promise<RosterRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
     await this.assertEmployee(companyId, dto.employeeId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId, { includeSelf: false });
     await this.assertShift(companyId, dto.shiftId);
     if (dto.locationId) {
       await this.assertLocation(companyId, dto.locationId);
@@ -129,8 +143,12 @@ export class RostersService {
     companyId: string,
     rosterId: string,
     dto: UpdateRosterDto,
+    user: AuthenticatedUser,
   ): Promise<RosterRecord> {
     const existing = await this.findRosterOrThrow(companyId, rosterId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId, {
+      includeSelf: false,
+    });
 
     if (dto.shiftId) {
       await this.assertShift(companyId, dto.shiftId);
@@ -164,8 +182,11 @@ export class RostersService {
     }
   }
 
-  async remove(companyId: string, rosterId: string): Promise<void> {
-    await this.findRosterOrThrow(companyId, rosterId);
+  async remove(companyId: string, rosterId: string, user: AuthenticatedUser): Promise<void> {
+    const existing = await this.findRosterOrThrow(companyId, rosterId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId, {
+      includeSelf: false,
+    });
     await this.prisma.unscoped.roster.delete({ where: { id: rosterId } });
   }
 
@@ -182,10 +203,12 @@ export class RostersService {
   async bulkAssign(
     companyId: string,
     dto: BulkAssignRosterDto,
+    user: AuthenticatedUser,
   ): Promise<BulkAssignRosterResult> {
     await this.companyScope.assertCompanyInTenant(companyId);
     this.assertBulkSize(dto.employeeIds.length, dto.dates.length);
     await this.assertEmployees(companyId, dto.employeeIds);
+    await this.assertEmployeesInScope(user, dto.employeeIds);
     await this.assertShift(companyId, dto.shiftId);
     if (dto.locationId) {
       await this.assertLocation(companyId, dto.locationId);
@@ -241,9 +264,11 @@ export class RostersService {
   async bulkClear(
     companyId: string,
     dto: BulkClearRosterDto,
+    user: AuthenticatedUser,
   ): Promise<BulkClearRosterResult> {
     await this.companyScope.assertCompanyInTenant(companyId);
     this.assertBulkSize(dto.employeeIds.length, dto.dates.length);
+    await this.assertEmployeesInScope(user, dto.employeeIds);
 
     const { count } = await this.prisma.unscoped.roster.deleteMany({
       where: {
@@ -273,6 +298,12 @@ export class RostersService {
         code: 'VALIDATION_ERROR',
         message: 'One or more employees were not found in this company',
       });
+    }
+  }
+
+  private async assertEmployeesInScope(user: AuthenticatedUser, employeeIds: string[]) {
+    for (const employeeId of employeeIds) {
+      await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
     }
   }
 

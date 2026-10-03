@@ -49,15 +49,21 @@ export class PerformanceController {
   @Get('companies/:companyId/performance/summary')
   @RequirePermission('performance', 'view')
   @ApiOperation({ summary: 'KPI & goals dashboard summary' })
-  async summary(@Param('companyId', ParseUUIDPipe) companyId: string) {
-    return { data: await this.performanceService.getGoalsSummary(companyId) };
+  async summary(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performanceService.getGoalsSummary(companyId, user) };
   }
 
   @Get('companies/:companyId/performance/review-cycles')
   @RequirePermission('performance', 'view')
-  async listReviewCycles(@Param('companyId', ParseUUIDPipe) companyId: string) {
+  async listReviewCycles(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return {
-      data: await this.performanceService.listReviewCycles(companyId),
+      data: await this.performanceService.listReviewCycles(companyId, user),
     };
   }
 
@@ -129,9 +135,10 @@ export class PerformanceController {
   async listKpiAssignments(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmployeeKpiAssignmentsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.performanceService.listKpiAssignments(companyId, query),
+      data: await this.performanceService.listKpiAssignments(companyId, query, user),
     };
   }
 
@@ -180,9 +187,10 @@ export class PerformanceController {
   async listParticipants(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('cycleId', ParseUUIDPipe) cycleId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.performanceReviewsService.listParticipants(companyId, cycleId),
+      data: await this.performanceReviewsService.listParticipants(companyId, cycleId, user),
     };
   }
 
@@ -225,16 +233,20 @@ export class PerformanceController {
   async listReviews(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListEmployeePerformanceReviewsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.performanceReviewsService.listReviews(companyId, query),
+      data: await this.performanceReviewsService.listReviews(companyId, query, user),
     };
   }
 
   @Get('performance/reviews/:reviewId')
   @RequirePermission('performance', 'view')
-  async getReview(@Param('reviewId', ParseUUIDPipe) reviewId: string) {
-    return { data: await this.performanceReviewsService.getReview(reviewId) };
+  async getReview(
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performanceReviewsService.getReview(reviewId, user) };
   }
 
   @Patch('performance/reviews/:reviewId/self-assessment')
@@ -331,14 +343,20 @@ export class PerformanceController {
 
   @Get('performance/reviews/:reviewId/360-feedback')
   @RequirePermission('performance', 'view')
-  async list360Feedback(@Param('reviewId', ParseUUIDPipe) reviewId: string) {
-    return { data: await this.performance360Service.listFeedback(reviewId) };
+  async list360Feedback(
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performance360Service.listFeedback(reviewId, user) };
   }
 
   @Get('performance/reviews/:reviewId/360-summary')
   @RequirePermission('performance', 'view')
-  async get360Summary(@Param('reviewId', ParseUUIDPipe) reviewId: string) {
-    return { data: await this.performance360Service.getSummary(reviewId) };
+  async get360Summary(
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performance360Service.getSummary(reviewId, user) };
   }
 
   @Post('performance/reviews/:reviewId/360-feedback/invite')
@@ -442,11 +460,13 @@ export class PerformanceController {
   async performanceHistory(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
       data: await this.performanceReviewsService.listPerformanceHistory(
         companyId,
         employeeId,
+        user,
       ),
     };
   }

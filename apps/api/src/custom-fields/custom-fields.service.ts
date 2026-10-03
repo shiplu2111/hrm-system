@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import { CustomFieldEntityType, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
+  assertFieldOptions,
   parseOptionsInput,
   slugifyFieldKey,
 } from '../custom-fields/field-validation.utils';
@@ -53,11 +55,31 @@ export class CustomFieldsService {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     await this.assertContext(companyId, dto.entityType, dto.contextId);
 
-    const fieldKey = dto.fieldKey?.trim() || slugifyFieldKey(dto.label);
+    assertFieldOptions(dto.label, dto.fieldType, dto.options);
+
+    const fieldKey =
+      slugifyFieldKey(dto.fieldKey ?? '') || slugifyFieldKey(dto.label);
     if (!fieldKey) {
-      throw new ConflictException({
+      throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Field key could not be generated from label',
+      });
+    }
+
+    // The unique index treats NULL contextIds as distinct, so it cannot catch these duplicates.
+    const duplicate = await this.prisma.unscoped.customFieldDefinition.findFirst({
+      where: {
+        companyId,
+        entityType: dto.entityType,
+        contextId: dto.contextId ?? null,
+        fieldKey,
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: 'A field with this key already exists for this entity',
       });
     }
 
@@ -111,6 +133,31 @@ export class CustomFieldsService {
   ) {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     const existing = await this.getFieldOrThrow(companyId, id);
+
+    const nextType = dto.fieldType ?? existing.fieldType;
+    if (dto.fieldType !== undefined || dto.options !== undefined) {
+      assertFieldOptions(
+        dto.label ?? existing.label,
+        nextType,
+        dto.options ?? (Array.isArray(existing.options) ? existing.options.map(String) : []),
+      );
+    }
+
+    if (
+      nextType !== existing.fieldType &&
+      existing.entityType === CustomFieldEntityType.document &&
+      existing.contextId
+    ) {
+      const inUse = await this.prisma.unscoped.employeeDocument.count({
+        where: { documentTypeId: existing.contextId },
+      });
+      if (inUse > 0) {
+        throw new ConflictException({
+          code: 'FIELD_TYPE_LOCKED',
+          message: 'Field type cannot change once documents use it. Add a new field instead.',
+        });
+      }
+    }
 
     const updated = await this.prisma.unscoped.customFieldDefinition.update({
       where: { id },

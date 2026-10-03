@@ -22,7 +22,6 @@ import { TeamsPage } from '@/pages/org/TeamsPage';
 import { CostCentresPage } from '@/pages/org/CostCentresPage';
 import { OrgChartPage } from '@/pages/org/OrgChartPage';
 import { RolesPage } from '@/pages/rbac/RolesPage';
-import { PermissionMatrixPage } from '@/pages/rbac/PermissionMatrixPage';
 import { EmployeeDirectoryPage } from '@/pages/people/EmployeeDirectoryPage';
 import { EmployeeProfilePage } from '@/pages/people/EmployeeProfilePage';
 import { LifecycleEventsPage } from '@/pages/people/LifecycleEventsPage';
@@ -82,6 +81,7 @@ import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
 import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
+import { AuditLogPage } from '@/pages/settings/AuditLogPage';
 
 function PageRoutes() {
   return (
@@ -171,11 +171,12 @@ function PageRoutes() {
       <Route path="/settings/notifications" element={<SettingsHubPage />} />
       <Route path="/settings/workflows" element={<WorkflowBuilderPage />} />
       <Route path="/settings/security" element={<SettingsHubPage />} />
+      <Route path="/settings/audit-log" element={<AuditLogPage />} />
       <Route path="/settings/integrations" element={<SettingsHubPage />} />
       <Route path="/settings/backup" element={<SettingsHubPage />} />
       <Route path="/settings/general" element={<SettingsHubPage />} />
       <Route path="/settings/roles" element={<RolesPage />} />
-      <Route path="/settings/permission-matrix" element={<PermissionMatrixPage />} />
+      <Route path="/settings/permission-matrix" element={<RolesPage />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

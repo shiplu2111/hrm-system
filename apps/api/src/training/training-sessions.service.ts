@@ -18,6 +18,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateTrainingSessionCostDto,
   CreateTrainingSessionDto,
@@ -71,6 +72,7 @@ export class TrainingSessionsService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly trainingService: TrainingService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async listSessions(
@@ -251,14 +253,18 @@ export class TrainingSessionsService {
   async listAttendance(
     companyId: string,
     query: ListTrainingAttendanceQueryDto,
+    user: AuthenticatedUser,
   ): Promise<TrainingAttendanceRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.trainingAttendance.findMany({
       where: {
         companyId,
         sessionId: query.sessionId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         status: query.status,
         session: query.courseId ? { courseId: query.courseId } : undefined,
       },
@@ -297,6 +303,9 @@ export class TrainingSessionsService {
         message: 'Cannot register attendance for a cancelled session',
       });
     }
+    for (const employeeId of dto.employeeIds) {
+      await this.dataScope.assertEmployeeInScope(user, employeeId);
+    }
 
     for (const employeeId of dto.employeeIds) {
       await this.prisma.unscoped.trainingAttendance.upsert({
@@ -322,7 +331,7 @@ export class TrainingSessionsService {
       newValue: { registeredEmployees: dto.employeeIds.length },
     });
 
-    return this.listAttendance(session.companyId, { sessionId });
+    return this.listAttendance(session.companyId, { sessionId }, user);
   }
 
   async updateAttendance(
@@ -337,6 +346,7 @@ export class TrainingSessionsService {
     if (!existing) {
       throw new NotFoundException('Training attendance record not found');
     }
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     const now = new Date();
     const status = dto.status ?? existing.status;

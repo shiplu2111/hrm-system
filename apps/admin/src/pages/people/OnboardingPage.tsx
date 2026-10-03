@@ -13,6 +13,7 @@ import type {
   EmployeeOnboardingTaskRecord,
   OnboardingTaskCategory,
 } from '@hrm/shared-types';
+import { PermissionGate } from '@hrm/portal-ui';
 import { ChecklistBoard } from '@/components/people/ChecklistBoard';
 import type { ChecklistItem } from '@/components/people/ChecklistBoard';
 import { CompanySelector } from '@/components/org/CompanySelector';
@@ -335,19 +336,21 @@ export function OnboardingPage() {
                   <Badge tone={detail.welcomeSentAt ? 'success' : 'warning'} dot>
                     {detail.welcomeSentAt ? 'Welcome sent' : 'Welcome pending'}
                   </Badge>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void handleResendWelcome()}
-                    disabled={welcomeSending}
-                  >
-                    {welcomeSending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Mail className="h-4 w-4" />
-                    )}
-                    Resend welcome
-                  </Button>
+                  <PermissionGate module="employee" action="edit">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleResendWelcome()}
+                      disabled={welcomeSending}
+                    >
+                      {welcomeSending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Mail className="h-4 w-4" />
+                      )}
+                      Resend welcome
+                    </Button>
+                  </PermissionGate>
                 </div>
               )}
             </CardBody>

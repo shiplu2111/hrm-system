@@ -14,6 +14,7 @@ import {
   UserRound,
   Wrench,
 } from 'lucide-react';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -285,14 +286,16 @@ export function AssetManagementPage() {
               <p className="font-mono text-xs text-secondary">{selectedAsset.tag} · S/N {selectedAsset.serial}</p>
             </div>
           </div>
-          <Button onClick={() => { setAssetId(selectedAsset.id); setAssignOpen(true); }} disabled={selectedAsset.status !== 'Available'}>
-            <UserRound className="h-4 w-4" /> Assign asset
-          </Button>
-          {selectedAsset.status === 'Assigned' && (
-            <Button variant="secondary" onClick={() => setReturnOpen(true)}>
-              Return asset
+          <PermissionGate module="employee" action="edit">
+            <Button onClick={() => { setAssetId(selectedAsset.id); setAssignOpen(true); }} disabled={selectedAsset.status !== 'Available'}>
+              <UserRound className="h-4 w-4" /> Assign asset
             </Button>
-          )}
+            {selectedAsset.status === 'Assigned' && (
+              <Button variant="secondary" onClick={() => setReturnOpen(true)}>
+                Return asset
+              </Button>
+            )}
+          </PermissionGate>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-3">
@@ -407,10 +410,12 @@ export function AssetManagementPage() {
     <div className="mx-auto max-w-[1400px] space-y-5 p-4 lg:p-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div><h1 className="text-xl font-bold text-primary">Asset Management</h1><p className="mt-0.5 text-sm text-secondary">Track company equipment, ownership, warranty, and maintenance.</p></div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Add asset</Button>
-          <Button onClick={() => setAssignOpen(true)}><Plus className="h-4 w-4" /> Assign Asset</Button>
-        </div>
+        <PermissionGate module="employee" action="edit">
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Add asset</Button>
+            <Button onClick={() => setAssignOpen(true)}><Plus className="h-4 w-4" /> Assign Asset</Button>
+          </div>
+        </PermissionGate>
       </div>
 
       {error && (

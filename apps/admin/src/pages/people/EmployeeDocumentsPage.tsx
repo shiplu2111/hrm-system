@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Upload, FileText, Loader2, Trash2, Check } from 'lucide-react';
 import type { DocumentTypeRecord, EmployeeDocumentRecord } from '@hrm/shared-types';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { useNav } from '@/context/NavContext';
@@ -34,6 +36,7 @@ export function EmployeeDocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EmployeeDocumentRecord | null>(null);
   const [form, setForm] = useState({
     documentTypeId: '',
     expiryDate: '',
@@ -43,8 +46,13 @@ export function EmployeeDocumentsPage() {
 
   const selectedType = docTypes.find((t) => t.id === form.documentTypeId);
 
+  const canEdit = usePermission('employee', 'edit');
+
   const load = useCallback(async () => {
-    if (!selectedEmployeeId || !companyId) return;
+    if (!selectedEmployeeId || !companyId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -76,7 +84,7 @@ export function EmployeeDocumentsPage() {
         fields: form.fieldValues,
         expiryDate: form.expiryDate || null,
       });
-      if (form.file) {
+      if (form.file && canEdit) {
         await uploadEmployeeDocumentFile(selectedEmployeeId, created.id, form.file);
       }
       setModalOpen(false);
@@ -84,6 +92,17 @@ export function EmployeeDocumentsPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
+    }
+  };
+
+  const handleVerify = async (documentId: string) => {
+    if (!selectedEmployeeId) return;
+    setError(null);
+    try {
+      await verifyEmployeeDocument(selectedEmployeeId, documentId);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Verification failed');
     }
   };
 
@@ -113,9 +132,11 @@ export function EmployeeDocumentsPage() {
           <h1 className="text-xl font-bold text-primary">Employee Documents</h1>
           <p className="text-sm text-secondary mt-0.5">{empName} — uploaded documents</p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Upload className="h-4 w-4" /> Upload Document
-        </Button>
+        <PermissionGate module="employee" action="create">
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Upload className="h-4 w-4" /> Upload Document
+          </Button>
+        </PermissionGate>
       </div>
 
       {error && (
@@ -141,18 +162,45 @@ export function EmployeeDocumentsPage() {
               )}
               <div className="mt-3 flex gap-2">
                 {doc.requiresVerification && !doc.verifiedAt && (
-                  <Button variant="secondary" size="sm" onClick={() => void verifyEmployeeDocument(selectedEmployeeId, doc.id).then(load)}>
-                    <Check className="h-3.5 w-3.5" /> Verify
-                  </Button>
+                  <PermissionGate module="employee" action="approve">
+                    <Button variant="secondary" size="sm" onClick={() => void handleVerify(doc.id)}>
+                      <Check className="h-3.5 w-3.5" /> Verify
+                    </Button>
+                  </PermissionGate>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => void deleteEmployeeDocument(selectedEmployeeId, doc.id).then(load)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <PermissionGate module="employee" action="delete">
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(doc)} aria-label="Delete document">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </PermissionGate>
               </div>
             </CardBody>
           </Card>
         ))}
       </div>
+
+      {documents.length === 0 && (
+        <div className="rounded-xl border border-dashed border-strong px-6 py-12 text-center text-sm text-secondary">
+          No documents uploaded yet.
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete document"
+        description={
+          deleteTarget
+            ? `Delete ${deleteTarget.documentTypeName} for ${empName}? This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await deleteEmployeeDocument(selectedEmployeeId, deleteTarget.id);
+          await load();
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
 
       <Modal
         open={modalOpen}
@@ -230,17 +278,19 @@ export function EmployeeDocumentsPage() {
               )}
             </div>
           ))}
-          <div>
-            <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
-            <Input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={(e) => setForm({
-                ...form,
-                file: e.target.files?.[0] ?? null,
-              })}
-            />
-          </div>
+          {canEdit && (
+            <div>
+              <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
+              <Input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(e) => setForm({
+                  ...form,
+                  file: e.target.files?.[0] ?? null,
+                })}
+              />
+            </div>
+          )}
         </div>
       </Modal>
     </div>

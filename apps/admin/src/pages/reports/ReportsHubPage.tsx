@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReportDefinition } from '@hrm/shared-types';
+import { usePermissions } from '@hrm/portal-ui';
 import {
   Upload,
   CheckCircle2,
@@ -30,6 +31,8 @@ import {
 export function ReportsHubPage() {
   const { companyId } = useCompany();
   const { current } = useNav();
+  const { can } = usePermissions();
+  const visibleExportTemplates = exportTemplates.filter((tpl) => can(tpl.module, 'view'));
   const activeTab: 'scheduled' | 'import' | 'export' =
     current === 'data-import' ? 'import' : current === 'data-export' ? 'export' : 'scheduled';
   const [catalog, setCatalog] = useState<ReportDefinition[]>([]);
@@ -437,7 +440,7 @@ export function ReportsHubPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                  {exportTemplates.map((tpl) => (
+                  {visibleExportTemplates.map((tpl) => (
                     <tr key={tpl.id} className="hover:bg-[rgb(var(--bg-hover))] transition-colors">
                       <td className="px-5 py-3.5 font-semibold text-primary">
                         {tpl.entity}

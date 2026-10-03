@@ -10,6 +10,7 @@ import {
   UserPlus,
   Loader2,
 } from 'lucide-react';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -72,7 +73,7 @@ function planStatusTone(
 }
 
 export function BenefitsPage() {
-  const { companyId } = useCompany();
+  const { companyId, loading: companyLoading, error: companyError } = useCompany();
   const [plans, setPlans] = useState<BenefitPlanRecord[]>([]);
   const [summary, setSummary] = useState<BenefitAdminSummary | null>(null);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
@@ -186,7 +187,7 @@ export function BenefitsPage() {
     }
   };
 
-  if (loading) {
+  if (companyLoading || (companyId && loading)) {
     return (
       <div className="flex items-center justify-center p-12 text-secondary">
         <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -195,11 +196,12 @@ export function BenefitsPage() {
     );
   }
 
-  if (error) {
+  const pageError = companyError ?? error ?? (companyId ? null : 'No company found for this tenant.');
+  if (pageError) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
         <div className="rounded-xl border border-error-200 bg-error-50 dark:bg-error-950/30 p-4 text-sm text-error-700 dark:text-error-300">
-          {error}
+          {pageError}
         </div>
       </div>
     );
@@ -214,13 +216,15 @@ export function BenefitsPage() {
             Health and life insurance plans, open enrollment, and dependent coverage — separate from superannuation.
           </p>
         </div>
-        <Button
-          variant="primary"
-          onClick={() => plans[0] && openEnrollModal(plans[0])}
-          disabled={plans.length === 0}
-        >
-          <UserPlus className="h-4 w-4" /> Enroll Employee
-        </Button>
+        <PermissionGate module="payroll" action="create">
+          <Button
+            variant="primary"
+            onClick={() => plans[0] && openEnrollModal(plans[0])}
+            disabled={plans.length === 0}
+          >
+            <UserPlus className="h-4 w-4" /> Enroll Employee
+          </Button>
+        </PermissionGate>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -329,9 +333,11 @@ export function BenefitsPage() {
                     )}
                   </span>
                 </div>
-                <Button variant="secondary" size="sm" onClick={() => openEnrollModal(plan)}>
-                  Enroll / Manage
-                </Button>
+                <PermissionGate module="payroll" action="create">
+                  <Button variant="secondary" size="sm" onClick={() => openEnrollModal(plan)}>
+                    Enroll / Manage
+                  </Button>
+                </PermissionGate>
               </div>
             </CardBody>
           </Card>

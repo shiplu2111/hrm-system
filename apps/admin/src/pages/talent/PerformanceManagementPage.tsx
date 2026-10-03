@@ -16,6 +16,7 @@ import {
   UserRoundCheck,
   Users,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -220,6 +221,12 @@ function formatDisplayDate(value: string): string {
 
 export function PerformanceManagementPage() {
   const { companyId } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('performance', 'create');
+  const canEdit = can('performance', 'edit');
+  const canApprove = can('performance', 'approve');
+  const canApprovePromotion = canApprove && can('employee', 'approve');
+  const canExecutePromotion = canApprove && can('employee', 'edit');
   const [view, setView] = useState<View>('goals');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -739,12 +746,14 @@ export function PerformanceManagementPage() {
   };
 
   const canEditSelf =
+    canEdit &&
     selectedReview &&
     ['not_started', 'self_assessment_draft', 'returned'].includes(selectedReview.status);
   const canEditManager =
+    canEdit &&
     selectedReview &&
     ['self_submitted', 'manager_review', 'returned'].includes(selectedReview.status);
-  const canWorkflowAction = selectedReview?.status === 'pending_approval';
+  const canWorkflowAction = canApprove && selectedReview?.status === 'pending_approval';
 
   const handleProgressUpdate = async (assignment: EmployeeKpiAssignmentRecord, value: string) => {
     const currentValue = Number(value);
@@ -771,11 +780,13 @@ export function PerformanceManagementPage() {
           <h1 className="text-xl font-bold text-primary">Performance Management</h1>
           <p className="mt-1 text-sm text-secondary">Define KPIs, assign goals to employees, and align measurement to review cycles.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setKpiModal(true)}><Plus className="h-4 w-4" /> Define KPI</Button>
-          <Button variant="secondary" onClick={() => setAssignModal(true)}><Users className="h-4 w-4" /> Assign KPI</Button>
-          <Button onClick={() => setCycleModal(true)}><Plus className="h-4 w-4" /> Review cycle</Button>
-        </div>
+        {canCreate && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setKpiModal(true)}><Plus className="h-4 w-4" /> Define KPI</Button>
+            <Button variant="secondary" onClick={() => setAssignModal(true)}><Users className="h-4 w-4" /> Assign KPI</Button>
+            <Button onClick={() => setCycleModal(true)}><Plus className="h-4 w-4" /> Review cycle</Button>
+          </div>
+        )}
       </header>
 
       {error && (
@@ -863,6 +874,7 @@ export function PerformanceManagementPage() {
                             type="number"
                             className="h-8 w-24 text-xs"
                             defaultValue={assignment.currentValue ?? ''}
+                            disabled={!canEdit}
                             onBlur={(event) => void handleProgressUpdate(assignment, event.target.value)}
                             aria-label={`Update current value for ${assignment.title}`}
                           />
@@ -954,14 +966,16 @@ export function PerformanceManagementPage() {
                       <div className="mb-1 flex justify-between text-[11px] text-secondary"><span>Reviews complete</span><span>{reviewPercent}%</span></div>
                       <div className="h-1.5 rounded-full bg-[rgb(var(--bg-muted))]"><div className="h-1.5 rounded-full bg-success-600" style={{ width: `${reviewPercent}%` }} /></div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => void openParticipantsModal(cycle.id)} disabled={launched}>
-                        <Users className="h-3.5 w-3.5" /> Participants
-                      </Button>
-                      <Button size="sm" onClick={() => void handleLaunchCycle(cycle.id)} disabled={submitting || launched || cycle.participantCount === 0}>
-                        <ClipboardCheck className="h-3.5 w-3.5" /> Launch
-                      </Button>
-                    </div>
+                    {canEdit && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => void openParticipantsModal(cycle.id)} disabled={launched}>
+                          <Users className="h-3.5 w-3.5" /> Participants
+                        </Button>
+                        <Button size="sm" onClick={() => void handleLaunchCycle(cycle.id)} disabled={submitting || launched || cycle.participantCount === 0}>
+                          <ClipboardCheck className="h-3.5 w-3.5" /> Launch
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1252,7 +1266,7 @@ export function PerformanceManagementPage() {
                     ))}
                   </Select>
                 </div>
-                {selectedReview && (
+                {selectedReview && canEdit && (
                   <Button variant="secondary" onClick={() => setInvite360Modal(true)}>
                     <Users className="h-4 w-4" /> Invite reviewers
                   </Button>
@@ -1494,20 +1508,30 @@ export function PerformanceManagementPage() {
                       )}
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <Button variant="secondary" onClick={() => void handleSaveOutcome()} disabled={submitting}>
-                        Save outcome
-                      </Button>
-                      <Button onClick={() => void handleSubmitPromotion()} disabled={submitting || !promotionRecommended}>
-                        Submit
-                      </Button>
-                      <Button variant="secondary" onClick={() => void handleApprovePromotion()} disabled={submitting}>
-                        HR approve
-                      </Button>
-                      <Button onClick={() => void handleExecutePromotion()} disabled={submitting || selectedReview.promotionRecommendationStatus !== 'approved'}>
-                        Execute promotion
-                      </Button>
-                    </div>
+                    {(canEdit || canApprovePromotion || canExecutePromotion) && (
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        {canEdit && (
+                          <>
+                            <Button variant="secondary" onClick={() => void handleSaveOutcome()} disabled={submitting}>
+                              Save outcome
+                            </Button>
+                            <Button onClick={() => void handleSubmitPromotion()} disabled={submitting || !promotionRecommended}>
+                              Submit
+                            </Button>
+                          </>
+                        )}
+                        {canApprovePromotion && (
+                          <Button variant="secondary" onClick={() => void handleApprovePromotion()} disabled={submitting}>
+                            HR approve
+                          </Button>
+                        )}
+                        {canExecutePromotion && (
+                          <Button onClick={() => void handleExecutePromotion()} disabled={submitting || selectedReview.promotionRecommendationStatus !== 'approved'}>
+                            Execute promotion
+                          </Button>
+                        )}
+                      </div>
+                    )}
 
                     {reviewMessage && (
                       <p className="mt-3 text-center text-xs font-medium text-secondary">{reviewMessage}</p>

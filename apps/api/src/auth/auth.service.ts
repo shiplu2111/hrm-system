@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import type { Permission, User } from '@prisma/client';
+import type { Permission, RoleDataScope, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AUTH_CONSTANTS, AUTH_ERROR_CODES, lockoutDurationMs } from './auth.constants';
 import type {
@@ -31,6 +31,7 @@ import {
 type UserWithRole = User & {
   role: {
     name: string;
+    dataScope: RoleDataScope;
     permissions: Permission[];
   };
 };
@@ -404,6 +405,7 @@ export class AuthService {
       employeeId: user.employeeId,
       email: user.email,
       permissions: this.toPermissionClaims(user.role.permissions),
+      dataScope: user.role.dataScope,
       mustChangePassword: user.mustChangePassword,
     };
   }
@@ -445,6 +447,7 @@ export class AuthService {
       role_name: user.roleName,
       employee_id: user.employeeId,
       permissions: user.permissions,
+      ...(user.dataScope ? { data_scope: user.dataScope } : {}),
       ...(user.mustChangePassword ? { must_change_password: true } : {}),
     };
 

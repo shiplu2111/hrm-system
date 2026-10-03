@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Info, Plus, X } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import {
   SHIFT_TYPES,
   computeShiftDuration,
@@ -247,6 +248,9 @@ export function ShiftFormPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creatingOtRule, setCreatingOtRule] = useState(false);
+  const { can } = usePermissions();
+  const canCreateOtRule = can('settings', 'create');
+  const canSave = can('settings', mode.kind === 'edit' ? 'edit' : 'create');
 
   const editingId = mode.kind === 'edit' ? mode.shift.id : null;
   const takenNames = useMemo(
@@ -289,6 +293,7 @@ export function ShiftFormPanel({
 
   const handleSubmit = async (event?: FormEvent) => {
     event?.preventDefault();
+    if (!canSave) return;
     form.touchAll();
     if (!form.isValid) return;
     setSaving(true);
@@ -322,9 +327,11 @@ export function ShiftFormPanel({
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" form="shift-form" disabled={saving || creatingOtRule}>
-            {saving ? 'Saving…' : mode.kind === 'edit' ? 'Save changes' : 'Create shift'}
-          </Button>
+          {canSave ? (
+            <Button variant="primary" type="submit" form="shift-form" disabled={saving || creatingOtRule}>
+              {saving ? 'Saving…' : mode.kind === 'edit' ? 'Save changes' : 'Create shift'}
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -574,7 +581,7 @@ export function ShiftFormPanel({
                 ) : null}
                 {missingRule ? <option value={values.otRuleId}>Rule no longer in effect</option> : null}
               </Select>
-              {!creatingOtRule && otRules !== null ? (
+              {canCreateOtRule && !creatingOtRule && otRules !== null ? (
                 <Button
                   type="button"
                   variant="secondary"

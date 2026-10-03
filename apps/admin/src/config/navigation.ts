@@ -116,7 +116,7 @@ export const navGroups: NavGroup[] = [
     label: 'Subscription & Billing',
     icon: CreditCard,
     hidden: true,
-    items: [{ label: 'Plans & Tenant Invoicing', page: 'billing' }],
+    items: [{ label: 'Plan & Usage', page: 'billing' }],
   },
   {
     label: 'Talent & Culture',
@@ -174,7 +174,8 @@ export const navGroups: NavGroup[] = [
       { label: 'Permission Matrix', page: 'rbac-matrix' },
       { label: 'Notification Engine', page: 'settings-notifications' },
       { label: 'Approval Workflows', page: 'settings-workflows' },
-      { label: 'Security & Audit Logs', page: 'settings-security' },
+      { label: 'Security', page: 'settings-security' },
+      { label: 'Audit Log', page: 'audit-log' },
       { label: 'API Keys & Webhooks', page: 'settings-integrations' },
       { label: 'Backups & Multi-Currency', page: 'settings-backup' },
     ],

@@ -122,6 +122,14 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Custom Field / Form Builder generalized across ALL entities (Employee, Company, Department, etc.), not just documents
 - E-signature integration for offer letters, contracts, and policy acknowledgment
 
+**Field definition rules** (shared by document types and the custom field builder, enforced by the API):
+
+- A field's `fieldKey` is generated from its label when created and never changes afterwards; stored values are keyed by it, so renaming a label is always safe.
+- Dropdown and radio fields need at least one option; options are trimmed and de-duplicated.
+- Once a document type has uploaded documents, the type of an existing field cannot change (`409 FIELD_TYPE_LOCKED`) — add a new field instead. Removing a field hides its stored values; marking it inactive retires it from forms while keeping them.
+- Field keys are unique per entity (and per document type for document fields).
+- A document type with uploaded documents cannot be deleted; deactivate it to stop new uploads.
+
 ## 10. Attendance
 
 **Phase:** MVP — Phase 1

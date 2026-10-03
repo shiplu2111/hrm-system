@@ -35,6 +35,7 @@ export interface PortalSessionUser {
   roleName: string;
   employeeId: string | null;
   permissions: PermissionClaim[];
+  dataScope?: 'all' | 'team';
   mustChangePassword?: boolean;
 }
 
@@ -45,6 +46,7 @@ interface JwtPayload {
   role_name?: string;
   employee_id: string | null;
   permissions?: PermissionClaim[];
+  data_scope?: 'all' | 'team';
   must_change_password?: boolean;
   exp?: number;
 }
@@ -185,6 +187,7 @@ export function validatePortalSession(portal: PortalKind): PortalSessionUser | n
     roleName: payload.role_name ?? '',
     employeeId: payload.employee_id ?? null,
     permissions: payload.permissions ?? [],
+    dataScope: payload.data_scope,
     mustChangePassword: payload.must_change_password === true,
   };
 

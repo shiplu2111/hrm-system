@@ -84,6 +84,7 @@ export type PageKey =
   | 'settings-notifications'
   | 'settings-workflows'
   | 'settings-security'
+  | 'audit-log'
   | 'settings-integrations'
   | 'settings-backup'
   | 'settings-general'

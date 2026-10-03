@@ -8,6 +8,7 @@ import {
   LeaveAccrualType,
   PermissionAction,
   PrismaClient,
+  RoleDataScope,
 } from '@prisma/client';
 import { PAY_FORMULA_LOAN_INSTALLMENT } from '@hrm/shared-types';
 import bcrypt from 'bcrypt';
@@ -278,12 +279,13 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     actions: [...ALL_ACTIONS],
   })),
   'HR Admin': [
-    { module: 'employee', actions: ['view', 'create', 'edit'] },
+    { module: 'employee', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'leave', actions: ['view', 'create', 'approve'] },
     { module: 'payroll', actions: ['view', 'create', 'edit'] },
     { module: 'attendance', actions: ['view', 'create', 'edit', 'delete', 'approve'] },
     { module: 'recruitment', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'settings', actions: ['view', 'create', 'edit', 'delete'] },
+    { module: 'audit', actions: ['view'] },
     { module: 'support', actions: ['view', 'create', 'edit'] },
     { module: 'performance', actions: ['view', 'create', 'edit', 'approve'] },
     { module: 'training', actions: ['view', 'create', 'edit', 'approve'] },
@@ -298,6 +300,7 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'payroll', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
     { module: 'attendance', actions: ['view'] },
     { module: 'contractors', actions: ['view', 'create', 'edit', 'approve', 'finalize'] },
+    { module: 'audit', actions: ['view'] },
   ],
   Manager: [
     { module: 'employee', actions: ['view'] },
@@ -329,6 +332,9 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
     { module: 'employee', actions: ['view', 'create', 'edit'] },
   ],
 };
+
+/** ROLES_PERMISSIONS.md §5 — roles limited to their reporting tree. */
+const TEAM_SCOPED_ROLES = new Set(['Manager']);
 
 async function upsertRolePermissions(
   roleId: string,
@@ -876,10 +882,11 @@ async function main(): Promise<void> {
   ];
 
   for (const role of systemRoles) {
+    const dataScope = TEAM_SCOPED_ROLES.has(role.name) ? RoleDataScope.team : RoleDataScope.all;
     await prisma.role.upsert({
       where: { id: role.id },
-      create: role,
-      update: { name: role.name, tenantId: role.tenantId },
+      create: { ...role, dataScope },
+      update: { name: role.name, tenantId: role.tenantId, dataScope },
     });
     await upsertRolePermissions(role.id, ROLE_PERMISSIONS[role.name] ?? []);
   }

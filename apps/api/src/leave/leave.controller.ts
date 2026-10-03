@@ -15,6 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
   AccrueLeaveQueryDto,
@@ -114,7 +115,10 @@ export class LeavePoliciesController {
 @ApiBearerAuth('access-token')
 @Controller()
 export class LeaveBalancesController {
-  constructor(private readonly leaveBalancesService: LeaveBalancesService) {}
+  constructor(
+    private readonly leaveBalancesService: LeaveBalancesService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   @Get('employees/:employeeId/leave-balances')
   @RequirePermission('leave', 'view')
@@ -122,7 +126,9 @@ export class LeaveBalancesController {
   async listForEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Query() query: AccrueLeaveQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.leaveBalancesService.listForEmployee(employeeId, query.asOf),
     };
@@ -133,7 +139,9 @@ export class LeaveBalancesController {
   async accrueEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Query() query: AccrueLeaveQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
     return {
       data: await this.leaveBalancesService.accrueEmployee(employeeId, query.asOf),
     };
@@ -155,15 +163,26 @@ export class LeaveBalancesController {
 @ApiBearerAuth('access-token')
 @Controller()
 export class LeaveRequestsController {
-  constructor(private readonly leaveRequestsService: LeaveRequestsService) {}
+  constructor(
+    private readonly leaveRequestsService: LeaveRequestsService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   @Get('companies/:companyId/leave-requests')
   @RequirePermission('leave', 'view')
   async list(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListLeaveRequestsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    const result = await this.leaveRequestsService.list(companyId, query);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
+    const result = await this.leaveRequestsService.list(
+      companyId,
+      query,
+      await this.dataScope.employeeIdFilter(user),
+    );
     return { data: result.data, meta: { total: result.total } };
   }
 
@@ -181,8 +200,11 @@ export class LeaveRequestsController {
 
   @Get('leave-requests/:requestId')
   @RequirePermission('leave', 'view')
-  async get(@Param('requestId', ParseUUIDPipe) requestId: string) {
-    return { data: await this.leaveRequestsService.get(requestId) };
+  async get(
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.leaveRequestsService.get(requestId, user) };
   }
 
   @Post('employees/:employeeId/leave-requests/preview')

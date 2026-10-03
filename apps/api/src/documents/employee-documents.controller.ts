@@ -38,9 +38,12 @@ export class EmployeeDocumentsController {
   @Get()
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'List employee documents' })
-  async list(@Param('employeeId', ParseUUIDPipe) employeeId: string) {
+  async list(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return {
-      data: await this.employeeDocumentsService.listDocuments(employeeId),
+      data: await this.employeeDocumentsService.listDocuments(employeeId, user),
     };
   }
 
@@ -49,11 +52,13 @@ export class EmployeeDocumentsController {
   async getOne(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('documentId', ParseUUIDPipe) documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
       data: await this.employeeDocumentsService.getDocument(
         employeeId,
         documentId,
+        user,
       ),
     };
   }
@@ -66,11 +71,13 @@ export class EmployeeDocumentsController {
   async getFileUrl(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('documentId', ParseUUIDPipe) documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
       data: await this.employeeDocumentsService.getDocumentFileUrl(
         employeeId,
         documentId,
+        user,
       ),
     };
   }

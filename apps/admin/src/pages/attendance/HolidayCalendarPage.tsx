@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { PermissionGate } from '@hrm/portal-ui';
 import type { HolidayEntry, HolidayRecord } from '@hrm/shared-types';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -165,12 +166,14 @@ export function HolidayCalendarPage() {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <Button variant="primary" onClick={() => {
-            setDate(from);
-            setModalOpen(true);
-          }}>
-            <Plus className="h-4 w-4" /> Add Holiday
-          </Button>
+          <PermissionGate module="settings" action="create">
+            <Button variant="primary" onClick={() => {
+              setDate(from);
+              setModalOpen(true);
+            }}>
+              <Plus className="h-4 w-4" /> Add Holiday
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -234,13 +237,15 @@ export function HolidayCalendarPage() {
                       <span>{h.name}</span>
                       <span className="text-muted text-xs">{h.date}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="text-xs text-error-600 hover:underline"
-                      onClick={() => void handleDeleteManaged(h.id)}
-                    >
-                      Remove
-                    </button>
+                    <PermissionGate module="settings" action="delete">
+                      <button
+                        type="button"
+                        className="text-xs text-error-600 hover:underline"
+                        onClick={() => void handleDeleteManaged(h.id)}
+                      >
+                        Remove
+                      </button>
+                    </PermissionGate>
                   </div>
                 ))}
               </CardBody>

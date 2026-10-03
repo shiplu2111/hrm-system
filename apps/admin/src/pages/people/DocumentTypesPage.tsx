@@ -1,50 +1,48 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Plus, Search, Trash2, Loader2 } from 'lucide-react';
-import type { CustomFieldType, DocumentTypeRecord } from '@hrm/shared-types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FileText, Pencil, Plus, Trash2 } from 'lucide-react';
+import type { DocumentTypeRecord } from '@hrm/shared-types';
+import { usePermission } from '@hrm/portal-ui';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select, Textarea } from '@/components/ui/Form';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Toggle } from '@/components/ui/Toggle';
 import { CompanySelector } from '@/components/org/CompanySelector';
 import { OrgPageState } from '@/components/org/OrgPageState';
-import {
-  createDocumentType,
-  deleteDocumentType,
-  listDocumentTypes,
-} from '@/lib/documents-api';
+import { OrgErrorBanner, OrgSearchInput, OrgTableSkeleton } from '@/components/org/OrgScreenParts';
+import { DocumentTypeEditor } from '@/components/custom-fields/DocumentTypeEditor';
+import { fieldTypeIcons } from '@/components/custom-fields/fieldTypeIcons';
+import { deleteDocumentType, listDocumentTypes, updateDocumentType } from '@/lib/documents-api';
+import { customFieldsCopy } from '@/lib/custom-fields-copy';
 import { ApiError } from '@/lib/tenant-api-client';
 
-const fieldTypes: CustomFieldType[] = [
-  'text', 'number', 'date', 'dropdown', 'checkbox', 'radio', 'file', 'image', 'signature',
-];
+const copy = customFieldsCopy.documentTypes;
+const MAX_FIELD_BADGES = 4;
+
+type EditorState = { mode: 'create' } | { mode: 'edit'; record: DocumentTypeRecord } | null;
 
 function DocumentTypesContent({ companyId }: { companyId: string }) {
+  const canCreate = usePermission('settings', 'create');
+  const canEdit = usePermission('settings', 'edit');
+  const canDelete = usePermission('settings', 'delete');
+
   const [types, setTypes] = useState<DocumentTypeRecord[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    description: '',
-    scope: 'employee' as 'employee' | 'company',
-    requiresVerification: false,
-    tracksExpiry: false,
-    fieldLabel: '',
-    fieldType: 'text' as CustomFieldType,
-    fieldRequired: false,
-    fieldOptions: '',
-  });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EditorState>(null);
+  const [pendingDelete, setPendingDelete] = useState<DocumentTypeRecord | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
       setTypes(await listDocumentTypes(companyId));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load');
+      setLoadError(err instanceof ApiError ? err.message : copy.loadError);
     } finally {
       setLoading(false);
     }
@@ -54,197 +52,212 @@ function DocumentTypesContent({ companyId }: { companyId: string }) {
     void load();
   }, [load]);
 
-  const filtered = types.filter((t) =>
-    t.name.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  const handleCreate = async () => {
-    if (!form.name.trim()) return;
-    setError(null);
-    try {
-      await createDocumentType(companyId, {
-        name: form.name.trim(),
-        description: form.description.trim() || null,
-        scope: form.scope,
-        requiresVerification: form.requiresVerification,
-        tracksExpiry: form.tracksExpiry,
-        fields: form.fieldLabel.trim()
-          ? [{
-              label: form.fieldLabel.trim(),
-              fieldType: form.fieldType,
-              required: form.fieldRequired,
-              options: form.fieldOptions
-                ? form.fieldOptions.split(',').map((o) => o.trim()).filter(Boolean)
-                : [],
-              sortOrder: 0,
-            }]
-          : [],
-      });
-      setModalOpen(false);
-      setForm({
-        name: '',
-        description: '',
-        scope: 'employee',
-        requiresVerification: false,
-        tracksExpiry: false,
-        fieldLabel: '',
-        fieldType: 'text',
-        fieldRequired: false,
-        fieldOptions: '',
-      });
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Create failed');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this document type?')) return;
-    try {
-      await deleteDocumentType(companyId, id);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Delete failed');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted" />
-      </div>
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return types;
+    return types.filter(
+      (t) => t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q),
     );
-  }
+  }, [types, search]);
+
+  const upsert = (record: DocumentTypeRecord) =>
+    setTypes((prev) => {
+      const exists = prev.some((t) => t.id === record.id);
+      const next = exists ? prev.map((t) => (t.id === record.id ? record : t)) : [...prev, record];
+      return next.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+  const toggleActive = async (record: DocumentTypeRecord, isActive: boolean) => {
+    setTogglingId(record.id);
+    setActionError(null);
+    try {
+      upsert(await updateDocumentType(companyId, record.id, { isActive }));
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : copy.toggleError);
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    await deleteDocumentType(companyId, pendingDelete.id);
+    setTypes((prev) => prev.filter((t) => t.id !== pendingDelete.id));
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">Document Types</h1>
-          <p className="text-sm text-secondary mt-0.5">
-            Admin-defined document categories with configurable field schemas.
-          </p>
+          <h1 className="text-xl font-bold text-primary">{copy.title}</h1>
+          <p className="text-sm text-secondary mt-0.5">{copy.description}</p>
         </div>
         <div className="flex items-center gap-2">
           <CompanySelector />
-          <Button variant="primary" onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4" /> Add Document Type
-          </Button>
+          {canCreate && (
+            <Button variant="primary" onClick={() => setEditor({ mode: 'create' })}>
+              <Plus className="h-4 w-4" /> {copy.add}
+            </Button>
+          )}
         </div>
       </div>
 
-      {error && (
-        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 rounded-lg px-4 py-2">{error}</div>
+      {loadError && <OrgErrorBanner message={loadError} onRetry={() => void load()} />}
+      {actionError && <OrgErrorBanner message={actionError} />}
+
+      {!loadError && (types.length > 0 || loading) && (
+        <OrgSearchInput value={search} onChange={setSearch} placeholder={copy.searchPlaceholder} />
       )}
 
-      <div className="relative w-64 max-w-full">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="pl-9" />
-      </div>
-
-      <Card>
-        <CardBody className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Name</th>
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Scope</th>
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Fields</th>
-                <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Flags</th>
-                <th className="w-12" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--border-base))]">
-              {filtered.map((dt) => (
-                <tr key={dt.id} className="hover:bg-[rgb(var(--bg-hover))] group">
-                  <td className="px-5 py-3">
-                    <div className="font-medium text-primary">{dt.name}</div>
-                    {dt.description && <div className="text-xs text-muted">{dt.description}</div>}
-                  </td>
-                  <td className="px-5 py-3 capitalize text-secondary">{dt.scope}</td>
-                  <td className="px-5 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {dt.fields.map((f) => (
-                        <Badge key={f.id ?? f.fieldKey} tone="neutral">{f.label}</Badge>
-                      ))}
-                      {dt.fields.length === 0 && <span className="text-muted text-xs">No fields</span>}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 space-x-1">
-                    {dt.requiresVerification && <Badge tone="accent">Verify</Badge>}
-                    {dt.tracksExpiry && <Badge tone="warning">Expiry</Badge>}
-                  </td>
-                  <td className="px-5 py-3">
-                    <button type="button" onClick={() => void handleDelete(dt.id)} className="text-muted hover:text-error-600 opacity-0 group-hover:opacity-100">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
+      {loading ? (
+        <Card>
+          <CardBody className="p-0">
+            <OrgTableSkeleton columns={6} />
+          </CardBody>
+        </Card>
+      ) : loadError ? null : types.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title={copy.emptyTitle}
+          description={copy.emptyDescription}
+          action={canCreate ? { label: copy.add, icon: Plus, onClick: () => setEditor({ mode: 'create' }) } : undefined}
+        />
+      ) : (
+        <Card>
+          <CardBody className="p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
+                  {[copy.columns.name, copy.columns.scope, copy.columns.fields, copy.columns.rules, copy.columns.documents, copy.columns.status].map(
+                    (heading) => (
+                      <th key={heading} className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase whitespace-nowrap">
+                        {heading}
+                      </th>
+                    ),
+                  )}
+                  <th className="w-24" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardBody>
-      </Card>
+              </thead>
+              <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                {filtered.map((dt) => {
+                  const activeFields = dt.fields.filter((f) => f.isActive !== false);
+                  const deleteBlocked = dt.documentCount > 0;
+                  return (
+                    <tr key={dt.id} className={`hover:bg-[rgb(var(--bg-hover))] ${dt.isActive ? '' : 'opacity-70'}`}>
+                      <td className="px-5 py-3 min-w-[200px]">
+                        <div className="font-medium text-primary">{dt.name}</div>
+                        {dt.description && <div className="text-xs text-muted line-clamp-1">{dt.description}</div>}
+                      </td>
+                      <td className="px-5 py-3 text-secondary whitespace-nowrap">{copy.scopes[dt.scope].label}</td>
+                      <td className="px-5 py-3">
+                        {activeFields.length === 0 ? (
+                          <span className="text-muted text-xs">{copy.noFields}</span>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1" title={copy.fieldCount(activeFields.length)}>
+                            {activeFields.slice(0, MAX_FIELD_BADGES).map((f) => {
+                              const Icon = fieldTypeIcons[f.fieldType];
+                              return (
+                                <Badge key={f.id ?? f.fieldKey} tone="neutral" className="gap-1">
+                                  <Icon className="h-3 w-3" />
+                                  {f.label}
+                                  {f.required && <span className="text-error-600">*</span>}
+                                </Badge>
+                              );
+                            })}
+                            {activeFields.length > MAX_FIELD_BADGES && (
+                              <span className="text-xs text-muted">+{activeFields.length - MAX_FIELD_BADGES}</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {dt.requiresVerification && <Badge tone="accent">{copy.verification}</Badge>}
+                          {dt.tracksExpiry && <Badge tone="warning">{copy.expiry}</Badge>}
+                          {!dt.requiresVerification && !dt.tracksExpiry && <span className="text-muted text-xs">—</span>}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-secondary whitespace-nowrap tabular-nums">
+                        {copy.documentCount(dt.documentCount)}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          {canEdit && (
+                            <Toggle
+                              size="sm"
+                              checked={dt.isActive}
+                              disabled={togglingId === dt.id}
+                              label={dt.isActive ? copy.deactivate : copy.activate}
+                              onChange={(value) => void toggleActive(dt, value)}
+                            />
+                          )}
+                          <Badge tone={dt.isActive ? 'success' : 'neutral'} dot>
+                            {dt.isActive ? copy.statusActive : copy.statusInactive}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setEditor({ mode: 'edit', record: dt })}
+                              aria-label={`${copy.edit} ${dt.name}`}
+                              title={copy.edit}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={deleteBlocked}
+                              onClick={() => setPendingDelete(dt)}
+                              aria-label={`${copy.delete} ${dt.name}`}
+                              title={deleteBlocked ? copy.deleteBlocked : copy.delete}
+                              className="hover:text-error-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted">
+                      {copy.noMatches}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </CardBody>
+        </Card>
+      )}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add Document Type"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void handleCreate()}>Create</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Passport" />
-          </div>
-          <div>
-            <Label>Description</Label>
-            <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          </div>
-          <div>
-            <Label>Scope</Label>
-            <Select value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value as 'employee' | 'company' })}>
-              <option value="employee">Employee-specific</option>
-              <option value="company">Company-wide</option>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-            <span className="text-sm">Requires verification</span>
-            <Toggle checked={form.requiresVerification} onChange={(v) => setForm({ ...form, requiresVerification: v })} />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-            <span className="text-sm">Track expiry</span>
-            <Toggle checked={form.tracksExpiry} onChange={(v) => setForm({ ...form, tracksExpiry: v })} />
-          </div>
-          <hr className="border-base" />
-          <p className="text-xs text-secondary">Initial field (add more via field builder or API)</p>
-          <div>
-            <Label>Field Label</Label>
-            <Input value={form.fieldLabel} onChange={(e) => setForm({ ...form, fieldLabel: e.target.value })} placeholder="Passport Number" />
-          </div>
-          <div>
-            <Label>Field Type</Label>
-            <Select value={form.fieldType} onChange={(e) => setForm({ ...form, fieldType: e.target.value as CustomFieldType })}>
-              {fieldTypes.map((ft) => <option key={ft} value={ft}>{ft}</option>)}
-            </Select>
-          </div>
-          {(form.fieldType === 'dropdown' || form.fieldType === 'radio') && (
-            <div>
-              <Label>Options (comma-separated)</Label>
-              <Input value={form.fieldOptions} onChange={(e) => setForm({ ...form, fieldOptions: e.target.value })} />
-            </div>
-          )}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[rgb(var(--bg-muted))]">
-            <span className="text-sm">Field required</span>
-            <Toggle checked={form.fieldRequired} onChange={(v) => setForm({ ...form, fieldRequired: v })} />
-          </div>
-        </div>
-      </Modal>
+      {editor && (
+        <DocumentTypeEditor
+          companyId={companyId}
+          record={editor.mode === 'edit' ? editor.record : null}
+          onClose={() => setEditor(null)}
+          onSaved={upsert}
+        />
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={copy.deleteTitle}
+        description={pendingDelete ? copy.deleteDescription(pendingDelete.name) : undefined}
+        confirmLabel={copy.delete}
+        tone="danger"
+        onConfirm={confirmDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

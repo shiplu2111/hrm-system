@@ -16,6 +16,8 @@ import type {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { DataScopeService } from '../rbac/data-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import {
   buildDefault360Ratings,
   compute360Summary,
@@ -35,22 +37,21 @@ export class Performance360Service {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly permissions: PermissionsService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async listFeedback(reviewId: string): Promise<Performance360FeedbackRecord[]> {
-    const rows = await this.prisma.unscoped.performance360Feedback.findMany({
-      where: { reviewId },
-      include: {
-        reviewer: { select: { firstName: true, lastName: true, employeeNumber: true } },
-      },
-      orderBy: [{ relationship: 'asc' }, { createdAt: 'asc' }],
-    });
-    return rows.map((row) => this.toRecord(row));
+  async listFeedback(
+    reviewId: string,
+    user: AuthenticatedUser,
+  ): Promise<Performance360FeedbackRecord[]> {
+    const review = await this.getReviewContext(reviewId);
+    await this.dataScope.assertEmployeeInScope(user, review.employeeId);
+    return this.findFeedback(reviewId);
   }
 
-  async getSummary(reviewId: string): Promise<Performance360Summary> {
-    const rows = await this.listFeedback(reviewId);
-    return compute360Summary(rows);
+  async getSummary(reviewId: string, user: AuthenticatedUser): Promise<Performance360Summary> {
+    return compute360Summary(await this.listFeedback(reviewId, user));
   }
 
   async inviteReviewers(
@@ -59,7 +60,7 @@ export class Performance360Service {
     user: AuthenticatedUser,
   ): Promise<Performance360FeedbackRecord[]> {
     const review = await this.getReviewContext(reviewId);
-    this.assertCanManage360(review, user);
+    await this.assertCanManage360(review, user);
 
     if (review.employeeId === user.employeeId) {
       throw new ForbiddenException({
@@ -107,7 +108,7 @@ export class Performance360Service {
       newValue: { invited360Reviewers: dto.reviewers.length },
     });
 
-    return this.listFeedback(reviewId);
+    return this.findFeedback(reviewId);
   }
 
   async submitFeedback(
@@ -127,13 +128,11 @@ export class Performance360Service {
       throw new NotFoundException('360° feedback request not found');
     }
 
-    if (user.employeeId !== row.reviewerEmployeeId) {
-      if (user.roleName !== 'HR Admin' && user.roleName !== 'Company Owner') {
-        throw new ForbiddenException({
-          code: 'FORBIDDEN',
-          message: 'Only the invited reviewer can submit this feedback',
-        });
-      }
+    if (user.employeeId !== row.reviewerEmployeeId && !(await this.hasHrOverride(user))) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'Only the invited reviewer can submit this feedback',
+      });
     }
 
     const ratings = dto.competencyRatings ?? parseCompetencyRatings(row.competencyRatings);
@@ -161,7 +160,7 @@ export class Performance360Service {
   }
 
   async computeAndPersistSummary(reviewId: string): Promise<Performance360Summary> {
-    const summary = await this.getSummary(reviewId);
+    const summary = compute360Summary(await this.findFeedback(reviewId));
     await this.prisma.unscoped.employeePerformanceReview.update({
       where: { id: reviewId },
       data: {
@@ -169,6 +168,17 @@ export class Performance360Service {
       },
     });
     return summary;
+  }
+
+  private async findFeedback(reviewId: string): Promise<Performance360FeedbackRecord[]> {
+    const rows = await this.prisma.unscoped.performance360Feedback.findMany({
+      where: { reviewId },
+      include: {
+        reviewer: { select: { firstName: true, lastName: true, employeeNumber: true } },
+      },
+      orderBy: [{ relationship: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map((row) => this.toRecord(row));
   }
 
   private async getReviewContext(reviewId: string) {
@@ -189,12 +199,22 @@ export class Performance360Service {
     return review;
   }
 
-  private assertCanManage360(
+  private async hasHrOverride(user: AuthenticatedUser): Promise<boolean> {
+    return (
+      this.permissions.hasPermission(user, 'performance', 'edit') &&
+      (await this.dataScope.isOrgWide(user))
+    );
+  }
+
+  private async assertCanManage360(
     review: { managerEmployeeId: string | null; employeeId: string },
     user: AuthenticatedUser,
-  ): void {
-    if (user.employeeId && user.employeeId === review.managerEmployeeId) return;
-    if (user.roleName === 'HR Admin' || user.roleName === 'Company Owner') return;
+  ): Promise<void> {
+    if (user.employeeId && user.employeeId === review.managerEmployeeId) {
+      await this.dataScope.assertEmployeeInScope(user, review.employeeId, { includeSelf: false });
+      return;
+    }
+    if (await this.hasHrOverride(user)) return;
     throw new ForbiddenException({
       code: 'FORBIDDEN',
       message: 'Only the manager or HR can manage 360° feedback invitations',

@@ -1,8 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
+import { DataScopeService } from './data-scope.service';
 import { PermissionsService } from './permissions.service';
 
+@Global()
 @Module({
-  providers: [PermissionsService],
-  exports: [PermissionsService],
+  providers: [PermissionsService, DataScopeService],
+  exports: [PermissionsService, DataScopeService],
 })
 export class RbacModule {}

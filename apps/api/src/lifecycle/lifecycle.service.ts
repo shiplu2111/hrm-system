@@ -12,8 +12,10 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import { SubscriptionService } from '../billing/subscription.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmployeeOffboardingService } from '../offboarding/employee-offboarding.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import type { CreateLifecycleEventDto } from './dto/lifecycle.dto';
 
@@ -56,12 +58,16 @@ export class LifecycleService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly employeeOffboardingService: EmployeeOffboardingService,
+    private readonly subscriptions: SubscriptionService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async listEvents(
     employeeId: string,
+    user: AuthenticatedUser,
     eventType?: LifecycleEventType,
   ): Promise<LifecycleEventResponse[]> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     await this.getEmployeeOrThrow(employeeId);
 
     const rows = await this.prisma.unscoped.employeeLifecycleEvent.findMany({
@@ -75,7 +81,10 @@ export class LifecycleService {
     return rows.map((row) => this.toResponse(row));
   }
 
-  async getEvent(eventId: string): Promise<LifecycleEventResponse> {
+  async getEvent(
+    eventId: string,
+    user: AuthenticatedUser,
+  ): Promise<LifecycleEventResponse> {
     const row = await this.prisma.unscoped.employeeLifecycleEvent.findUnique({
       where: { id: eventId },
     });
@@ -88,6 +97,7 @@ export class LifecycleService {
     }
 
     await this.getEmployeeOrThrow(row.employeeId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     return this.toResponse(row);
   }
 
@@ -100,6 +110,7 @@ export class LifecycleService {
     eventType: LifecycleEventType,
     user: AuthenticatedUser,
   ): Promise<void> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId, { includeSelf: false });
     const employee = await this.getEmployeeOrThrow(employeeId, {
       includeDeleted: eventType === LifecycleEventType.rehire,
     });
@@ -141,6 +152,13 @@ export class LifecycleService {
       employee,
       dto,
     );
+
+    if (
+      dto.eventType === LifecycleEventType.rehire &&
+      (employee.deletedAt || employee.employmentStatus === EmploymentStatus.terminated)
+    ) {
+      await this.subscriptions.assertEmployeeSeats(employee.tenantId);
+    }
 
     const response = await this.prisma.unscoped.$transaction(async (tx) => {
       let updatedEmployee = employee;

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -6,23 +7,34 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseArrayPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Req,
 } from '@nestjs/common';
+import type { ValidationError } from 'class-validator';
+import { buildValidationExceptionBody } from '../common/utils/validation.utils';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import {
+  RequirePermission,
+  type PermissionRef,
+} from '../rbac/require-permission.decorator';
 import {
   CreateDocumentTypeDto,
   DocumentTypeFieldDto,
   UpdateDocumentTypeDto,
 } from './dto/documents.dto';
 import { DocumentTypesService } from './document-types.service';
+
+const DOCUMENT_TYPE_READERS: PermissionRef[] = [
+  { module: 'employee', action: 'view' },
+  { module: 'recruitment', action: 'view' },
+];
 
 @ApiTags('document-types')
 @ApiBearerAuth('access-token')
@@ -31,14 +43,14 @@ export class DocumentTypesController {
   constructor(private readonly documentTypesService: DocumentTypesService) {}
 
   @Get()
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: DOCUMENT_TYPE_READERS })
   @ApiOperation({ summary: 'List admin-defined document types with field schemas' })
   async list(@Param('companyId', ParseUUIDPipe) companyId: string) {
     return { data: await this.documentTypesService.listDocumentTypes(companyId) };
   }
 
   @Get(':id')
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', { orAnyOf: DOCUMENT_TYPE_READERS })
   async getOne(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -92,7 +104,20 @@ export class DocumentTypesController {
   async replaceFields(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() fields: DocumentTypeFieldDto[],
+    @Body(
+      new ParseArrayPipe({
+        items: DocumentTypeFieldDto,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        exceptionFactory: (errors: ValidationError[] | string) =>
+          new BadRequestException(
+            typeof errors === 'string'
+              ? { code: 'VALIDATION_ERROR', message: errors }
+              : buildValidationExceptionBody(errors),
+          ),
+      }),
+    )
+    fields: DocumentTypeFieldDto[],
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
   ) {

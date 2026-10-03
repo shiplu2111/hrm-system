@@ -4,6 +4,7 @@ import {
   FileText,
   Loader2,
 } from 'lucide-react';
+import { usePermission } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -47,6 +48,7 @@ export function ChecklistBoard({
   onTaskAction,
   actionTaskId,
 }: ChecklistBoardProps) {
+  const canEdit = usePermission('employee', 'edit');
   const items = config.items;
   const completedCount = items.filter((i) => i.completed).length;
   const progress = items.length > 0 ? (completedCount / items.length) * 100 : 0;
@@ -71,6 +73,7 @@ export function ChecklistBoard({
         return <Badge tone="neutral">{label}</Badge>;
       }
 
+      if (!canEdit) return null;
       return (
         <Button
           size="sm"
@@ -86,6 +89,8 @@ export function ChecklistBoard({
         </Button>
       );
     }
+
+    if (!canEdit) return null;
 
     if (item.taskType === 'provisioning' && item.assetCategory) {
       return (

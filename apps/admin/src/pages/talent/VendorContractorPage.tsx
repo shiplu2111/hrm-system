@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Avatar } from '@/components/ui/Toggle';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -709,9 +710,11 @@ export function VendorContractorPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4" /> Add vendor
-        </Button>
+        <PermissionGate module="contractors" action="create">
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4" /> Add vendor
+          </Button>
+        </PermissionGate>
       </div>
 
       {error && (

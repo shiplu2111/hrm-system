@@ -8,6 +8,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { KbArticleListItem, KbArticleRecord, KbCategoryRecord } from '@hrm/shared-types';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -130,15 +131,17 @@ export function HelpCenterPage() {
             />
           </div>
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="bg-white/15 text-white border-white/20 hover:bg-white/25"
-              onClick={() => navigate('support-kb-admin')}
-            >
-              Manage articles
-            </Button>
+            <PermissionGate module="support" action="edit">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="bg-white/15 text-white border-white/20 hover:bg-white/25"
+                onClick={() => navigate('support-kb-admin')}
+              >
+                Manage articles
+              </Button>
+            </PermissionGate>
             <Button
               type="button"
               variant="secondary"
@@ -231,18 +234,20 @@ export function HelpCenterPage() {
               ))}
             </CardBody>
           </Card>
-          <Card>
-            <CardBody className="space-y-3 p-4">
-              <BookOpen className="h-5 w-5 text-accent-600" />
-              <p className="text-sm font-semibold text-primary">Still stuck?</p>
-              <p className="text-xs text-secondary">
-                Open a support ticket and our HR team will follow up.
-              </p>
-              <Button variant="primary" size="sm" onClick={() => setContactOpen(true)}>
-                Contact support
-              </Button>
-            </CardBody>
-          </Card>
+          <PermissionGate module="support" action="create">
+            <Card>
+              <CardBody className="space-y-3 p-4">
+                <BookOpen className="h-5 w-5 text-accent-600" />
+                <p className="text-sm font-semibold text-primary">Still stuck?</p>
+                <p className="text-xs text-secondary">
+                  Open a support ticket and our HR team will follow up.
+                </p>
+                <Button variant="primary" size="sm" onClick={() => setContactOpen(true)}>
+                  Contact support
+                </Button>
+              </CardBody>
+            </Card>
+          </PermissionGate>
         </aside>
       </div>
 

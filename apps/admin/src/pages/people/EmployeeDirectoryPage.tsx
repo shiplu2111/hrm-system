@@ -25,7 +25,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { EmployeeTableSkeleton } from '@/components/people/EmployeeTableSkeleton';
 import { CompanySelector } from '@/components/org/CompanySelector';
 import { OrgPageState } from '@/components/org/OrgPageState';
+import { PlanLimitPrompt } from '@/components/billing/PlanLimitPrompt';
+import { UpgradeRequestModal } from '@/components/billing/UpgradeRequestModal';
 import { useNav } from '@/context/NavContext';
+import { useSubscription } from '@/hooks/useSubscription';
+import { employeeUsage, isAtLimit } from '@/lib/plan-usage';
 import {
   bulkUpdateEmployeeStatus,
   deleteEmployee,
@@ -71,9 +75,12 @@ const DEFAULT_FILTERS: EmployeeListFilters = {
 };
 
 function EmployeeListContent({ companyId }: { companyId: string }) {
-  const { openEmployee } = useNav();
+  const { openEmployee, navigate } = useNav();
   const canCreateEmployee = usePermission('employee', 'create');
   const canEditEmployee = usePermission('employee', 'edit');
+  const { view: subscription, reload: reloadSubscription } = useSubscription();
+  const [limitDialogOpen, setLimitDialogOpen] = useState(false);
+  const atSeatLimit = subscription ? isAtLimit(employeeUsage(subscription)?.level ?? 'ok') : false;
 
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,7 +182,7 @@ function EmployeeListContent({ companyId }: { companyId: string }) {
         employmentStatus: bulkStatus,
       });
       setSelectedIds(new Set());
-      await load();
+      await Promise.all([load(), reloadSubscription()]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Bulk status update failed');
     } finally {
@@ -184,6 +191,10 @@ function EmployeeListContent({ companyId }: { companyId: string }) {
   };
 
   const openCreateWizard = () => {
+    if (atSeatLimit && subscription?.nextPlanId) {
+      setLimitDialogOpen(true);
+      return;
+    }
     setEditEmployeeId(null);
     setWizardOpen(true);
   };
@@ -202,7 +213,7 @@ function EmployeeListContent({ companyId }: { companyId: string }) {
         next.delete(id);
         return next;
       });
-      await load();
+      await Promise.all([load(), reloadSubscription()]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Delete failed');
     }
@@ -231,6 +242,10 @@ function EmployeeListContent({ companyId }: { companyId: string }) {
           </PermissionGate>
         </div>
       </div>
+
+      {canCreateEmployee && subscription ? (
+        <PlanLimitPrompt view={subscription} onViewPlan={() => navigate('billing')} />
+      ) : null}
 
       {error ? (
         <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-2">
@@ -523,11 +538,24 @@ function EmployeeListContent({ companyId }: { companyId: string }) {
 
       <EmployeeFormWizard
         open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+        onClose={() => {
+          setWizardOpen(false);
+          void reloadSubscription();
+        }}
         companyId={companyId}
         employeeId={editEmployeeId}
         onSuccess={() => void load()}
       />
+
+      {subscription?.nextPlanId ? (
+        <UpgradeRequestModal
+          open={limitDialogOpen}
+          onClose={() => setLimitDialogOpen(false)}
+          view={subscription}
+          targetPlanId={subscription.nextPlanId}
+          showLimitNotice
+        />
+      ) : null}
     </div>
   );
 }

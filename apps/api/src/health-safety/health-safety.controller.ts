@@ -60,14 +60,18 @@ export class HealthSafetyController {
   async listIncidents(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListIncidentsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.incidentsService.list(companyId, query) };
+    return { data: await this.incidentsService.list(companyId, query, user) };
   }
 
   @Get('health-safety/incidents/:id')
   @RequirePermission('health_safety', 'view')
-  async getIncident(@Param('id', ParseUUIDPipe) id: string) {
-    return { data: await this.incidentsService.getById(id) };
+  async getIncident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.incidentsService.getById(id, user) };
   }
 
   @Post('companies/:companyId/health-safety/incidents')
@@ -112,8 +116,9 @@ export class HealthSafetyController {
   async listInjuries(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListInjuryLogQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.injuryLogService.list(companyId, query) };
+    return { data: await this.injuryLogService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/health-safety/injuries')
@@ -130,8 +135,11 @@ export class HealthSafetyController {
 
   @Get('companies/:companyId/health-safety/compliance')
   @RequirePermission('health_safety', 'view')
-  async listCompliance(@Param('companyId', ParseUUIDPipe) companyId: string) {
-    return { data: await this.complianceService.listCompliance(companyId) };
+  async listCompliance(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.complianceService.listCompliance(companyId, user) };
   }
 
   @Patch('health-safety/compliance/:id')

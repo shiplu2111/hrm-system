@@ -12,6 +12,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { EmploymentContractRecord } from '@hrm/shared-types';
+import { PermissionGate, usePermissions } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -94,6 +95,8 @@ function formatBytes(bytes: number): string {
 
 export function ContractDetailPage() {
   const { navigate, selectedContractId, openContract } = useNav();
+  const { user, can } = usePermissions();
+  const canDecideRenewal = can('employee', 'approve') || user?.dataScope === 'team';
   const [contract, setContract] = useState<EmploymentContractRecord | null>(
     null,
   );
@@ -244,7 +247,7 @@ export function ContractDetailPage() {
   if (!contract) {
     return (
       <div className="p-8 text-center text-secondary text-sm">
-        Contract not found.
+        {error ?? 'Contract not found.'}
         <div className="mt-4">
           <Button variant="secondary" onClick={() => navigate('emp-contracts')}>
             Back to Contracts
@@ -301,7 +304,7 @@ export function ContractDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {contract.displayStatus === 'pending_approval' && (
+            {contract.displayStatus === 'pending_approval' && canDecideRenewal && (
               <>
                 <Button
                   variant="primary"
@@ -321,29 +324,31 @@ export function ContractDetailPage() {
                 </Button>
               </>
             )}
-            {contract.status === 'draft' && !contract.renewalWorkflow && (
-              <Button
-                variant="primary"
-                size="md"
-                disabled={busy}
-                onClick={() => void handleActivate()}
-              >
-                Activate
+            <PermissionGate module="employee" action="edit">
+              {contract.status === 'draft' && !contract.renewalWorkflow && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  disabled={busy}
+                  onClick={() => void handleActivate()}
+                >
+                  Activate
+                </Button>
+              )}
+              {contract.status === 'active' && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  disabled={busy}
+                  onClick={() => void handleTerminate()}
+                >
+                  Terminate
+                </Button>
+              )}
+              <Button variant="secondary" size="md" onClick={() => setUploadOpen(true)}>
+                <Upload className="h-4 w-4" /> Upload
               </Button>
-            )}
-            {contract.status === 'active' && (
-              <Button
-                variant="secondary"
-                size="md"
-                disabled={busy}
-                onClick={() => void handleTerminate()}
-              >
-                Terminate
-              </Button>
-            )}
-            <Button variant="secondary" size="md" onClick={() => setUploadOpen(true)}>
-              <Upload className="h-4 w-4" /> Upload
-            </Button>
+            </PermissionGate>
           </div>
         </CardBody>
       </Card>
@@ -373,25 +378,27 @@ export function ContractDetailPage() {
               End date: {contract.endDate} — Initiate renewal before expiry.
             </div>
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              setRenewForm({
-                startDate: contract.endDate
-                  ? new Date(
-                      new Date(contract.endDate).getTime() + 86400000,
-                    )
-                      .toISOString()
-                      .slice(0, 10)
-                  : '',
-                endDate: '',
-              });
-              setRenewOpen(true);
-            }}
-          >
-            Submit Renewal
-          </Button>
+          <PermissionGate module="employee" action="create">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setRenewForm({
+                  startDate: contract.endDate
+                    ? new Date(
+                        new Date(contract.endDate).getTime() + 86400000,
+                      )
+                        .toISOString()
+                        .slice(0, 10)
+                    : '',
+                  endDate: '',
+                });
+                setRenewOpen(true);
+              }}
+            >
+              Submit Renewal
+            </Button>
+          </PermissionGate>
         </div>
       )}
 

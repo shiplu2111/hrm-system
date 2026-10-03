@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AttendanceRecordStatus } from '@prisma/client';
+import { AttendanceRecordStatus, Prisma } from '@prisma/client';
 import type { ReportResult } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { sumBreakMinutes } from '../attendance/attendance.utils';
@@ -35,26 +35,32 @@ export class AttendanceReportsService {
     companyId: string,
     reportId: string,
     range: ReportDateRange,
+    employeeIds?: { in: string[] },
   ): Promise<ReportResult> {
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      companyId,
+      deletedAt: null,
+      id: employeeIds,
+    };
     switch (reportId) {
       case 'attendance.daily':
-        return this.daily(companyId, range);
+        return this.daily(employeeWhere, range);
       case 'attendance.monthly':
-        return this.monthly(companyId, range);
+        return this.monthly(employeeWhere, range);
       case 'attendance.late':
-        return this.late(companyId, range);
+        return this.late(employeeWhere, range);
       case 'attendance.early-leave':
-        return this.earlyLeave(companyId, range);
+        return this.earlyLeave(employeeWhere, range);
       case 'attendance.absence':
-        return this.absence(companyId, range);
+        return this.absence(employeeWhere, range);
       case 'attendance.working-hours':
-        return this.workingHours(companyId, range);
+        return this.workingHours(employeeWhere, range);
       case 'attendance.overtime':
-        return this.overtime(companyId, range);
+        return this.overtime(employeeWhere, range);
       case 'attendance.break':
-        return this.breakReport(companyId, range);
+        return this.breakReport(employeeWhere, range);
       case 'attendance.exception':
-        return this.exception(companyId, range);
+        return this.exception(employeeWhere, range);
       default:
         throw new Error(`Unknown attendance report: ${reportId}`);
     }
@@ -74,11 +80,11 @@ export class AttendanceReportsService {
     };
   }
 
-  private async loadRecords(companyId: string, range: ReportDateRange) {
+  private async loadRecords(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange) {
     return this.prisma.unscoped.attendanceRecord.findMany({
       where: {
         date: { gte: range.from, lte: range.to },
-        employee: { companyId, deletedAt: null },
+        employee: employeeWhere,
       },
       include: {
         breaks: true,
@@ -95,8 +101,8 @@ export class AttendanceReportsService {
     });
   }
 
-  private async daily(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range);
+  private async daily(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range);
     const columns = [
       { key: 'date', label: 'Date' },
       { key: 'employeeNumber', label: 'Employee #' },
@@ -120,8 +126,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.daily', range, rows.length), columns, rows };
   }
 
-  private async monthly(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range);
+  private async monthly(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range);
     const byEmployee = new Map<
       string,
       {
@@ -177,8 +183,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.monthly', range, rows.length), columns, rows };
   }
 
-  private async late(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range).then((items) =>
+  private async late(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range).then((items) =>
       items.filter((r) => r.status === AttendanceRecordStatus.late),
     );
     const columns = [
@@ -198,8 +204,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.late', range, rows.length), columns, rows };
   }
 
-  private async earlyLeave(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range).then((items) =>
+  private async earlyLeave(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range).then((items) =>
       items.filter((r) => r.status === AttendanceRecordStatus.early_leave),
     );
     const columns = [
@@ -219,8 +225,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.early-leave', range, rows.length), columns, rows };
   }
 
-  private async absence(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range).then((items) =>
+  private async absence(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range).then((items) =>
       items.filter((r) => r.status === AttendanceRecordStatus.absent),
     );
     const columns = [
@@ -238,8 +244,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.absence', range, rows.length), columns, rows };
   }
 
-  private async workingHours(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range);
+  private async workingHours(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range);
     const byEmployee = new Map<
       string,
       { employeeNumber: string; name: string; gross: number; breaks: number; net: number; days: number }
@@ -285,8 +291,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.working-hours', range, rows.length), columns, rows };
   }
 
-  private async overtime(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range);
+  private async overtime(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range);
     const STANDARD_DAY_MINUTES = 480;
     const columns = [
       { key: 'date', label: 'Date' },
@@ -315,8 +321,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.overtime', range, rows.length), columns, rows };
   }
 
-  private async breakReport(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range);
+  private async breakReport(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range);
     const columns = [
       { key: 'date', label: 'Date' },
       { key: 'employeeNumber', label: 'Employee #' },
@@ -344,8 +350,8 @@ export class AttendanceReportsService {
     return { ...this.baseMeta('attendance.break', range, rows.length), columns, rows };
   }
 
-  private async exception(companyId: string, range: ReportDateRange): Promise<ReportResult> {
-    const records = await this.loadRecords(companyId, range).then((items) =>
+  private async exception(employeeWhere: Prisma.EmployeeWhereInput, range: ReportDateRange): Promise<ReportResult> {
+    const records = await this.loadRecords(employeeWhere, range).then((items) =>
       items.filter(
         (r) =>
           r.timeAnomaly ||

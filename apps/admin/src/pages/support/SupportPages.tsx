@@ -10,6 +10,7 @@ import type {
   SupportTicketPriority,
   SupportTicketStatus,
 } from '@hrm/shared-types';
+import { usePermission } from '@hrm/portal-ui';
 import {
   SUPPORT_TICKET_PRIORITY_LABELS,
   SUPPORT_TICKET_STATUS_LABELS,
@@ -34,6 +35,7 @@ import {
 import { ApiError } from '@/lib/tenant-api-client';
 
 export function KnowledgeBaseAdminPage() {
+  const canEdit = usePermission('support', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<KbCategoryRecord[]>([]);
@@ -148,14 +150,16 @@ export function KnowledgeBaseAdminPage() {
             Create and publish help articles for admins and employees.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setCategoryModal(true)}>
-            <Plus className="h-3.5 w-3.5" /> Category
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setArticleModal(true)}>
-            <Plus className="h-3.5 w-3.5" /> Article
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setCategoryModal(true)}>
+              <Plus className="h-3.5 w-3.5" /> Category
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setArticleModal(true)}>
+              <Plus className="h-3.5 w-3.5" /> Article
+            </Button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -201,22 +205,24 @@ export function KnowledgeBaseAdminPage() {
                   <p className="mt-1 text-xs text-secondary">{article.categoryName}</p>
                   <p className="mt-1 text-sm text-muted">{article.summary}</p>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void togglePublished(article.id, article.published)}
-                  >
-                    {article.published ? 'Unpublish' : 'Publish'}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => void handleDelete(article.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
+                {canEdit && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void togglePublished(article.id, article.published)}
+                    >
+                      {article.published ? 'Unpublish' : 'Publish'}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => void handleDelete(article.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
             {articles.length === 0 && (
@@ -313,6 +319,7 @@ const statusTone: Record<
 };
 
 export function SupportTicketsAdminPage() {
+  const canEdit = usePermission('support', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tickets, setTickets] = useState<
@@ -462,21 +469,23 @@ export function SupportTicketsAdminPage() {
                     {detail.description}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {(['in_progress', 'waiting', 'resolved'] as SupportTicketStatus[]).map(
-                    (status) => (
-                      <Button
-                        key={status}
-                        variant="secondary"
-                        size="sm"
-                        disabled={saving || detail.status === status}
-                        onClick={() => void updateStatus(status)}
-                      >
-                        {SUPPORT_TICKET_STATUS_LABELS[status]}
-                      </Button>
-                    ),
-                  )}
-                </div>
+                {canEdit && (
+                  <div className="flex flex-wrap gap-2">
+                    {(['in_progress', 'waiting', 'resolved'] as SupportTicketStatus[]).map(
+                      (status) => (
+                        <Button
+                          key={status}
+                          variant="secondary"
+                          size="sm"
+                          disabled={saving || detail.status === status}
+                          onClick={() => void updateStatus(status)}
+                        >
+                          {SUPPORT_TICKET_STATUS_LABELS[status]}
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {detail.messages.map((message) => (
                     <div
@@ -506,14 +515,16 @@ export function SupportTicketsAdminPage() {
                     onChange={(e) => setReply(e.target.value)}
                     placeholder="Reply to requester…"
                   />
-                  <label className="flex items-center gap-2 text-xs text-secondary">
-                    <input
-                      type="checkbox"
-                      checked={internalNote}
-                      onChange={(e) => setInternalNote(e.target.checked)}
-                    />
-                    Internal note (not visible to employee)
-                  </label>
+                  {canEdit && (
+                    <label className="flex items-center gap-2 text-xs text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={internalNote}
+                        onChange={(e) => setInternalNote(e.target.checked)}
+                      />
+                      Internal note (not visible to employee)
+                    </label>
+                  )}
                   <Button variant="primary" size="sm" disabled={saving} onClick={() => void sendReply()}>
                     Send reply
                   </Button>

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type {
+  Prisma,
   WorkplaceIncident,
   WorkplaceIncidentParty,
 } from '@prisma/client';
@@ -18,6 +19,7 @@ import { PrismaService } from '../database/prisma.service';
 import { buildSafetyIncidentReportedVariables } from '../notifications/notification.helpers';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateEmployeeIncidentDto,
   CreateWorkplaceIncidentDto,
@@ -47,20 +49,24 @@ export class WorkplaceIncidentsService {
     private readonly auditService: AuditService,
     private readonly notificationEngine: NotificationEngineService,
     private readonly rulesService: HealthSafetyRulesService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListIncidentsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<WorkplaceIncidentRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const search = query.search?.trim();
+    const scopeWhere = await this.scopeWhere(user);
     const rows = await this.prisma.unscoped.workplaceIncident.findMany({
       where: {
         companyId,
         status: query.status,
         severity: query.severity,
+        ...(scopeWhere ? { AND: [scopeWhere] } : {}),
         ...(search
           ? {
               OR: [
@@ -86,8 +92,12 @@ export class WorkplaceIncidentsService {
     return rows.map((row) => this.toRecord(row));
   }
 
-  async getById(incidentId: string): Promise<WorkplaceIncidentRecord> {
+  async getById(
+    incidentId: string,
+    user: AuthenticatedUser,
+  ): Promise<WorkplaceIncidentRecord> {
     const row = await this.findIncidentOrThrow(incidentId);
+    await this.assertIncidentInScope(user, row);
     return this.toRecord(row);
   }
 
@@ -99,6 +109,7 @@ export class WorkplaceIncidentsService {
     if (user.employeeId && user.employeeId !== employeeId) {
       throw new ForbiddenException('Cannot report an incident for another employee');
     }
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
 
     const employee = await this.prisma.unscoped.employee.findFirst({
       where: { id: employeeId, deletedAt: null, employmentStatus: 'active' },
@@ -133,6 +144,9 @@ export class WorkplaceIncidentsService {
       !dto.reportedByEmployeeId
     ) {
       throw new ForbiddenException('Cannot report on behalf of another employee');
+    }
+    if (reporterId !== user.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, reporterId);
     }
 
     await this.assertActiveEmployee(reporterId, companyId);
@@ -241,6 +255,7 @@ export class WorkplaceIncidentsService {
     user: AuthenticatedUser,
   ): Promise<WorkplaceIncidentRecord> {
     const existing = await this.findIncidentOrThrow(incidentId);
+    await this.assertIncidentInScope(user, existing);
 
     const updateData: Record<string, unknown> = {};
     if (dto.status) {
@@ -304,6 +319,39 @@ export class WorkplaceIncidentsService {
     }
     await this.companyScope.assertCompanyInTenant(row.companyId);
     return row;
+  }
+
+  private async scopeWhere(
+    user: AuthenticatedUser,
+  ): Promise<Prisma.WorkplaceIncidentWhereInput | undefined> {
+    const ids = await this.dataScope.employeeIds(user);
+    if (!ids) return undefined;
+    return {
+      OR: [
+        { reportedByEmployeeId: { in: ids } },
+        { parties: { some: { employeeId: { in: ids } } } },
+        { createdByUserId: user.id },
+      ],
+    };
+  }
+
+  private async assertIncidentInScope(
+    user: AuthenticatedUser,
+    row: IncidentWithRelations,
+  ): Promise<void> {
+    const ids = await this.dataScope.employeeIds(user);
+    if (
+      !ids ||
+      row.createdByUserId === user.id ||
+      ids.includes(row.reportedByEmployeeId) ||
+      row.parties.some((party) => ids.includes(party.employeeId))
+    ) {
+      return;
+    }
+    throw new ForbiddenException({
+      code: 'OUT_OF_SCOPE',
+      message: 'This incident is outside your reporting line',
+    });
   }
 
   private async assertActiveEmployee(employeeId: string, companyId: string) {

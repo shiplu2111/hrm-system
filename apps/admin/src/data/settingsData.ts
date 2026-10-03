@@ -58,23 +58,6 @@ export interface LoginHistoryItem {
   status: 'Success' | 'Blocked' | 'Geo-Anomaly';
 }
 
-export interface AuditDiff {
-  field: string;
-  before: string;
-  after: string;
-}
-
-export interface AuditLogItem {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'EXPORT' | 'APPROVE';
-  module: 'Payroll' | 'Employees' | 'Attendance' | 'Settings' | 'Security';
-  record: string;
-  ip: string;
-  diff?: AuditDiff[];
-}
-
 export interface ApiKeyItem {
   id: string;
   name: string;
@@ -374,68 +357,6 @@ export const loginHistory: LoginHistoryItem[] = [
     browser: 'Safari (iPadOS)',
     timestamp: '2024-08-24 19:22:15',
     status: 'Geo-Anomaly',
-  },
-];
-
-export const auditLogs: AuditLogItem[] = [
-  {
-    id: 'aud-101',
-    timestamp: '2024-08-25 15:30:22',
-    user: 'Alex Morgan (Super Admin)',
-    action: 'UPDATE',
-    module: 'Payroll',
-    record: 'Salary Structure: Marcus Johnson (EMP-002)',
-    ip: '198.51.100.12',
-    diff: [
-      { field: 'basicSalary', before: '$6,500.00', after: '$6,875.00' },
-      { field: 'specialAllowance', before: '$2,200.00', after: '$2,575.00' },
-      { field: 'grossSalary', before: '$13,000.00', after: '$13,750.00' },
-    ],
-  },
-  {
-    id: 'aud-102',
-    timestamp: '2024-08-25 14:45:10',
-    user: 'Sarah Chen (VP Eng)',
-    action: 'APPROVE',
-    module: 'Attendance',
-    record: 'Overtime Claim #OT-2024-089 (Nina Garcia)',
-    ip: '198.51.100.45',
-    diff: [
-      { field: 'status', before: 'Pending Manager', after: 'Approved' },
-      { field: 'approvedHours', before: '0 hrs', after: '3.0 hrs' },
-    ],
-  },
-  {
-    id: 'aud-103',
-    timestamp: '2024-08-25 11:20:00',
-    user: 'Alex Morgan (Super Admin)',
-    action: 'CREATE',
-    module: 'Settings',
-    record: 'Geofence Zone: London Innovation Hub',
-    ip: '198.51.100.12',
-    diff: [
-      { field: 'zoneName', before: '<null>', after: 'London Innovation Hub' },
-      { field: 'radius', before: '<null>', after: '250 meters' },
-      { field: 'strictGps', before: '<null>', after: 'true' },
-    ],
-  },
-  {
-    id: 'aud-104',
-    timestamp: '2024-08-24 18:00:15',
-    user: 'John Smith (VP Finance)',
-    action: 'EXPORT',
-    module: 'Payroll',
-    record: 'Bank Transfer NACHA File (Batch #202408-01)',
-    ip: '198.51.100.30',
-  },
-  {
-    id: 'aud-105',
-    timestamp: '2024-08-24 16:12:00',
-    user: 'Alex Morgan (Super Admin)',
-    action: 'DELETE',
-    module: 'Employees',
-    record: 'Custom Field: "Emergency Blood Group" (Field #CF-09)',
-    ip: '198.51.100.12',
   },
 ];
 

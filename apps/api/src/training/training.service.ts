@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateTrainingCourseDto,
   ListTrainingCoursesQueryDto,
@@ -35,10 +36,12 @@ export class TrainingService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
-  async getSummary(companyId: string): Promise<TrainingSummary> {
+  async getSummary(companyId: string, user: AuthenticatedUser): Promise<TrainingSummary> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    const employeeId = await this.dataScope.employeeIdFilter(user);
 
     const today = startOfUtcDay(new Date());
     const windowEnd = new Date(today);
@@ -57,7 +60,7 @@ export class TrainingService {
           },
         }),
         this.prisma.unscoped.trainingAttendance.findMany({
-          where: { companyId },
+          where: { companyId, employeeId },
           select: { status: true },
         }),
         this.prisma.unscoped.trainingSessionCost.findMany({
@@ -71,11 +74,12 @@ export class TrainingService {
         this.prisma.unscoped.employeeCertification.count({
           where: {
             companyId,
+            employeeId,
             status: 'active',
             expiryDate: { gte: today, lte: windowEnd },
           },
         }),
-        this.prisma.unscoped.employeeSkill.count({ where: { companyId } }),
+        this.prisma.unscoped.employeeSkill.count({ where: { companyId, employeeId } }),
       ]);
 
     const totalAttendees = attendances.length;

@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   UserRound,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -83,6 +84,9 @@ const TYPE_FILTER_MAP: Record<string, HrCaseType | undefined> = {
 
 export function EmployeeRelationsPage() {
   const { companyId } = useCompany();
+  const { can } = usePermissions();
+  const canCreate = can('employee_relations', 'create');
+  const canEdit = can('employee_relations', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<HrCaseSummary | null>(null);
@@ -373,9 +377,11 @@ export function EmployeeRelationsPage() {
                 </div>
               </div>
             </div>
-            <Button size="sm" onClick={() => setDetailTab('activity')}>
-              <MessageSquarePlus className="h-4 w-4" /> Add note
-            </Button>
+            {canEdit && (
+              <Button size="sm" onClick={() => setDetailTab('activity')}>
+                <MessageSquarePlus className="h-4 w-4" /> Add note
+              </Button>
+            )}
           </div>
         </section>
 
@@ -403,23 +409,25 @@ export function EmployeeRelationsPage() {
 
             {detailTab === 'activity' && (
               <div className="p-5">
-                <div className="mb-6 rounded-lg border border-base bg-[rgb(var(--bg-muted))] p-3">
-                  <Textarea
-                    value={note}
-                    onChange={(event) => setNote(event.target.value)}
-                    rows={3}
-                    placeholder="Add a confidential case note…"
-                    className="bg-transparent"
-                  />
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1 text-[11px] text-muted">
-                      <LockKeyhole className="h-3 w-3" /> Encrypted at rest · reveal audited
-                    </span>
-                    <Button size="sm" onClick={() => void handleAddNote()} disabled={!note.trim() || submitting}>
-                      Save note
-                    </Button>
+                {canEdit && (
+                  <div className="mb-6 rounded-lg border border-base bg-[rgb(var(--bg-muted))] p-3">
+                    <Textarea
+                      value={note}
+                      onChange={(event) => setNote(event.target.value)}
+                      rows={3}
+                      placeholder="Add a confidential case note…"
+                      className="bg-transparent"
+                    />
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted">
+                        <LockKeyhole className="h-3 w-3" /> Encrypted at rest · reveal audited
+                      </span>
+                      <Button size="sm" onClick={() => void handleAddNote()} disabled={!note.trim() || submitting}>
+                        Save note
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
                 <div className="space-y-0">
                   {selected.notes.map((item) => (
                     <TimelineItem
@@ -449,7 +457,7 @@ export function EmployeeRelationsPage() {
 
             {detailTab === 'investigation' && (
               <div className="p-5">
-                {selected.status !== 'closed' && (
+                {selected.status !== 'closed' && canEdit && (
                   <div className="mb-6 rounded-lg border border-base bg-[rgb(var(--bg-muted))] p-4 space-y-3">
                     <p className="text-sm font-medium text-primary">Add investigation record</p>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -571,6 +579,8 @@ export function EmployeeRelationsPage() {
               <div className="mt-4 space-y-3">
                 {HR_CASE_NEXT_STATUSES[selected.status].length === 0 ? (
                   <p className="text-sm text-secondary">This case is closed and cannot be reopened.</p>
+                ) : !canEdit ? (
+                  <p className="text-sm text-secondary">Current status: {CASE_STATUS_LABELS[selected.status]}</p>
                 ) : (
                   <>
                     <div>
@@ -624,6 +634,7 @@ export function EmployeeRelationsPage() {
                   <Select
                     id="outcome"
                     value={outcome}
+                    disabled={!canEdit}
                     onChange={(event) => {
                       setOutcome(event.target.value as HrCaseOutcome);
                       setSaved(false);
@@ -639,6 +650,7 @@ export function EmployeeRelationsPage() {
                   <Textarea
                     id="resolution"
                     value={resolution}
+                    disabled={!canEdit}
                     onChange={(event) => {
                       setResolution(event.target.value);
                       setSaved(false);
@@ -647,9 +659,11 @@ export function EmployeeRelationsPage() {
                     placeholder="Encrypted when saved…"
                   />
                 </div>
-                <Button className="w-full" disabled={submitting || selected.status === 'closed'} onClick={() => void handleSaveResolution()}>
-                  Save confidential update
-                </Button>
+                {canEdit && (
+                  <Button className="w-full" disabled={submitting || selected.status === 'closed'} onClick={() => void handleSaveResolution()}>
+                    Save confidential update
+                  </Button>
+                )}
               </div>
             </section>
           </aside>
@@ -670,9 +684,11 @@ export function EmployeeRelationsPage() {
             Grievances, disciplinary actions, and investigations — HR &amp; Owner access only.
           </p>
         </div>
-        <Button onClick={() => setCreateModal(true)}>
-          <Plus className="h-4 w-4" /> New confidential case
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setCreateModal(true)}>
+            <Plus className="h-4 w-4" /> New confidential case
+          </Button>
+        )}
       </div>
 
       {error && (

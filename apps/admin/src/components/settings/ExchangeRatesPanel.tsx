@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import type { ExchangeRateRecord } from '@hrm/shared-types';
+import { PermissionGate } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -76,9 +77,11 @@ export function ExchangeRatesPanel() {
             Effective-dated FX rates. Payroll locks the rate active on the period end date (RULES.md §4).
           </p>
         </div>
-        <Button variant="primary" size="sm" onClick={() => setModalOpen(true)}>
-          <Plus className="h-3.5 w-3.5" /> Add rate
-        </Button>
+        <PermissionGate module="settings" action="edit">
+          <Button variant="primary" size="sm" onClick={() => setModalOpen(true)}>
+            <Plus className="h-3.5 w-3.5" /> Add rate
+          </Button>
+        </PermissionGate>
       </CardHeader>
       <CardBody className="p-0">
         {error && (

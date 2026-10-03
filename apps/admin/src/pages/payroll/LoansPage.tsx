@@ -9,6 +9,7 @@ import {
   CreditCard,
   Loader2,
 } from 'lucide-react';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import type { EmployeeLoanKind, EmployeeLoanRecord } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -77,6 +78,7 @@ function LoansContent({ companyId }: { companyId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const canApprove = usePermission('payroll', 'approve');
 
   const [employeeId, setEmployeeId] = useState('');
   const [purposeIndex, setPurposeIndex] = useState(0);
@@ -217,9 +219,11 @@ function LoansContent({ companyId }: { companyId: string }) {
             EMI payroll recoveries.
           </p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" /> Grant Loan / Advance
-        </Button>
+        <PermissionGate module="payroll" action="create">
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" /> Grant Loan / Advance
+          </Button>
+        </PermissionGate>
       </div>
 
       {error && (
@@ -419,7 +423,7 @@ function LoansContent({ companyId }: { companyId: string }) {
                         </td>
 
                         <td className="px-5 py-3.5 text-right">
-                          {loan.status === 'pending_approval' ? (
+                          {canApprove && loan.status === 'pending_approval' ? (
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="primary"

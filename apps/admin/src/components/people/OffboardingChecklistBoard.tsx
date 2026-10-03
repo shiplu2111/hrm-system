@@ -8,6 +8,7 @@ import {
   Shield,
   Users,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -46,6 +47,7 @@ export function OffboardingChecklistBoard({
   onTaskAction,
   actionTaskId,
 }: OffboardingChecklistBoardProps) {
+  const { can } = usePermissions();
   const items = config.items;
   const completedCount = items.filter((i) => i.completed).length;
   const progress = items.length > 0 ? (completedCount / items.length) * 100 : 0;
@@ -56,6 +58,7 @@ export function OffboardingChecklistBoard({
 
     switch (item.taskType) {
       case 'asset_return':
+        if (!can('employee', 'edit')) return null;
         return (
           <Button
             size="sm"
@@ -71,6 +74,7 @@ export function OffboardingChecklistBoard({
           </Button>
         );
       case 'access_revocation':
+        if (!can('employee', 'approve')) return null;
         return (
           <Button
             size="sm"
@@ -86,6 +90,7 @@ export function OffboardingChecklistBoard({
           </Button>
         );
       case 'exit_interview':
+        if (!can('employee', 'edit')) return null;
         return (
           <Button
             size="sm"
@@ -97,6 +102,7 @@ export function OffboardingChecklistBoard({
           </Button>
         );
       case 'final_settlement':
+        if (!can('payroll', 'create')) return null;
         return (
           <Button
             size="sm"
@@ -112,6 +118,7 @@ export function OffboardingChecklistBoard({
           </Button>
         );
       default:
+        if (!can('employee', 'edit')) return null;
         return (
           <Button
             size="sm"

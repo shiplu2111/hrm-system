@@ -12,7 +12,9 @@ export class OtRulesController {
   constructor(private readonly otRulesService: OtRulesService) {}
 
   @Get()
-  @RequirePermission('settings', 'view')
+  @RequirePermission('settings', 'view', {
+    orAnyOf: [{ module: 'attendance', action: 'view' }],
+  })
   @ApiOperation({ summary: 'List overtime rules selectable on shift definitions' })
   async list(
     @Param('companyId', ParseUUIDPipe) companyId: string,

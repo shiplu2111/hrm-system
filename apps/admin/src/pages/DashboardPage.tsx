@@ -76,12 +76,21 @@ function formatKpiValue(
 }
 
 export function DashboardPage() {
-  const { company, companyId } = useCompany();
+  const {
+    company,
+    companyId,
+    loading: companyLoading,
+    error: companyError,
+    refresh: refreshCompany,
+  } = useCompany();
   const { navigate } = useNav();
   const { data, loading, error, refresh } = useAdminDashboard(companyId);
   const [chartMode, setChartMode] = useState<'line' | 'bar'>('line');
 
-  const isInitialLoad = loading && !data;
+  const pageError = companyError ?? error;
+  const retry = companyError ? refreshCompany : refresh;
+  const noCompany = !companyLoading && !companyError && !companyId;
+  const isInitialLoad = companyLoading || (loading && !data);
   const isRefreshing = loading && !!data;
   const isFreshTenant = data?.kpis.headcount === 0;
 
@@ -133,16 +142,16 @@ export function DashboardPage() {
         </Button>
       </div>
 
-      {error ? (
+      {pageError ? (
         <div
           role="alert"
           className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm text-error-700 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-3"
         >
           <div className="flex items-start gap-2 flex-1">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <span>{pageError}</span>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => void refresh()}>
+          <Button variant="secondary" size="sm" onClick={() => void retry()}>
             Retry
           </Button>
         </div>
@@ -150,6 +159,12 @@ export function DashboardPage() {
 
       {isInitialLoad ? (
         <DashboardSkeleton />
+      ) : noCompany ? (
+        <EmptyState
+          icon={Briefcase}
+          title="No company found"
+          description="No company is set up for this tenant yet."
+        />
       ) : data ? (
         <div className={isRefreshing ? 'opacity-60 pointer-events-none transition-opacity' : undefined}>
           {isFreshTenant ? (

@@ -8,6 +8,7 @@ import {
   Search,
   Loader2,
 } from 'lucide-react';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import type { TimesheetEntryRecord, TimesheetProjectRecord } from '@hrm/shared-types';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -73,6 +74,7 @@ function TimesheetContent({ companyId }: { companyId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const canApprove = usePermission('attendance', 'approve');
 
   const [employeeId, setEmployeeId] = useState('');
   const [projectId, setProjectId] = useState('');
@@ -223,9 +225,11 @@ function TimesheetContent({ companyId }: { companyId: string }) {
             Log time by project and route entries through manager approval
           </p>
         </div>
-        <Button variant="primary" onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" /> Log Time
-        </Button>
+        <PermissionGate module="attendance" action="create">
+          <Button variant="primary" onClick={() => setModalOpen(true)}>
+            <Plus className="h-4 w-4" /> Log Time
+          </Button>
+        </PermissionGate>
       </div>
 
       {error && (
@@ -379,7 +383,7 @@ function TimesheetContent({ companyId }: { companyId: string }) {
                       </Badge>
                     </td>
                     <td className="px-5 py-3">
-                      {entry.displayStatus.startsWith('Pending') ? (
+                      {canApprove && entry.displayStatus.startsWith('Pending') ? (
                         <div className="flex items-center gap-1">
                           <button
                             type="button"

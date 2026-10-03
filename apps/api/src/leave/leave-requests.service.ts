@@ -20,6 +20,7 @@ import type {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { WorkflowInstancesService } from '../workflow/workflow-instances.service';
 import type {
   CreateLeaveRequestDto,
@@ -106,11 +107,13 @@ export class LeaveRequestsService {
     private readonly notificationEngine: NotificationEngineService,
     private readonly leaveWorkflow: LeaveWorkflowService,
     private readonly workflowInstances: WorkflowInstancesService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListLeaveRequestsQueryDto,
+    employeeFilter?: { in: string[] },
   ): Promise<{ data: LeaveRequestRecord[]; total: number }> {
     await this.companyScope.assertCompanyInTenant(companyId);
     const page = Math.max(1, query.page ?? 1);
@@ -118,7 +121,7 @@ export class LeaveRequestsService {
 
     const where: Prisma.LeaveRequestWhereInput = {
       employee: { companyId, deletedAt: null },
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      employeeId: query.employeeId ?? employeeFilter,
       ...(query.status
         ? { status: query.status as LeaveRequestStatus }
         : {}),
@@ -155,12 +158,16 @@ export class LeaveRequestsService {
     const requestIds = instances.map((instance) => instance.entityId);
     if (requestIds.length === 0) return [];
 
+    const scopeFilter = await this.dataScope.employeeIdFilter(user, { includeSelf: false });
     const rows = await this.prisma.unscoped.leaveRequest.findMany({
       where: {
         id: { in: requestIds },
         status: LeaveRequestStatus.pending,
         employee: { companyId, deletedAt: null },
-        ...(user.employeeId ? { employeeId: { not: user.employeeId } } : {}),
+        employeeId: {
+          ...scopeFilter,
+          ...(user.employeeId ? { not: user.employeeId } : {}),
+        },
       },
       orderBy: [{ startDate: 'asc' }, { createdAt: 'asc' }],
       include: REQUEST_INCLUDE,
@@ -170,8 +177,9 @@ export class LeaveRequestsService {
     return this.withActorNames(records);
   }
 
-  async get(requestId: string): Promise<LeaveRequestRecord> {
+  async get(requestId: string, user: AuthenticatedUser): Promise<LeaveRequestRecord> {
     const row = await this.findRequestOrThrow(requestId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const [record] = await this.withActorNames([await this.toRecord(row)]);
     return record;
   }
@@ -183,6 +191,7 @@ export class LeaveRequestsService {
   ): Promise<LeaveRequestPreview> {
     const employee = await this.assertEmployee(employeeId);
     this.assertOwnRequest(user, employeeId, 'Cannot preview leave for another employee');
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const evaluation = await this.evaluateRequest(employee, {
       leaveTypeId: dto.leaveTypeId,
       startDate: dto.startDate,
@@ -199,6 +208,7 @@ export class LeaveRequestsService {
   ): Promise<LeaveRequestRecord> {
     const employee = await this.assertEmployee(employeeId);
     this.assertOwnRequest(user, employeeId, 'Cannot create leave for another employee');
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
 
     const evaluation = await this.evaluateRequest(employee, {
       leaveTypeId: dto.leaveTypeId,
@@ -256,6 +266,7 @@ export class LeaveRequestsService {
       });
     }
     this.assertOwnRequest(user, row.employeeId, 'Cannot submit another employee\'s request');
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
 
     const employee = await this.assertEmployee(row.employeeId);
     const evaluation = await this.evaluateRequest(
@@ -305,6 +316,7 @@ export class LeaveRequestsService {
       });
     }
     this.assertNotOwnApproval(user, row.employeeId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId, { includeSelf: false });
 
     const employee = await this.assertEmployee(row.employeeId);
     const policy = await this.balancesService.findEffectivePolicy(
@@ -397,6 +409,7 @@ export class LeaveRequestsService {
       });
     }
     this.assertNotOwnApproval(user, row.employeeId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId, { includeSelf: false });
 
     const employee = await this.assertEmployee(row.employeeId);
     const policy = await this.balancesService.findEffectivePolicy(
@@ -456,6 +469,7 @@ export class LeaveRequestsService {
       });
     }
     this.assertOwnRequest(user, row.employeeId, 'Cannot cancel another employee\'s request');
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
 
     const updated = await this.prisma.unscoped.leaveRequest.update({
       where: { id: requestId },

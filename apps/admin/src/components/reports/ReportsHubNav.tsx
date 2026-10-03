@@ -1,4 +1,6 @@
 import { BarChart3, Clock, Download, Upload, type LucideIcon } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
+import { canViewPage } from '@/config/page-permissions';
 import { useNav, type PageKey } from '@/context/NavContext';
 import { reportsCopy as copy } from '@/lib/reports-copy';
 
@@ -11,9 +13,10 @@ const SECTIONS: Array<{ page: PageKey; label: string; icon: LucideIcon }> = [
 
 export function ReportsHubNav() {
   const { current, navigate } = useNav();
+  const { can } = usePermissions();
   return (
     <nav aria-label={copy.hubNav.label} className="flex items-center gap-1 border-b border-base overflow-x-auto">
-      {SECTIONS.map(({ page, label, icon: Icon }) => {
+      {SECTIONS.filter(({ page }) => canViewPage(page, can)).map(({ page, label, icon: Icon }) => {
         const active = current === page;
         return (
           <button

@@ -8,7 +8,9 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   CustomFieldEntityType,
   CustomFieldType,
@@ -103,6 +105,10 @@ export class DocumentTypeFieldDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class CreateDocumentTypeDto {
@@ -128,6 +134,8 @@ export class CreateDocumentTypeDto {
 
   @IsOptional()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DocumentTypeFieldDto)
   fields?: DocumentTypeFieldDto[];
 }
 

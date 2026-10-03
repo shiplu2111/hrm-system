@@ -13,6 +13,7 @@ import {
   Settings2,
   Unplug,
 } from 'lucide-react';
+import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Form';
@@ -124,7 +125,10 @@ function mappingType(row: GlPayrollMappingRecord): string {
 }
 
 export function AccountingIntegrationPage() {
-  const { companyId } = useCompany();
+  const { companyId, loading: companyLoading, error: companyError } = useCompany();
+  const { can } = usePermissions();
+  const canEdit = can('payroll', 'edit');
+  const canExport = can('payroll', 'create');
   const [tab, setTab] = useState<Tab>('mapping');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +155,8 @@ export function AccountingIntegrationPage() {
   const [contractorSaved, setContractorSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [contractorSaving, setContractorSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [contractorSaveError, setContractorSaveError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
 
@@ -296,6 +302,7 @@ export function AccountingIntegrationPage() {
   const handleSaveMappings = async () => {
     if (!companyId) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = mappings
         .map((row) => {
@@ -320,7 +327,7 @@ export function AccountingIntegrationPage() {
       setMappings(updated);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mappings');
+      setSaveError(err instanceof ApiError ? err.message : 'Failed to save mappings');
     } finally {
       setSaving(false);
     }
@@ -329,6 +336,7 @@ export function AccountingIntegrationPage() {
   const handleSaveContractorMappings = async () => {
     if (!companyId) return;
     setContractorSaving(true);
+    setContractorSaveError(null);
     try {
       const payload = contractorMappings
         .map((row) => {
@@ -350,7 +358,9 @@ export function AccountingIntegrationPage() {
       setContractorMappings(updated);
       setContractorSaved(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save contractor mappings');
+      setContractorSaveError(
+        err instanceof ApiError ? err.message : 'Failed to save contractor mappings',
+      );
     } finally {
       setContractorSaving(false);
     }
@@ -406,6 +416,7 @@ export function AccountingIntegrationPage() {
   const handleExportJournal = async () => {
     if (!companyId || !selectedPeriodId || !journal) return;
     setExporting(true);
+    setJournalError(null);
     try {
       const result = await exportPayrollJournal(companyId, selectedPeriodId);
       setLastExportStatus(result.status);
@@ -424,7 +435,7 @@ export function AccountingIntegrationPage() {
     }
   };
 
-  if (loading) {
+  if (companyLoading || (companyId && loading)) {
     return (
       <div className="flex items-center justify-center p-12 text-secondary">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -433,11 +444,15 @@ export function AccountingIntegrationPage() {
     );
   }
 
-  if (error && mappings.length === 0) {
+  const pageError =
+    companyError ??
+    (companyId ? null : 'No company found for this tenant.') ??
+    (error && mappings.length === 0 ? error : null);
+  if (pageError) {
     return (
       <div className="p-6">
         <div className="rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:bg-error-950/30 dark:text-error-300">
-          {error}
+          {pageError}
         </div>
       </div>
     );
@@ -464,6 +479,12 @@ export function AccountingIntegrationPage() {
           {xeroConnection?.status === 'connected' ? 'Xero connected' : 'CSV + Xero sync'}
         </Badge>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:bg-error-950/30 dark:text-error-300">
+          {error}
+        </div>
+      )}
 
       <div className="surface flex gap-1 overflow-x-auto rounded-xl border border-base p-1 shadow-card">
         {([
@@ -524,6 +545,7 @@ export function AccountingIntegrationPage() {
                           <Select
                             value={glAccountId}
                             onChange={(event) => updateDraft(key, event.target.value)}
+                            disabled={!canEdit}
                           >
                             <option value="">Choose GL account</option>
                             {accounts.map((account) => (
@@ -547,18 +569,23 @@ export function AccountingIntegrationPage() {
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-end border-t border-base px-5 py-4">
-              <Button onClick={() => void handleSaveMappings()} disabled={saving}>
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : saved ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Settings2 className="h-4 w-4" />
+            {canEdit && (
+              <div className="flex items-center justify-end gap-3 border-t border-base px-5 py-4">
+                {saveError && (
+                  <span className="text-sm text-error-600 dark:text-error-400">{saveError}</span>
                 )}
-                {saved ? 'Mappings saved' : saving ? 'Saving…' : 'Save mappings'}
-              </Button>
-            </div>
+                <Button onClick={() => void handleSaveMappings()} disabled={saving}>
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : saved ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Settings2 className="h-4 w-4" />
+                  )}
+                  {saved ? 'Mappings saved' : saving ? 'Saving…' : 'Save mappings'}
+                </Button>
+              </div>
+            )}
           </section>
 
           <aside className="space-y-4">
@@ -636,6 +663,7 @@ export function AccountingIntegrationPage() {
                             [mapping.systemKey]: event.target.value,
                           }));
                         }}
+                        disabled={!canEdit}
                       >
                         <option value="">Choose GL account</option>
                         {accounts.map((account) => (
@@ -650,22 +678,29 @@ export function AccountingIntegrationPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end border-t border-base px-5 py-4">
-            <Button onClick={() => void handleSaveContractorMappings()} disabled={contractorSaving}>
-              {contractorSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : contractorSaved ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Settings2 className="h-4 w-4" />
+          {canEdit && (
+            <div className="flex items-center justify-end gap-3 border-t border-base px-5 py-4">
+              {contractorSaveError && (
+                <span className="text-sm text-error-600 dark:text-error-400">
+                  {contractorSaveError}
+                </span>
               )}
-              {contractorSaved
-                ? 'Contractor mappings saved'
-                : contractorSaving
-                  ? 'Saving…'
-                  : 'Save contractor mappings'}
-            </Button>
-          </div>
+              <Button onClick={() => void handleSaveContractorMappings()} disabled={contractorSaving}>
+                {contractorSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : contractorSaved ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Settings2 className="h-4 w-4" />
+                )}
+                {contractorSaved
+                  ? 'Contractor mappings saved'
+                  : contractorSaving
+                    ? 'Saving…'
+                    : 'Save contractor mappings'}
+              </Button>
+            </div>
+          )}
         </section>
       )}
 
@@ -724,7 +759,7 @@ export function AccountingIntegrationPage() {
                   {xeroConnection.lastSyncError}
                 </div>
               )}
-              {xeroConnection?.status === 'connected' ? (
+              {!canEdit ? null : xeroConnection?.status === 'connected' ? (
                 <Button
                   className="mt-4 w-full"
                   variant="secondary"
@@ -824,7 +859,7 @@ export function AccountingIntegrationPage() {
                             {formatWhen(job.queuedAt)}
                           </td>
                           <td className="px-5 py-3.5 text-right">
-                            {job.status === 'failed' && (
+                            {canEdit && job.status === 'failed' && (
                               <Button
                                 variant="secondary"
                                 onClick={() => void handleRetrySync(job.id)}
@@ -910,16 +945,18 @@ export function AccountingIntegrationPage() {
                         ` · ${journal.unmapped.length} unmapped line(s)`}
                     </p>
                   </div>
-                  <Button variant="secondary" onClick={() => void handleExportJournal()} disabled={exporting}>
-                    {exporting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : exported ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <ArrowDownToLine className="h-4 w-4" />
-                    )}
-                    {exported ? 'CSV exported' : exporting ? 'Exporting…' : 'Export CSV'}
-                  </Button>
+                  {canExport && (
+                    <Button variant="secondary" onClick={() => void handleExportJournal()} disabled={exporting}>
+                      {exporting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : exported ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <ArrowDownToLine className="h-4 w-4" />
+                      )}
+                      {exported ? 'CSV exported' : exporting ? 'Exporting…' : 'Export CSV'}
+                    </Button>
+                  )}
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

@@ -76,6 +76,7 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'settings-notifications': '/settings/notifications',
   'settings-workflows': '/settings/workflows',
   'settings-security': '/settings/security',
+  'audit-log': '/settings/audit-log',
   'settings-integrations': '/settings/integrations',
   'settings-backup': '/settings/backup',
   'settings-general': '/settings/general',

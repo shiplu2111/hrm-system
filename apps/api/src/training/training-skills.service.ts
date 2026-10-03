@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { formatDateValue } from '../contracts/employment-contract.utils';
 import type {
   CreateSkillDto,
@@ -39,6 +40,7 @@ export class TrainingSkillsService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async listSkills(companyId: string, query: ListSkillsQueryDto): Promise<SkillRecord[]> {
@@ -128,13 +130,17 @@ export class TrainingSkillsService {
   async listEmployeeSkills(
     companyId: string,
     query: ListEmployeeSkillsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<EmployeeSkillRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
 
     const rows = await this.prisma.unscoped.employeeSkill.findMany({
       where: {
         companyId,
-        employeeId: query.employeeId,
+        employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
         skillId: query.skillId,
         level: query.level,
       },
@@ -152,6 +158,7 @@ export class TrainingSkillsService {
   ): Promise<EmployeeSkillRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
     await this.assertEmployeeInCompany(dto.employeeId, companyId);
+    await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
     await this.getSkillOrThrow(dto.skillId, companyId);
 
     const row = await this.prisma.unscoped.employeeSkill.upsert({
@@ -196,6 +203,7 @@ export class TrainingSkillsService {
     user: AuthenticatedUser,
   ): Promise<EmployeeSkillRecord> {
     const existing = await this.getEmployeeSkillOrThrow(assignmentId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     const row = await this.prisma.unscoped.employeeSkill.update({
       where: { id: assignmentId },
@@ -223,6 +231,7 @@ export class TrainingSkillsService {
 
   async deleteEmployeeSkill(assignmentId: string, user: AuthenticatedUser): Promise<void> {
     const existing = await this.getEmployeeSkillOrThrow(assignmentId);
+    await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     await this.prisma.unscoped.employeeSkill.delete({
       where: { id: assignmentId },

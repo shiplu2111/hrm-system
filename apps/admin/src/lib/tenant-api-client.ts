@@ -1,4 +1,5 @@
 import { notifySessionExpired } from '@hrm/portal-ui';
+import type { PaginationMeta } from '@hrm/shared-types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const TOKEN_KEY = 'hrm_admin_access_token';
@@ -39,6 +40,7 @@ export function setTenantAccessToken(token: string | null): void {
 
 interface ApiEnvelope<T> {
   data: T;
+  meta?: PaginationMeta;
 }
 
 interface ApiErrorBody {
@@ -49,6 +51,22 @@ export async function tenantApiRequest<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  return (await tenantApiEnvelope<T>(path, options)).data;
+}
+
+/** Like `tenantApiRequest`, but keeps pagination `meta` for list endpoints. */
+export async function tenantApiRequestWithMeta<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<{ data: T; meta: PaginationMeta | undefined }> {
+  const envelope = await tenantApiEnvelope<T>(path, options);
+  return { data: envelope.data, meta: envelope.meta };
+}
+
+async function tenantApiEnvelope<T>(
+  path: string,
+  options: RequestInit,
+): Promise<ApiEnvelope<T>> {
   const token = getTenantAccessToken();
   const headers = new Headers(options.headers);
 
@@ -66,7 +84,7 @@ export async function tenantApiRequest<T>(
   });
 
   if (response.status === 204) {
-    return undefined as T;
+    return { data: undefined as T };
   }
 
   const payload = (await response.json().catch(() => ({}))) as
@@ -88,7 +106,7 @@ export async function tenantApiRequest<T>(
     );
   }
 
-  return (payload as ApiEnvelope<T>).data;
+  return payload as ApiEnvelope<T>;
 }
 
 export async function tenantLogin(
