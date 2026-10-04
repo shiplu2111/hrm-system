@@ -20,6 +20,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { WorkflowAssigneeService } from './workflow-assignee.service';
 import {
+  applicableDefinitionSteps,
   applyApprovalTransition,
   applyRejectionTransition,
   buildInitialInstanceSteps,
@@ -73,6 +74,8 @@ export class WorkflowEngineService {
     steps?: WorkflowDefinitionStep[];
     /** When backfilling from a domain entity that already has partial approval progress */
     runtimeSteps?: WorkflowInstanceStep[];
+    /** Decides which amount-conditioned steps join the chain. */
+    context?: { amount?: number };
   }): Promise<WorkflowInstanceRecord> {
     const existing = await this.findByEntity(input.entityType, input.entityId);
     if (existing) {
@@ -101,6 +104,7 @@ export class WorkflowEngineService {
       }
       definitionSteps = parseDefinitionSteps(definition.steps);
     }
+    definitionSteps = applicableDefinitionSteps(definitionSteps, input.context ?? {});
 
     const runtimeSteps =
       input.runtimeSteps ??

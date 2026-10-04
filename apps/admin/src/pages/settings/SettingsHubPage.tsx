@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
-  Pencil,
   Trash2,
   Eye,
   EyeOff,
@@ -40,14 +39,11 @@ import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsP
 import { WebhookSettingsPanel } from '@/components/settings/WebhookSettingsPanel';
 import { ExchangeRatesPanel } from '@/components/settings/ExchangeRatesPanel';
 import {
-  workflowList,
-  sampleWorkflowNodes,
   loginHistory,
   apiKeys,
   integrationConnectors,
   backupRecords,
   languagesList,
-  type WorkflowItem,
   type ApiKeyItem,
   type IntegrationConnector,
   type BackupRecord,
@@ -94,11 +90,6 @@ export function SettingsHubPage() {
     const group = groupForPage(current);
     if (group) setActiveGroup(group);
   }, [current]);
-
-  // ---------------- MODULE 35: WORKFLOW BUILDER STATE ----------------
-  const [workflows, setWorkflows] = useState<WorkflowItem[]>(workflowList);
-  const [workflowMode, setWorkflowMode] = useState<'canvas' | 'list'>('canvas');
-  const [activeWf, setActiveWf] = useState<WorkflowItem>(workflowList[0]);
 
   // ---------------- MODULE 41 & 42: SECURITY & AUDIT STATE ----------------
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
@@ -162,7 +153,7 @@ export function SettingsHubPage() {
 
   const allSettingsNavItems = [
     { key: 'notifications' as const, label: 'Notifications & Email', icon: Bell, badge: 'SMTP', desc: 'Event channels, live delivery & SMTP', page: 'settings-notifications' as const },
-    { key: 'workflows' as const, label: 'Workflow Builder', icon: GitBranch, badge: 'Visual', desc: 'Approval Engines & Multi-Step Logic', page: 'settings-workflows' as const },
+    { key: 'workflows' as const, label: 'Approval Workflows', icon: GitBranch, desc: 'Who approves claims, timesheets & offers', page: 'settings-workflows' as const },
     { key: 'security' as const, label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'SOC2', desc: '2FA, SSO, Login Audit & Code Diff', page: 'settings-security' as const },
     { key: 'integrations' as const, label: 'Integrations & API', icon: Webhook, badge: 'REST API', desc: 'API Keys, Webhooks & Connectors', page: 'settings-integrations' as const },
     { key: 'backup-i18n' as const, label: 'Backup & Multi-Currency', icon: Database, badge: 'i18n', desc: 'Automated Snapshots & Currencies', page: 'settings-backup' as const },
@@ -234,205 +225,6 @@ export function SettingsHubPage() {
           {activeGroup === 'notifications' && (
             <div className="space-y-6">
               <NotificationSettingsScreen />
-            </div>
-          )}
-
-          {/* ================= GROUP 2: APPROVAL WORKFLOW ENGINE (MODULE 35) ================= */}
-          {activeGroup === 'workflows' && (
-            <div className="space-y-6">
-              {/* Header with Canvas / List switcher */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-primary flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-accent-500" /> Multi-Step Workflow Engine
-                  </h3>
-                  <p className="text-xs text-secondary mt-0.5">
-                    Drag-and-drop approval pipeline canvas for Leave, Expense, Payroll, and Contracts.
-                  </p>
-                </div>
-
-                <div className="surface border border-base rounded-lg p-1 flex items-center gap-1">
-                  <button
-                    onClick={() => setWorkflowMode('canvas')}
-                    className={`px-3 py-1 rounded text-xs font-semibold ${
-                      workflowMode === 'canvas' ? 'bg-accent-600 text-white' : 'text-secondary hover:text-primary'
-                    }`}
-                  >
-                    Visual Canvas
-                  </button>
-                  <button
-                    onClick={() => setWorkflowMode('list')}
-                    className={`px-3 py-1 rounded text-xs font-semibold ${
-                      workflowMode === 'list' ? 'bg-accent-600 text-white' : 'text-secondary hover:text-primary'
-                    }`}
-                  >
-                    Workflow List
-                  </button>
-                </div>
-              </div>
-
-              {workflowMode === 'canvas' ? (
-                /* Visual Workflow Canvas */
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                  {/* Left Node Library Palette (4 cols) */}
-                  <div className="lg:col-span-4 space-y-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted">
-                          Node Library (Drag / Insert)
-                        </CardTitle>
-                      </CardHeader>
-                      <CardBody className="pt-0 space-y-2">
-                        {[
-                          { title: 'Approver Step', desc: 'Manager / HR sign-off step', color: 'border-accent-500/40 bg-accent-50/20' },
-                          { title: 'Conditional Branch', desc: 'IF amount > $1,000 THEN', color: 'border-warning-500/40 bg-warning-50/20' },
-                          { title: 'Automated Action', desc: 'Sync ledger / send webhook', color: 'border-success-500/40 bg-success-50/20' },
-                          { title: 'SLA Escalation Timer', desc: 'Auto-escalate after 24h', color: 'border-purple-500/40 bg-purple-50/20' },
-                        ].map((n) => (
-                          <div
-                            key={n.title}
-                            className={`surface border rounded-xl p-3 cursor-grab hover:shadow-sm transition-all ${n.color}`}
-                          >
-                            <div className="text-xs font-bold text-primary">{n.title}</div>
-                            <div className="text-[11px] text-muted mt-0.5">{n.desc}</div>
-                          </div>
-                        ))}
-                      </CardBody>
-                    </Card>
-
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted">
-                          Active Workflows
-                        </CardTitle>
-                      </CardHeader>
-                      <CardBody className="pt-0 space-y-1.5">
-                        {workflows.map((wf) => (
-                          <button
-                            key={wf.id}
-                            onClick={() => setActiveWf(wf)}
-                            className={`w-full text-left p-2.5 rounded-lg border text-xs transition-all ${
-                              activeWf.id === wf.id
-                                ? 'border-accent-500 bg-accent-50/50 dark:bg-accent-950/40 font-bold text-primary'
-                                : 'border-base hover:bg-[rgb(var(--bg-hover))] text-secondary'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="truncate">{wf.name}</span>
-                              <Badge tone="accent" className="text-[10px]">{wf.module}</Badge>
-                            </div>
-                          </button>
-                        ))}
-                      </CardBody>
-                    </Card>
-                  </div>
-
-                  {/* Right Connected Visual Node Canvas (8 cols) */}
-                  <div className="lg:col-span-8">
-                    <Card className="border-2 border-accent-500/30 overflow-hidden shadow-lg">
-                      <div className="bg-[rgb(var(--bg-muted))] px-5 py-3 border-b border-base flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-bold text-primary">{activeWf.name}</span>
-                          <span className="text-[11px] text-muted block">Module: {activeWf.module} · Trigger: {activeWf.trigger}</span>
-                        </div>
-                        <Button variant="primary" size="sm">
-                          <Check className="h-3.5 w-3.5" /> Save Workflow
-                        </Button>
-                      </div>
-
-                      <CardBody className="p-6 space-y-4">
-                        {sampleWorkflowNodes.map((node, index) => (
-                          <div key={node.id} className="flex flex-col items-center">
-                            {/* Node Card */}
-                            <div
-                              className={`w-full max-w-md surface border-2 rounded-2xl p-4 shadow-sm transition-all ${
-                                node.type === 'start'
-                                  ? 'border-accent-500 bg-accent-50/20'
-                                  : node.type === 'approver'
-                                  ? 'border-success-500/50 bg-success-50/10'
-                                  : node.type === 'condition'
-                                  ? 'border-warning-500/50 bg-warning-50/10'
-                                  : 'border-purple-500/50 bg-purple-50/10'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-bold text-primary">{node.title}</span>
-                                <Badge
-                                  tone={
-                                    node.type === 'start'
-                                      ? 'accent'
-                                      : node.type === 'approver'
-                                      ? 'success'
-                                      : node.type === 'condition'
-                                      ? 'warning'
-                                      : 'neutral'
-                                  }
-                                  className="text-[10px]"
-                                >
-                                  {node.type.toUpperCase()}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-secondary">{node.subtitle}</p>
-                              {node.slaHours && (
-                                <div className="text-[11px] text-muted mt-2 font-mono">
-                                  ⏱ SLA: {node.slaHours} hours response window
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Connecting Line & Arrow */}
-                            {index < sampleWorkflowNodes.length - 1 && (
-                              <div className="flex flex-col items-center my-1">
-                                <div className="h-4 w-0.5 bg-accent-500/60" />
-                                <div className="h-5 w-5 rounded-full bg-accent-500 text-white flex items-center justify-center text-[10px] shadow">
-                                  <ArrowRight className="h-3 w-3 rotate-90" />
-                                </div>
-                                <div className="h-4 w-0.5 bg-accent-500/60" />
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </CardBody>
-                    </Card>
-                  </div>
-                </div>
-              ) : (
-                /* Workflow List View */
-                <Card>
-                  <CardBody className="p-0">
-                    <table className="w-full text-sm">
-                      <thead className="bg-[rgb(var(--bg-muted))] border-b border-base">
-                        <tr>
-                          <th className="text-left px-5 py-3 text-xs font-semibold text-secondary">Workflow Name</th>
-                          <th className="text-left px-5 py-3 text-xs font-semibold text-secondary">Module</th>
-                          <th className="text-left px-5 py-3 text-xs font-semibold text-secondary">Trigger</th>
-                          <th className="text-left px-5 py-3 text-xs font-semibold text-secondary">Steps</th>
-                          <th className="text-left px-5 py-3 text-xs font-semibold text-secondary">Status</th>
-                          <th className="text-right px-5 py-3 text-xs font-semibold text-secondary">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                        {workflows.map((wf) => (
-                          <tr key={wf.id} className="hover:bg-[rgb(var(--bg-hover))]">
-                            <td className="px-5 py-3.5 font-semibold text-primary text-xs">{wf.name}</td>
-                            <td className="px-5 py-3.5"><Badge tone="accent">{wf.module}</Badge></td>
-                            <td className="px-5 py-3.5 text-xs text-secondary">{wf.trigger}</td>
-                            <td className="px-5 py-3.5 text-xs font-bold text-primary">{wf.stepsCount} Nodes</td>
-                            <td className="px-5 py-3.5">
-                              <Badge tone={wf.active ? 'success' : 'neutral'} dot>{wf.active ? 'Active' : 'Disabled'}</Badge>
-                            </td>
-                            <td className="px-5 py-3.5 text-right">
-                              <Button variant="secondary" size="sm" onClick={() => { setActiveWf(wf); setWorkflowMode('canvas'); }}>
-                                <Pencil className="h-3.5 w-3.5" /> Edit Canvas
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </CardBody>
-                </Card>
-              )}
             </div>
           )}
 

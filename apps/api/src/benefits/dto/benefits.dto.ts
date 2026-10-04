@@ -1,20 +1,32 @@
-import { Type } from 'class-transformer';
+import { PartialType } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 
-const PLAN_CATEGORIES = [
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+const MONEY = { maxDecimalPlaces: 2 } as const;
+const MONEY_MESSAGE = { message: '$property must be an amount with at most 2 decimal places' };
+const MAX_MONTHLY_AMOUNT = 1_000_000;
+
+export const PLAN_CATEGORIES = [
   'health_insurance',
   'life_insurance',
   'dental_vision',
@@ -31,7 +43,7 @@ const ENROLLMENT_TYPES = [
   'admin',
 ] as const;
 
-const DEPENDENT_RELATIONSHIPS = [
+export const DEPENDENT_RELATIONSHIPS = [
   'spouse',
   'child',
   'parent',
@@ -39,103 +51,99 @@ const DEPENDENT_RELATIONSHIPS = [
   'other',
 ] as const;
 
+export type DependentRelationship = (typeof DEPENDENT_RELATIONSHIPS)[number];
+
 export class CreateBenefitPlanDto {
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Plan name is required' })
+  @MaxLength(120)
   name!: string;
 
   @IsIn([...PLAN_CATEGORIES])
   category!: (typeof PLAN_CATEGORIES)[number];
 
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Provider is required' })
+  @MaxLength(120)
   provider!: string;
 
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Plan tier is required' })
+  @MaxLength(40)
   planTier!: string;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  description?: string;
+  @MaxLength(1000)
+  description?: string | null;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  employerContributionLabel?: string;
+  @MaxLength(60)
+  employerContributionLabel?: string | null;
 
+  /** Monthly amount the employer pays per enrolled employee. `null` clears it. */
   @IsOptional()
-  @IsNumber()
+  @IsNumber(MONEY, MONEY_MESSAGE)
   @Min(0)
-  employerContributionAmount?: number;
+  @Max(MAX_MONTHLY_AMOUNT)
+  employerContributionAmount?: number | null;
 
+  /** Monthly amount the employee pays. */
   @IsOptional()
-  @IsNumber()
+  @IsNumber(MONEY, MONEY_MESSAGE)
   @Min(0)
+  @Max(MAX_MONTHLY_AMOUNT)
   employeeContributionAmount?: number;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  employeeContributionLabel?: string;
+  @MaxLength(60)
+  employeeContributionLabel?: string | null;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  coverageLimitLabel?: string;
+  @MaxLength(80)
+  coverageLimitLabel?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  allowsDependents?: boolean;
+
+  /** `null` means no maximum. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxDependents?: number | null;
+
+  /** Empty means any relationship is eligible. */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn([...DEPENDENT_RELATIONSHIPS], { each: true })
+  eligibleRelationships?: DependentRelationship[];
+
+  /** Extra monthly employee cost per covered dependent. `null` clears it. */
+  @IsOptional()
+  @IsNumber(MONEY, MONEY_MESSAGE)
+  @Min(0)
+  @Max(MAX_MONTHLY_AMOUNT)
+  dependentContributionAmount?: number | null;
 
   @IsOptional()
   @IsIn([...PLAN_STATUSES])
   status?: (typeof PLAN_STATUSES)[number];
 }
 
-export class UpdateBenefitPlanDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  name?: string;
-
-  @IsOptional()
-  @IsIn([...PLAN_CATEGORIES])
-  category?: (typeof PLAN_CATEGORIES)[number];
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  provider?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  planTier?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  employerContributionLabel?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  employerContributionAmount?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  employeeContributionAmount?: number;
-
-  @IsOptional()
-  @IsString()
-  employeeContributionLabel?: string;
-
-  @IsOptional()
-  @IsString()
-  coverageLimitLabel?: string;
-
-  @IsOptional()
-  @IsIn([...PLAN_STATUSES])
-  status?: (typeof PLAN_STATUSES)[number];
-}
+export class UpdateBenefitPlanDto extends PartialType(CreateBenefitPlanDto) {}
 
 export class CreateBenefitOpenEnrollmentDto {
   @IsString()
@@ -158,20 +166,23 @@ export class CreateBenefitOpenEnrollmentDto {
 }
 
 export class BenefitEnrollmentDependentDto {
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Dependent name is required' })
+  @MaxLength(120)
   fullName!: string;
 
   @IsIn([...DEPENDENT_RELATIONSHIPS])
-  relationship!: (typeof DEPENDENT_RELATIONSHIPS)[number];
+  relationship!: DependentRelationship;
 
   @IsOptional()
-  @IsDateString()
+  @IsDateString({ strict: true })
   dateOfBirth?: string;
 
+  /** Life insurance only: the beneficiary's share of the payout. */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber(MONEY, MONEY_MESSAGE)
+  @Min(0.01)
   @Max(100)
   beneficiarySharePercent?: number;
 }
@@ -190,26 +201,29 @@ export class CreateBenefitEnrollmentDto {
   @IsIn([...ENROLLMENT_TYPES])
   enrollmentType!: (typeof ENROLLMENT_TYPES)[number];
 
-  @IsDateString()
+  @IsDateString({ strict: true })
   effectiveFrom!: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsDateString({ strict: true })
   effectiveTo?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber(MONEY, MONEY_MESSAGE)
   @Min(0)
+  @Max(MAX_MONTHLY_AMOUNT)
   employeeContributionAmount?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber(MONEY, MONEY_MESSAGE)
   @Min(0)
   @Max(100)
   beneficiarySharePercent?: number;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 
   @IsOptional()
@@ -234,3 +248,16 @@ export class ListBenefitEnrollmentsQueryDto {
 }
 
 export class AddBenefitEnrollmentDependentDto extends BenefitEnrollmentDependentDto {}
+
+export class CancelBenefitEnrollmentDto {
+  /** Last day of coverage. Defaults to today. */
+  @IsOptional()
+  @IsDateString({ strict: true })
+  endDate?: string;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}

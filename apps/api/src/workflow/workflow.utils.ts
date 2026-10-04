@@ -1,7 +1,12 @@
-import type {
-  WorkflowDefinitionStep,
-  WorkflowInstanceStep,
-  WorkflowStepStatus,
+import {
+  WORKFLOW_ROUTING_MODES,
+  type WorkflowDefinitionRoutingStatus,
+  type WorkflowDefinitionStep,
+  type WorkflowEntityType,
+  type WorkflowInstanceStep,
+  type WorkflowStepCondition,
+  type WorkflowStepStatus,
+  type WorkflowTriggerConfig,
 } from '@hrm/shared-types';
 
 export function parseDateString(value: string): Date {
@@ -41,18 +46,54 @@ export function policyStepsToDefinitionSteps(
   }));
 }
 
+export function parseStepCondition(value: unknown): WorkflowStepCondition | null {
+  if (value == null || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (record.type !== 'amount_threshold' || typeof record.value !== 'number') return null;
+  return {
+    type: 'amount_threshold',
+    operator: record.operator === 'gte' ? 'gte' : 'gt',
+    value: record.value,
+  };
+}
+
 export function parseDefinitionSteps(value: unknown): WorkflowDefinitionStep[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((step, index) => {
       const record = step as Partial<WorkflowDefinitionStep>;
+      const condition = parseStepCondition(record.condition);
       return {
         order: record.order ?? index + 1,
         assigneeType: record.assigneeType ?? 'role',
         roleName: record.roleName ?? 'Approver',
+        ...(condition ? { condition } : {}),
       } satisfies WorkflowDefinitionStep;
     })
     .sort((a, b) => a.order - b.order);
+}
+
+/** A step with no condition always applies; without a known amount, conditional steps are kept. */
+export function stepApplies(
+  step: Pick<WorkflowDefinitionStep, 'condition'>,
+  context: { amount?: number },
+): boolean {
+  if (!step.condition || context.amount == null) return true;
+  return matchesAmountTrigger(context.amount, step.condition);
+}
+
+/** Steps a request with this context goes through, renumbered from 1. */
+export function applicableDefinitionSteps(
+  steps: WorkflowDefinitionStep[],
+  context: { amount?: number },
+): WorkflowDefinitionStep[] {
+  return steps
+    .filter((step) => stepApplies(step, context))
+    .map((step, index) => ({
+      order: index + 1,
+      assigneeType: step.assigneeType,
+      roleName: step.roleName,
+    }));
 }
 
 export function buildInitialInstanceSteps(
@@ -244,4 +285,99 @@ export function pickMatchingWorkflowDefinition<
   return (
     alwaysMatches.find((d) => d.isDefault) ?? alwaysMatches[0] ?? null
   );
+}
+
+export interface RoutableWorkflowDefinition {
+  id: string;
+  name: string;
+  entityType: WorkflowEntityType;
+  isDefault: boolean;
+  isActive: boolean;
+  /** YYYY-MM-DD */
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  triggerConfig: WorkflowTriggerConfig | null;
+}
+
+export interface WorkflowRoutingResult {
+  status: WorkflowDefinitionRoutingStatus;
+  overriddenBy: { id: string; name: string } | null;
+}
+
+/**
+ * Whether new requests submitted on `today` would follow each definition, mirroring
+ * `findEffectiveDefault` (default-only modules) and `pickMatchingWorkflowDefinition` (amount match).
+ */
+export function describeWorkflowRouting(
+  definitions: RoutableWorkflowDefinition[],
+  today: string,
+): Map<string, WorkflowRoutingResult> {
+  const result = new Map<string, WorkflowRoutingResult>();
+  const live = definitions
+    .filter(
+      (d) =>
+        d.isActive &&
+        d.effectiveFrom <= today &&
+        (d.effectiveTo == null || d.effectiveTo >= today),
+    )
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+
+  for (const definition of definitions) {
+    const mode = WORKFLOW_ROUTING_MODES[definition.entityType];
+    const set = (status: WorkflowDefinitionRoutingStatus, overriddenBy: RoutableWorkflowDefinition | null = null) =>
+      result.set(definition.id, {
+        status,
+        overriddenBy: overriddenBy ? { id: overriddenBy.id, name: overriddenBy.name } : null,
+      });
+
+    if (mode === 'leave_policy' || mode === 'not_connected') {
+      set('module_not_connected');
+      continue;
+    }
+    if (!definition.isActive) {
+      set('inactive');
+      continue;
+    }
+    if (definition.effectiveFrom > today) {
+      set('scheduled');
+      continue;
+    }
+    if (definition.effectiveTo != null && definition.effectiveTo < today) {
+      set('ended');
+      continue;
+    }
+
+    const peers = live.filter((d) => d.entityType === definition.entityType);
+    if (mode === 'default_only') {
+      const winner = peers.find((d) => d.isDefault);
+      if (winner?.id === definition.id) set('in_use');
+      else if (definition.isDefault && winner) set('overridden', winner);
+      else set('not_default');
+      continue;
+    }
+
+    const trigger = definition.triggerConfig;
+    if (trigger?.type === 'amount_threshold') {
+      const operator = trigger.operator ?? 'gt';
+      const value = trigger.value ?? 0;
+      const covering = peers.find(
+        (d) =>
+          d.id !== definition.id &&
+          d.triggerConfig?.type === 'amount_threshold' &&
+          (d.triggerConfig.value ?? 0) === value &&
+          ((d.triggerConfig.operator ?? 'gt') === operator || d.triggerConfig.operator === 'gte') &&
+          peers.indexOf(d) < peers.indexOf(definition),
+      );
+      if (covering) set('overridden', covering);
+      else set('in_use');
+      continue;
+    }
+
+    const always = peers.filter((d) => !d.triggerConfig || d.triggerConfig.type === 'always');
+    const winner = always.find((d) => d.isDefault) ?? always[0];
+    if (winner?.id === definition.id) set('in_use');
+    else set('overridden', winner ?? null);
+  }
+
+  return result;
 }

@@ -26,6 +26,8 @@ import { PayrollRunsService } from './payroll-runs.service';
 import { SalaryStructuresController } from './salary-structures.controller';
 import { SalaryStructuresService } from './salary-structures.service';
 import { SuperannuationPayrollService } from './superannuation-payroll.service';
+import { SuperannuationController } from './superannuation.controller';
+import { SuperannuationSettingsService } from './superannuation-settings.service';
 
 @Module({
   imports: [
@@ -47,6 +49,7 @@ import { SuperannuationPayrollService } from './superannuation-payroll.service';
     PayslipsController,
     PaymentBatchesController,
     EmployeeTaxProfilesController,
+    SuperannuationController,
   ],
   providers: [
     PayComponentsService,
@@ -55,6 +58,7 @@ import { SuperannuationPayrollService } from './superannuation-payroll.service';
     PayrollCalculationService,
     PayrollContextService,
     SuperannuationPayrollService,
+    SuperannuationSettingsService,
     PayrollPeriodsService,
     PayrollRunsService,
     PayrollAdjustmentsService,

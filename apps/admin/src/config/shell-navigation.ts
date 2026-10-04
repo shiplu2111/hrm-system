@@ -130,6 +130,9 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Payment Batches', page: 'payment-batches' },
       { label: 'Tax Profiles', page: 'tax-profiles' },
       { label: 'Benefits', page: 'benefits' },
+      { label: 'Benefit Plans', page: 'benefit-plans' },
+      { label: 'Benefit Enrollments', page: 'benefit-enrollments' },
+      { label: 'Superannuation', page: 'superannuation' },
       { label: 'Loans & Advances', page: 'loans' },
       { label: 'Expense Claims', page: 'expenses' },
       { label: 'Expense Categories', page: 'expense-categories' },
@@ -152,6 +155,7 @@ export const adminNavItems: AdminNavItem[] = [
     page: 'settings-hub',
     icon: Settings,
     permission: { module: 'settings', action: 'view' },
+    relatedPages: ['settings-workflow-builder'],
     children: [
       { label: 'Settings Hub', page: 'settings-hub' },
       { label: 'Roles', page: 'rbac-roles' },

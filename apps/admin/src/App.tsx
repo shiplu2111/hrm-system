@@ -68,6 +68,9 @@ import { PayrollSimulationPage } from '@/pages/payroll/PayrollSimulationPage';
 import { PaymentBatchPage } from '@/pages/payroll/PaymentBatchPage';
 import { TaxProfilesPage } from '@/pages/payroll/TaxProfilesPage';
 import { BenefitsPage } from '@/pages/payroll/BenefitsPage';
+import { BenefitPlansPage } from '@/pages/payroll/BenefitPlansPage';
+import { BenefitEnrollmentsPage } from '@/pages/payroll/BenefitEnrollmentsPage';
+import { SuperannuationSettingsPage } from '@/pages/payroll/SuperannuationSettingsPage';
 import { LoansPage } from '@/pages/payroll/LoansPage';
 import { LoanDetailPage } from '@/pages/payroll/LoanDetailPage';
 import { ExpensesPage } from '@/pages/payroll/ExpensesPage';
@@ -90,6 +93,7 @@ import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
+import { WorkflowDefinitionsPage } from '@/pages/settings/WorkflowDefinitionsPage';
 import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
 import { AuditLogPage } from '@/pages/settings/AuditLogPage';
 
@@ -162,6 +166,9 @@ function PageRoutes() {
       <Route path="/payroll/payment-batches" element={<PaymentBatchPage />} />
       <Route path="/payroll/tax-profiles" element={<TaxProfilesPage />} />
       <Route path="/payroll/benefits" element={<BenefitsPage />} />
+      <Route path="/payroll/benefits/plans" element={<BenefitPlansPage />} />
+      <Route path="/payroll/benefits/enrollments" element={<BenefitEnrollmentsPage />} />
+      <Route path="/payroll/superannuation" element={<SuperannuationSettingsPage />} />
       <Route path="/payroll/loans" element={<LoansPage />} />
       <Route path="/payroll/loans/:loanId" element={<LoanDetailPage />} />
       <Route path="/payroll/expenses" element={<ExpensesPage />} />
@@ -189,7 +196,9 @@ function PageRoutes() {
 
       <Route path="/settings" element={<SettingsHubPage />} />
       <Route path="/settings/notifications" element={<SettingsHubPage />} />
-      <Route path="/settings/workflows" element={<WorkflowBuilderPage />} />
+      <Route path="/settings/workflows" element={<WorkflowDefinitionsPage />} />
+      <Route path="/settings/workflows/new" element={<WorkflowBuilderPage />} />
+      <Route path="/settings/workflows/:definitionId" element={<WorkflowBuilderPage />} />
       <Route path="/settings/security" element={<SettingsHubPage />} />
       <Route path="/settings/audit-log" element={<AuditLogPage />} />
       <Route path="/settings/integrations" element={<SettingsHubPage />} />

@@ -39,8 +39,43 @@ export class RuleResolverService {
     if (!context.stateCode) {
       rules = rules.filter((rule) => rule.layer !== 'state');
     }
+    if (!context.employeeId) {
+      rules = rules.filter((rule) => rule.layer !== 'employee_contract');
+    }
 
     return this.buildResolvedRule(context.calculationDate, ruleType, rules);
+  }
+
+  /**
+   * Resolve the company default: Global → Country → (State, when given) → Company.
+   * The employee contract layer never applies because no employee is involved.
+   */
+  async resolveForCompany(
+    companyId: string,
+    ruleType: string,
+    calculationDate: Date,
+    options?: { stateCode?: string | null },
+  ): Promise<ResolvedRule> {
+    const company = await this.employeeContext.loadCompanyContext(companyId);
+
+    if (!company) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Company not found',
+      });
+    }
+
+    return this.resolve(
+      {
+        tenantId: company.tenantId,
+        companyId: company.companyId,
+        employeeId: null,
+        countryId: company.countryId,
+        stateCode: options?.stateCode ?? null,
+        calculationDate,
+      },
+      ruleType,
+    );
   }
 
   /** Convenience wrapper that loads employee → company → country context from the database. */
@@ -93,6 +128,8 @@ export class RuleResolverService {
         applied: rule != null,
         ruleId: rule?.id ?? null,
         payload: rule?.payload ?? null,
+        effectiveFrom: rule?.effectiveFrom ?? null,
+        effectiveTo: rule?.effectiveTo ?? null,
       };
     });
 

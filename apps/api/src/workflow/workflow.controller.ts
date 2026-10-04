@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -53,6 +54,7 @@ export class WorkflowDefinitionsController {
 
   @Get(':definitionId')
   @RequirePermission('settings', 'view')
+  @ApiOperation({ summary: 'Get a workflow definition with usage and routing status' })
   async get(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('definitionId', ParseUUIDPipe) definitionId: string,
@@ -62,21 +64,37 @@ export class WorkflowDefinitionsController {
 
   @Post()
   @RequirePermission('settings', 'create')
+  @ApiOperation({ summary: 'Create a workflow definition' })
   async create(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: CreateWorkflowDefinitionDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.definitionsService.create(companyId, dto) };
+    return { data: await this.definitionsService.create(companyId, dto, user) };
   }
 
   @Patch(':definitionId')
   @RequirePermission('settings', 'edit')
+  @ApiOperation({ summary: 'Update a workflow definition' })
   async update(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('definitionId', ParseUUIDPipe) definitionId: string,
     @Body() dto: UpdateWorkflowDefinitionDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.definitionsService.update(companyId, definitionId, dto) };
+    return { data: await this.definitionsService.update(companyId, definitionId, dto, user) };
+  }
+
+  @Delete(':definitionId')
+  @RequirePermission('settings', 'delete')
+  @ApiOperation({ summary: 'Delete a workflow definition that has never routed a request' })
+  async remove(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('definitionId', ParseUUIDPipe) definitionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.definitionsService.remove(companyId, definitionId, user);
+    return { data: { id: definitionId } };
   }
 }
 

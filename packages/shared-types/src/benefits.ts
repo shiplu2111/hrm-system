@@ -49,7 +49,16 @@ export interface BenefitPlanRecord {
   employeeContributionAmount: number;
   employeeContributionLabel: string | null;
   coverageLimitLabel: string | null;
+  /** For life insurance these are the nominated beneficiaries. */
+  allowsDependents: boolean;
+  maxDependents: number | null;
+  /** Empty means any relationship is eligible. */
+  eligibleRelationships: BenefitDependentRelationship[];
+  /** Extra monthly employee cost per covered dependent. */
+  dependentContributionAmount: number | null;
   status: BenefitPlanStatus;
+  /** True once any enrollment (active or not) exists — the plan can no longer return to draft. */
+  hasEnrollments: boolean;
   enrolledCount: number;
   dependentCount: number;
   inOpenEnrollment: boolean;
@@ -67,6 +76,8 @@ export interface BenefitOpenEnrollmentPeriodRecord {
   status: BenefitOpenEnrollmentStatus;
   openedAt: string | null;
   closedAt: string | null;
+  /** Open, and today falls between the start and end dates. */
+  acceptingEnrollments: boolean;
   planIds: string[];
   enrollmentCount: number;
   createdAt: string;
@@ -93,6 +104,9 @@ export interface BenefitEnrollmentRecord {
   employeeNumber?: string;
   benefitPlanId: string;
   benefitPlanName?: string;
+  benefitPlanCategory?: BenefitPlanCategory;
+  benefitPlanProvider?: string;
+  benefitPlanTier?: string;
   openEnrollmentPeriodId: string | null;
   enrollmentType: BenefitEnrollmentType;
   status: BenefitEnrollmentStatus;
@@ -104,6 +118,9 @@ export interface BenefitEnrollmentRecord {
   enrolledAt: string | null;
   cancelledAt: string | null;
   dependents: BenefitEnrollmentDependentRecord[];
+  /** Employee contribution plus the plan's per-dependent cost for each active dependent. */
+  monthlyEmployeeCost: number;
+  monthlyEmployerCost: number | null;
   createdAt: string;
   updatedAt: string;
 }

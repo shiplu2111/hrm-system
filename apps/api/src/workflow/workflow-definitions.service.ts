@@ -1,10 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, type WorkflowEntityType } from '@prisma/client';
-import type { WorkflowDefinitionRecord } from '@hrm/shared-types';
+import {
+  AuditAction,
+  Prisma,
+  WorkflowInstanceStatus,
+  type WorkflowDefinition,
+  type WorkflowEntityType,
+} from '@prisma/client';
+import type { WorkflowDefinitionRecord, WorkflowDefinitionStep } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type {
@@ -12,7 +21,19 @@ import type {
   ListWorkflowDefinitionsQueryDto,
   UpdateWorkflowDefinitionDto,
 } from './dto/workflow.dto';
-import { parseDefinitionSteps, parseDateString, pickMatchingWorkflowDefinition } from './workflow.utils';
+import {
+  WORKFLOW_MODULE_LABELS,
+  normalizeWorkflowDefinition,
+  unconnectedModuleMessage,
+  type WorkflowDefinitionDraft,
+} from './workflow-definition.rules';
+import {
+  describeWorkflowRouting,
+  parseDateString,
+  parseDefinitionSteps,
+  pickMatchingWorkflowDefinition,
+  type WorkflowRoutingResult,
+} from './workflow.utils';
 
 function parseTriggerConfig(value: unknown): WorkflowDefinitionRecord['triggerConfig'] {
   if (value == null || typeof value !== 'object') return null;
@@ -29,11 +50,23 @@ function parseTriggerConfig(value: unknown): WorkflowDefinitionRecord['triggerCo
   };
 }
 
+function dateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+interface InstanceUsage {
+  total: number;
+  pending: number;
+}
+
+const NO_USAGE: InstanceUsage = { total: 0, pending: 0 };
+
 @Injectable()
 export class WorkflowDefinitionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
+    private readonly auditService: AuditService,
   ) {}
 
   async list(
@@ -43,29 +76,22 @@ export class WorkflowDefinitionsService {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const rows = await this.prisma.unscoped.workflowDefinition.findMany({
-      where: {
-        companyId,
-        ...(query.entityType ? { entityType: query.entityType } : {}),
-        ...(query.activeOnly ? { isActive: true } : {}),
-      },
+      where: { companyId },
       orderBy: [{ entityType: 'asc' }, { name: 'asc' }],
     });
+    const usage = await this.usageByDefinition(companyId);
+    const routing = this.routingFor(rows);
 
-    return rows.map((row) => this.toRecord(row));
+    return rows
+      .filter((row) => !query.entityType || row.entityType === query.entityType)
+      .filter((row) => !query.activeOnly || row.isActive)
+      .map((row) => this.toRecord(row, usage.get(row.id), routing.get(row.id)));
   }
 
   async get(companyId: string, definitionId: string): Promise<WorkflowDefinitionRecord> {
     await this.companyScope.assertCompanyInTenant(companyId);
-    const row = await this.prisma.unscoped.workflowDefinition.findFirst({
-      where: { id: definitionId, companyId },
-    });
-    if (!row) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: 'Workflow definition not found',
-      });
-    }
-    return this.toRecord(row);
+    const row = await this.findOrThrow(companyId, definitionId);
+    return this.toDetailedRecord(row);
   }
 
   async findById(definitionId: string): Promise<WorkflowDefinitionRecord | null> {
@@ -78,94 +104,166 @@ export class WorkflowDefinitionsService {
   async create(
     companyId: string,
     dto: CreateWorkflowDefinitionDto,
+    user: AuthenticatedUser,
   ): Promise<WorkflowDefinitionRecord> {
-    await this.companyScope.assertCompanyInTenant(companyId);
-    this.validateSteps(dto.steps);
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
 
-    if (dto.isDefault) {
-      await this.clearDefaultFlag(companyId, dto.entityType);
+    const unconnected = unconnectedModuleMessage(dto.entityType);
+    if (unconnected) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: unconnected });
     }
 
-    const row = await this.prisma.unscoped.workflowDefinition.create({
-      data: {
-        companyId,
-        entityType: dto.entityType,
-        name: dto.name.trim(),
-        description: dto.description?.trim() ?? null,
-        steps: dto.steps as unknown as Prisma.InputJsonValue,
-        triggerConfig:
-          dto.triggerConfig != null
-            ? (dto.triggerConfig as unknown as Prisma.InputJsonValue)
-            : undefined,
-        isDefault: dto.isDefault ?? false,
-        isActive: dto.isActive ?? true,
-        effectiveFrom: parseDateString(dto.effectiveFrom),
-        effectiveTo: dto.effectiveTo ? parseDateString(dto.effectiveTo) : null,
-      },
+    const name = dto.name.trim();
+    const isActive = dto.isActive ?? true;
+    const normalized = this.normalizeOrThrow({
+      entityType: dto.entityType,
+      triggerConfig: dto.triggerConfig ?? null,
+      steps: await this.canonicalRoleSteps(dto.steps),
+      isDefault: dto.isDefault ?? false,
+      isActive,
+      effectiveFrom: dto.effectiveFrom.slice(0, 10),
+      effectiveTo: dto.effectiveTo?.slice(0, 10) ?? null,
+    });
+    await this.assertUniqueName(companyId, dto.entityType, name);
+
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      if (normalized.isDefault) {
+        await tx.workflowDefinition.updateMany({
+          where: { companyId, entityType: dto.entityType, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+      return tx.workflowDefinition.create({
+        data: {
+          companyId,
+          entityType: dto.entityType,
+          name,
+          description: dto.description?.trim() || null,
+          steps: normalized.steps as unknown as Prisma.InputJsonValue,
+          triggerConfig: normalized.triggerConfig as unknown as Prisma.InputJsonValue,
+          isDefault: normalized.isDefault,
+          isActive,
+          effectiveFrom: parseDateString(dto.effectiveFrom.slice(0, 10)),
+          effectiveTo: dto.effectiveTo ? parseDateString(dto.effectiveTo.slice(0, 10)) : null,
+        },
+      });
     });
 
-    return this.toRecord(row);
+    const record = await this.toDetailedRecord(row);
+    await this.auditService.log({
+      tenantId: company.tenantId,
+      userId: user.id,
+      action: AuditAction.create,
+      module: 'settings',
+      recordId: row.id,
+      newValue: this.auditSnapshot(record),
+    });
+    return record;
   }
 
   async update(
     companyId: string,
     definitionId: string,
     dto: UpdateWorkflowDefinitionDto,
+    user: AuthenticatedUser,
   ): Promise<WorkflowDefinitionRecord> {
-    await this.companyScope.assertCompanyInTenant(companyId);
-    const existing = await this.prisma.unscoped.workflowDefinition.findFirst({
-      where: { id: definitionId, companyId },
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
+    const existing = await this.findOrThrow(companyId, definitionId);
+    const before = await this.toDetailedRecord(existing);
+
+    const entityType = dto.entityType ?? existing.entityType;
+    if (entityType !== existing.entityType) {
+      const unconnected = unconnectedModuleMessage(entityType);
+      if (unconnected) {
+        throw new BadRequestException({ code: 'VALIDATION_ERROR', message: unconnected });
+      }
+      if (before.instanceCount > 0) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message:
+            "This workflow has already routed requests, so its module can't change; create a new workflow instead",
+        });
+      }
+    }
+
+    const name = dto.name?.trim() ?? existing.name;
+    const isActive = dto.isActive ?? existing.isActive;
+    const effectiveFrom = dto.effectiveFrom?.slice(0, 10) ?? before.effectiveFrom;
+    const effectiveTo =
+      dto.effectiveTo !== undefined ? (dto.effectiveTo?.slice(0, 10) ?? null) : before.effectiveTo;
+    const normalized = this.normalizeOrThrow({
+      entityType,
+      triggerConfig: dto.triggerConfig !== undefined ? dto.triggerConfig : before.triggerConfig,
+      steps: dto.steps ? await this.canonicalRoleSteps(dto.steps) : before.steps,
+      isDefault: dto.isDefault ?? existing.isDefault,
+      isActive,
+      effectiveFrom,
+      effectiveTo,
     });
-    if (!existing) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: 'Workflow definition not found',
+    if (name.toLowerCase() !== existing.name.toLowerCase() || entityType !== existing.entityType) {
+      await this.assertUniqueName(companyId, entityType, name, definitionId);
+    }
+
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      if (normalized.isDefault) {
+        await tx.workflowDefinition.updateMany({
+          where: { companyId, entityType, isDefault: true, id: { not: definitionId } },
+          data: { isDefault: false },
+        });
+      }
+      return tx.workflowDefinition.update({
+        where: { id: definitionId },
+        data: {
+          entityType,
+          name,
+          ...(dto.description !== undefined
+            ? { description: dto.description?.trim() || null }
+            : {}),
+          steps: normalized.steps as unknown as Prisma.InputJsonValue,
+          triggerConfig: normalized.triggerConfig as unknown as Prisma.InputJsonValue,
+          isDefault: normalized.isDefault,
+          isActive,
+          effectiveFrom: parseDateString(effectiveFrom),
+          effectiveTo: effectiveTo ? parseDateString(effectiveTo) : null,
+        },
+      });
+    });
+
+    const record = await this.toDetailedRecord(row);
+    await this.auditService.log({
+      tenantId: company.tenantId,
+      userId: user.id,
+      action: AuditAction.update,
+      module: 'settings',
+      recordId: definitionId,
+      oldValue: this.auditSnapshot(before),
+      newValue: this.auditSnapshot(record),
+    });
+    return record;
+  }
+
+  /** Only never-used workflows can be deleted; past requests keep pointing at the ones they ran on. */
+  async remove(companyId: string, definitionId: string, user: AuthenticatedUser): Promise<void> {
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
+    const existing = await this.findOrThrow(companyId, definitionId);
+    const before = await this.toDetailedRecord(existing);
+
+    if (before.instanceCount > 0) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `This workflow has routed ${before.instanceCount} request${before.instanceCount === 1 ? '' : 's'}, so it can't be deleted; turn it off instead`,
       });
     }
 
-    if (dto.steps) {
-      this.validateSteps(dto.steps);
-    }
-
-    if (dto.isDefault) {
-      await this.clearDefaultFlag(companyId, dto.entityType ?? existing.entityType);
-    }
-
-    const row = await this.prisma.unscoped.workflowDefinition.update({
-      where: { id: definitionId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description?.trim() ?? null }
-          : {}),
-        ...(dto.triggerConfig !== undefined
-          ? {
-              triggerConfig:
-                dto.triggerConfig != null
-                  ? (dto.triggerConfig as unknown as Prisma.InputJsonValue)
-                  : Prisma.DbNull,
-            }
-          : {}),
-        ...(dto.entityType !== undefined ? { entityType: dto.entityType } : {}),
-        ...(dto.steps !== undefined
-          ? { steps: dto.steps as unknown as Prisma.InputJsonValue }
-          : {}),
-        ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
-        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-        ...(dto.effectiveFrom !== undefined
-          ? { effectiveFrom: parseDateString(dto.effectiveFrom) }
-          : {}),
-        ...(dto.effectiveTo !== undefined
-          ? {
-              effectiveTo: dto.effectiveTo
-                ? parseDateString(dto.effectiveTo)
-                : null,
-            }
-          : {}),
-      },
+    await this.prisma.unscoped.workflowDefinition.delete({ where: { id: definitionId } });
+    await this.auditService.log({
+      tenantId: company.tenantId,
+      userId: user.id,
+      action: AuditAction.delete,
+      module: 'settings',
+      recordId: definitionId,
+      oldValue: this.auditSnapshot(before),
     });
-
-    return this.toRecord(row);
   }
 
   async findEffectiveDefault(
@@ -208,47 +306,157 @@ export class WorkflowDefinitionsService {
     return pickMatchingWorkflowDefinition(records, context);
   }
 
-  private validateSteps(steps: CreateWorkflowDefinitionDto['steps']) {
-    if (!steps.length) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Workflow definition requires at least one step',
-      });
+  private normalizeOrThrow(draft: WorkflowDefinitionDraft) {
+    const result = normalizeWorkflowDefinition(draft);
+    if (!result.ok) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: result.message });
     }
-    const orders = new Set(steps.map((s) => s.order));
-    if (orders.size !== steps.length) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Workflow step order values must be unique',
-      });
-    }
+    return result.value;
   }
 
-  private async clearDefaultFlag(
-    companyId: string,
-    entityType: WorkflowEntityType,
-  ) {
-    await this.prisma.unscoped.workflowDefinition.updateMany({
-      where: { companyId, entityType, isDefault: true },
-      data: { isDefault: false },
+  /** Role steps must name a role in this tenant; the stored name takes the role's exact spelling. */
+  private async canonicalRoleSteps(
+    steps: CreateWorkflowDefinitionDto['steps'],
+  ): Promise<WorkflowDefinitionStep[]> {
+    const roleSteps = steps.filter((step) => step.assigneeType === 'role');
+    const roles = roleSteps.length
+      ? await this.prisma.scoped.role.findMany({ select: { name: true } })
+      : [];
+    const byName = new Map(roles.map((role) => [role.name.trim().toLowerCase(), role.name]));
+
+    return steps.map((step) => {
+      let roleName = step.roleName;
+      if (step.assigneeType === 'role') {
+        const match = byName.get(step.roleName.trim().toLowerCase());
+        if (!match) {
+          throw new BadRequestException({
+            code: 'VALIDATION_ERROR',
+            message: `Step ${step.order}: there is no role named "${step.roleName.trim()}"`,
+          });
+        }
+        roleName = match;
+      }
+      return {
+        order: step.order,
+        assigneeType: step.assigneeType,
+        roleName,
+        ...(step.condition
+          ? {
+              condition: {
+                type: 'amount_threshold' as const,
+                operator: step.condition.operator,
+                value: step.condition.value,
+              },
+            }
+          : {}),
+      };
     });
   }
 
-  private toRecord(row: {
-    id: string;
-    companyId: string;
-    entityType: WorkflowEntityType;
-    name: string;
-    description: string | null;
-    steps: unknown;
-    triggerConfig?: unknown;
-    isDefault: boolean;
-    isActive: boolean;
-    effectiveFrom: Date;
-    effectiveTo: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): WorkflowDefinitionRecord {
+  private async assertUniqueName(
+    companyId: string,
+    entityType: WorkflowEntityType,
+    name: string,
+    excludeId?: string,
+  ) {
+    const clash = await this.prisma.unscoped.workflowDefinition.findFirst({
+      where: {
+        companyId,
+        entityType,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `Another ${WORKFLOW_MODULE_LABELS[entityType].toLowerCase()} workflow is already called "${name}"`,
+      });
+    }
+  }
+
+  private async findOrThrow(companyId: string, definitionId: string) {
+    const row = await this.prisma.unscoped.workflowDefinition.findFirst({
+      where: { id: definitionId, companyId },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Workflow definition not found',
+      });
+    }
+    return row;
+  }
+
+  private async usageByDefinition(
+    companyId: string,
+    definitionId?: string,
+  ): Promise<Map<string, InstanceUsage>> {
+    const groups = await this.prisma.unscoped.workflowInstance.groupBy({
+      by: ['definitionId', 'status'],
+      where: {
+        companyId,
+        definitionId: definitionId ?? { not: null },
+      },
+      _count: { _all: true },
+    });
+    const usage = new Map<string, InstanceUsage>();
+    for (const group of groups) {
+      if (!group.definitionId) continue;
+      const entry = usage.get(group.definitionId) ?? { total: 0, pending: 0 };
+      entry.total += group._count._all;
+      if (group.status === WorkflowInstanceStatus.pending) entry.pending += group._count._all;
+      usage.set(group.definitionId, entry);
+    }
+    return usage;
+  }
+
+  private routingFor(rows: WorkflowDefinition[]): Map<string, WorkflowRoutingResult> {
+    return describeWorkflowRouting(
+      rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        entityType: row.entityType,
+        isDefault: row.isDefault,
+        isActive: row.isActive,
+        effectiveFrom: dateOnly(row.effectiveFrom),
+        effectiveTo: row.effectiveTo ? dateOnly(row.effectiveTo) : null,
+        triggerConfig: parseTriggerConfig(row.triggerConfig),
+      })),
+      dateOnly(new Date()),
+    );
+  }
+
+  private async toDetailedRecord(row: WorkflowDefinition): Promise<WorkflowDefinitionRecord> {
+    const [usage, peers] = await Promise.all([
+      this.usageByDefinition(row.companyId, row.id),
+      this.prisma.unscoped.workflowDefinition.findMany({
+        where: { companyId: row.companyId, entityType: row.entityType },
+      }),
+    ]);
+    return this.toRecord(row, usage.get(row.id), this.routingFor(peers).get(row.id));
+  }
+
+  private auditSnapshot(record: WorkflowDefinitionRecord): Record<string, unknown> {
+    return {
+      entityType: record.entityType,
+      name: record.name,
+      description: record.description,
+      triggerConfig: record.triggerConfig,
+      steps: record.steps,
+      isDefault: record.isDefault,
+      isActive: record.isActive,
+      effectiveFrom: record.effectiveFrom,
+      effectiveTo: record.effectiveTo,
+    };
+  }
+
+  private toRecord(
+    row: WorkflowDefinition,
+    usage: InstanceUsage = NO_USAGE,
+    routing?: WorkflowRoutingResult,
+  ): WorkflowDefinitionRecord {
     return {
       id: row.id,
       companyId: row.companyId,
@@ -259,8 +467,12 @@ export class WorkflowDefinitionsService {
       triggerConfig: parseTriggerConfig(row.triggerConfig),
       isDefault: row.isDefault,
       isActive: row.isActive,
-      effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
-      effectiveTo: row.effectiveTo?.toISOString().slice(0, 10) ?? null,
+      effectiveFrom: dateOnly(row.effectiveFrom),
+      effectiveTo: row.effectiveTo ? dateOnly(row.effectiveTo) : null,
+      instanceCount: usage.total,
+      pendingInstanceCount: usage.pending,
+      routingStatus: routing?.status ?? (row.isActive ? 'in_use' : 'inactive'),
+      routingOverriddenBy: routing?.overriddenBy ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

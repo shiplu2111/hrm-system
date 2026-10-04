@@ -53,6 +53,7 @@ class InMemoryRuleSource implements RuleSourcePort {
 describe('RuleResolverService', () => {
   const employeeContext = {
     loadEmployeeContext: jest.fn(),
+    loadCompanyContext: jest.fn(),
   };
 
   function createService(rules: EffectiveDatedRule[]): RuleResolverService {
@@ -368,6 +369,102 @@ describe('RuleResolverService', () => {
       expect(resolved.layers.find((layer) => layer.layer === 'state')).toEqual(
         expect.objectContaining({ applied: false }),
       );
+    });
+  });
+
+  describe('company default (no employee)', () => {
+    const rules: EffectiveDatedRule[] = [
+      rule({
+        id: 'aus-super',
+        layer: 'country',
+        ruleType: 'social_security',
+        effectiveFrom: parseDateOnly('2024-07-01'),
+        effectiveTo: null,
+        payload: { employerContributionRate: 11.5 },
+      }),
+      rule({
+        id: 'company-super',
+        layer: 'company',
+        ruleType: 'social_security',
+        effectiveFrom: parseDateOnly('2025-01-01'),
+        effectiveTo: parseDateOnly('2025-12-31'),
+        payload: { employerContributionRate: 12 },
+      }),
+      rule({
+        id: 'contract-super',
+        layer: 'employee_contract',
+        ruleType: 'social_security',
+        effectiveFrom: parseDateOnly('2024-07-01'),
+        effectiveTo: null,
+        payload: { employerContributionRate: 15 },
+      }),
+    ];
+
+    it('skips employee contract rules when no employee is given', async () => {
+      const resolved = await createService(rules).resolve(
+        context({
+          countryId: AUS,
+          employeeId: null,
+          calculationDate: parseDateOnly('2025-06-30'),
+        }),
+        'social_security',
+      );
+
+      expect(resolved.payload).toEqual({ employerContributionRate: 12 });
+      expect(
+        resolved.layers.find((layer) => layer.layer === 'employee_contract'),
+      ).toEqual(expect.objectContaining({ applied: false, ruleId: null }));
+    });
+
+    it('reports the effective dates of each applied version', async () => {
+      const resolved = await createService(rules).resolve(
+        context({
+          countryId: AUS,
+          employeeId: null,
+          calculationDate: parseDateOnly('2025-06-30'),
+        }),
+        'social_security',
+      );
+
+      expect(resolved.layers.find((layer) => layer.layer === 'company')).toEqual(
+        expect.objectContaining({
+          ruleId: 'company-super',
+          effectiveFrom: parseDateOnly('2025-01-01'),
+          effectiveTo: parseDateOnly('2025-12-31'),
+        }),
+      );
+      expect(resolved.layers.find((layer) => layer.layer === 'state')).toEqual(
+        expect.objectContaining({ effectiveFrom: null, effectiveTo: null }),
+      );
+    });
+
+    it('resolveForCompany loads the company context and leaves the employee out', async () => {
+      employeeContext.loadCompanyContext.mockResolvedValueOnce({
+        tenantId: TENANT,
+        companyId: COMPANY,
+        countryId: AUS,
+      });
+
+      const resolved = await createService(rules).resolveForCompany(
+        COMPANY,
+        'social_security',
+        parseDateOnly('2026-03-01'),
+      );
+
+      expect(employeeContext.loadCompanyContext).toHaveBeenCalledWith(COMPANY);
+      expect(resolved.payload).toEqual({ employerContributionRate: 11.5 });
+    });
+
+    it('resolveForCompany returns 404 for an unknown company', async () => {
+      employeeContext.loadCompanyContext.mockResolvedValueOnce(null);
+
+      await expect(
+        createService(rules).resolveForCompany(
+          COMPANY,
+          'social_security',
+          parseDateOnly('2026-03-01'),
+        ),
+      ).rejects.toThrow('Company not found');
     });
   });
 

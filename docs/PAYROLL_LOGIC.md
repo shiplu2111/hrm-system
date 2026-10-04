@@ -45,6 +45,16 @@ A fixed amount has a **pay basis** on the employee's salary structure row (`sala
 
 Tax, Loan installment, Advance recovery, Unpaid Leave, Late Deduction, Insurance, Pension/Superannuation, and admin-defined custom deductions.
 
+**Superannuation / pension** is resolved per employee from the `social_security` rule chain (§2) on the period's date:
+
+```
+base = contributionBase == "basic" ? basic_salary : gross_pay
+employer_contribution = base × employer_rate / 100   (reported, not deducted)
+employee_contribution = base × employee_rate / 100   (deducted from net pay)
+```
+
+No rate on any layer means no contribution. Accepted payload keys and their priority are listed in MODULES.md §21.
+
 ## 5. Formula Engine
 
 Admins define pay components without code changes:

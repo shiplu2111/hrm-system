@@ -4,7 +4,9 @@ import type {
   BenefitEnrollmentRecord,
   BenefitEnrollmentType,
   BenefitOpenEnrollmentPeriodRecord,
+  BenefitPlanCategory,
   BenefitPlanRecord,
+  BenefitPlanStatus,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -40,6 +42,38 @@ export const DEPENDENT_RELATIONSHIP_LABELS: Record<
   other: 'Other',
 };
 
+export const ENROLLMENT_TYPE_LABELS: Record<BenefitEnrollmentType, string> = {
+  open_enrollment: 'Open enrollment',
+  new_hire: 'New hire',
+  life_event: 'Life event',
+  admin: 'Admin enrollment',
+};
+
+export const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  active: 'Active',
+  cancelled: 'Cancelled',
+  terminated: 'Terminated',
+};
+
+export interface BenefitPlanInput {
+  name: string;
+  category: BenefitPlanCategory;
+  provider: string;
+  planTier: string;
+  description: string | null;
+  employerContributionAmount: number | null;
+  employerContributionLabel: string | null;
+  employeeContributionAmount: number;
+  employeeContributionLabel: string | null;
+  coverageLimitLabel: string | null;
+  allowsDependents: boolean;
+  maxDependents: number | null;
+  eligibleRelationships: BenefitDependentRelationship[];
+  dependentContributionAmount: number | null;
+  status: BenefitPlanStatus;
+}
+
 export interface CreateBenefitEnrollmentInput {
   employeeId: string;
   benefitPlanId: string;
@@ -72,6 +106,26 @@ export function listBenefitPlans(
   return tenantApiRequest<BenefitPlanRecord[]>(
     `/companies/${companyId}/benefit-plans`,
   );
+}
+
+export function createBenefitPlan(
+  companyId: string,
+  input: BenefitPlanInput,
+): Promise<BenefitPlanRecord> {
+  return tenantApiRequest<BenefitPlanRecord>(
+    `/companies/${companyId}/benefit-plans`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function updateBenefitPlan(
+  planId: string,
+  input: Partial<BenefitPlanInput>,
+): Promise<BenefitPlanRecord> {
+  return tenantApiRequest<BenefitPlanRecord>(`/benefit-plans/${planId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export function listBenefitOpenEnrollments(
@@ -116,6 +170,26 @@ export function addBenefitEnrollmentDependent(
 ): Promise<BenefitEnrollmentRecord> {
   return tenantApiRequest<BenefitEnrollmentRecord>(
     `/benefit-enrollments/${enrollmentId}/dependents`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function removeBenefitEnrollmentDependent(
+  enrollmentId: string,
+  dependentId: string,
+): Promise<BenefitEnrollmentRecord> {
+  return tenantApiRequest<BenefitEnrollmentRecord>(
+    `/benefit-enrollments/${enrollmentId}/dependents/${dependentId}/remove`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function cancelBenefitEnrollment(
+  enrollmentId: string,
+  input: { endDate?: string; reason?: string },
+): Promise<BenefitEnrollmentRecord> {
+  return tenantApiRequest<BenefitEnrollmentRecord>(
+    `/benefit-enrollments/${enrollmentId}/cancel`,
     { method: 'POST', body: JSON.stringify(input) },
   );
 }

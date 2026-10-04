@@ -13,7 +13,8 @@ export type RuleLayer = (typeof RULE_LAYERS)[number];
 export interface RuleResolutionContext {
   tenantId: string;
   companyId: string;
-  employeeId: string;
+  /** Null resolves the company default: the employee contract layer is skipped. */
+  employeeId: string | null;
   countryId: string;
   /** ISO-style subdivision code, e.g. NSW, CA, DHAKA */
   stateCode?: string | null;
@@ -34,6 +35,8 @@ export interface ResolvedRuleLayerTrace {
   applied: boolean;
   ruleId: string | null;
   payload: Record<string, unknown> | null;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
 }
 
 export interface ResolvedRule {

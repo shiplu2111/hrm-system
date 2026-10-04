@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -10,6 +12,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -19,6 +23,24 @@ import {
   WorkflowEntityType,
   WorkflowInstanceStatus,
 } from '@prisma/client';
+import { WORKFLOW_MAX_STEPS } from '@hrm/shared-types';
+
+const MONEY = { maxDecimalPlaces: 2 };
+const MONEY_MESSAGE = { message: '$property must be an amount with at most 2 decimal places' };
+const MAX_AMOUNT = 999_999_999_999.99;
+
+export class WorkflowStepConditionDto {
+  @IsIn(['amount_threshold'])
+  type!: 'amount_threshold';
+
+  @IsIn(['gt', 'gte'])
+  operator!: 'gt' | 'gte';
+
+  @IsNumber(MONEY, MONEY_MESSAGE)
+  @Min(0.01)
+  @Max(MAX_AMOUNT)
+  value!: number;
+}
 
 export class WorkflowDefinitionStepDto {
   @IsInt()
@@ -30,7 +52,13 @@ export class WorkflowDefinitionStepDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(100)
   roleName!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WorkflowStepConditionDto)
+  condition?: WorkflowStepConditionDto | null;
 }
 
 export class WorkflowTriggerConfigDto {
@@ -42,11 +70,14 @@ export class WorkflowTriggerConfigDto {
   operator?: 'gt' | 'gte';
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber(MONEY, MONEY_MESSAGE)
+  @Min(0.01)
+  @Max(MAX_AMOUNT)
   value?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(3)
   currency?: string;
 }
 
@@ -56,10 +87,12 @@ export class CreateWorkflowDefinitionDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   name!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   description?: string;
 
   @IsOptional()
@@ -68,6 +101,8 @@ export class CreateWorkflowDefinitionDto {
   triggerConfig?: WorkflowTriggerConfigDto;
 
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(WORKFLOW_MAX_STEPS)
   @ValidateNested({ each: true })
   @Type(() => WorkflowDefinitionStepDto)
   steps!: WorkflowDefinitionStepDto[];
@@ -85,7 +120,7 @@ export class CreateWorkflowDefinitionDto {
 
   @IsOptional()
   @IsDateString()
-  effectiveTo?: string;
+  effectiveTo?: string | null;
 }
 
 export class UpdateWorkflowDefinitionDto {
@@ -96,11 +131,13 @@ export class UpdateWorkflowDefinitionDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   name?: string;
 
   @IsOptional()
   @IsString()
-  description?: string;
+  @MaxLength(500)
+  description?: string | null;
 
   @IsOptional()
   @ValidateNested()
@@ -109,6 +146,8 @@ export class UpdateWorkflowDefinitionDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(WORKFLOW_MAX_STEPS)
   @ValidateNested({ each: true })
   @Type(() => WorkflowDefinitionStepDto)
   steps?: WorkflowDefinitionStepDto[];
@@ -127,7 +166,7 @@ export class UpdateWorkflowDefinitionDto {
 
   @IsOptional()
   @IsDateString()
-  effectiveTo?: string;
+  effectiveTo?: string | null;
 }
 
 export class ListWorkflowDefinitionsQueryDto {

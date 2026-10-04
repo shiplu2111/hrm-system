@@ -8,12 +8,13 @@ import type {
 import { PrismaService } from '../database/prisma.service';
 import { toRecordPayload } from './rule-merge.utils';
 import type {
+  CompanyRuleContext,
   EmployeeContextPort,
   EmployeeRuleContext,
   RuleSourcePort,
 } from './rule-source.interface';
 
-function extractStateCode(personalInfo: unknown): string | null {
+export function extractStateCode(personalInfo: unknown): string | null {
   if (typeof personalInfo !== 'object' || personalInfo === null) {
     return null;
   }
@@ -72,13 +73,15 @@ export class PrismaRuleSourceRepository implements RuleSourcePort {
           ruleType,
         },
       }),
-      db.employeeContractRule.findMany({
-        where: {
-          tenantId: context.tenantId,
-          employeeId: context.employeeId,
-          ruleType,
-        },
-      }),
+      context.employeeId
+        ? db.employeeContractRule.findMany({
+            where: {
+              tenantId: context.tenantId,
+              employeeId: context.employeeId,
+              ruleType,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
     return [
@@ -156,6 +159,25 @@ export class PrismaEmployeeContextRepository implements EmployeeContextPort {
       employeeId: employee.id,
       countryId: employee.company.countryId,
       stateCode: extractStateCode(employee.personalInfo),
+    };
+  }
+
+  async loadCompanyContext(
+    companyId: string,
+  ): Promise<CompanyRuleContext | null> {
+    const company = await this.prisma.scoped.company.findFirst({
+      where: { id: companyId },
+      select: { id: true, tenantId: true, countryId: true },
+    });
+
+    if (!company) {
+      return null;
+    }
+
+    return {
+      tenantId: company.tenantId,
+      companyId: company.id,
+      countryId: company.countryId,
     };
   }
 }

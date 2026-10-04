@@ -283,6 +283,23 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Benefits administration separate from superannuation: health insurance, life insurance, benefit plans
 - Enrollment / open enrollment workflow, dependent coverage
 
+**Superannuation contribution rules** (enforced by the API):
+
+- Contribution rates are a `social_security` rule resolved through the Rule Resolver: global default → country → state/province → company → employee contract. Each layer overrides only the settings it defines; payroll uses the version in effect on the calculation date.
+- The settings screen at `/payroll/superannuation` is read-only and needs `payroll:view`. It shows the company default rates for a chosen date, which layer supplied each value and the value it replaced, every rule version (in effect, scheduled, ended or superseded), and employees whose state rule or contract changes their rates. Country defaults are edited in the platform's Country Configuration; there is no tenant screen for editing company or contract overrides yet.
+- Settings read by payroll: employer rate (`employerContributionRate`, then `superannuationGuaranteeRate`, then `employerRate`), employee rate (`employeeContributionRate`, then `employeeRate`), `contributionBase` (`gross` or `basic`; anything else means gross) and scheme name (`schemeName`, then `scheme`). The first key present wins, so an alias set on a later layer is ignored if an earlier layer sets a higher-priority key; the screen flags this. Other keys are shown as "not used".
+- If no layer sets either rate, payroll calculates no superannuation. Employer contributions don't reduce net pay; employee contributions are deducted.
+
+**Benefits rules** (enforced by the API):
+
+- Plans are managed at `/payroll/benefits/plans` and each employee's cover at `/payroll/benefits/enrollments` (`?employee=` selects an employee, `?plan=` lists the employees enrolled in a plan). Viewing needs `payroll:view`; creating plans, enrolling and adding dependents need `payroll:create`; editing plans, cancelling enrollments and removing dependents need `payroll:edit`.
+- A plan is unique by name and tier within a company (case-insensitive, `409 CONFLICT`). New plans start as draft or active. A plan with enrollments cannot go back to draft or change category; deactivating it stops new enrollments but keeps existing cover until each enrollment is cancelled. Only active plans accept enrollments.
+- Costs are monthly: employee contribution, optional employer contribution, and an optional extra employee cost per covered dependent. An enrollment's employee cost = its contribution + per-dependent cost × active dependents. Payroll does not deduct benefit costs yet.
+- Each plan sets whether it covers dependents, an optional maximum (1–20), and which relationships are eligible (none selected = any). Non-life plans cover at most one spouse or domestic partner. Plan rule changes that active enrollments no longer fit are rejected (`409 CONFLICT`).
+- For life insurance, dependents are beneficiaries: each needs a share of the payout (0.01–100%), and the shares on an enrollment cannot exceed 100% in total. Shares are rejected on other plan types.
+- One active enrollment per employee per plan. Terminated employees cannot be enrolled, and cover cannot start before the hire date. Open-enrollment enrollments need an open period whose dates include today and which offers the plan; a life event enrollment needs a description of the event.
+- Cancelling takes the last day of cover (default today, never later than an existing end date); dependents' cover ends with it. If that day is before the start date, the enrollment is recorded as never having started. Removing a dependent keeps the record as cancelled. Every change is audit-logged.
+
 ## 22. Loan & Salary Advance
 
 **Phase:** Phase 2
@@ -438,6 +455,18 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Reusable workflow engine used across Leave, Expense, Payroll, Contract, etc.
 - Visual drag-and-drop workflow builder for admins
 - Configurable multi-step, conditional (e.g. amount-based) approval chains
+
+**Workflow rules** (enforced by the API):
+
+- Workflows are listed at `/settings/workflows` and edited at `/settings/workflows/new` (`?template=` or `?module=` pre-fills it) and `/settings/workflows/:definitionId`. Viewing needs `settings:view`; creating, editing and deleting need `settings:create`, `settings:edit` and `settings:delete`. Every change is audit-logged under `settings`.
+- A workflow is an ordered list of 1–10 steps. Each step is approved by the requester's manager, the manager's manager, or anyone holding a named role in the tenant (team-scoped roles only for requesters in their reporting line). The same approver can't appear twice. Role names must match an existing role.
+- How each module picks a workflow for a new request:
+  - Expense claims: the workflow with the highest amount trigger the claim passes; otherwise the default "every claim" workflow; otherwise the built-in chain (requester's manager → Accountant).
+  - Timesheets, contract renewals, job requisitions, offer letters and performance reviews: only the default workflow; otherwise the module's built-in chain.
+  - Leave requests use the approval steps on each leave policy, and payroll adjustments are not routed yet, so new workflows can't be created for either.
+- Amount rules apply only to expense claims, and compare against the claim amount as submitted, with no currency conversion. A workflow can start at an amount (over or at least X), and any step can carry its own amount condition. A conditional step is left out of the chain when the claim doesn't pass it, and the remaining steps are renumbered. At least one step must apply to every claim. For example, "Expense > 1,000 also needs the Company Owner" is either one default workflow (Manager → Accountant → Company Owner only when over 1,000) or a separate workflow that starts over 1,000.
+- One default per module. The default must apply to every request (no amount trigger) and be turned on; turning a workflow off also clears its default flag. Names are unique per module (case-insensitive, `409 CONFLICT`). The end date can't be before the start date.
+- A request keeps the steps it started with, so edits only affect new requests. A workflow that has routed any request can't change module or be deleted (`409 CONFLICT`); turn it off instead.
 
 ## 36. Accounting / GL Integration
 

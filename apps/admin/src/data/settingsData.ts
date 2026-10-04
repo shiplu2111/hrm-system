@@ -25,27 +25,6 @@ export interface NotificationChannel {
   iconName: string;
 }
 
-export interface WorkflowItem {
-  id: string;
-  name: string;
-  module: 'Leave' | 'Expense' | 'Payroll' | 'Contract' | 'Promotion';
-  trigger: string;
-  stepsCount: number;
-  active: boolean;
-  author: string;
-  lastModified: string;
-}
-
-export interface WorkflowNode {
-  id: string;
-  type: 'start' | 'approver' | 'condition' | 'action' | 'end';
-  title: string;
-  subtitle: string;
-  assigneeRole?: string;
-  conditionCriteria?: string;
-  slaHours?: number;
-}
-
 export interface LoginHistoryItem {
   id: string;
   user: string;
@@ -218,87 +197,6 @@ export const notificationChannels: NotificationChannel[] = [
     status: 'Coming Soon',
     description: 'Direct conversational check-ins, leave requests, and digital payslip delivery.',
     iconName: 'Smartphone',
-  },
-];
-
-export const workflowList: WorkflowItem[] = [
-  {
-    id: 'wf-1',
-    name: 'Standard Leave Approval Workflow (2-Tier)',
-    module: 'Leave',
-    trigger: 'Employee submits Leave Request > 2 days',
-    stepsCount: 4,
-    active: true,
-    author: 'Alex Morgan (HR Director)',
-    lastModified: '2024-08-20',
-  },
-  {
-    id: 'wf-2',
-    name: 'High-Value Expense Multi-Level Authorization',
-    module: 'Expense',
-    trigger: 'Expense claim exceeds $1,000 threshold',
-    stepsCount: 5,
-    active: true,
-    author: 'John Smith (VP Finance)',
-    lastModified: '2024-08-15',
-  },
-  {
-    id: 'wf-3',
-    name: 'Monthly Payroll Lock & Finalization Pipeline',
-    module: 'Payroll',
-    trigger: 'Payroll run reaches Step 4 (Audit)',
-    stepsCount: 4,
-    active: true,
-    author: 'Alex Morgan',
-    lastModified: '2024-08-24',
-  },
-  {
-    id: 'wf-4',
-    name: 'Employee Role Promotion & Compensation Hike',
-    module: 'Promotion',
-    trigger: 'Lifecycle Event: Promotion initiated',
-    stepsCount: 4,
-    active: true,
-    author: 'Sarah Chen (VP Eng)',
-    lastModified: '2024-07-30',
-  },
-];
-
-export const sampleWorkflowNodes: WorkflowNode[] = [
-  {
-    id: 'node-start',
-    type: 'start',
-    title: 'Start: Request Submitted',
-    subtitle: 'Event: Employee files leave request',
-  },
-  {
-    id: 'node-mgr',
-    type: 'approver',
-    title: 'Step 1: Direct Manager Review',
-    subtitle: 'Approver: Reporting Manager',
-    assigneeRole: 'Direct Reporting Manager',
-    slaHours: 24,
-  },
-  {
-    id: 'node-cond',
-    type: 'condition',
-    title: 'Condition: Leave Duration > 3 Days?',
-    subtitle: 'Branch evaluation for HR escalation',
-    conditionCriteria: 'duration_days > 3',
-  },
-  {
-    id: 'node-hr',
-    type: 'approver',
-    title: 'Step 2: HR Operations Sign-Off',
-    subtitle: 'Approver: HR Department Admin',
-    assigneeRole: 'HR Operations Lead',
-    slaHours: 48,
-  },
-  {
-    id: 'node-end',
-    type: 'end',
-    title: 'End: Approval Finalized',
-    subtitle: 'Action: Auto-update roster & leave balance',
   },
 ];
 

@@ -9,7 +9,10 @@ import {
   type WorkflowTransitionResult,
 } from '../workflow/workflow-engine.service';
 import { WorkflowDefinitionsService } from '../workflow/workflow-definitions.service';
-import { policyStepsToDefinitionSteps } from '../workflow/workflow.utils';
+import {
+  applicableDefinitionSteps,
+  policyStepsToDefinitionSteps,
+} from '../workflow/workflow.utils';
 import {
   DEFAULT_EXPENSE_APPROVAL_STEPS,
   DEFAULT_EXPENSE_ROUTE_NAME,
@@ -56,6 +59,7 @@ export class ExpenseWorkflowService {
       steps: definition
         ? undefined
         : policyStepsToDefinitionSteps([...DEFAULT_EXPENSE_APPROVAL_STEPS]),
+      context: { amount: input.amount },
     });
   }
 
@@ -146,7 +150,7 @@ export class ExpenseWorkflowService {
         definitionId: definition.id,
         name: definition.name,
         source: 'workflow_builder',
-        steps: definition.steps,
+        steps: applicableDefinitionSteps(definition.steps, { amount }),
       };
     }
     return {

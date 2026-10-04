@@ -10,14 +10,18 @@ export interface RuleSourcePort {
   ): Promise<EffectiveDatedRule[]>;
 }
 
-export interface EmployeeRuleContext {
+export interface CompanyRuleContext {
   tenantId: string;
   companyId: string;
-  employeeId: string;
   countryId: string;
+}
+
+export interface EmployeeRuleContext extends CompanyRuleContext {
+  employeeId: string;
   stateCode: string | null;
 }
 
 export interface EmployeeContextPort {
   loadEmployeeContext(employeeId: string): Promise<EmployeeRuleContext | null>;
+  loadCompanyContext(companyId: string): Promise<CompanyRuleContext | null>;
 }

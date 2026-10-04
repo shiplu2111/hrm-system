@@ -2828,6 +2828,12 @@ model BenefitPlan {
   employeeContributionAmount Decimal             @default(0) @map("employee_contribution_amount") @db.Decimal(14, 2)
   employeeContributionLabel  String?             @map("employee_contribution_label")
   coverageLimitLabel         String?             @map("coverage_limit_label")
+  /// For life insurance the "dependents" are the nominated beneficiaries.
+  allowsDependents            Boolean                        @default(true) @map("allows_dependents")
+  maxDependents               Int?                           @map("max_dependents")
+  /// Empty means any relationship is eligible.
+  eligibleRelationships       BenefitDependentRelationship[] @default([]) @map("eligible_relationships")
+  dependentContributionAmount Decimal?                       @map("dependent_contribution_amount") @db.Decimal(14, 2)
   status                     BenefitPlanStatus   @default(draft)
   createdAt                  DateTime            @default(now()) @map("created_at")
   updatedAt                  DateTime            @updatedAt @map("updated_at")

@@ -32,10 +32,9 @@ export class PerformanceReviewWorkflowService {
       return this.workflowEngine.toRecord(existing);
     }
 
-    const definition = await this.definitionsService.findMatchingDefinition(
+    const definition = await this.definitionsService.findEffectiveDefault(
       input.companyId,
       'performance_review',
-      {},
     );
 
     return this.workflowEngine.startInstance({

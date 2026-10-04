@@ -61,6 +61,9 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'payment-batches': '/payroll/payment-batches',
   'tax-profiles': '/payroll/tax-profiles',
   benefits: '/payroll/benefits',
+  'benefit-plans': '/payroll/benefits/plans',
+  'benefit-enrollments': '/payroll/benefits/enrollments',
+  superannuation: '/payroll/superannuation',
   loans: '/payroll/loans',
   'loan-detail': '/payroll/loans/:loanId',
   expenses: '/payroll/expenses',
@@ -85,6 +88,7 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'settings-hub': '/settings',
   'settings-notifications': '/settings/notifications',
   'settings-workflows': '/settings/workflows',
+  'settings-workflow-builder': '/settings/workflows/new',
   'settings-security': '/settings/security',
   'audit-log': '/settings/audit-log',
   'settings-integrations': '/settings/integrations',
@@ -149,6 +153,10 @@ const DYNAMIC_ROUTES: Array<{
     pattern: /^\/payroll\/expenses\/([0-9a-f-]{36})$/i,
     resolve: () => ({ page: 'expense-detail' }),
   },
+  {
+    pattern: /^\/settings\/workflows\/([0-9a-f-]{36})$/i,
+    resolve: () => ({ page: 'settings-workflow-builder' }),
+  },
 ];
 
 export function pathForPage(
@@ -159,6 +167,7 @@ export function pathForPage(
     applicationId?: string | null;
     loanId?: string | null;
     claimId?: string | null;
+    definitionId?: string | null;
   },
 ): string {
   const template = PAGE_PATHS[page];
@@ -188,6 +197,9 @@ export function pathForPage(
   if (page === 'expense-detail' && params?.claimId) {
     return `/payroll/expenses/${params.claimId}`;
   }
+  if (page === 'settings-workflow-builder' && params?.definitionId) {
+    return `/settings/workflows/${params.definitionId}`;
+  }
 
   return template;
 }
@@ -216,6 +228,7 @@ const RECORD_PARENT: Partial<Record<PageKey, PageKey>> = {
   'offer-letter': 'recruitment',
   'loan-detail': 'loans',
   'expense-detail': 'expenses',
+  'settings-workflow-builder': 'settings-workflows',
 };
 
 /** The list page for a URL that names a specific record; null when the URL names no record. */
