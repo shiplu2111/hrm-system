@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { WorkflowInstanceRecord } from '@hrm/shared-types';
+import type { WorkflowApprovalRoute, WorkflowInstanceRecord } from '@hrm/shared-types';
 import { getCurrentWorkflowStep } from '../workflow/workflow.utils';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { PrismaService } from '../database/prisma.service';
 import {
   WorkflowEngineService,
   type WorkflowAuditContext,
@@ -9,11 +10,15 @@ import {
 } from '../workflow/workflow-engine.service';
 import { WorkflowDefinitionsService } from '../workflow/workflow-definitions.service';
 import { policyStepsToDefinitionSteps } from '../workflow/workflow.utils';
-import { DEFAULT_EXPENSE_APPROVAL_STEPS } from './expense.utils';
+import {
+  DEFAULT_EXPENSE_APPROVAL_STEPS,
+  DEFAULT_EXPENSE_ROUTE_NAME,
+} from './expense.utils';
 
 @Injectable()
 export class ExpenseWorkflowService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly workflowEngine: WorkflowEngineService,
     private readonly definitionsService: WorkflowDefinitionsService,
   ) {}
@@ -119,6 +124,71 @@ export class ExpenseWorkflowService {
   async findForClaim(claimId: string): Promise<WorkflowInstanceRecord | null> {
     const row = await this.workflowEngine.findByEntity('expense_claim', claimId);
     return row ? this.workflowEngine.toRecord(row) : null;
+  }
+
+  async findForClaims(claimIds: string[]): Promise<Map<string, WorkflowInstanceRecord>> {
+    if (claimIds.length === 0) return new Map();
+    const rows = await this.prisma.unscoped.workflowInstance.findMany({
+      where: { entityType: 'expense_claim', entityId: { in: claimIds } },
+    });
+    return new Map(rows.map((row) => [row.entityId, this.workflowEngine.toRecord(row)]));
+  }
+
+  /** Chain a claim of this amount would follow if submitted now. */
+  async previewRoute(companyId: string, amount: number): Promise<WorkflowApprovalRoute> {
+    const definition = await this.definitionsService.findMatchingDefinition(
+      companyId,
+      'expense_claim',
+      { amount },
+    );
+    if (definition) {
+      return {
+        definitionId: definition.id,
+        name: definition.name,
+        source: 'workflow_builder',
+        steps: definition.steps,
+      };
+    }
+    return {
+      definitionId: null,
+      name: DEFAULT_EXPENSE_ROUTE_NAME,
+      source: 'system_default',
+      steps: policyStepsToDefinitionSteps([...DEFAULT_EXPENSE_APPROVAL_STEPS]),
+    };
+  }
+
+  /** Route each submitted claim actually went through, keyed by workflow instance id. */
+  async resolveRoutes(
+    workflows: WorkflowInstanceRecord[],
+  ): Promise<Map<string, WorkflowApprovalRoute>> {
+    const definitionIds = [
+      ...new Set(workflows.map((w) => w.definitionId).filter((id): id is string => !!id)),
+    ];
+    const definitions = definitionIds.length
+      ? await this.prisma.unscoped.workflowDefinition.findMany({
+          where: { id: { in: definitionIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameOf = new Map(definitions.map((d) => [d.id, d.name]));
+
+    return new Map(
+      workflows.map((workflow) => [
+        workflow.id,
+        {
+          definitionId: workflow.definitionId,
+          name:
+            (workflow.definitionId && nameOf.get(workflow.definitionId)) ||
+            DEFAULT_EXPENSE_ROUTE_NAME,
+          source: workflow.definitionId ? 'workflow_builder' : 'system_default',
+          steps: workflow.steps.map(({ order, assigneeType, roleName }) => ({
+            order,
+            assigneeType,
+            roleName,
+          })),
+        },
+      ]),
+    );
   }
 
   getCurrentStep(instance: WorkflowInstanceRecord) {

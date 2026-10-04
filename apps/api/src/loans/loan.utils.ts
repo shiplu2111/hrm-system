@@ -83,11 +83,12 @@ export function buildInstallmentSchedule(
   return installments;
 }
 
+/** Same day of month `months` later, clamped to the month's last day (31 Jan + 1 → 28/29 Feb). */
 export function addMonthsUtc(date: Date, months: number): Date {
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + months;
-  const day = date.getUTCDate();
-  return new Date(Date.UTC(year, month, day));
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(date.getUTCDate(), lastDay)));
 }
 
 export function formatDateValue(date: Date): string {
@@ -102,8 +103,67 @@ export function parseDateString(value: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function roundMoney(value: number): number {
+export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+export type InstallmentRecovery =
+  | 'recovered'
+  | 'in_payroll'
+  | 'awaiting_run'
+  | 'upcoming'
+  | 'missed'
+  | 'manual'
+  | 'skipped';
+
+const FINAL_RUN_STATUSES = new Set(['finalized', 'paid']);
+
+/**
+ * Where an installment stands against payroll. Dates are `YYYY-MM-DD`; `run` is the employee's
+ * non-cancelled payroll run in the pay period covering the due date.
+ */
+export function classifyInstallmentRecovery(input: {
+  status: 'scheduled' | 'paid' | 'skipped';
+  dueDate: string;
+  deductFromPayroll: boolean;
+  period: { status: string } | null;
+  run: { status: string } | null;
+  today: string;
+}): InstallmentRecovery {
+  if (input.status === 'paid') return 'recovered';
+  if (input.status === 'skipped') return 'skipped';
+  if (!input.deductFromPayroll) return 'manual';
+
+  if (input.run) {
+    return FINAL_RUN_STATUSES.has(input.run.status) ? 'missed' : 'in_payroll';
+  }
+  if (input.period) {
+    return input.period.status === 'closed' ? 'missed' : 'awaiting_run';
+  }
+  return input.dueDate < input.today ? 'missed' : 'upcoming';
+}
+
+/** The latest-starting period whose dates cover `date` (periods may overlap after corrections). */
+export function findCoveringPeriod<T extends { startDate: string; endDate: string }>(
+  periods: T[],
+  date: string,
+): T | null {
+  let match: T | null = null;
+  for (const period of periods) {
+    if (period.startDate <= date && date <= period.endDate) {
+      if (!match || period.startDate > match.startDate) match = period;
+    }
+  }
+  return match;
+}
+
+export type PeriodDeductionState = 'recovered' | 'pending' | 'missed';
+
+/** A pay period's share of a loan: fully recovered, partly missed, or still to be deducted. */
+export function periodDeductionState(recoveries: InstallmentRecovery[]): PeriodDeductionState {
+  if (recoveries.every((r) => r === 'recovered')) return 'recovered';
+  if (recoveries.some((r) => r === 'missed')) return 'missed';
+  return 'pending';
 }
 
 export function buildLoanReferenceNumber(

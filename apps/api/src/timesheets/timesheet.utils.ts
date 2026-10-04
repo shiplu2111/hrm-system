@@ -8,6 +8,8 @@ export const DEFAULT_TIMESHEET_APPROVAL_STEPS = [
   { roleName: 'Manager' },
 ] as const;
 
+export const DEFAULT_TIMESHEET_ROUTE_NAME = 'Timesheet approval (built-in)';
+
 export function computeTimesheetHours(
   startTime: Date,
   endTime: Date,

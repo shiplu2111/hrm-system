@@ -1,33 +1,50 @@
-import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+import { ExpenseClaimStatus } from '@prisma/client';
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+const MONEY = { maxDecimalPlaces: 2 } as const;
+const MAX_LIMIT = 10_000_000;
 
 export class CreateExpenseCategoryDto {
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Category name is required' })
+  @MaxLength(80)
   name!: string;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @MaxLength(500)
   description?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  maxAmountPerClaim?: number;
+  @IsNumber(MONEY)
+  @Min(0.01)
+  @Max(MAX_LIMIT)
+  maxAmountPerClaim?: number | null;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  maxAmountPerMonth?: number;
+  @IsNumber(MONEY)
+  @Min(0.01)
+  @Max(MAX_LIMIT)
+  maxAmountPerMonth?: number | null;
 
   @IsOptional()
   @IsBoolean()
@@ -40,22 +57,30 @@ export class CreateExpenseCategoryDto {
 
 export class UpdateExpenseCategoryDto {
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsNotEmpty({ message: 'Category name is required' })
+  @MaxLength(80)
   name?: string;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
-  description?: string;
+  @MaxLength(500)
+  description?: string | null;
 
+  /** `null` removes the limit. */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber(MONEY)
+  @Min(0.01)
+  @Max(MAX_LIMIT)
   maxAmountPerClaim?: number | null;
 
+  /** `null` removes the limit. */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber(MONEY)
+  @Min(0.01)
+  @Max(MAX_LIMIT)
   maxAmountPerMonth?: number | null;
 
   @IsOptional()
@@ -69,7 +94,7 @@ export class UpdateExpenseCategoryDto {
 
 export class ListExpenseCategoriesQueryDto {
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   activeOnly?: boolean;
 }
@@ -81,20 +106,24 @@ export class CreateExpenseClaimDto {
   @IsUUID()
   categoryId!: string;
 
-  @IsNumber()
+  @IsNumber(MONEY)
   @Min(0.01)
+  @Max(MAX_LIMIT)
   amount!: number;
 
   @IsOptional()
   @IsString()
   @MinLength(3)
+  @MaxLength(3)
   currency?: string;
 
   @IsDateString()
   expenseDate!: string;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   /** When true, submits for approval immediately (requires receipt if category mandates it). */
@@ -109,18 +138,26 @@ export class ListExpenseClaimsQueryDto {
   employeeId?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsEnum(ExpenseClaimStatus)
+  status?: ExpenseClaimStatus;
 }
 
 export class ExpenseClaimActionDto {
   @IsOptional()
+  @Transform(trim)
   @IsString()
+  @MaxLength(1000)
   comment?: string;
 }
 
-export class RejectExpenseClaimDto extends ExpenseClaimActionDto {
-  @IsOptional()
+export class RejectExpenseClaimDto {
+  @Transform(trim)
   @IsString()
-  reason?: string;
+  @IsNotEmpty({ message: 'A reason is required to reject an expense claim' })
+  @MaxLength(1000)
+  reason!: string;
 }

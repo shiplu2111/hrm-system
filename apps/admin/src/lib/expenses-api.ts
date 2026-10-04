@@ -1,15 +1,20 @@
 import type {
   ExpenseCategoryRecord,
+  ExpenseClaimDetailRecord,
+  ExpenseClaimReceiptRecord,
   ExpenseClaimRecord,
   ExpenseClaimStatus,
 } from '@hrm/shared-types';
+import { fetchTenantFile, type DownloadedFile } from './download';
 import { ApiError, getTenantAccessToken, tenantApiRequest } from './tenant-api-client';
 
-export interface CreateExpenseCategoryInput {
+export interface ExpenseCategoryInput {
   name: string;
-  description?: string;
-  maxAmountPerClaim?: number;
-  maxAmountPerMonth?: number;
+  description?: string | null;
+  /** `null` removes the limit. */
+  maxAmountPerClaim?: number | null;
+  /** `null` removes the limit. */
+  maxAmountPerMonth?: number | null;
   receiptRequired?: boolean;
   isActive?: boolean;
 }
@@ -28,17 +33,15 @@ export function listExpenseCategories(
   companyId: string,
   activeOnly = true,
 ): Promise<ExpenseCategoryRecord[]> {
-  const params = new URLSearchParams();
-  if (activeOnly) params.set('activeOnly', 'true');
-  const qs = params.toString();
+  const qs = activeOnly ? '?activeOnly=true' : '';
   return tenantApiRequest<ExpenseCategoryRecord[]>(
-    `/companies/${companyId}/expense-categories${qs ? `?${qs}` : ''}`,
+    `/companies/${companyId}/expense-categories${qs}`,
   );
 }
 
 export function createExpenseCategory(
   companyId: string,
-  input: CreateExpenseCategoryInput,
+  input: ExpenseCategoryInput,
 ): Promise<ExpenseCategoryRecord> {
   return tenantApiRequest<ExpenseCategoryRecord>(
     `/companies/${companyId}/expense-categories`,
@@ -46,17 +49,32 @@ export function createExpenseCategory(
   );
 }
 
+export function updateExpenseCategory(
+  categoryId: string,
+  input: Partial<ExpenseCategoryInput>,
+): Promise<ExpenseCategoryRecord> {
+  return tenantApiRequest<ExpenseCategoryRecord>(
+    `/expense-categories/${categoryId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
 export function listExpenseClaims(
   companyId: string,
-  query?: { employeeId?: string; status?: ExpenseClaimStatus },
+  query?: { employeeId?: string; categoryId?: string; status?: ExpenseClaimStatus },
 ): Promise<ExpenseClaimRecord[]> {
   const params = new URLSearchParams();
   if (query?.employeeId) params.set('employeeId', query.employeeId);
+  if (query?.categoryId) params.set('categoryId', query.categoryId);
   if (query?.status) params.set('status', query.status);
   const qs = params.toString();
   return tenantApiRequest<ExpenseClaimRecord[]>(
     `/companies/${companyId}/expense-claims${qs ? `?${qs}` : ''}`,
   );
+}
+
+export function getExpenseClaim(claimId: string): Promise<ExpenseClaimDetailRecord> {
+  return tenantApiRequest<ExpenseClaimDetailRecord>(`/expense-claims/${claimId}`);
 }
 
 export function createExpenseClaim(
@@ -88,11 +106,18 @@ export function approveExpenseClaim(
 
 export function rejectExpenseClaim(
   claimId: string,
-  reason?: string,
+  reason: string,
 ): Promise<ExpenseClaimRecord> {
   return tenantApiRequest<ExpenseClaimRecord>(
     `/expense-claims/${claimId}/reject`,
     { method: 'POST', body: JSON.stringify({ reason }) },
+  );
+}
+
+export function cancelExpenseClaim(claimId: string): Promise<ExpenseClaimRecord> {
+  return tenantApiRequest<ExpenseClaimRecord>(
+    `/expense-claims/${claimId}/cancel`,
+    { method: 'POST' },
   );
 }
 
@@ -108,7 +133,7 @@ export function reimburseExpenseClaim(
 export async function uploadExpenseReceipt(
   claimId: string,
   file: File,
-): Promise<ExpenseClaimRecord['receipts'][number]> {
+): Promise<ExpenseClaimReceiptRecord> {
   const token = getTenantAccessToken();
   const formData = new FormData();
   formData.append('file', file);
@@ -122,7 +147,7 @@ export async function uploadExpenseReceipt(
   );
 
   const payload = (await response.json().catch(() => ({}))) as {
-    data?: ExpenseClaimRecord['receipts'][number];
+    data?: ExpenseClaimReceiptRecord;
     error?: { message?: string };
   };
 
@@ -136,13 +161,15 @@ export async function uploadExpenseReceipt(
   return payload.data!;
 }
 
-export function getExpenseReceiptFileUrl(
+/** Receipt bytes (behind the bearer token, so they're fetched rather than linked). */
+export function fetchExpenseReceipt(
   claimId: string,
-  receiptId: string,
-): Promise<{ url: string; expiresInSeconds: number }> {
-  return tenantApiRequest<{ url: string; expiresInSeconds: number }>(
-    `/expense-claims/${claimId}/receipts/${receiptId}/file-url`,
-  );
+  receipt: Pick<ExpenseClaimReceiptRecord, 'id' | 'originalName'>,
+): Promise<DownloadedFile> {
+  return fetchTenantFile(`/expense-claims/${claimId}/receipts/${receipt.id}/file`, {
+    filename: receipt.originalName,
+    errorMessage: (status) => `Could not load the receipt (${status})`,
+  });
 }
 
 export function formatReceiptSize(bytes: number): string {

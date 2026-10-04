@@ -1,20 +1,24 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { TimesheetSyncEventType } from '@prisma/client';
+import { TimesheetEntryStatus, TimesheetSyncEventType } from '@prisma/client';
 
 export class CreateTimesheetProjectDto {
   @IsString()
@@ -42,6 +46,7 @@ export class CreateTimesheetEntryDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   taskName!: string;
 
   @IsISO8601()
@@ -61,6 +66,7 @@ export class CreateTimesheetEntryDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 
   @IsOptional()
@@ -74,6 +80,10 @@ export class ListTimesheetEntriesQueryDto {
   employeeId?: string;
 
   @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
+  @IsOptional()
   @IsDateString()
   fromDate?: string;
 
@@ -82,13 +92,62 @@ export class ListTimesheetEntriesQueryDto {
   toDate?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(TimesheetEntryStatus)
+  status?: TimesheetEntryStatus;
+}
+
+export class ListTimesheetApprovalsQueryDto {
+  /** `mine` (default): entries whose current step the user can act on; `all`: every pending entry in scope. */
+  @IsOptional()
+  @IsIn(['mine', 'all'])
+  scope?: 'mine' | 'all';
+
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fromDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  toDate?: string;
 }
 
 export class TimesheetEntryActionDto {
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
+  comment?: string;
+}
+
+export class RejectTimesheetEntryDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty({ message: 'A reason is required to reject a timesheet entry' })
+  @MaxLength(1000)
+  comment!: string;
+}
+
+export class BulkTimesheetActionDto {
+  @IsIn(['approve', 'reject'])
+  action!: 'approve' | 'reject';
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsUUID('all', { each: true })
+  entryIds!: string[];
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(1000)
   comment?: string;
 }
 

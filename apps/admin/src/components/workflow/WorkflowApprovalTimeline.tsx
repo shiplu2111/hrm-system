@@ -19,6 +19,10 @@ interface WorkflowApprovalTimelineProps {
   workflow: WorkflowInstanceRecord | null;
   /** Opens Settings → Approval Workflows; hidden when omitted. */
   onConfigure?: () => void;
+  /** Record type named in the built-in chain note, e.g. "timesheet". */
+  entityLabel?: string;
+  /** Step order → name of the person who acted on it. */
+  actorNames?: Record<number, string>;
 }
 
 const ASSIGNEE_LABEL: Record<WorkflowAssigneeType, string> = {
@@ -57,7 +61,13 @@ function stepState(
 }
 
 /** Read-only view of an approval chain from the Workflow Builder and its runtime progress. */
-export function WorkflowApprovalTimeline({ route, workflow, onConfigure }: WorkflowApprovalTimelineProps) {
+export function WorkflowApprovalTimeline({
+  route,
+  workflow,
+  onConfigure,
+  entityLabel = 'offer letter',
+  actorNames,
+}: WorkflowApprovalTimelineProps) {
   const steps: Array<WorkflowInstanceStep & { state: WorkflowStepStatus | 'upcoming' }> = workflow
     ? workflow.steps.map((s) => ({ ...s, state: stepState(s, workflow) }))
     : route.steps.map((s) => ({
@@ -78,7 +88,7 @@ export function WorkflowApprovalTimeline({ route, workflow, onConfigure }: Workf
           <p className="text-xs text-muted mt-0.5">
             {route.source === 'workflow_builder'
               ? 'Configured in Approval Workflows'
-              : 'Built-in chain — no offer letter workflow is configured'}
+              : `Built-in chain — no ${entityLabel} workflow is configured`}
           </p>
         </div>
         {onConfigure ? (
@@ -119,6 +129,11 @@ export function WorkflowApprovalTimeline({ route, workflow, onConfigure }: Workf
                   Step {step.order} · {ASSIGNEE_LABEL[step.assigneeType]}
                   {step.actedAt ? ` · ${formatActedAt(step.actedAt)}` : ''}
                 </p>
+                {actorNames?.[step.order] && step.state !== 'upcoming' && step.state !== 'pending' ? (
+                  <p className="text-xs text-secondary mt-0.5">
+                    {meta.label} by {actorNames[step.order]}
+                  </p>
+                ) : null}
                 {step.state === 'pending' && step.assigneeType === 'role' ? (
                   <p className="text-xs text-secondary mt-1">
                     Any {step.roleName} can act on this step

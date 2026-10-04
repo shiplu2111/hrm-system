@@ -1,115 +1,113 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  AlertTriangle,
+  CalendarClock,
   HandCoins,
+  Hourglass,
+  Loader2,
   Plus,
   Search,
   TrendingDown,
-  Check,
-  X,
-  CreditCard,
-  Loader2,
 } from 'lucide-react';
-import { PermissionGate, usePermission } from '@hrm/portal-ui';
-import type { EmployeeLoanKind, EmployeeLoanRecord } from '@hrm/shared-types';
-import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
+import { PermissionGate, usePermissions } from '@hrm/portal-ui';
+import type { EmployeeLoanKind, EmployeeLoanRecord, EmployeeLoanStatus } from '@hrm/shared-types';
+import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select } from '@/components/ui/Form';
+import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Progress } from '@/components/ui/Progress';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { SummaryTile } from '@/components/ui/SummaryTile';
 import { Avatar } from '@/components/ui/Toggle';
 import { CompanySelector } from '@/components/org/CompanySelector';
 import { OrgPageState } from '@/components/org/OrgPageState';
+import { pathForPage } from '@/config/routes';
 import { listEmployees } from '@/lib/employees-api';
 import {
   LOAN_KIND_LABELS,
   LOAN_STATUS_LABELS,
-  approveEmployeeLoan,
   createEmployeeLoan,
   listEmployeeLoans,
-  rejectEmployeeLoan,
-  type CreateEmployeeLoanInput,
 } from '@/lib/loans-api';
+import {
+  LOAN_STATUS_FILTERS,
+  LOAN_STATUS_TONE,
+  estimateInstallment,
+  loanTitle,
+  repaidPercent,
+} from '@/lib/loan-display';
+import { formatDate, formatMoney } from '@/lib/payroll-copy';
 import { ApiError } from '@/lib/tenant-api-client';
 
-const PURPOSE_OPTIONS: { label: string; kind: EmployeeLoanKind }[] = [
-  { label: 'Emergency Advance', kind: 'salary_advance' },
-  { label: 'Home / Relocation', kind: 'loan' },
-  { label: 'Education Assistance', kind: 'loan' },
-  { label: 'Device Purchase', kind: 'loan' },
-];
+const PURPOSE_SUGGESTIONS: Record<EmployeeLoanKind, string[]> = {
+  salary_advance: ['Emergency Advance', 'Medical Advance', 'Festival Advance'],
+  loan: ['Home / Relocation', 'Education Assistance', 'Device Purchase', 'Vehicle Loan'],
+};
 
-function calculateEmi(
-  amount: number,
-  interest: number,
-  tenor: number,
-): number {
-  if (tenor <= 0) return 0;
-  const total = interest > 0 ? amount * (1 + interest / 100) : amount;
-  return Math.round((total / tenor) * 100) / 100;
-}
+const thClass = 'text-left px-3 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider';
 
-function statusTone(
-  status: EmployeeLoanRecord['status'],
-): 'success' | 'warning' | 'error' | 'neutral' | 'accent' {
-  switch (status) {
-    case 'active':
-      return 'success';
-    case 'pending_approval':
-      return 'warning';
-    case 'fully_paid':
-      return 'accent';
-    case 'rejected':
-    case 'cancelled':
-      return 'neutral';
-    default:
-      return 'neutral';
-  }
+type EmployeeOption = { id: string; fullName: string; employeeNumber: string };
+
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.message : fallback;
 }
 
 function LoansContent({ companyId }: { companyId: string }) {
+  const routerNavigate = useNavigate();
+  const { user, can } = usePermissions();
+  const canApprove = can('payroll', 'approve');
+  const [params, setParams] = useSearchParams();
+
+  const statusParam = params.get('status');
+  const statusFilter = (LOAN_STATUS_FILTERS.some((f) => f.value === statusParam) ? statusParam : 'all') as
+    | EmployeeLoanStatus
+    | 'all';
+  const kindFilter = (params.get('kind') ?? '') as EmployeeLoanKind | '';
+  const employeeFilter = params.get('employee') ?? '';
+
   const [loans, setLoans] = useState<EmployeeLoanRecord[]>([]);
-  const [employees, setEmployees] = useState<
-    { id: string; fullName: string; employeeNumber: string }[]
-  >([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [actionId, setActionId] = useState<string | null>(null);
-  const canApprove = usePermission('payroll', 'approve');
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const [employeeId, setEmployeeId] = useState('');
-  const [purposeIndex, setPurposeIndex] = useState(0);
-  const [amount, setAmount] = useState(3000);
-  const [interest, setInterest] = useState(0);
-  const [tenor, setTenor] = useState(6);
-
-  const purpose = PURPOSE_OPTIONS[purposeIndex] ?? PURPOSE_OPTIONS[0];
-  const calculatedEmi = calculateEmi(amount, interest, tenor);
+  const updateParams = useCallback(
+    (changes: Record<string, string | null>) => {
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          for (const [key, value] of Object.entries(changes)) {
+            if (value) next.set(key, value);
+            else next.delete(key);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [loanRows, employeeRows] = await Promise.all([
-        listEmployeeLoans(companyId),
-        listEmployees(companyId),
-      ]);
+      const [loanRows, employeeRows] = await Promise.all([listEmployeeLoans(companyId), listEmployees(companyId)]);
       setLoans(loanRows);
       setEmployees(
-        employeeRows.map((e) => ({
-          id: e.id,
-          fullName: `${e.firstName} ${e.lastName}`.trim(),
-          employeeNumber: e.employeeNumber,
-        })),
+        employeeRows
+          .map((e) => ({
+            id: e.id,
+            fullName: `${e.firstName} ${e.lastName}`.trim(),
+            employeeNumber: e.employeeNumber,
+          }))
+          .sort((a, b) => a.fullName.localeCompare(b.fullName)),
       );
-      setEmployeeId((current) => current || employeeRows[0]?.id || '');
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : 'Failed to load loans',
-      );
+      setError(errorText(err, 'Failed to load loans'));
     } finally {
       setLoading(false);
     }
@@ -119,84 +117,50 @@ function LoansContent({ companyId }: { companyId: string }) {
     void loadData();
   }, [loadData]);
 
-  const filteredLoans = useMemo(() => {
-    const q = search.toLowerCase();
-    return loans.filter(
+  const scoped = useMemo(
+    () =>
+      loans.filter(
+        (l) => (!kindFilter || l.loanKind === kindFilter) && (!employeeFilter || l.employeeId === employeeFilter),
+      ),
+    [loans, kindFilter, employeeFilter],
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: scoped.length };
+    for (const loan of scoped) counts[loan.status] = (counts[loan.status] ?? 0) + 1;
+    return counts;
+  }, [scoped]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return scoped.filter(
       (l) =>
-        (l.employeeName ?? '').toLowerCase().includes(q) ||
-        (l.employeeNumber ?? '').toLowerCase().includes(q) ||
-        (l.purposeLabel ?? '').toLowerCase().includes(q) ||
-        l.referenceNumber.toLowerCase().includes(q),
+        (statusFilter === 'all' || l.status === statusFilter) &&
+        (!q ||
+          (l.employeeName ?? '').toLowerCase().includes(q) ||
+          (l.employeeNumber ?? '').toLowerCase().includes(q) ||
+          (l.purposeLabel ?? '').toLowerCase().includes(q) ||
+          l.referenceNumber.toLowerCase().includes(q)),
     );
-  }, [loans, search]);
+  }, [scoped, statusFilter, search]);
 
-  const totalOutstanding = loans
-    .filter((l) => l.status === 'active')
-    .reduce((s, l) => s + l.remainingBalance, 0);
+  const totals = useMemo(() => {
+    const active = scoped.filter((l) => l.status === 'active');
+    const pending = scoped.filter((l) => l.status === 'pending_approval');
+    return {
+      outstanding: active.reduce((s, l) => s + l.remainingBalance, 0),
+      activeCount: active.length,
+      monthly: active.filter((l) => l.deductFromPayroll).reduce((s, l) => s + l.monthlyInstallment, 0),
+      pendingCount: pending.length,
+      pendingAmount: pending.reduce((s, l) => s + l.principalAmount, 0),
+      pastDueCount: active.reduce((s, l) => s + l.overdueInstallments, 0),
+      pastDueAmount: active.reduce((s, l) => s + l.overdueAmount, 0),
+    };
+  }, [scoped]);
 
-  const monthlyRecovered = loans
-    .filter((l) => l.status === 'active')
-    .reduce((s, l) => s + l.monthlyInstallment, 0);
-
-  const pendingCount = loans.filter(
-    (l) => l.status === 'pending_approval',
-  ).length;
-
-  const handleCreateLoan = async () => {
-    if (!employeeId) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const input: CreateEmployeeLoanInput = {
-        employeeId,
-        loanKind: purpose.kind,
-        purposeLabel: purpose.label,
-        principalAmount: amount,
-        interestRatePercent: interest,
-        tenorMonths: tenor,
-        deductFromPayroll: true,
-      };
-      await createEmployeeLoan(companyId, input);
-      setModalOpen(false);
-      await loadData();
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : 'Failed to create loan request',
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleApprove = async (loanId: string) => {
-    setActionId(loanId);
-    setError(null);
-    try {
-      await approveEmployeeLoan(loanId);
-      await loadData();
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : 'Failed to approve loan',
-      );
-    } finally {
-      setActionId(null);
-    }
-  };
-
-  const handleReject = async (loanId: string) => {
-    setActionId(loanId);
-    setError(null);
-    try {
-      await rejectEmployeeLoan(loanId);
-      await loadData();
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : 'Failed to reject loan',
-      );
-    } finally {
-      setActionId(null);
-    }
-  };
+  const openLoan = (loanId: string) => routerNavigate(pathForPage('loan-detail', { loanId }));
+  const isOwn = (loan: EmployeeLoanRecord) => !!user?.employeeId && user.employeeId === loan.employeeId;
+  const hasFilters = !!kindFilter || !!employeeFilter;
 
   if (loading) {
     return (
@@ -208,363 +172,511 @@ function LoansContent({ companyId }: { companyId: string }) {
   }
 
   return (
-    <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="p-4 lg:p-6 space-y-5 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">
-            Loans & Salary Advances
-          </h1>
+          <h1 className="text-xl font-bold text-primary">Loans & Salary Advances</h1>
           <p className="text-sm text-secondary mt-0.5">
-            Manage company loans, salary advance requests, and automatic monthly
-            EMI payroll recoveries.
+            Requests, repayment schedules and the payroll deductions that recover them.
           </p>
         </div>
         <PermissionGate module="payroll" action="create">
-          <Button variant="primary" onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4" /> Grant Loan / Advance
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New request
           </Button>
         </PermissionGate>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-error-200 bg-error-50 dark:bg-error-950/30 px-4 py-3 text-sm text-error-700 dark:text-error-300">
+      {error ? (
+        <div className="rounded-lg border border-error-200 bg-error-50 dark:bg-error-950/30 px-3 py-3 text-sm text-error-700 dark:text-error-300">
           {error}
         </div>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-primary">
-              ${totalOutstanding.toLocaleString()}
-            </div>
-            <div className="text-xs text-secondary mt-0.5">
-              Total Outstanding Loan Balance
-            </div>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 dark:text-accent-400 flex items-center justify-center">
-            <HandCoins className="h-5 w-5" />
-          </div>
+      ) : null}
+      {notice ? (
+        <div className="rounded-lg border border-success-200 bg-success-50 dark:bg-success-950/30 px-3 py-3 text-sm text-success-700 dark:text-success-300">
+          {notice}
         </div>
+      ) : null}
 
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-success-600 dark:text-success-400">
-              ${monthlyRecovered.toLocaleString()} / mo
-            </div>
-            <div className="text-xs text-secondary mt-0.5">
-              Scheduled Monthly Payroll Recovery
-            </div>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-success-50 dark:bg-success-950/40 text-success-600 dark:text-success-400 flex items-center justify-center">
-            <TrendingDown className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="surface rounded-xl border border-base shadow-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-warning-600">
-              {pendingCount}
-            </div>
-            <div className="text-xs text-secondary mt-0.5">
-              Pending Advance Requests
-            </div>
-          </div>
-          <div className="h-10 w-10 rounded-lg bg-warning-50 dark:bg-warning-950/40 text-warning-600 dark:text-warning-400 flex items-center justify-center">
-            <CreditCard className="h-5 w-5" />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <SummaryTile
+          icon={<HandCoins className="h-5 w-5" />}
+          tone="accent"
+          value={formatMoney(totals.outstanding)}
+          label="Outstanding balance"
+          hint={`${totals.activeCount} active ${totals.activeCount === 1 ? 'loan' : 'loans'}`}
+        />
+        <SummaryTile
+          icon={<TrendingDown className="h-5 w-5" />}
+          tone="success"
+          value={formatMoney(totals.monthly)}
+          label="Monthly payroll recovery"
+          hint="Scheduled installments across active loans"
+        />
+        <SummaryTile
+          icon={<Hourglass className="h-5 w-5" />}
+          tone="warning"
+          value={String(totals.pendingCount)}
+          label="Pending requests"
+          hint={totals.pendingCount ? `${formatMoney(totals.pendingAmount)} requested` : 'Nothing to review'}
+          onClick={totals.pendingCount ? () => updateParams({ status: 'pending_approval' }) : undefined}
+        />
+        <SummaryTile
+          icon={<AlertTriangle className="h-5 w-5" />}
+          tone={totals.pastDueCount ? 'error' : 'neutral'}
+          value={String(totals.pastDueCount)}
+          label="Past-due installments"
+          hint={
+            totals.pastDueCount ? `${formatMoney(totals.pastDueAmount)} not yet recovered` : 'All installments on track'
+          }
+        />
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <CardTitle>Active Loans & Installment Schedules</CardTitle>
-          <div className="relative w-64">
+      <div className="space-y-3">
+        <div className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-base">
+          {LOAN_STATUS_FILTERS.map((f) => {
+            const active = statusFilter === f.value;
+            return (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => updateParams({ status: f.value === 'all' ? null : f.value })}
+                className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? 'border-accent-600 text-accent-700 dark:text-accent-300'
+                    : 'border-transparent text-secondary hover:text-primary'
+                }`}
+              >
+                {f.label}
+                <span className="ml-1.5 rounded-full bg-[rgb(var(--bg-muted))] px-1.5 text-xs text-muted">
+                  {statusCounts[f.value] ?? 0}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-44">
+            <Select
+              aria-label="Type"
+              value={kindFilter}
+              onChange={(e) => updateParams({ kind: e.target.value || null })}
+              className="h-9 text-sm"
+            >
+              <option value="">All types</option>
+              <option value="loan">{LOAN_KIND_LABELS.loan}</option>
+              <option value="salary_advance">{LOAN_KIND_LABELS.salary_advance}</option>
+            </Select>
+          </div>
+          <div className="w-52">
+            <Select
+              aria-label="Employee"
+              value={employeeFilter}
+              onChange={(e) => updateParams({ employee: e.target.value || null })}
+              className="h-9 text-sm"
+            >
+              <option value="">All employees</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="relative w-60">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search loans by employee, ID..."
-              className="pl-8 text-xs h-8"
+              placeholder="Search reference, employee…"
+              className="pl-8 h-9 text-sm"
             />
           </div>
-        </CardHeader>
-        <CardBody className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Loan ID / Staff
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Principal & Interest
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Monthly EMI
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Repayment Progress
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {filteredLoans.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-5 py-8 text-center text-secondary text-sm"
-                    >
-                      No loans found. Create a loan or advance request to get
-                      started.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredLoans.map((loan) => {
-                    const progressPct =
-                      loan.installmentsTotal > 0
-                        ? Math.round(
-                            (loan.installmentsPaid / loan.installmentsTotal) *
-                              100,
-                          )
-                        : 0;
-                    const displayName =
-                      loan.employeeName ?? 'Unknown employee';
-                    const isBusy = actionId === loan.id;
+          {hasFilters ? (
+            <Button variant="ghost" size="sm" onClick={() => updateParams({ kind: null, employee: null })}>
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
+      <Card>
+        <CardBody className="p-0">
+          {visible.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <p className="text-sm font-medium text-primary">No requests match</p>
+              <p className="mt-1 text-sm text-secondary">
+                {loans.length === 0
+                  ? 'Create a loan or salary advance request to get started.'
+                  : 'Try another status tab or clear the filters.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
+                    <th className={thClass}>Request</th>
+                    <th className={thClass}>Employee</th>
+                    <th className={thClass}>Amount</th>
+                    <th className={`${thClass} hidden 2xl:table-cell`}>Repayment</th>
+                    <th className={thClass}>Next deduction</th>
+                    <th className={thClass}>Status</th>
+                    <th className="px-3 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                  {visible.map((loan) => {
+                    const scheduled = loan.status === 'active' || loan.status === 'fully_paid';
                     return (
                       <tr
                         key={loan.id}
-                        className="hover:bg-[rgb(var(--bg-hover))] transition-colors"
+                        onClick={() => openLoan(loan.id)}
+                        className="cursor-pointer hover:bg-[rgb(var(--bg-hover))] transition-colors"
                       >
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-3">
-                            <Avatar name={displayName} size="sm" />
-                            <div>
-                              <div className="font-semibold text-primary text-sm">
-                                {displayName}
-                              </div>
-                              <div className="text-xs text-muted font-mono">
-                                {loan.referenceNumber} ·{' '}
-                                {loan.employeeNumber ?? loan.employeeId}
-                              </div>
+                        <td className="px-3 py-3">
+                          <div className="font-medium text-primary">{loanTitle(loan)}</div>
+                          <div className="text-xs text-muted whitespace-nowrap">
+                            <span className="font-mono">{loan.referenceNumber}</span> ·{' '}
+                            {LOAN_KIND_LABELS[loan.loanKind]}
+                          </div>
+                          <div className="text-xs text-muted">Requested {formatDate(loan.createdAt)}</div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <Avatar name={loan.employeeName ?? 'Employee'} size="sm" />
+                            <div className="min-w-0">
+                              <div className="font-medium text-primary truncate">{loan.employeeName}</div>
+                              <div className="text-xs text-muted">{loan.employeeNumber}</div>
                             </div>
                           </div>
                         </td>
-
-                        <td className="px-5 py-3.5 text-xs text-primary font-medium">
-                          {loan.purposeLabel ??
-                            LOAN_KIND_LABELS[loan.loanKind]}
-                        </td>
-
-                        <td className="px-5 py-3.5 text-xs">
-                          <div className="font-bold text-primary">
-                            ${loan.principalAmount.toLocaleString()}
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          <div className="font-semibold text-primary">{formatMoney(loan.principalAmount)}</div>
+                          <div className="text-xs text-muted">
+                            {loan.tenorMonths} × {formatMoney(loan.monthlyInstallment)}
+                            {loan.interestRatePercent > 0 ? ` · ${loan.interestRatePercent}%` : ''}
                           </div>
-                          <div className="text-[11px] text-muted">
-                            {loan.interestRatePercent}% interest ·{' '}
-                            {loan.tenorMonths} mo
-                          </div>
+                          {scheduled ? (
+                            <div className="text-xs text-secondary 2xl:hidden">
+                              {formatMoney(loan.remainingBalance)} left · {loan.installmentsPaid}/
+                              {loan.installmentsTotal} paid
+                            </div>
+                          ) : null}
                         </td>
-
-                        <td className="px-5 py-3.5 text-xs">
-                          {loan.status === 'active' ||
-                          loan.status === 'fully_paid' ? (
-                            <>
-                              <span className="font-semibold text-error-600">
-                                -${loan.monthlyInstallment} / mo
-                              </span>
-                              {loan.deductFromPayroll && (
-                                <div className="text-[10px] text-success-600 font-medium">
-                                  Auto-deducted
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-
-                        <td className="px-5 py-3.5 w-48">
-                          {loan.status === 'active' ||
-                          loan.status === 'fully_paid' ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[11px]">
+                        <td className="px-3 py-3 hidden 2xl:table-cell">
+                          {scheduled ? (
+                            <div className="min-w-[170px] space-y-1">
+                              <div className="flex items-center justify-between gap-2 whitespace-nowrap text-xs">
                                 <span className="text-muted">
-                                  {loan.installmentsPaid} of{' '}
-                                  {loan.installmentsTotal} paid
+                                  {loan.installmentsPaid}/{loan.installmentsTotal} paid
                                 </span>
-                                <span className="font-semibold text-primary">
-                                  ${loan.remainingBalance.toLocaleString()} left
+                                <span className="font-medium text-primary">
+                                  {formatMoney(loan.remainingBalance)} left
                                 </span>
                               </div>
-                              <Progress value={progressPct} />
+                              <Progress
+                                value={repaidPercent(loan)}
+                                tone={loan.status === 'fully_paid' ? 'success' : 'accent'}
+                              />
                             </div>
                           ) : (
                             <span className="text-xs text-muted">
-                              Schedule pending approval
+                              {loan.status === 'pending_approval' ? 'Scheduled on approval' : '—'}
                             </span>
                           )}
                         </td>
-
-                        <td className="px-5 py-3.5">
-                          <Badge tone={statusTone(loan.status)} dot>
-                            {LOAN_STATUS_LABELS[loan.status]}
-                          </Badge>
-                        </td>
-
-                        <td className="px-5 py-3.5 text-right">
-                          {canApprove && loan.status === 'pending_approval' ? (
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                disabled={isBusy}
-                                onClick={() => void handleApprove(loan.id)}
-                              >
-                                {isBusy ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5" />
-                                )}{' '}
-                                Approve
-                              </Button>
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                disabled={isBusy}
-                                onClick={() => void handleReject(loan.id)}
-                              >
-                                <X className="h-3.5 w-3.5" /> Reject
-                              </Button>
-                            </div>
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          {loan.status === 'active' ? (
+                            <>
+                              {loan.nextDueDate ? (
+                                <>
+                                  <div className="text-primary">{formatDate(loan.nextDueDate)}</div>
+                                  <div className="text-xs text-muted">
+                                    {loan.deductFromPayroll ? formatMoney(loan.nextDueAmount) : 'Outside payroll'}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-muted">None scheduled</div>
+                              )}
+                              {loan.overdueInstallments > 0 ? (
+                                <div className="mt-0.5 flex items-center gap-1 text-xs text-error-600">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {loan.overdueInstallments} past due · {formatMoney(loan.overdueAmount)}
+                                </div>
+                              ) : null}
+                            </>
                           ) : (
-                            <span className="text-xs text-muted font-mono">
-                              {loan.disbursedAt?.slice(0, 10) ?? '—'}
-                            </span>
+                            <span className="text-xs text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <StatusPill tone={LOAN_STATUS_TONE[loan.status]}>
+                            {LOAN_STATUS_LABELS[loan.status]}
+                          </StatusPill>
+                        </td>
+                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                          {canApprove && loan.status === 'pending_approval' && !isOwn(loan) ? (
+                            <Button size="sm" variant="primary">
+                              Review
+                            </Button>
+                          ) : (
+                            <span className="text-xs font-medium text-accent-600">View</span>
                           )}
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardBody>
       </Card>
 
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Grant Loan / Salary Advance"
-        description="Configure principal amount, repayment tenor, and automatic payroll EMI recovery."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={saving || !employeeId}
-              onClick={() => void handleCreateLoan()}
+      <CreateLoanModal
+        open={createOpen}
+        companyId={companyId}
+        employees={employees}
+        defaultEmployeeId={employeeFilter}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(record) => {
+          setCreateOpen(false);
+          setNotice(`${record.referenceNumber} was submitted for approval.`);
+          void loadData();
+        }}
+      />
+    </div>
+  );
+}
+
+function CreateLoanModal({
+  open,
+  companyId,
+  employees,
+  defaultEmployeeId,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  companyId: string;
+  employees: EmployeeOption[];
+  defaultEmployeeId: string;
+  onClose: () => void;
+  onCreated: (record: EmployeeLoanRecord) => void;
+}) {
+  const [employeeId, setEmployeeId] = useState('');
+  const [loanKind, setLoanKind] = useState<EmployeeLoanKind>('salary_advance');
+  const [purpose, setPurpose] = useState('');
+  const [amount, setAmount] = useState('');
+  const [interest, setInterest] = useState('0');
+  const [tenor, setTenor] = useState('6');
+  const [deductFromPayroll, setDeductFromPayroll] = useState(true);
+  const [notes, setNotes] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setEmployeeId(defaultEmployeeId);
+    setLoanKind('salary_advance');
+    setPurpose('');
+    setAmount('');
+    setInterest('0');
+    setTenor('6');
+    setDeductFromPayroll(true);
+    setNotes('');
+    setSubmitted(false);
+    setError(null);
+  }, [open, defaultEmployeeId]);
+
+  const principal = Number(amount);
+  const rate = Number(interest);
+  const months = Number(tenor);
+  const errors = {
+    employee: employeeId ? null : 'Choose an employee.',
+    amount: principal > 0 ? null : 'Enter an amount greater than zero.',
+    interest: rate >= 0 && rate <= 100 ? null : 'Interest must be between 0 and 100%.',
+    tenor: Number.isInteger(months) && months >= 1 && months <= 120 ? null : 'Use 1 to 120 monthly installments.',
+  };
+  const invalid = Object.values(errors).some(Boolean);
+  const installment = estimateInstallment(principal, rate, months);
+  const totalRepayable = principal > 0 ? principal + Math.round(principal * (rate / 100) * 100) / 100 : 0;
+
+  const submit = async () => {
+    setSubmitted(true);
+    if (invalid) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const record = await createEmployeeLoan(companyId, {
+        employeeId,
+        loanKind,
+        purposeLabel: purpose.trim() || undefined,
+        principalAmount: principal,
+        interestRatePercent: rate,
+        tenorMonths: months,
+        deductFromPayroll,
+        notes: notes.trim() || undefined,
+      });
+      onCreated(record);
+    } catch (err) {
+      setError(errorText(err, 'Failed to create the request'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldError = (message: string | null) =>
+    submitted && message ? <p className="mt-1 text-xs text-error-600">{message}</p> : null;
+
+  return (
+    <Modal
+      open={open}
+      onClose={saving ? () => undefined : onClose}
+      title="New loan / salary advance request"
+      description="The request is reviewed by a payroll approver; the repayment schedule is created on approval."
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void submit()} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Submit request
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="loan-employee">Employee *</Label>
+            <Select id="loan-employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+              <option value="">Select an employee</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName} ({emp.employeeNumber})
+                </option>
+              ))}
+            </Select>
+            {fieldError(errors.employee)}
+          </div>
+          <div>
+            <Label htmlFor="loan-kind">Type *</Label>
+            <Select
+              id="loan-kind"
+              value={loanKind}
+              onChange={(e) => setLoanKind(e.target.value as EmployeeLoanKind)}
             >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Submitting…
-                </>
-              ) : (
-                'Submit Request'
-              )}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Employee</Label>
-              <Select
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-              >
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.fullName} ({emp.employeeNumber})
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Loan / Advance Type</Label>
-              <Select
-                value={String(purposeIndex)}
-                onChange={(e) => setPurposeIndex(Number(e.target.value))}
-              >
-                {PURPOSE_OPTIONS.map((opt, idx) => (
-                  <option key={opt.label} value={idx}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label>Principal ($)</Label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) =>
-                  setAmount(parseFloat(e.target.value) || 0)
-                }
-              />
-            </div>
-            <div>
-              <Label>Flat Interest (%)</Label>
-              <Input
-                type="number"
-                value={interest}
-                onChange={(e) =>
-                  setInterest(parseFloat(e.target.value) || 0)
-                }
-              />
-            </div>
-            <div>
-              <Label>Tenor (Months)</Label>
-              <Input
-                type="number"
-                value={tenor}
-                onChange={(e) => setTenor(parseInt(e.target.value) || 1)}
-              />
-            </div>
-          </div>
-
-          <div className="surface border border-base rounded-xl p-4 bg-accent-50/20 dark:bg-accent-950/20 text-center space-y-1">
-            <div className="text-xs text-secondary">
-              Calculated Monthly Payroll Deduction (EMI)
-            </div>
-            <div className="text-2xl font-bold text-primary">
-              ${calculatedEmi} / month
-            </div>
-            <div className="text-[11px] text-muted">
-              After approval, EMI is auto-linked to payroll via the Loan &
-              Advance Recovery deduction component.
-            </div>
+              <option value="salary_advance">{LOAN_KIND_LABELS.salary_advance}</option>
+              <option value="loan">{LOAN_KIND_LABELS.loan}</option>
+            </Select>
           </div>
         </div>
-      </Modal>
-    </div>
+
+        <div>
+          <Label htmlFor="loan-purpose">Purpose</Label>
+          <Input
+            id="loan-purpose"
+            list="loan-purpose-options"
+            maxLength={120}
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            placeholder={PURPOSE_SUGGESTIONS[loanKind][0]}
+          />
+          <datalist id="loan-purpose-options">
+            {PURPOSE_SUGGESTIONS[loanKind].map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label htmlFor="loan-amount">Amount *</Label>
+            <Input
+              id="loan-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            {fieldError(errors.amount)}
+          </div>
+          <div>
+            <Label htmlFor="loan-interest">Flat interest (%)</Label>
+            <Input
+              id="loan-interest"
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={interest}
+              onChange={(e) => setInterest(e.target.value)}
+            />
+            {fieldError(errors.interest)}
+          </div>
+          <div>
+            <Label htmlFor="loan-tenor">Installments (months) *</Label>
+            <Input
+              id="loan-tenor"
+              type="number"
+              min={1}
+              max={120}
+              value={tenor}
+              onChange={(e) => setTenor(e.target.value)}
+            />
+            {fieldError(errors.tenor)}
+          </div>
+        </div>
+
+        <label className="flex items-start gap-2 text-sm text-primary">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-strong"
+            checked={deductFromPayroll}
+            onChange={(e) => setDeductFromPayroll(e.target.checked)}
+          />
+          <span>
+            Deduct installments from payroll
+            <span className="block text-xs text-muted">
+              Each installment is recovered by the payroll run of the pay period covering its due date.
+            </span>
+          </span>
+        </label>
+
+        <div>
+          <Label htmlFor="loan-notes">Notes</Label>
+          <Textarea id="loan-notes" rows={2} maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+
+        <div className="flex items-center gap-3 rounded-xl border border-base bg-[rgb(var(--bg-muted))] p-4">
+          <CalendarClock className="h-5 w-5 text-accent-600 shrink-0" />
+          <div className="text-sm">
+            {installment > 0 && !errors.tenor ? (
+              <>
+                <span className="font-semibold text-primary">
+                  {months} × {formatMoney(installment)}
+                </span>
+                <span className="text-secondary"> per month · {formatMoney(totalRepayable)} repayable in total</span>
+              </>
+            ) : (
+              <span className="text-secondary">Enter an amount and the number of installments to see the repayment.</span>
+            )}
+          </div>
+        </div>
+
+        {error ? (
+          <div className="rounded-lg border border-error-200 bg-error-50 px-3 py-2 text-sm text-error-700 dark:bg-error-950/30 dark:text-error-300">
+            {error}
+          </div>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 

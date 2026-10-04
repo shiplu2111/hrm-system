@@ -92,6 +92,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Overtime', page: 'overtime', hidden: true },
       { label: 'OT Rules', page: 'ot-rules', hidden: true },
       { label: 'Timesheet', page: 'timesheet' },
+      { label: 'Timesheet Approvals', page: 'timesheet-approvals' },
       { label: 'Geofence', page: 'geofence', hidden: true },
       { label: 'Devices', page: 'devices', hidden: true },
       { label: 'Attendance Methods', page: 'attendance-methods', hidden: true },
@@ -114,6 +115,7 @@ export const navGroups: NavGroup[] = [
       { label: 'Benefits & Superannuation', page: 'benefits' },
       { label: 'Loans & Advances', page: 'loans' },
       { label: 'Expense Claims', page: 'expenses' },
+      { label: 'Expense Categories & Limits', page: 'expense-categories' },
     ],
   },
   {

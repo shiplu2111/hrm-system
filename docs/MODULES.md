@@ -178,6 +178,15 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Billable vs non-billable hours
 - Timesheet approval workflow
 
+**Timesheet rules** (enforced by the API):
+
+- The admin view lives at `/attendance/timesheets` and filters by date range (this/last week, this/last month or custom), employee, project and status, with totals for billable vs non-billable hours and breakdowns by employee and by project. A start date after the end date is rejected (`400 VALIDATION_ERROR`). Viewing needs `attendance:view`; data scope limits which employees appear.
+- Submitted entries follow the company's default **Timesheet** workflow from the Workflow Builder (Settings → Approval Workflows); without one, they use the built-in single step: the employee's manager.
+- The approval queue lives at `/attendance/timesheets/approvals` (`attendance:approve`). "Awaiting me" lists the entries whose current step the user can act on; "All pending" lists every pending entry in the user's data scope.
+- Nobody can approve or reject their own entries (`403 FORBIDDEN`), even with organization-wide scope.
+- Rejecting needs a reason (max 1000 characters), which is shown to the employee. A rejected entry is closed; the employee logs the time again as a new entry.
+- Bulk approve/reject takes up to 100 entries. Each entry is processed independently and the response lists which ones succeeded and which were skipped, with the reason for each skipped entry.
+
 ## 12. Roster / Shift Management
 
 **Phase:** MVP — Phase 1
@@ -283,6 +292,17 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Automatic payroll deduction linkage
 - Remaining balance tracking
 
+**Loan & advance rules** (enforced by the API):
+
+- The request list lives at `/payroll/loans` and filters by status, type (loan or salary advance) and employee. Each request opens a detail screen at `/payroll/loans/:loanId` with the installment schedule, remaining balance and the payroll deductions grouped by pay period. Viewing needs `payroll:view`; approving or rejecting needs `payroll:approve`.
+- Interest is flat: total repayable = principal × (1 + rate%), split evenly over 1–120 monthly installments (the last installment absorbs rounding). Due dates that fall past the end of a shorter month move to that month's last day.
+- A pending request shows a projected schedule starting next month. The approver picks the first deduction date, which cannot be in the past (`400 VALIDATION_ERROR`); the default is one month from today.
+- Nobody can approve or reject their own request (`403 FORBIDDEN`).
+- Rejecting needs a reason (max 1000 characters), which is stored on the request and shown on the detail screen.
+- Payroll calculation deducts the scheduled installments whose due date falls inside the pay period. Finalizing the run marks them paid, links them to the run and reduces the remaining balance; the loan becomes fully paid when the last installment is settled.
+- Each installment shows a recovery state: recovered, in payroll (a run is in progress), awaiting run, upcoming, not recovered (past due with no deduction, or the period's run was finalized or closed without it), repaid outside payroll, or skipped.
+- Installments that pass their due date without a deduction are **not** carried into a later period automatically; the detail screen flags them so payroll can recover them manually.
+
 ## 23. Expense & Reimbursement
 
 **Phase:** Phase 2
@@ -291,6 +311,18 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Expense categories and configurable limits
 - Manager → Finance approval workflow
 - Reimbursement processing linked to payroll or direct payment
+
+**Expense rules** (enforced by the API):
+
+- The claim list lives at `/payroll/expenses` and filters by status, category and employee. Each claim opens a detail screen at `/payroll/expenses/:claimId` with the receipt viewer, the approval chain and the category limit check. Categories and limits are managed at `/payroll/expenses/categories`. Viewing needs `payroll:view`; creating claims needs `payroll:create`; managing categories needs `payroll:edit`; approving, rejecting and marking reimbursed need `payroll:approve`.
+- Submitting starts the `expense_claim` workflow whose amount trigger matches the claim (for example manager → accountant, plus company owner for high-value claims). If no definition matches, a built-in manager → accountant route is used. A draft shows the route it would follow.
+- Nobody can approve, reject or mark as reimbursed their own claim (`403 FORBIDDEN`).
+- Rejecting needs a reason (max 1000 characters), which is stored on the claim and shown on the detail screen.
+- Limits are optional per category: a per-claim maximum and a per-employee monthly maximum. The monthly total counts the employee's pending, approved and reimbursed claims in that category for the month of the expense date. The per-claim limit cannot be higher than the monthly limit. If limits change after a claim was submitted, the detail screen flags the claim as over the limit instead of blocking it.
+- Expense dates cannot be in the future. Amounts allow at most 2 decimals.
+- Receipts are PDF, JPG or PNG up to 10 MB. A claim in a category that requires a receipt cannot be submitted without one, and claims in a deactivated category cannot be submitted.
+- Category names are unique per company (`409 CONFLICT`). Category changes are audit-logged.
+- Reimbursement is a manual "mark reimbursed" step on approved claims. Payroll does **not** pick up approved expense claims automatically yet.
 
 ## 24. Employee Self-Service (ESS)
 

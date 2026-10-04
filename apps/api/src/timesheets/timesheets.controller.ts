@@ -12,9 +12,12 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  BulkTimesheetActionDto,
   CreateTimesheetEntryDto,
   CreateTimesheetProjectDto,
+  ListTimesheetApprovalsQueryDto,
   ListTimesheetEntriesQueryDto,
+  RejectTimesheetEntryDto,
   TimesheetEntryActionDto,
 } from './dto/timesheet.dto';
 import { TimesheetEntriesService } from './timesheet-entries.service';
@@ -54,6 +57,35 @@ export class TimesheetsController {
     return { data: await this.entriesService.list(companyId, query, user) };
   }
 
+  @Get('companies/:companyId/timesheet-approvals')
+  @RequirePermission('attendance', 'approve')
+  @ApiOperation({ summary: 'Pending timesheet entries the current user can review' })
+  async listApprovals(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListTimesheetApprovalsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.entriesService.listApprovals(companyId, query, user) };
+  }
+
+  @Get('companies/:companyId/timesheet-approval-route')
+  @RequirePermission('attendance', 'view')
+  @ApiOperation({ summary: 'Approval chain new timesheet submissions will follow' })
+  async getApprovalRoute(@Param('companyId', ParseUUIDPipe) companyId: string) {
+    return { data: await this.entriesService.getApprovalRoute(companyId) };
+  }
+
+  @Post('companies/:companyId/timesheet-entries/bulk-action')
+  @RequirePermission('attendance', 'approve')
+  @ApiOperation({ summary: 'Approve or reject several pending timesheet entries' })
+  async bulkAction(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: BulkTimesheetActionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.entriesService.bulkAction(companyId, dto, user) };
+  }
+
   @Post('companies/:companyId/timesheet-entries')
   @RequirePermission('attendance', 'create')
   async createEntry(
@@ -87,7 +119,7 @@ export class TimesheetsController {
   @RequirePermission('attendance', 'approve')
   async rejectEntry(
     @Param('entryId', ParseUUIDPipe) entryId: string,
-    @Body() dto: TimesheetEntryActionDto,
+    @Body() dto: RejectTimesheetEntryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return { data: await this.entriesService.reject(entryId, user, dto) };

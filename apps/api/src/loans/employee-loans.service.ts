@@ -1,17 +1,25 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
   EmployeeLoanStatus,
+  LoanInstallmentStatus,
+  PayrollRunStatus,
   Prisma,
   type EmployeeLoan,
   type LoanInstallment,
 } from '@prisma/client';
 import type {
+  EmployeeLoanDetailRecord,
   EmployeeLoanRecord,
   LoanInstallmentRecord,
+  LoanPayPeriodDeduction,
+  LoanPayPeriodRef,
+  LoanPayrollRunRef,
+  LoanScheduleRow,
 } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
@@ -19,6 +27,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { PermissionsService } from '../rbac/permissions.service';
 import type {
+  ApproveEmployeeLoanDto,
   CreateEmployeeLoanDto,
   ListEmployeeLoansQueryDto,
   RejectEmployeeLoanDto,
@@ -29,9 +38,18 @@ import {
   buildInstallmentSchedule,
   buildLoanReferenceNumber,
   calculateLoanTotals,
+  classifyInstallmentRecovery,
+  findCoveringPeriod,
   formatDateValue,
   parseDateString,
+  periodDeductionState,
+  roundMoney,
+  type InstallmentRecovery,
 } from './loan.utils';
+
+function todayUtc(): Date {
+  return parseDateString(formatDateValue(new Date()));
+}
 
 type LoanWithRelations = EmployeeLoan & {
   employee: { firstName: string; lastName: string; employeeNumber: string };
@@ -58,9 +76,8 @@ export class EmployeeLoansService {
       where: {
         companyId,
         ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(query.status
-          ? { status: query.status as EmployeeLoanStatus }
-          : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.loanKind ? { loanKind: query.loanKind } : {}),
       },
       include: this.defaultInclude(),
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
@@ -69,10 +86,10 @@ export class EmployeeLoansService {
     return rows.map((row) => this.toRecord(row));
   }
 
-  async get(loanId: string): Promise<EmployeeLoanRecord> {
+  async get(loanId: string): Promise<EmployeeLoanDetailRecord> {
     const row = await this.findOrThrow(loanId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
-    return this.toRecord(row);
+    return this.toDetailRecord(row);
   }
 
   async create(
@@ -81,6 +98,11 @@ export class EmployeeLoansService {
     user: AuthenticatedUser,
   ): Promise<EmployeeLoanRecord> {
     const employee = await this.assertEmployee(dto.employeeId, companyId);
+    if (dto.approve === true) {
+      await this.permissions.assertPermission(user, 'payroll', 'approve');
+      this.assertNotOwnLoan(dto.employeeId, user);
+      if (dto.firstDueDate) this.parseFirstDueDate(dto.firstDueDate);
+    }
     const totals = calculateLoanTotals(
       dto.principalAmount,
       dto.interestRatePercent ?? 0,
@@ -123,7 +145,6 @@ export class EmployeeLoansService {
     });
 
     if (dto.approve === true) {
-      await this.permissions.assertPermission(user, 'payroll', 'approve');
       return this.approve(row.id, user, {
         firstDueDate: dto.firstDueDate,
       });
@@ -135,10 +156,11 @@ export class EmployeeLoansService {
   async approve(
     loanId: string,
     user: AuthenticatedUser,
-    options?: { firstDueDate?: string },
+    options?: ApproveEmployeeLoanDto,
   ): Promise<EmployeeLoanRecord> {
     const existing = await this.findOrThrow(loanId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
+    this.assertNotOwnLoan(existing.employeeId, user);
 
     if (existing.status !== EmployeeLoanStatus.pending_approval) {
       throw new BadRequestException({
@@ -148,8 +170,8 @@ export class EmployeeLoansService {
     }
 
     const firstDueDate = options?.firstDueDate
-      ? parseDateString(options.firstDueDate)
-      : addMonthsUtc(new Date(), 1);
+      ? this.parseFirstDueDate(options.firstDueDate)
+      : addMonthsUtc(todayUtc(), 1);
 
     const schedule = buildInstallmentSchedule({
       principal: Number(existing.principalAmount),
@@ -215,6 +237,7 @@ export class EmployeeLoansService {
   ): Promise<EmployeeLoanRecord> {
     const existing = await this.findOrThrow(loanId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
+    this.assertNotOwnLoan(existing.employeeId, user);
 
     if (existing.status !== EmployeeLoanStatus.pending_approval) {
       throw new BadRequestException({
@@ -228,7 +251,7 @@ export class EmployeeLoansService {
       data: {
         status: EmployeeLoanStatus.rejected,
         rejectedAt: new Date(),
-        notes: dto.notes?.trim() ?? existing.notes,
+        rejectionReason: dto.reason,
       },
       include: this.defaultInclude(),
     });
@@ -239,9 +262,30 @@ export class EmployeeLoansService {
       action: 'reject',
       module: 'payroll',
       recordId: loanId,
+      newValue: { status: 'rejected', reason: dto.reason },
     });
 
     return this.toRecord(row);
+  }
+
+  private assertNotOwnLoan(employeeId: string, user: AuthenticatedUser): void {
+    if (user.employeeId && user.employeeId === employeeId) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You cannot approve or reject your own loan or advance request',
+      });
+    }
+  }
+
+  private parseFirstDueDate(value: string): Date {
+    const date = parseDateString(value.slice(0, 10));
+    if (date < todayUtc()) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'The first installment date cannot be in the past',
+      });
+    }
+    return date;
   }
 
   private async assertEmployee(employeeId: string, companyId: string) {
@@ -281,7 +325,176 @@ export class EmployeeLoansService {
     };
   }
 
+  private async toDetailRecord(row: LoanWithRelations): Promise<EmployeeLoanDetailRecord> {
+    const base = this.toRecord(row);
+    const today = formatDateValue(todayUtc());
+    const projected = row.status === EmployeeLoanStatus.pending_approval;
+
+    const drafts = projected
+      ? buildInstallmentSchedule({
+          principal: Number(row.principalAmount),
+          interestRatePercent: Number(row.interestRatePercent),
+          tenorMonths: row.tenorMonths,
+          firstDueDate: addMonthsUtc(todayUtc(), 1),
+        }).map((item) => ({
+          id: null as string | null,
+          installmentNumber: item.installmentNumber,
+          dueDate: formatDateValue(item.dueDate),
+          principalPortion: item.principalPortion,
+          interestPortion: item.interestPortion,
+          totalDue: item.totalDue,
+          status: null as LoanInstallmentStatus | null,
+          paidAt: null as string | null,
+          payrollRunId: null as string | null,
+        }))
+      : row.installments.map((item) => ({
+          id: item.id as string | null,
+          installmentNumber: item.installmentNumber,
+          dueDate: formatDateValue(item.dueDate),
+          principalPortion: Number(item.principalPortion),
+          interestPortion: Number(item.interestPortion),
+          totalDue: Number(item.totalDue),
+          status: item.status as LoanInstallmentStatus | null,
+          paidAt: item.paidAt?.toISOString() ?? null,
+          payrollRunId: item.payrollRunId,
+        }));
+
+    const { periods, runsByPeriod, runsById } = await this.loadPayrollContext(
+      row,
+      drafts.map((d) => d.dueDate),
+      drafts.flatMap((d) => (d.payrollRunId ? [d.payrollRunId] : [])),
+    );
+
+    let balance = Number(row.totalRepayable);
+    const schedule: LoanScheduleRow[] = drafts.map((draft) => {
+      balance = roundMoney(balance - draft.totalDue);
+      const linkedRun = draft.payrollRunId ? runsById.get(draft.payrollRunId) : undefined;
+      const period = linkedRun?.period ?? findCoveringPeriod(periods, draft.dueDate);
+      const run = linkedRun?.run ?? (period ? (runsByPeriod.get(period.id) ?? null) : null);
+      const recovery = projected
+        ? ('projected' as const)
+        : classifyInstallmentRecovery({
+            status: draft.status ?? 'scheduled',
+            dueDate: draft.dueDate,
+            deductFromPayroll: row.deductFromPayroll,
+            period,
+            run,
+            today,
+          });
+      return {
+        installmentId: draft.id,
+        installmentNumber: draft.installmentNumber,
+        dueDate: draft.dueDate,
+        principalPortion: draft.principalPortion,
+        interestPortion: draft.interestPortion,
+        totalDue: draft.totalDue,
+        balanceAfter: Math.max(balance, 0),
+        status: draft.status,
+        paidAt: draft.paidAt,
+        recovery,
+        payPeriod: period,
+        payrollRun: projected ? null : run,
+      };
+    });
+
+    const byPeriod = new Map<string, LoanScheduleRow[]>();
+    for (const item of schedule) {
+      if (projected || !item.payPeriod || item.recovery === 'manual' || item.recovery === 'skipped') continue;
+      const list = byPeriod.get(item.payPeriod.id) ?? [];
+      list.push(item);
+      byPeriod.set(item.payPeriod.id, list);
+    }
+    const payrollDeductions: LoanPayPeriodDeduction[] = [...byPeriod.values()]
+      .map((items) => ({
+        payPeriod: items[0].payPeriod!,
+        payrollRun: items[0].payrollRun,
+        installmentNumbers: items.map((i) => i.installmentNumber),
+        amount: roundMoney(items.reduce((sum, i) => sum + i.totalDue, 0)),
+        state: periodDeductionState(items.map((i) => i.recovery as InstallmentRecovery)),
+      }))
+      .sort((a, b) => a.payPeriod.startDate.localeCompare(b.payPeriod.startDate));
+
+    const paid = schedule.filter((i) => i.recovery === 'recovered');
+    return {
+      ...base,
+      scheduleIsProjected: projected,
+      schedule,
+      payrollDeductions,
+      principalRepaid: roundMoney(paid.reduce((sum, i) => sum + i.principalPortion, 0)),
+      interestRepaid: roundMoney(paid.reduce((sum, i) => sum + i.interestPortion, 0)),
+    };
+  }
+
+  /** Pay periods covering the due dates, and the employee's payroll run in each. */
+  private async loadPayrollContext(row: LoanWithRelations, dueDates: string[], linkedRunIds: string[]) {
+    const periods: LoanPayPeriodRef[] = [];
+    const runsByPeriod = new Map<string, LoanPayrollRunRef>();
+    const runsById = new Map<string, { run: LoanPayrollRunRef; period: LoanPayPeriodRef }>();
+    if (dueDates.length === 0) return { periods, runsByPeriod, runsById };
+
+    const sorted = [...dueDates].sort();
+    const periodRows = await this.prisma.unscoped.payrollPeriod.findMany({
+      where: {
+        companyId: row.companyId,
+        startDate: { lte: parseDateString(sorted[sorted.length - 1]) },
+        endDate: { gte: parseDateString(sorted[0]) },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+    periods.push(...periodRows.map((p) => this.toPeriodRef(p)));
+
+    const runRows = await this.prisma.unscoped.payrollRun.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          {
+            employeeId: row.employeeId,
+            payrollPeriodId: { in: periodRows.map((p) => p.id) },
+            status: { not: PayrollRunStatus.cancelled },
+          },
+          ...(linkedRunIds.length ? [{ id: { in: linkedRunIds } }] : []),
+        ],
+      },
+      include: { payrollPeriod: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const run of runRows) {
+      const ref: LoanPayrollRunRef = {
+        id: run.id,
+        status: run.status,
+        netPay: Number(run.netPay),
+        totalDeductions: Number(run.totalDeductions),
+        finalizedAt: run.finalizedAt?.toISOString() ?? null,
+      };
+      runsById.set(run.id, { run: ref, period: this.toPeriodRef(run.payrollPeriod) });
+      if (run.employeeId === row.employeeId && run.status !== PayrollRunStatus.cancelled) {
+        runsByPeriod.set(run.payrollPeriodId, ref);
+      }
+    }
+    return { periods, runsByPeriod, runsById };
+  }
+
+  private toPeriodRef(period: {
+    id: string;
+    startDate: Date;
+    endDate: Date;
+    paymentDate: Date;
+    status: LoanPayPeriodRef['status'];
+  }): LoanPayPeriodRef {
+    return {
+      id: period.id,
+      startDate: formatDateValue(period.startDate),
+      endDate: formatDateValue(period.endDate),
+      paymentDate: formatDateValue(period.paymentDate),
+      status: period.status,
+    };
+  }
+
   private toRecord(row: LoanWithRelations): EmployeeLoanRecord {
+    const today = formatDateValue(todayUtc());
+    const scheduled = row.installments.filter((i) => i.status === LoanInstallmentStatus.scheduled);
+    const next = scheduled.find((i) => formatDateValue(i.dueDate) >= today);
+    const overdue = scheduled.filter((i) => formatDateValue(i.dueDate) < today);
     return {
       id: row.id,
       tenantId: row.tenantId,
@@ -310,6 +523,11 @@ export class EmployeeLoansService {
       payComponentId: row.payComponentId,
       salaryStructureId: row.salaryStructureId,
       notes: row.notes,
+      rejectionReason: row.rejectionReason,
+      nextDueDate: next ? formatDateValue(next.dueDate) : null,
+      nextDueAmount: next ? Number(next.totalDue) : null,
+      overdueInstallments: overdue.length,
+      overdueAmount: roundMoney(overdue.reduce((sum, i) => sum + Number(i.totalDue), 0)),
       installments: row.installments.map((item) => this.toInstallmentRecord(item)),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

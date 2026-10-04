@@ -47,6 +47,7 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   overtime: '/attendance/overtime',
   'ot-rules': '/attendance/ot-rules',
   timesheet: '/attendance/timesheets',
+  'timesheet-approvals': '/attendance/timesheets/approvals',
   geofence: '/attendance/geofence',
   devices: '/attendance/devices',
   'attendance-methods': '/attendance/methods',
@@ -61,7 +62,10 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'tax-profiles': '/payroll/tax-profiles',
   benefits: '/payroll/benefits',
   loans: '/payroll/loans',
+  'loan-detail': '/payroll/loans/:loanId',
   expenses: '/payroll/expenses',
+  'expense-detail': '/payroll/expenses/:claimId',
+  'expense-categories': '/payroll/expenses/categories',
   billing: '/billing',
   assets: '/operations/assets',
   accounting: '/operations/accounting',
@@ -137,6 +141,14 @@ const DYNAMIC_ROUTES: Array<{
     pattern: /^\/payroll\/runs\/([0-9a-f-]{36})$/i,
     resolve: () => ({ page: 'payroll-runs' }),
   },
+  {
+    pattern: /^\/payroll\/loans\/([0-9a-f-]{36})$/i,
+    resolve: () => ({ page: 'loan-detail' }),
+  },
+  {
+    pattern: /^\/payroll\/expenses\/([0-9a-f-]{36})$/i,
+    resolve: () => ({ page: 'expense-detail' }),
+  },
 ];
 
 export function pathForPage(
@@ -145,6 +157,8 @@ export function pathForPage(
     employeeId?: string | null;
     contractId?: string | null;
     applicationId?: string | null;
+    loanId?: string | null;
+    claimId?: string | null;
   },
 ): string {
   const template = PAGE_PATHS[page];
@@ -167,6 +181,12 @@ export function pathForPage(
   }
   if (page === 'offer-letter' && params?.applicationId) {
     return `/employees/recruitment/offer-letter/${params.applicationId}`;
+  }
+  if (page === 'loan-detail' && params?.loanId) {
+    return `/payroll/loans/${params.loanId}`;
+  }
+  if (page === 'expense-detail' && params?.claimId) {
+    return `/payroll/expenses/${params.claimId}`;
   }
 
   return template;
@@ -194,6 +214,8 @@ const RECORD_PARENT: Partial<Record<PageKey, PageKey>> = {
   'emp-contract-detail': 'emp-contracts',
   'candidate-profile': 'recruitment',
   'offer-letter': 'recruitment',
+  'loan-detail': 'loans',
+  'expense-detail': 'expenses',
 };
 
 /** The list page for a URL that names a specific record; null when the URL names no record. */

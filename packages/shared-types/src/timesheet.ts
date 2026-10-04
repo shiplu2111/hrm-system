@@ -1,4 +1,4 @@
-import type { WorkflowInstanceRecord } from './workflow';
+import type { WorkflowApprovalRoute, WorkflowInstanceRecord } from './workflow';
 
 export type TimesheetEntryStatus =
   | 'draft'
@@ -48,8 +48,31 @@ export interface TimesheetEntryRecord {
   approvedAt: string | null;
   rejectedAt: string | null;
   workflow: WorkflowInstanceRecord | null;
+  /** Chain the entry was routed through; `null` until it is submitted. */
+  approvalRoute?: WorkflowApprovalRoute | null;
+  /** True when the current user can approve or reject the entry's current step. */
+  canAct?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type TimesheetApprovalScope = 'mine' | 'all';
+
+export interface TimesheetApprovalQueue {
+  /** Chain new submissions will follow. */
+  route: WorkflowApprovalRoute;
+  entries: TimesheetEntryRecord[];
+  /** Pending entries in scope whose current step the user can act on. */
+  awaitingMeCount: number;
+  /** All pending entries in the user's scope (excluding their own). */
+  pendingCount: number;
+}
+
+export type TimesheetBulkAction = 'approve' | 'reject';
+
+export interface TimesheetBulkActionResult {
+  succeeded: TimesheetEntryRecord[];
+  failed: Array<{ entryId: string; message: string }>;
 }
 
 export interface TimesheetSyncEventDTO {

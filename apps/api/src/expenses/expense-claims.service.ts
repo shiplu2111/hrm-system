@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import {
   type ExpenseCategory,
 } from '@prisma/client';
 import type {
+  ExpenseClaimDetailRecord,
   ExpenseClaimReceiptRecord,
   ExpenseClaimRecord,
   WorkflowInstanceRecord,
@@ -24,6 +26,7 @@ import {
   buildExpenseOutcomeVariables,
 } from '../notifications/notification.helpers';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
 import { WorkflowAssigneeService } from '../workflow/workflow-assignee.service';
@@ -39,7 +42,10 @@ import type {
 import {
   assertCategoryLimits,
   buildExpenseReferenceNumber,
+  buildLimitCheck,
   formatDateValue,
+  isFutureExpenseDate,
+  monthBounds,
   parseDateString,
   resolveExpenseDisplayStatus,
 } from './expense.utils';
@@ -49,6 +55,12 @@ type ClaimWithRelations = ExpenseClaim & {
   category: ExpenseCategory;
   receipts: ExpenseClaimReceipt[];
 };
+
+const COUNTED_STATUSES = [
+  ExpenseClaimStatus.pending_approval,
+  ExpenseClaimStatus.approved,
+  ExpenseClaimStatus.reimbursed,
+];
 
 @Injectable()
 export class ExpenseClaimsService {
@@ -61,11 +73,13 @@ export class ExpenseClaimsService {
     private readonly workflowAssignee: WorkflowAssigneeService,
     private readonly notificationEngine: NotificationEngineService,
     private readonly storageService: StorageService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async list(
     companyId: string,
     query: ListExpenseClaimsQueryDto,
+    user: AuthenticatedUser,
   ): Promise<ExpenseClaimRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
@@ -73,27 +87,51 @@ export class ExpenseClaimsService {
       where: {
         companyId,
         ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(query.status
-          ? { status: query.status as ExpenseClaimStatus }
-          : {}),
+        ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+        ...(query.status ? { status: query.status } : {}),
       },
       include: this.defaultInclude(),
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    const records: ExpenseClaimRecord[] = [];
-    for (const row of rows) {
-      const workflow = await this.expenseWorkflow.findForClaim(row.id);
-      records.push(this.toRecord(row, workflow));
-    }
-    return records;
+    return this.presentMany(rows, user);
   }
 
-  async get(claimId: string): Promise<ExpenseClaimRecord> {
+  async get(claimId: string, user: AuthenticatedUser): Promise<ExpenseClaimDetailRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
-    const workflow = await this.expenseWorkflow.findForClaim(claimId);
-    return this.toRecord(row, workflow);
+    const [record] = await this.presentMany([row], user);
+
+    const { start, end } = monthBounds(row.expenseDate);
+    const others = await this.prisma.unscoped.expenseClaim.aggregate({
+      where: {
+        employeeId: row.employeeId,
+        categoryId: row.categoryId,
+        expenseDate: { gte: start, lte: end },
+        status: { in: COUNTED_STATUSES },
+        id: { not: row.id },
+      },
+      _sum: { amount: true },
+    });
+
+    return {
+      ...record,
+      approvalRoute:
+        record.approvalRoute ??
+        (row.status === ExpenseClaimStatus.draft
+          ? await this.expenseWorkflow.previewRoute(row.companyId, Number(row.amount))
+          : null),
+      categoryReceiptRequired: row.category.receiptRequired,
+      categoryIsActive: row.category.isActive,
+      limitCheck: buildLimitCheck({
+        amount: Number(row.amount),
+        expenseDate: row.expenseDate,
+        maxAmountPerClaim: this.decimalOrNull(row.category.maxAmountPerClaim),
+        maxAmountPerMonth: this.decimalOrNull(row.category.maxAmountPerMonth),
+        otherClaimsThisMonth: Number(others._sum.amount ?? 0),
+      }),
+      stepActors: await this.loadStepActors(record.workflow),
+    };
   }
 
   async create(
@@ -110,12 +148,20 @@ export class ExpenseClaimsService {
       });
     }
 
+    const expenseDate = parseDateString(dto.expenseDate);
+    if (isFutureExpenseDate(expenseDate)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'The expense date cannot be in the future',
+      });
+    }
+
     await this.validateLimits({
       employeeId: dto.employeeId,
       categoryId: dto.categoryId,
       amount: dto.amount,
       category,
-      expenseDate: parseDateString(dto.expenseDate),
+      expenseDate,
     });
 
     const count = await this.prisma.unscoped.expenseClaim.count({
@@ -130,10 +176,10 @@ export class ExpenseClaimsService {
         employeeId: dto.employeeId,
         categoryId: dto.categoryId,
         referenceNumber,
-        expenseDate: parseDateString(dto.expenseDate),
+        expenseDate,
         amount: new Prisma.Decimal(dto.amount),
         currency: dto.currency?.trim().toUpperCase() ?? 'AUD',
-        description: dto.description?.trim() ?? null,
+        description: dto.description || null,
         status: ExpenseClaimStatus.draft,
       },
       include: this.defaultInclude(),
@@ -152,7 +198,7 @@ export class ExpenseClaimsService {
       return this.submit(row.id, user);
     }
 
-    return this.toRecord(row, null);
+    return this.present(row, user);
   }
 
   async submit(
@@ -166,6 +212,13 @@ export class ExpenseClaimsService {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Only draft claims can be submitted',
+      });
+    }
+
+    if (!row.category.isActive) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `The ${row.category.name} category has been deactivated; move the claim to another category`,
       });
     }
 
@@ -205,7 +258,7 @@ export class ExpenseClaimsService {
 
     await this.emitApprovalPending(updated, instance);
 
-    return this.toRecord(updated, instance);
+    return this.present(updated, user);
   }
 
   async approve(
@@ -215,6 +268,7 @@ export class ExpenseClaimsService {
   ): Promise<ExpenseClaimRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    this.assertNotOwnClaim(row, user, 'approve or reject');
 
     if (row.status !== ExpenseClaimStatus.pending_approval) {
       throw new BadRequestException({
@@ -226,7 +280,7 @@ export class ExpenseClaimsService {
     const transition = await this.expenseWorkflow.approve({
       claimId: row.id,
       user,
-      comment: dto.comment,
+      comment: dto.comment || null,
       audit: {
         tenantId: row.tenantId,
         module: 'expense',
@@ -254,7 +308,7 @@ export class ExpenseClaimsService {
       await this.emitApprovalPending(row, transition.instance);
     }
 
-    return this.toRecord(updated, transition.instance);
+    return this.present(updated, user);
   }
 
   async reject(
@@ -264,6 +318,7 @@ export class ExpenseClaimsService {
   ): Promise<ExpenseClaimRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    this.assertNotOwnClaim(row, user, 'approve or reject');
 
     if (row.status !== ExpenseClaimStatus.pending_approval) {
       throw new BadRequestException({
@@ -272,10 +327,10 @@ export class ExpenseClaimsService {
       });
     }
 
-    const transition = await this.expenseWorkflow.reject({
+    await this.expenseWorkflow.reject({
       claimId: row.id,
       user,
-      comment: dto.comment ?? dto.reason,
+      comment: dto.reason,
       audit: {
         tenantId: row.tenantId,
         module: 'expense',
@@ -293,14 +348,14 @@ export class ExpenseClaimsService {
       data: {
         status: ExpenseClaimStatus.rejected,
         rejectedAt: new Date(),
-        rejectionReason: dto.reason?.trim() ?? dto.comment?.trim() ?? null,
+        rejectionReason: dto.reason,
       },
       include: this.defaultInclude(),
     });
 
     await this.emitOutcome('expense.rejected', updated);
 
-    return this.toRecord(updated, transition.instance);
+    return this.present(updated, user);
   }
 
   async cancel(
@@ -320,10 +375,7 @@ export class ExpenseClaimsService {
       });
     }
 
-    const instance = await this.expenseWorkflow.findForClaim(claimId);
-    if (instance && instance.status === 'pending') {
-      await this.expenseWorkflow.cancelForClaim(claimId);
-    }
+    await this.expenseWorkflow.cancelForClaim(claimId);
 
     const updated = await this.prisma.unscoped.expenseClaim.update({
       where: { id: claimId },
@@ -337,9 +389,11 @@ export class ExpenseClaimsService {
       action: 'update',
       module: 'expense',
       recordId: claimId,
+      oldValue: { status: row.status },
+      newValue: { status: ExpenseClaimStatus.cancelled },
     });
 
-    return this.toRecord(updated, instance);
+    return this.present(updated, user);
   }
 
   async markReimbursed(
@@ -348,6 +402,7 @@ export class ExpenseClaimsService {
   ): Promise<ExpenseClaimRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    this.assertNotOwnClaim(row, user, 'mark as reimbursed');
 
     if (row.status !== ExpenseClaimStatus.approved) {
       throw new BadRequestException({
@@ -371,10 +426,10 @@ export class ExpenseClaimsService {
       action: 'approve',
       module: 'expense',
       recordId: claimId,
+      newValue: { status: ExpenseClaimStatus.reimbursed },
     });
 
-    const workflow = await this.expenseWorkflow.findForClaim(claimId);
-    return this.toRecord(updated, workflow);
+    return this.present(updated, user);
   }
 
   async uploadReceipt(
@@ -432,6 +487,30 @@ export class ExpenseClaimsService {
   }
 
   async getReceiptFileUrl(claimId: string, receiptId: string) {
+    const receipt = await this.findReceiptOrThrow(claimId, receiptId);
+    const url = await this.storageService.getUrl(receipt.fileKey, 900);
+    return { url, expiresInSeconds: 900, fileKey: receipt.fileKey };
+  }
+
+  /** Receipt bytes, checked against the claim rather than the generic storage route. */
+  async readReceiptFile(claimId: string, receiptId: string) {
+    const receipt = await this.findReceiptOrThrow(claimId, receiptId);
+    const exists = await this.storageService.exists(receipt.fileKey);
+    if (!exists) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'The receipt file is missing from storage',
+      });
+    }
+    const { buffer } = await this.storageService.read(receipt.fileKey);
+    return {
+      buffer,
+      contentType: receipt.contentType,
+      filename: receipt.originalName,
+    };
+  }
+
+  private async findReceiptOrThrow(claimId: string, receiptId: string) {
     const claim = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(claim.companyId);
 
@@ -444,9 +523,20 @@ export class ExpenseClaimsService {
         message: 'Expense receipt not found',
       });
     }
+    return receipt;
+  }
 
-    const url = await this.storageService.getUrl(receipt.fileKey, 900);
-    return { url, expiresInSeconds: 900, fileKey: receipt.fileKey };
+  private assertNotOwnClaim(
+    row: ClaimWithRelations,
+    user: AuthenticatedUser,
+    action: string,
+  ): void {
+    if (user.employeeId && user.employeeId === row.employeeId) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: `You cannot ${action} your own expense claim`,
+      });
+    }
   }
 
   private async validateLimits(input: {
@@ -457,45 +547,25 @@ export class ExpenseClaimsService {
     expenseDate: Date;
     excludeClaimId?: string;
   }) {
-    const monthStart = new Date(
-      Date.UTC(input.expenseDate.getUTCFullYear(), input.expenseDate.getUTCMonth(), 1),
-    );
-    const monthEnd = new Date(
-      Date.UTC(input.expenseDate.getUTCFullYear(), input.expenseDate.getUTCMonth() + 1, 0),
-    );
+    const { start, end } = monthBounds(input.expenseDate);
 
-    const monthlyClaims = await this.prisma.unscoped.expenseClaim.findMany({
+    const monthly = await this.prisma.unscoped.expenseClaim.aggregate({
       where: {
         employeeId: input.employeeId,
         categoryId: input.categoryId,
-        expenseDate: { gte: monthStart, lte: monthEnd },
-        status: {
-          in: [
-            ExpenseClaimStatus.pending_approval,
-            ExpenseClaimStatus.approved,
-            ExpenseClaimStatus.reimbursed,
-          ],
-        },
+        expenseDate: { gte: start, lte: end },
+        status: { in: COUNTED_STATUSES },
         ...(input.excludeClaimId ? { id: { not: input.excludeClaimId } } : {}),
       },
-      select: { amount: true },
+      _sum: { amount: true },
     });
-
-    const employeeMonthlyTotal = monthlyClaims.reduce(
-      (sum, row) => sum + Number(row.amount),
-      0,
-    );
 
     try {
       assertCategoryLimits({
         amount: input.amount,
-        maxAmountPerClaim: input.category.maxAmountPerClaim
-          ? Number(input.category.maxAmountPerClaim)
-          : null,
-        maxAmountPerMonth: input.category.maxAmountPerMonth
-          ? Number(input.category.maxAmountPerMonth)
-          : null,
-        employeeMonthlyTotal,
+        maxAmountPerClaim: this.decimalOrNull(input.category.maxAmountPerClaim),
+        maxAmountPerMonth: this.decimalOrNull(input.category.maxAmountPerMonth),
+        employeeMonthlyTotal: Number(monthly._sum.amount ?? 0),
       });
     } catch (error) {
       throw new BadRequestException({
@@ -606,10 +676,101 @@ export class ExpenseClaimsService {
     };
   }
 
+  private async present(
+    row: ClaimWithRelations,
+    user: AuthenticatedUser,
+  ): Promise<ExpenseClaimRecord> {
+    const [record] = await this.presentMany([row], user);
+    return record;
+  }
+
+  /** Adds each claim's workflow, approval route and whether `user` can act on its current step. */
+  private async presentMany(
+    rows: ClaimWithRelations[],
+    user: AuthenticatedUser,
+  ): Promise<ExpenseClaimRecord[]> {
+    const workflows = await this.expenseWorkflow.findForClaims(rows.map((row) => row.id));
+    const routes = await this.expenseWorkflow.resolveRoutes([...workflows.values()]);
+
+    const reviewable = this.permissions.hasPermission(user, 'payroll', 'approve')
+      ? rows.flatMap((row) => {
+          const workflow = workflows.get(row.id);
+          const step = workflow ? getCurrentWorkflowStep(workflow.steps) : null;
+          return row.status === ExpenseClaimStatus.pending_approval &&
+            workflow?.status === 'pending' &&
+            step &&
+            row.employeeId !== user.employeeId
+            ? [{ claimId: row.id, requesterEmployeeId: row.employeeId, step }]
+            : [];
+        })
+      : [];
+    const flags = await this.workflowAssignee.canActOnSteps(user, reviewable);
+    const canAct = new Set(reviewable.filter((_, i) => flags[i]).map((item) => item.claimId));
+
+    return rows.map((row) => {
+      const workflow = workflows.get(row.id) ?? null;
+      return {
+        ...this.toRecord(row, workflow),
+        approvalRoute: workflow ? (routes.get(workflow.id) ?? null) : null,
+        canAct: canAct.has(row.id),
+      };
+    });
+  }
+
+  private async loadStepActors(
+    workflow: WorkflowInstanceRecord | null,
+  ): Promise<Record<number, string>> {
+    if (!workflow) return {};
+    const acted = workflow.steps.filter((s) => s.actedByEmployeeId || s.actedByUserId);
+    if (acted.length === 0) return {};
+
+    const employeeIds = [
+      ...new Set(acted.map((s) => s.actedByEmployeeId).filter((id): id is string => !!id)),
+    ];
+    const userIds = [
+      ...new Set(
+        acted
+          .filter((s) => !s.actedByEmployeeId && s.actedByUserId)
+          .map((s) => s.actedByUserId!),
+      ),
+    ];
+    const [employees, users] = await Promise.all([
+      employeeIds.length
+        ? this.prisma.unscoped.employee.findMany({
+            where: { id: { in: employeeIds } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        : [],
+      userIds.length
+        ? this.prisma.unscoped.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, email: true },
+          })
+        : [],
+    ]);
+    const employeeName = new Map(
+      employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()]),
+    );
+    const userEmail = new Map(users.map((u) => [u.id, u.email]));
+
+    const actors: Record<number, string> = {};
+    for (const step of acted) {
+      const name =
+        (step.actedByEmployeeId && employeeName.get(step.actedByEmployeeId)) ||
+        (step.actedByUserId && userEmail.get(step.actedByUserId));
+      if (name) actors[step.order] = name;
+    }
+    return actors;
+  }
+
+  private decimalOrNull(value: Prisma.Decimal | null): number | null {
+    return value == null ? null : Number(value);
+  }
+
   private toRecord(
     row: ClaimWithRelations,
     workflow: WorkflowInstanceRecord | null,
-  ): ExpenseClaimRecord {
+  ): Omit<ExpenseClaimRecord, 'approvalRoute' | 'canAct'> {
     const status = row.status as ExpenseClaimRecord['status'];
     return {
       id: row.id,

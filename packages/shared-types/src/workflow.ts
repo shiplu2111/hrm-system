@@ -47,6 +47,15 @@ export interface WorkflowInstanceStep {
   comment: string | null;
 }
 
+/** Which approval chain a record goes through (Settings → Approval Workflows). */
+export interface WorkflowApprovalRoute {
+  definitionId: string | null;
+  name: string;
+  /** `system_default` when no active workflow is configured for the entity type. */
+  source: 'workflow_builder' | 'system_default';
+  steps: WorkflowDefinitionStep[];
+}
+
 export interface WorkflowDefinitionRecord {
   id: string;
   companyId: string;

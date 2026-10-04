@@ -7,6 +7,7 @@ import {
   Network,
   Calendar,
   CalendarDays,
+  ClipboardCheck,
   ClipboardList,
   Clock,
   Palmtree,
@@ -120,9 +121,15 @@ export const attendanceHub: ModuleHubConfig = {
     },
     {
       label: 'Timesheets',
-      description: 'Working hours and period summaries.',
+      description: 'Hours by employee, project, and date range.',
       page: 'timesheet',
       icon: ClipboardList,
+    },
+    {
+      label: 'Timesheet Approvals',
+      description: 'Entries waiting on your approval step.',
+      page: 'timesheet-approvals',
+      icon: ClipboardCheck,
     },
     {
       label: 'Shifts',

@@ -53,6 +53,7 @@ import { HolidayCalendarPage } from '@/pages/attendance/HolidayCalendarPage';
 import { OvertimePage } from '@/pages/attendance/OvertimePage';
 import { OTRulesPage } from '@/pages/attendance/OTRulesPage';
 import { TimesheetPage } from '@/pages/attendance/TimesheetPage';
+import { TimesheetApprovalsPage } from '@/pages/attendance/TimesheetApprovalsPage';
 import { GeofencePage } from '@/pages/attendance/GeofencePage';
 import { DevicesPage } from '@/pages/attendance/DevicesPage';
 import { AttendanceMethodsPage } from '@/pages/attendance/AttendanceMethodsPage';
@@ -68,7 +69,10 @@ import { PaymentBatchPage } from '@/pages/payroll/PaymentBatchPage';
 import { TaxProfilesPage } from '@/pages/payroll/TaxProfilesPage';
 import { BenefitsPage } from '@/pages/payroll/BenefitsPage';
 import { LoansPage } from '@/pages/payroll/LoansPage';
+import { LoanDetailPage } from '@/pages/payroll/LoanDetailPage';
 import { ExpensesPage } from '@/pages/payroll/ExpensesPage';
+import { ExpenseClaimDetailPage } from '@/pages/payroll/ExpenseClaimDetailPage';
+import { ExpenseCategoriesPage } from '@/pages/payroll/ExpenseCategoriesPage';
 import { BillingPage } from '@/pages/billing/BillingPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
@@ -137,6 +141,7 @@ function PageRoutes() {
       <Route path="/attendance/overtime" element={<OvertimePage />} />
       <Route path="/attendance/ot-rules" element={<OTRulesPage />} />
       <Route path="/attendance/timesheets" element={<TimesheetPage />} />
+      <Route path="/attendance/timesheets/approvals" element={<TimesheetApprovalsPage />} />
       <Route path="/attendance/geofence" element={<GeofencePage />} />
       <Route path="/attendance/devices" element={<DevicesPage />} />
       <Route path="/attendance/methods" element={<AttendanceMethodsPage />} />
@@ -158,7 +163,10 @@ function PageRoutes() {
       <Route path="/payroll/tax-profiles" element={<TaxProfilesPage />} />
       <Route path="/payroll/benefits" element={<BenefitsPage />} />
       <Route path="/payroll/loans" element={<LoansPage />} />
+      <Route path="/payroll/loans/:loanId" element={<LoanDetailPage />} />
       <Route path="/payroll/expenses" element={<ExpensesPage />} />
+      <Route path="/payroll/expenses/categories" element={<ExpenseCategoriesPage />} />
+      <Route path="/payroll/expenses/:claimId" element={<ExpenseClaimDetailPage />} />
 
       <Route path="/billing" element={<BillingPage />} />
       <Route path="/operations/assets" element={<AssetManagementPage />} />

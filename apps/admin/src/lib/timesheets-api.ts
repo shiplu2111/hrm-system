@@ -1,7 +1,12 @@
 import type {
+  TimesheetApprovalQueue,
+  TimesheetApprovalScope,
+  TimesheetBulkAction,
+  TimesheetBulkActionResult,
   TimesheetEntryRecord,
   TimesheetEntryStatus,
   TimesheetProjectRecord,
+  WorkflowApprovalRoute,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -24,6 +29,22 @@ export interface CreateTimesheetEntryInput {
   submit?: boolean;
 }
 
+export interface TimesheetFilters {
+  employeeId?: string;
+  projectId?: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+function toQuery(values: Record<string, string | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) params.set(key, value);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export function listTimesheetProjects(
   companyId: string,
 ): Promise<TimesheetProjectRecord[]> {
@@ -44,21 +65,25 @@ export function createTimesheetProject(
 
 export function listTimesheetEntries(
   companyId: string,
-  query?: {
-    employeeId?: string;
-    status?: TimesheetEntryStatus;
-    fromDate?: string;
-    toDate?: string;
-  },
+  query?: TimesheetFilters & { status?: TimesheetEntryStatus },
 ): Promise<TimesheetEntryRecord[]> {
-  const params = new URLSearchParams();
-  if (query?.employeeId) params.set('employeeId', query.employeeId);
-  if (query?.status) params.set('status', query.status);
-  if (query?.fromDate) params.set('fromDate', query.fromDate);
-  if (query?.toDate) params.set('toDate', query.toDate);
-  const qs = params.toString();
   return tenantApiRequest<TimesheetEntryRecord[]>(
-    `/companies/${companyId}/timesheet-entries${qs ? `?${qs}` : ''}`,
+    `/companies/${companyId}/timesheet-entries${toQuery({ ...query })}`,
+  );
+}
+
+export function listTimesheetApprovals(
+  companyId: string,
+  query?: TimesheetFilters & { scope?: TimesheetApprovalScope },
+): Promise<TimesheetApprovalQueue> {
+  return tenantApiRequest<TimesheetApprovalQueue>(
+    `/companies/${companyId}/timesheet-approvals${toQuery({ ...query })}`,
+  );
+}
+
+export function getTimesheetApprovalRoute(companyId: string): Promise<WorkflowApprovalRoute> {
+  return tenantApiRequest<WorkflowApprovalRoute>(
+    `/companies/${companyId}/timesheet-approval-route`,
   );
 }
 
@@ -93,10 +118,20 @@ export function approveTimesheetEntry(
 
 export function rejectTimesheetEntry(
   entryId: string,
-  comment?: string,
+  reason: string,
 ): Promise<TimesheetEntryRecord> {
   return tenantApiRequest<TimesheetEntryRecord>(
     `/timesheet-entries/${entryId}/reject`,
-    { method: 'POST', body: JSON.stringify({ comment }) },
+    { method: 'POST', body: JSON.stringify({ comment: reason }) },
+  );
+}
+
+export function bulkTimesheetAction(
+  companyId: string,
+  input: { action: TimesheetBulkAction; entryIds: string[]; comment?: string },
+): Promise<TimesheetBulkActionResult> {
+  return tenantApiRequest<TimesheetBulkActionResult>(
+    `/companies/${companyId}/timesheet-entries/bulk-action`,
+    { method: 'POST', body: JSON.stringify(input) },
   );
 }

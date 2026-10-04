@@ -2418,6 +2418,7 @@ model EmployeeLoan {
   payComponentId       String?            @map("pay_component_id") @db.Uuid
   salaryStructureId    String?            @map("salary_structure_id") @db.Uuid
   notes                String?
+  rejectionReason      String?            @map("rejection_reason")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 

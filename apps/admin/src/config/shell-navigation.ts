@@ -91,6 +91,7 @@ export const adminNavItems: AdminNavItem[] = [
     children: [
       { label: 'Daily Attendance', page: 'attendance' },
       { label: 'Timesheets', page: 'timesheet' },
+      { label: 'Timesheet Approvals', page: 'timesheet-approvals' },
       { label: 'Shifts', page: 'shifts' },
       { label: 'Holiday Calendar', page: 'holidays' },
     ],
@@ -118,6 +119,7 @@ export const adminNavItems: AdminNavItem[] = [
     page: 'payroll-runs',
     icon: Wallet,
     permission: { module: 'payroll', action: 'view' },
+    relatedPages: ['loan-detail', 'expense-detail'],
     children: [
       { label: 'Pay Runs', page: 'payroll-runs' },
       { label: 'Pay Schedules', page: 'pay-schedules' },
@@ -130,6 +132,7 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Benefits', page: 'benefits' },
       { label: 'Loans & Advances', page: 'loans' },
       { label: 'Expense Claims', page: 'expenses' },
+      { label: 'Expense Categories', page: 'expense-categories' },
     ],
   },
   {

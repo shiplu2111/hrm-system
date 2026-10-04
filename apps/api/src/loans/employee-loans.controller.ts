@@ -12,6 +12,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  ApproveEmployeeLoanDto,
   CreateEmployeeLoanDto,
   ListEmployeeLoansQueryDto,
   RejectEmployeeLoanDto,
@@ -36,6 +37,9 @@ export class EmployeeLoansController {
 
   @Get('employee-loans/:loanId')
   @RequirePermission('payroll', 'view')
+  @ApiOperation({
+    summary: 'Loan detail with installment schedule, remaining balance and payroll deductions per pay period',
+  })
   async get(@Param('loanId', ParseUUIDPipe) loanId: string) {
     return { data: await this.loansService.get(loanId) };
   }
@@ -52,11 +56,13 @@ export class EmployeeLoansController {
 
   @Post('employee-loans/:loanId/approve')
   @RequirePermission('payroll', 'approve')
+  @ApiOperation({ summary: 'Approve a request and generate its installment schedule' })
   async approve(
     @Param('loanId', ParseUUIDPipe) loanId: string,
+    @Body() dto: ApproveEmployeeLoanDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.loansService.approve(loanId, user) };
+    return { data: await this.loansService.approve(loanId, user, dto) };
   }
 
   @Post('employee-loans/:loanId/reject')
