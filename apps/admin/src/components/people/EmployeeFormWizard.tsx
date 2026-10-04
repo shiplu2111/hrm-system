@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Plus, Trash2, Upload } from 'lucide-react';
+import { FileText, Plus, Trash2, Upload, UserCheck } from 'lucide-react';
 import type {
+  CandidateHirePrefill,
   DocumentTypeRecord,
+  JobApplicationRecord,
   EmployeePersonalInfo,
   EmployeeRecord,
   EmploymentStatus,
@@ -42,6 +44,7 @@ import {
   listEmploymentTypes,
 } from '@/lib/organization-api';
 import { listEmployees } from '@/lib/employees-api';
+import { getHirePrefill, hireApplication } from '@/lib/recruitment-api';
 import { ApiError } from '@/lib/tenant-api-client';
 
 const WIZARD_STEPS: StepProgressItem[] = [
@@ -59,6 +62,30 @@ interface EmployeeFormWizardProps {
   companyId: string;
   employeeId?: string | null;
   onSuccess?: (employee: EmployeeRecord) => void;
+  /**
+   * Convert to Employee: pre-fills from the candidate and accepted offer, and creates the
+   * record through the recruitment hire endpoint so the application is linked and onboarding starts.
+   */
+  hireApplicationId?: string | null;
+  /** Fires as soon as the hire succeeds (before the remaining optional steps). */
+  onHired?: (application: JobApplicationRecord) => void;
+}
+
+function prefillToFormState(prefill: CandidateHirePrefill): EmployeeFormState {
+  return {
+    ...createDefaultEmployeeFormState(),
+    firstName: prefill.firstName,
+    lastName: prefill.lastName,
+    email: prefill.email,
+    phone: prefill.phone ?? '',
+    employeeNumber: prefill.employeeNumber,
+    hireDate: prefill.hireDate,
+    departmentId: prefill.departmentId ?? '',
+    designationId: prefill.designationId ?? '',
+    employmentTypeId: prefill.employmentTypeId ?? '',
+    managerId: prefill.managerId ?? '',
+    probationEndDate: prefill.probationEndDate ?? '',
+  };
 }
 
 function buildPersonalInfo(state: EmployeeFormState): EmployeePersonalInfo {
@@ -150,8 +177,12 @@ export function EmployeeFormWizard({
   companyId,
   employeeId: editEmployeeId,
   onSuccess,
+  hireApplicationId,
+  onHired,
 }: EmployeeFormWizardProps) {
   const isEditMode = Boolean(editEmployeeId);
+  const isHireMode = Boolean(hireApplicationId) && !isEditMode;
+  const [hirePrefill, setHirePrefill] = useState<CandidateHirePrefill | null>(null);
   const canEditTax = usePermission('payroll', 'edit');
   const canViewTax = usePermission('payroll', 'view');
 
@@ -222,6 +253,7 @@ export function EmployeeFormWizard({
     setBankMasked(null);
     setError(null);
     setPlanLimitHit(false);
+    setHirePrefill(null);
   }, [editEmployeeId]);
 
   const loadReferenceData = useCallback(async () => {
@@ -284,6 +316,10 @@ export function EmployeeFormWizard({
         await loadReferenceData();
         if (editEmployeeId) {
           await loadEmployee();
+        } else if (hireApplicationId) {
+          const prefill = await getHirePrefill(hireApplicationId);
+          setHirePrefill(prefill);
+          setForm(prefillToFormState(prefill));
         }
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load form data');
@@ -291,7 +327,7 @@ export function EmployeeFormWizard({
         setLoading(false);
       }
     })();
-  }, [open, editEmployeeId, resetWizard, loadReferenceData, loadEmployee]);
+  }, [open, editEmployeeId, hireApplicationId, resetWizard, loadReferenceData, loadEmployee]);
 
   const touchField = (field: keyof EmployeeFormState) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
@@ -332,6 +368,18 @@ export function EmployeeFormWizard({
   const persistEmployee = async (): Promise<EmployeeRecord> => {
     if (activeEmployeeId) {
       return updateEmployee(activeEmployeeId, buildEmployeeFields(form));
+    }
+    if (isHireMode && hireApplicationId) {
+      const application = await hireApplication(hireApplicationId, {
+        ...buildEmployeeFields(form),
+        workLocationId: hirePrefill?.workLocationId ?? null,
+      });
+      onHired?.(application);
+      if (!application.hiredEmployeeId) throw new ApiError('The hire did not return an employee', 500);
+      const hiredEmployee = await getEmployee(application.hiredEmployeeId);
+      setSavedEmployeeId(hiredEmployee.id);
+      setSavedEmployee(hiredEmployee);
+      return hiredEmployee;
     }
     const created = await createEmployee(buildCreateEmployeePayload(form, companyId));
     setSavedEmployeeId(created.id);
@@ -938,7 +986,7 @@ export function EmployeeFormWizard({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditMode ? 'Edit Employee' : 'Add Employee'}
+      title={isEditMode ? 'Edit Employee' : isHireMode ? 'Convert to Employee' : 'Add Employee'}
       description={`Step ${stepIndex + 1} of ${WIZARD_STEPS.length} — ${WIZARD_STEPS[stepIndex].label}`}
       size="xl"
       footer={
@@ -965,6 +1013,28 @@ export function EmployeeFormWizard({
     >
       <div className="space-y-6">
         <StepProgress steps={WIZARD_STEPS} currentIndex={stepIndex} />
+        {isHireMode && hirePrefill ? (
+          <div className="flex items-start gap-3 rounded-lg border border-accent-200 dark:border-accent-800/60 bg-accent-50 dark:bg-accent-950/30 px-4 py-3 text-sm">
+            <UserCheck className="h-4 w-4 mt-0.5 text-accent-600 shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <p className="font-medium text-primary">
+                Pre-filled from {hirePrefill.candidateName}&apos;s application and accepted offer
+              </p>
+              <p className="text-xs text-secondary mt-0.5">
+                {hirePrefill.jobTitle}
+                {hirePrefill.annualSalary != null
+                  ? ` · ${hirePrefill.currency} ${hirePrefill.annualSalary.toLocaleString()} a year`
+                  : ''}
+                {hirePrefill.reportingTo && !hirePrefill.managerId
+                  ? ` · "${hirePrefill.reportingTo}" didn't match an employee — pick the manager on the Employment step`
+                  : ''}
+                . {savedEmployee
+                  ? 'The employee record is created and onboarding has started.'
+                  : 'The employee is created when you finish the Employment step.'}
+              </p>
+            </div>
+          </div>
+        ) : null}
         {error ? (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-error-600 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-2">
             <span className="flex-1">{error}</span>

@@ -150,6 +150,11 @@ export const notificationSettingsCopy = {
     'certification.expiring': { group: 'contracts', label: 'Certification expiring', description: 'A certification enters its expiry window.' },
     'onboarding.welcome': { group: 'people', label: 'Onboarding welcome', description: 'A new hire’s onboarding checklist is ready.' },
     'kudos.received': { group: 'people', label: 'Kudos received', description: 'A colleague recognizes an employee.' },
+    'interview.scheduled': {
+      group: 'people',
+      label: 'Interview scheduled',
+      description: 'An employee is booked as the interviewer for a candidate round.',
+    },
     'safety.incident.reported': {
       group: 'safety',
       label: 'Safety incident reported',

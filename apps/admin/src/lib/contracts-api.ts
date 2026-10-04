@@ -1,4 +1,7 @@
 import type {
+  ContractExpiryAlertRunResult,
+  ContractExpiryAlertSettings,
+  ContractExpiryAlertsView,
   EmploymentContractRecord,
   EmploymentContractType,
   EmploymentContractDisplayStatus,
@@ -30,7 +33,7 @@ export const CONTRACT_TYPE_LABELS: Record<EmploymentContractType, string> = {
   permanent: 'Permanent',
   fixed_term: 'Fixed-Term',
   casual: 'Casual',
-  project_based: 'Project',
+  project_based: 'Project-based',
 };
 
 export const DISPLAY_STATUS_LABELS: Record<EmploymentContractDisplayStatus, string> = {
@@ -40,6 +43,14 @@ export const DISPLAY_STATUS_LABELS: Record<EmploymentContractDisplayStatus, stri
   expiring_soon: 'Expiring Soon',
   expired: 'Expired',
   terminated: 'Terminated',
+};
+
+export const PAY_FREQUENCY_LABELS: Record<PayFrequency, string> = {
+  hourly: 'Hourly',
+  weekly: 'Weekly',
+  biweekly: 'Fortnightly',
+  monthly: 'Monthly',
+  annual: 'Annual',
 };
 
 export function listEmploymentContracts(
@@ -73,13 +84,17 @@ export function createEmploymentContract(
   );
 }
 
+export type UpdateEmploymentContractInput = {
+  [K in keyof Omit<CreateEmploymentContractInput, 'employeeId' | 'activate'>]?:
+    | CreateEmploymentContractInput[K]
+    | null;
+} & {
+  status?: 'draft' | 'active' | 'terminated';
+};
+
 export function updateEmploymentContract(
   contractId: string,
-  input: Partial<CreateEmploymentContractInput> & {
-    status?: 'draft' | 'active' | 'terminated';
-    endDate?: string | null;
-    probationEndDate?: string | null;
-  },
+  input: UpdateEmploymentContractInput,
 ): Promise<EmploymentContractRecord> {
   return tenantApiRequest<EmploymentContractRecord>(
     `/employment-contracts/${contractId}`,
@@ -177,11 +192,44 @@ export async function uploadContractDocument(
   return payload.data;
 }
 
+export function deleteContractDocument(contractId: string, documentId: string): Promise<void> {
+  return tenantApiRequest<void>(`/employment-contracts/${contractId}/documents/${documentId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function getContractDocumentFileUrl(
   contractId: string,
   documentId: string,
 ): Promise<{ url: string; expiresInSeconds: number }> {
   return tenantApiRequest<{ url: string; expiresInSeconds: number }>(
     `/employment-contracts/${contractId}/documents/${documentId}/file-url`,
+  );
+}
+
+export function getContractExpiryAlerts(
+  companyId: string,
+  windowDays?: number,
+): Promise<ContractExpiryAlertsView> {
+  const qs = windowDays ? `?windowDays=${windowDays}` : '';
+  return tenantApiRequest<ContractExpiryAlertsView>(
+    `/companies/${companyId}/contract-expiry-alerts${qs}`,
+  );
+}
+
+export function updateContractExpiryAlertSettings(
+  companyId: string,
+  windowDays: number,
+): Promise<ContractExpiryAlertSettings> {
+  return tenantApiRequest<ContractExpiryAlertSettings>(
+    `/companies/${companyId}/contract-expiry-alerts/settings`,
+    { method: 'PUT', body: JSON.stringify({ windowDays }) },
+  );
+}
+
+export function runContractExpiryAlerts(companyId: string): Promise<ContractExpiryAlertRunResult> {
+  return tenantApiRequest<ContractExpiryAlertRunResult>(
+    `/companies/${companyId}/contract-expiry-alerts/run`,
+    { method: 'POST' },
   );
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
-import { ShieldOff } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Loader2, ShieldOff } from 'lucide-react';
 import { usePermissions } from '@hrm/portal-ui';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
@@ -20,7 +20,7 @@ export function AppShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { current: currentTenant } = useTenant();
+  const { current: currentTenant, switching, tenantKey } = useTenant();
   const { company } = useCompany();
   const { current, navigate } = useNav();
   const { can } = usePermissions();
@@ -39,8 +39,14 @@ export function AppShell({
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar onOpenMobile={() => setMobileOpen(true)} onLogout={onLogout} />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
-          {pageAllowed ? (
-            children
+          {switching ? (
+            <div className="p-8 flex items-center justify-center gap-2 text-secondary" role="status">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Switching organization…
+            </div>
+          ) : pageAllowed ? (
+            // Remount every page per organization session so no screen keeps the previous tenant's state.
+            <Fragment key={tenantKey}>{children}</Fragment>
           ) : (
             <EmptyState
               icon={ShieldOff}
@@ -59,7 +65,7 @@ export function AppShell({
           </footer>
         </main>
       </div>
-      {can('support', 'view') && <HelpWidget />}
+      {can('support', 'view') && <HelpWidget key={tenantKey} />}
     </div>
   );
 }

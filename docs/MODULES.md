@@ -111,6 +111,34 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Welcome email/notification automation
 - Offboarding checklist: clearance, asset return, access revocation, exit interview, final settlement
 
+**Onboarding checklist rules** (enforced by the API):
+
+- Each company configures checklist templates (Employees → Onboarding Templates). The active default template is applied automatically when a candidate is converted to an employee; HR can also start onboarding manually from the Employee Detail page with any active template.
+- Starting onboarding copies the template's items into per-employee tasks, with due dates = start date + the item's due offset. Later template edits only affect onboardings started afterwards.
+- Template names are unique per company. Only an active template can be the default; deactivating a template clears its default flag. A template that has been used for any onboarding cannot be deleted (`409 CONFLICT`) — deactivate it instead.
+- Item types and how they complete:
+  - **Collect a document** — needs an employee-scope document type; completes when the document is uploaded with a file and, if the type requires verification, when it is verified.
+  - **Policy acceptance** — needs a document type; completes on recorded acceptance (only when the type does not require verification) or via the signed document, as above.
+  - **Provisioning** — completes when a company asset of the item's category is assigned to the employee (or when marked done if no category is set).
+  - **Manual task** — marked done by HR.
+- Documents the employee already had on file are linked when onboarding starts. Deleting a document reopens the task it satisfied (and the onboarding, if it had completed).
+- Progress counts required tasks only (completed or skipped); the onboarding completes when every required task is done. Skipping needs `employee:approve`.
+- A completed or skipped task can be reopened, except a task completed by an assigned asset (return the asset) or by an uploaded document (replace or delete the document).
+
+**Offboarding checklist rules** (enforced by the API):
+
+- Offboarding starts automatically when a resignation or termination is recorded (Lifecycle Events), using the company's default offboarding template. HR can also start it from the employee's offboarding tracker (`/employees/:id/offboarding`) with any active template; an employee has at most one offboarding (`409 CONFLICT`). Due dates = start date + the item's due offset.
+- Progress counts required steps only (completed or skipped); the offboarding completes when every required step is done and moves back to in progress if a required step is reopened. Skipping needs `employee:approve` and a reason.
+- Step types and how they complete:
+  - **Clearance / manual task** — signed off by HR (`employee:edit`), with an optional note recorded in the audit log.
+  - **Asset return** — live from the asset register (Module 27). Returning an asset (one at a time, or all of the step's category at once) closes its assignment; the step completes automatically once no asset of its category is still assigned. With nothing assigned, HR confirms "nothing to return".
+  - **Access revocation** — `employee:approve`. Deactivates the employee's portal account and revokes all refresh tokens (sessions); users cannot revoke their own access.
+  - **Exit interview** — completed from the exit interview form; completion requires a main reason for leaving, and the interview date cannot be in the future. Ratings are whole numbers 1–5 per area. The record is hidden from the departing employee (interviewer notes and rehire eligibility are HR-only).
+  - **Final settlement** — generates a `final_settlement` payroll adjustment per PAYROLL_LOGIC.md §11: payroll is recalculated as of the last finalized run's period with optional settlement lines (fixed pay components and amounts — e.g. leave encashment, notice pay — applied as structure overrides), and the difference is stored for a later pay cycle. The finalized run is never changed. The entry follows the adjustment flow (draft → submitted → applied).
+- One active settlement entry per offboarding. Cancelling it (`payroll:edit`, not allowed once applied) reopens the step so a new entry can be generated. Settlement figures are only returned to users with `payroll:view`.
+- Reopen rules: skipped steps can always be reopened; completed asset-return, access-revocation and final-settlement steps cannot (they follow the asset register, the user account and the payroll adjustment respectively). Reopening a completed exit interview keeps the answers but clears the conducted date.
+- A cancelled offboarding is read-only.
+
 ## 09. Document Management (Generalized)
 
 **Phase:** MVP — Phase 1
@@ -299,6 +327,15 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Asset register (laptop, phone, SIM, ID card, equipment)
 - Assignment, assigned date, return date, condition tracking
 - Linked to onboarding/offboarding checklists
+
+**Asset register rules** (enforced by the API):
+
+- The register lives at `/operations/assets` (also linked from the onboarding and offboarding trackers), filterable by status (assigned / available, plus in repair / retired when present), category and holder (`?employee=<id>`). Viewing needs `employee:view`; adding, assigning and returning need `employee:edit`.
+- Asset tags are unique per company, case-insensitively (`409 CONFLICT`). Warranty expiry cannot be before the purchase date.
+- Only available assets can be assigned, and only to employees who have not left and are not being offboarded. Concurrent assignments of the same asset are rejected (`409 CONFLICT`).
+- Assigned and returned dates cannot be in the future, and the return date cannot be before the assignment date. Condition is recorded at hand-over and at return; every assignment and return is audited and kept in the asset's assignment history.
+- Assigning an asset completes the employee's pending onboarding provisioning step for that category (or a step with no category) and links the assignment to it. Returning that asset while onboarding is still in progress reopens the step.
+- Returning an asset — from the register, the employee's onboarding tracker or the offboarding tracker — completes each pending offboarding asset-return step that covers its category once the employee holds no other active asset of that category, and links the return to the step.
 
 ## 28. Employee Relations / Case Management
 

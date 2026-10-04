@@ -82,6 +82,11 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['hr_admin', 'manager'],
   },
+  'interview.scheduled': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['subject_employee'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -163,6 +168,11 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Safety incident reported',
     body: '{reporter_name} reported {incident_number} ({incident_type}, {severity}) at {location}.{regulator_notice}',
     emailSubject: 'Safety incident {incident_number} — action required',
+  },
+  'interview.scheduled': {
+    title: 'Interview scheduled',
+    body: 'You are interviewing {candidate_name} for {requisition_title} ({round_name} round) on {scheduled_at}.{location_note}',
+    emailSubject: 'Interview: {candidate_name} — {round_name} round, {scheduled_at}',
   },
 };
 

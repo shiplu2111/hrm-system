@@ -126,6 +126,47 @@ export function buildSafetyIncidentReportedVariables(input: {
   };
 }
 
+export function formatInterviewSlot(
+  start: Date,
+  timeZone: string | null | undefined,
+): string {
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  };
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      ...options,
+      timeZone: timeZone || 'UTC',
+    }).format(start);
+  } catch {
+    return new Intl.DateTimeFormat('en-GB', { ...options, timeZone: 'UTC' }).format(start);
+  }
+}
+
+export function buildInterviewScheduledVariables(input: {
+  candidateName: string;
+  requisitionTitle: string;
+  roundName: string;
+  scheduledAt: string;
+  location: string | null;
+  meetingUrl: string | null;
+}): NotificationEmitInput['variables'] {
+  const where = [input.location, input.meetingUrl].filter(Boolean).join(' · ');
+  return {
+    candidate_name: input.candidateName,
+    requisition_title: input.requisitionTitle,
+    round_name: input.roundName,
+    scheduled_at: input.scheduledAt,
+    location_note: where ? ` Where: ${where}` : '',
+  };
+}
+
 export function buildExpenseOutcomeVariables(input: {
   employeeName: string;
   claimReference: string;

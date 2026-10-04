@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   ApplicationStage,
+  type CandidateSource,
   JobRequisitionStatus,
   OfferLetterStatus,
   Prisma,
@@ -12,6 +13,7 @@ import {
   type JobApplicationResume,
 } from '@prisma/client';
 import type {
+  CandidateHirePrefill,
   JobApplicationRecord,
   JobApplicationResumeRecord,
 } from '@hrm/shared-types';
@@ -34,8 +36,12 @@ import type {
 import { JobRequisitionsService } from './job-requisitions.service';
 import { EmployeeOnboardingService } from '../onboarding/employee-onboarding.service';
 import {
+  addMonthsIsoDate,
   formatCandidateName,
+  matchReportingToEmployee,
+  nextEmployeeNumber,
   resolveApplicationDisplayStage,
+  stageChangeBlockReason,
 } from './recruitment.utils';
 
 type ApplicationWithRelations = JobApplication & {
@@ -44,6 +50,7 @@ type ApplicationWithRelations = JobApplication & {
     lastName: string;
     email: string;
     phone: string | null;
+    source: CandidateSource;
     yearsExperience: number | null;
   };
   requisition: {
@@ -123,6 +130,13 @@ export class JobApplicationsService {
       });
     }
 
+    if (dto.stage === ApplicationStage.hired) {
+      throw new BadRequestException({
+        code: 'INVALID_STAGE_TRANSITION',
+        message: 'New applications cannot start in the hired stage',
+      });
+    }
+
     const existing = await this.prisma.unscoped.jobApplication.findUnique({
       where: {
         candidateId_requisitionId: {
@@ -171,12 +185,25 @@ export class JobApplicationsService {
     const existing = await this.findOrThrow(applicationId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
 
+    const blockReason = stageChangeBlockReason(
+      existing.stage,
+      dto.stage,
+      existing.hiredEmployeeId,
+    );
+    if (blockReason) {
+      throw new BadRequestException({
+        code: 'INVALID_STAGE_TRANSITION',
+        message: blockReason,
+      });
+    }
+
+    const stageChanged = existing.stage !== dto.stage;
     const row = await this.prisma.unscoped.jobApplication.update({
       where: { id: applicationId },
       data: {
         stage: dto.stage,
         rating: dto.rating ?? existing.rating,
-        stageUpdatedAt: new Date(),
+        ...(stageChanged ? { stageUpdatedAt: new Date() } : {}),
       },
       include: this.defaultInclude(),
     });
@@ -187,11 +214,22 @@ export class JobApplicationsService {
       action: 'update',
       module: 'recruitment',
       recordId: row.id,
-      newValue: { stage: dto.stage },
+      oldValue: { stage: existing.stage },
+      newValue: {
+        stage: dto.stage,
+        ...(dto.rating !== undefined ? { rating: dto.rating } : {}),
+      },
     });
 
-    if (dto.stage === ApplicationStage.interview) {
+    if (stageChanged && dto.stage === ApplicationStage.interview) {
       await this.interviewRoundsService.ensureRounds(applicationId);
+    }
+    if (
+      stageChanged &&
+      (dto.stage === ApplicationStage.rejected ||
+        dto.stage === ApplicationStage.withdrawn)
+    ) {
+      await this.interviewRoundsService.releaseScheduledRounds(applicationId);
     }
 
     return this.toRecord(row);
@@ -253,6 +291,50 @@ export class JobApplicationsService {
     return this.toResumeRecord(resume);
   }
 
+  /** Add Employee form defaults for the Convert to Employee flow (Stage 17.3). */
+  async getHirePrefill(
+    applicationId: string,
+    user: AuthenticatedUser,
+  ): Promise<CandidateHirePrefill> {
+    await this.permissions.assertPermission(user, 'employee', 'create');
+    const existing = await this.findOrThrow(applicationId);
+    await this.companyScope.assertCompanyInTenant(existing.companyId);
+    const offer = await this.assertConvertible(existing);
+
+    const hireDate = offer.startDate.toISOString().slice(0, 10);
+    const manager = await this.matchManager(existing.companyId, offer.reportingTo);
+
+    return {
+      applicationId,
+      companyId: existing.companyId,
+      offerLetterId: offer.id,
+      candidateName: formatCandidateName(
+        existing.candidate.firstName,
+        existing.candidate.lastName,
+      ),
+      firstName: existing.candidate.firstName,
+      lastName: existing.candidate.lastName,
+      email: existing.candidate.email,
+      phone: existing.candidate.phone,
+      employeeNumber: await this.generateEmployeeNumber(existing.tenantId),
+      hireDate,
+      jobTitle: offer.jobTitle,
+      departmentId: offer.departmentId ?? existing.requisition.departmentId,
+      designationId: offer.designationId ?? existing.requisition.designationId,
+      employmentTypeId: offer.employmentTypeId ?? existing.requisition.employmentTypeId,
+      workLocationId: offer.workLocationId ?? existing.requisition.locationId,
+      managerId: manager?.id ?? null,
+      reportingTo: offer.reportingTo,
+      probationEndDate:
+        offer.probationMonths != null && offer.probationMonths > 0
+          ? addMonthsIsoDate(hireDate, offer.probationMonths)
+          : null,
+      annualSalary: offer.annualSalary != null ? Number(offer.annualSalary) : null,
+      currency: offer.currency,
+      signingBonus: offer.signingBonus != null ? Number(offer.signingBonus) : null,
+    };
+  }
+
   async hire(
     applicationId: string,
     dto: HireApplicationDto,
@@ -261,64 +343,46 @@ export class JobApplicationsService {
     await this.permissions.assertPermission(user, 'employee', 'create');
     const existing = await this.findOrThrow(applicationId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
-
-    if (existing.hiredEmployeeId) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'This application has already been converted to an employee',
-      });
-    }
-
-    if (
-      existing.stage !== ApplicationStage.offer &&
-      existing.stage !== ApplicationStage.hired
-    ) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Only candidates in the offer stage can be hired',
-      });
-    }
-
-    if (existing.stage === ApplicationStage.hired) {
-      return this.toRecord(existing);
-    }
-
-    const offer = await this.prisma.unscoped.offerLetter.findFirst({
-      where: {
-        applicationId,
-        status: OfferLetterStatus.accepted,
-      },
-    });
-    if (!offer) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message:
-          'An accepted offer letter is required before converting to employee',
-      });
-    }
+    const offer = await this.assertConvertible(existing);
 
     const employeeNumber =
-      dto.employeeNumber?.trim() ??
+      dto.employeeNumber?.trim() ||
       (await this.generateEmployeeNumber(existing.tenantId));
 
     const hireDate =
       dto.hireDate ?? offer.startDate.toISOString().slice(0, 10);
 
-    let probationEndDate: string | null = null;
-    if (offer.probationMonths != null && offer.probationMonths > 0) {
-      const probationEnd = new Date(offer.startDate);
-      probationEnd.setUTCMonth(probationEnd.getUTCMonth() + offer.probationMonths);
-      probationEndDate = probationEnd.toISOString().slice(0, 10);
-    }
+    const probationEndDate =
+      dto.probationEndDate !== undefined
+        ? dto.probationEndDate || null
+        : offer.probationMonths != null && offer.probationMonths > 0
+          ? addMonthsIsoDate(hireDate, offer.probationMonths)
+          : null;
+
+    const managerId =
+      dto.managerId !== undefined
+        ? dto.managerId
+        : ((await this.matchManager(existing.companyId, offer.reportingTo))?.id ?? null);
+
+    const submittedInfo = dto.personalInfo ?? {};
+    const submittedContact =
+      submittedInfo.contact && typeof submittedInfo.contact === 'object'
+        ? (submittedInfo.contact as Record<string, unknown>)
+        : {};
 
     const employee = await this.employeesService.createEmployee({
       companyId: existing.companyId,
       employeeNumber,
-      firstName: existing.candidate.firstName,
-      lastName: existing.candidate.lastName,
+      firstName: dto.firstName?.trim() || existing.candidate.firstName,
+      lastName: dto.lastName?.trim() || existing.candidate.lastName,
+      employmentStatus: dto.employmentStatus,
       personalInfo: {
-        email: existing.candidate.email,
-        ...(existing.candidate.phone ? { phone: existing.candidate.phone } : {}),
+        ...submittedInfo,
+        contact: {
+          email: existing.candidate.email,
+          ...(existing.candidate.phone ? { phone: existing.candidate.phone } : {}),
+          ...submittedContact,
+        },
         hiredFromApplicationId: applicationId,
         offerLetterId: offer.id,
         ...(offer.annualSalary != null
@@ -329,13 +393,27 @@ export class JobApplicationsService {
           : {}),
         ...(offer.equityNotes ? { equityNotes: offer.equityNotes } : {}),
       },
-      departmentId: offer.departmentId ?? existing.requisition.departmentId,
-      designationId: offer.designationId ?? existing.requisition.designationId,
+      departmentId:
+        dto.departmentId !== undefined
+          ? dto.departmentId
+          : (offer.departmentId ?? existing.requisition.departmentId),
+      designationId:
+        dto.designationId !== undefined
+          ? dto.designationId
+          : (offer.designationId ?? existing.requisition.designationId),
       employmentTypeId:
-        offer.employmentTypeId ?? existing.requisition.employmentTypeId,
-      workLocationId: offer.workLocationId ?? existing.requisition.locationId,
+        dto.employmentTypeId !== undefined
+          ? dto.employmentTypeId
+          : (offer.employmentTypeId ?? existing.requisition.employmentTypeId),
+      workLocationId:
+        dto.workLocationId !== undefined
+          ? dto.workLocationId
+          : (offer.workLocationId ?? existing.requisition.locationId),
+      managerId,
+      costCentreId: dto.costCentreId ?? null,
       hireDate,
       probationEndDate,
+      confirmationDate: dto.confirmationDate || null,
     });
 
     const row = await this.prisma.unscoped.jobApplication.update({
@@ -409,6 +487,7 @@ export class JobApplicationsService {
           lastName: true,
           email: true,
           phone: true,
+          source: true,
           yearsExperience: true,
         },
       },
@@ -437,6 +516,8 @@ export class JobApplicationsService {
         row.candidate.lastName,
       ),
       candidateEmail: row.candidate.email,
+      candidatePhone: row.candidate.phone,
+      candidateSource: row.candidate.source,
       requisitionId: row.requisitionId,
       requisitionTitle: row.requisition.title,
       requisitionReference: row.requisition.referenceNumber,
@@ -456,10 +537,49 @@ export class JobApplicationsService {
   }
 
   private async generateEmployeeNumber(tenantId: string): Promise<string> {
-    const count = await this.prisma.unscoped.employee.count({
-      where: { tenantId, deletedAt: null },
+    const rows = await this.prisma.unscoped.employee.findMany({
+      where: { tenantId },
+      select: { employeeNumber: true },
     });
-    return `EMP-${String(count + 1).padStart(3, '0')}`;
+    return nextEmployeeNumber(
+      rows.map((r) => r.employeeNumber),
+      rows.length + 1,
+    );
+  }
+
+  private async matchManager(companyId: string, reportingTo: string | null) {
+    if (!reportingTo?.trim()) return null;
+    const employees = await this.prisma.unscoped.employee.findMany({
+      where: { companyId, deletedAt: null, employmentStatus: { not: 'terminated' } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    return matchReportingToEmployee(reportingTo, employees);
+  }
+
+  /** Validates a candidate can be converted and returns their accepted offer. */
+  private async assertConvertible(existing: ApplicationWithRelations) {
+    if (existing.hiredEmployeeId || existing.stage === ApplicationStage.hired) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'This application has already been converted to an employee',
+      });
+    }
+    if (existing.stage !== ApplicationStage.offer) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Only candidates in the offer stage can be hired',
+      });
+    }
+    const offer = await this.prisma.unscoped.offerLetter.findFirst({
+      where: { applicationId: existing.id, status: OfferLetterStatus.accepted },
+    });
+    if (!offer) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'An accepted offer letter is required before converting to employee',
+      });
+    }
+    return offer;
   }
 
   private toResumeRecord(resume: JobApplicationResume): JobApplicationResumeRecord {

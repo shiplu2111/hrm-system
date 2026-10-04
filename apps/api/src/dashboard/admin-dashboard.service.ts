@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { DataScopeService } from '../rbac/data-scope.service';
+import { ContractExpirySettingsService } from '../contracts/contract-expiry-settings.service';
 import { startOfUtcDay } from '../attendance/attendance.utils';
 import { formatDateValue } from '../leave/leave.utils';
 
@@ -35,6 +36,7 @@ export class AdminDashboardService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly dataScope: DataScopeService,
+    private readonly contractExpirySettings: ContractExpirySettingsService,
   ) {}
 
   async getAdminDashboard(
@@ -50,6 +52,7 @@ export class AdminDashboardService {
 
     const today = startOfUtcDay();
     const employeeScope = await this.dataScope.employeeIdFilter(user);
+    const contractWindowDays = await this.contractExpirySettings.getWindowDays(companyId);
     const employeeFilter: Prisma.EmployeeWhereInput = {
       companyId,
       deletedAt: null,
@@ -149,7 +152,7 @@ export class AdminDashboardService {
       }),
       this.buildAttendanceTrend(employeeFilter, today),
       this.listPendingApprovals(companyId, employeeFilter),
-      this.listExpiryItems(companyId, employeeFilter, today),
+      this.listExpiryItems(companyId, employeeFilter, today, contractWindowDays),
     ]);
 
     const pendingApprovalsTotal =
@@ -194,6 +197,7 @@ export class AdminDashboardService {
       attendanceTrend,
       pendingApprovals,
       expiryItems,
+      contractExpiryWindowDays: contractWindowDays,
     };
   }
 
@@ -314,9 +318,12 @@ export class AdminDashboardService {
     companyId: string,
     employeeFilter: Prisma.EmployeeWhereInput,
     today: Date,
+    contractWindowDays: number,
   ): Promise<AdminExpiryItem[]> {
     const windowEnd = new Date(today);
     windowEnd.setUTCDate(windowEnd.getUTCDate() + EXPIRY_WINDOW_DAYS);
+    const contractWindowEnd = new Date(today);
+    contractWindowEnd.setUTCDate(contractWindowEnd.getUTCDate() + contractWindowDays);
 
     const items: AdminExpiryItem[] = [];
 
@@ -379,7 +386,7 @@ export class AdminDashboardService {
       where: {
         employee: employeeFilter,
         status: 'active',
-        endDate: { gte: today, lte: windowEnd },
+        endDate: { gte: today, lte: contractWindowEnd },
       },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true } },

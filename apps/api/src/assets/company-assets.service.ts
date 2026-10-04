@@ -1,12 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
   Optional,
   forwardRef,
 } from '@nestjs/common';
-import { AssetAssignmentStatus, AssetStatus, Prisma } from '@prisma/client';
+import {
+  AssetAssignmentStatus,
+  AssetStatus,
+  EmploymentStatus,
+  OffboardingStatus,
+  Prisma,
+} from '@prisma/client';
 import type {
   CompanyAssetRecord,
   EmployeeAssetAssignmentRecord,
@@ -14,6 +21,7 @@ import type {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { OffboardingTaskSyncService } from '../offboarding/offboarding-task-sync.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { OnboardingTaskSyncService } from '../onboarding/onboarding-task-sync.service';
 import { DataScopeService } from '../rbac/data-scope.service';
@@ -26,6 +34,32 @@ import type {
 } from './dto/assets.dto';
 import { toAssetRecord, toAssignmentRecord } from './assets.utils';
 
+const ASSET_INCLUDE = {
+  assignments: {
+    where: { status: AssetAssignmentStatus.active },
+    include: {
+      employee: { select: { firstName: true, lastName: true, employeeNumber: true } },
+    },
+  },
+} as const;
+
+const ASSIGNMENT_INCLUDE = {
+  asset: { select: { name: true, assetTag: true } },
+  employee: { select: { firstName: true, lastName: true } },
+} as const;
+
+/** Accepts `YYYY-MM-DD` or a full ISO timestamp and keeps the calendar date. */
+function toDateOnly(value: string): string {
+  return value.slice(0, 10);
+}
+
+/** Server and users may sit in different time zones, so "today" allows one day of slack. */
+function isAfterToday(date: string): boolean {
+  const limit = new Date();
+  limit.setUTCDate(limit.getUTCDate() + 1);
+  return date > limit.toISOString().slice(0, 10);
+}
+
 @Injectable()
 export class CompanyAssetsService {
   constructor(
@@ -33,6 +67,7 @@ export class CompanyAssetsService {
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
     private readonly dataScope: DataScopeService,
+    private readonly offboardingSync: OffboardingTaskSyncService,
     @Optional()
     @Inject(forwardRef(() => OnboardingTaskSyncService))
     private readonly onboardingSync?: OnboardingTaskSyncService,
@@ -64,14 +99,7 @@ export class CompanyAssetsService {
             }
           : {}),
       },
-      include: {
-        assignments: {
-          where: { status: AssetAssignmentStatus.active },
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: ASSET_INCLUDE,
       orderBy: [{ status: 'asc' }, { assetTag: 'asc' }],
     });
 
@@ -90,38 +118,69 @@ export class CompanyAssetsService {
     user: AuthenticatedUser,
   ): Promise<CompanyAssetRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    const assetTag = dto.assetTag.trim();
+    const name = dto.name.trim();
+    if (!assetTag || !name) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Asset name and tag are required',
+      });
+    }
+    if (
+      dto.purchaseDate &&
+      dto.warrantyExpiryDate &&
+      toDateOnly(dto.warrantyExpiryDate) < toDateOnly(dto.purchaseDate)
+    ) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Warranty expiry cannot be before the purchase date',
+      });
+    }
 
-    const row = await this.prisma.unscoped.companyAsset.create({
-      data: {
-        tenantId: company.tenantId,
-        companyId,
-        name: dto.name.trim(),
-        assetTag: dto.assetTag.trim(),
-        category: dto.category,
-        serialNumber: dto.serialNumber?.trim() ?? null,
-        purchaseDate: dto.purchaseDate
-          ? new Date(`${dto.purchaseDate}T00:00:00.000Z`)
-          : null,
-        warrantyExpiryDate: dto.warrantyExpiryDate
-          ? new Date(`${dto.warrantyExpiryDate}T00:00:00.000Z`)
-          : null,
-        purchaseValue:
-          dto.purchaseValue != null
-            ? new Prisma.Decimal(dto.purchaseValue)
-            : null,
-        currency: dto.currency?.trim() ?? 'AUD',
-        notes: dto.notes?.trim() ?? null,
-        status: AssetStatus.available,
-      },
-      include: {
-        assignments: {
-          where: { status: AssetAssignmentStatus.active },
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+    const duplicate = await this.prisma.unscoped.companyAsset.findFirst({
+      where: { companyId, assetTag: { equals: assetTag, mode: 'insensitive' } },
+      select: { id: true },
     });
+    if (duplicate) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: `Asset tag ${assetTag} is already in the register`,
+      });
+    }
+
+    let row;
+    try {
+      row = await this.prisma.unscoped.companyAsset.create({
+        data: {
+          tenantId: company.tenantId,
+          companyId,
+          name,
+          assetTag,
+          category: dto.category,
+          serialNumber: dto.serialNumber?.trim() || null,
+          purchaseDate: dto.purchaseDate
+            ? new Date(`${toDateOnly(dto.purchaseDate)}T00:00:00.000Z`)
+            : null,
+          warrantyExpiryDate: dto.warrantyExpiryDate
+            ? new Date(`${toDateOnly(dto.warrantyExpiryDate)}T00:00:00.000Z`)
+            : null,
+          purchaseValue:
+            dto.purchaseValue != null ? new Prisma.Decimal(dto.purchaseValue) : null,
+          currency: dto.currency?.trim().toUpperCase() || 'AUD',
+          notes: dto.notes?.trim() || null,
+          status: AssetStatus.available,
+        },
+        include: ASSET_INCLUDE,
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `Asset tag ${assetTag} is already in the register`,
+        });
+      }
+      throw err;
+    }
 
     await this.auditService.log({
       tenantId: company.tenantId,
@@ -145,51 +204,91 @@ export class CompanyAssetsService {
     await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     if (asset.status !== AssetStatus.available) {
+      const holder = asset.assignments[0]?.employee;
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'Only available assets can be assigned',
+        message: holder
+          ? `${asset.name} is already assigned to ${holder.firstName} ${holder.lastName}`.trim()
+          : 'Only available assets can be assigned',
       });
     }
 
     const employee = await this.prisma.unscoped.employee.findFirst({
-      where: {
-        id: dto.employeeId,
-        companyId: asset.companyId,
-        deletedAt: null,
-      },
+      where: { id: dto.employeeId, companyId: asset.companyId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true, employmentStatus: true },
     });
     if (!employee) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: 'Employee not found',
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Employee not found' });
+    }
+    const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
+    if (employee.employmentStatus === EmploymentStatus.terminated) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `${employeeName} has left the company — assets can't be assigned`,
+      });
+    }
+    const offboarding = await this.prisma.unscoped.employeeOffboarding.findFirst({
+      where: { employeeId: employee.id, status: OffboardingStatus.in_progress },
+      select: { id: true },
+    });
+    if (offboarding) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `${employeeName} is being offboarded — assets can't be assigned`,
       });
     }
 
+    const assignedOn = dto.assignedAt ? toDateOnly(dto.assignedAt) : null;
+    if (assignedOn && isAfterToday(assignedOn)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'The assignment date cannot be in the future',
+      });
+    }
+
+    if (dto.onboardingTaskId) {
+      const task = await this.onboardingSync?.findLinkableProvisioningTask(
+        employee.id,
+        dto.onboardingTaskId,
+      );
+      if (!task) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: "That onboarding step isn't pending for this employee",
+        });
+      }
+      if (task.assetCategory && task.assetCategory !== asset.category) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: `That onboarding step needs a ${task.assetCategory.replace('_', ' ')}`,
+        });
+      }
+    }
+
     const assignment = await this.prisma.unscoped.$transaction(async (tx) => {
-      const created = await tx.employeeAssetAssignment.create({
+      const claimed = await tx.companyAsset.updateMany({
+        where: { id: assetId, status: AssetStatus.available },
+        data: { status: AssetStatus.assigned },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `${asset.name} was just assigned by someone else — refresh and try again`,
+        });
+      }
+
+      return tx.employeeAssetAssignment.create({
         data: {
           assetId,
-          employeeId: dto.employeeId,
-          assignedAt: dto.assignedAt
-            ? new Date(`${dto.assignedAt}T00:00:00.000Z`)
-            : new Date(),
-          conditionOnAssign: dto.conditionOnAssign?.trim() ?? null,
-          notes: dto.notes?.trim() ?? null,
+          employeeId: employee.id,
+          assignedAt: assignedOn ? new Date(`${assignedOn}T00:00:00.000Z`) : new Date(),
+          conditionOnAssign: dto.conditionOnAssign?.trim() || null,
+          notes: dto.notes?.trim() || null,
           assignedByUserId: user.id,
           onboardingTaskId: dto.onboardingTaskId ?? null,
         },
-        include: {
-          asset: { select: { name: true, assetTag: true } },
-          employee: { select: { firstName: true, lastName: true } },
-        },
+        include: ASSIGNMENT_INCLUDE,
       });
-
-      await tx.companyAsset.update({
-        where: { id: assetId },
-        data: { status: AssetStatus.assigned },
-      });
-
-      return created;
     });
 
     await this.auditService.log({
@@ -198,19 +297,29 @@ export class CompanyAssetsService {
       action: 'update',
       module: 'employee',
       recordId: assetId,
-      newValue: { assignmentId: assignment.id, employeeId: dto.employeeId },
+      oldValue: { status: AssetStatus.available },
+      newValue: {
+        status: AssetStatus.assigned,
+        assignmentId: assignment.id,
+        employeeId: employee.id,
+        conditionOnAssign: assignment.conditionOnAssign,
+      },
     });
 
-    if (this.onboardingSync) {
-      await this.onboardingSync.syncAfterAssetAssignment({
-        employeeId: dto.employeeId,
+    const checklistUpdates =
+      (await this.onboardingSync?.syncAfterAssetAssignment({
+        employeeId: employee.id,
         assetId,
         assetCategory: asset.category,
+        assignmentId: assignment.id,
         onboardingTaskId: dto.onboardingTaskId,
-      });
-    }
+      })) ?? [];
 
-    return toAssignmentRecord(assignment);
+    const refreshed = await this.prisma.unscoped.employeeAssetAssignment.findUniqueOrThrow({
+      where: { id: assignment.id },
+      include: ASSIGNMENT_INCLUDE,
+    });
+    return { ...toAssignmentRecord(refreshed), checklistUpdates };
   }
 
   async returnAsset(
@@ -223,12 +332,7 @@ export class CompanyAssetsService {
 
     const activeAssignment = await this.prisma.unscoped.employeeAssetAssignment.findFirst({
       where: { assetId, status: AssetAssignmentStatus.active },
-      include: {
-        asset: { select: { name: true, assetTag: true } },
-        employee: { select: { firstName: true, lastName: true } },
-      },
     });
-
     if (!activeAssignment) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -237,25 +341,53 @@ export class CompanyAssetsService {
     }
     await this.dataScope.assertEmployeeInScope(user, activeAssignment.employeeId);
 
-    const returnedAt = dto.returnedAt
-      ? new Date(`${dto.returnedAt}T00:00:00.000Z`)
-      : new Date();
+    const returnedOn = dto.returnedAt ? toDateOnly(dto.returnedAt) : null;
+    if (returnedOn) {
+      if (isAfterToday(returnedOn)) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'The return date cannot be in the future',
+        });
+      }
+      if (returnedOn < activeAssignment.assignedAt.toISOString().slice(0, 10)) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'The return date cannot be before the asset was assigned',
+        });
+      }
+    }
+
+    if (dto.offboardingTaskId) {
+      const task = await this.offboardingSync.findLinkableReturnTask(
+        activeAssignment.employeeId,
+        dto.offboardingTaskId,
+      );
+      if (!task) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: "That offboarding step doesn't belong to this employee",
+        });
+      }
+      if (task.assetCategory && task.assetCategory !== asset.category) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: `That offboarding step covers ${task.assetCategory.replace('_', ' ')} assets`,
+        });
+      }
+    }
 
     const updated = await this.prisma.unscoped.$transaction(async (tx) => {
       const row = await tx.employeeAssetAssignment.update({
         where: { id: activeAssignment.id },
         data: {
           status: AssetAssignmentStatus.returned,
-          returnedAt,
-          conditionOnReturn: dto.conditionOnReturn?.trim() ?? null,
-          notes: dto.notes?.trim() ?? activeAssignment.notes,
+          returnedAt: returnedOn ? new Date(`${returnedOn}T00:00:00.000Z`) : new Date(),
+          conditionOnReturn: dto.conditionOnReturn?.trim() || null,
+          notes: dto.notes?.trim() || activeAssignment.notes,
           returnedByUserId: user.id,
-          offboardingTaskId: dto.offboardingTaskId ?? null,
+          offboardingTaskId: dto.offboardingTaskId ?? activeAssignment.offboardingTaskId,
         },
-        include: {
-          asset: { select: { name: true, assetTag: true } },
-          employee: { select: { firstName: true, lastName: true } },
-        },
+        include: ASSIGNMENT_INCLUDE,
       });
 
       await tx.companyAsset.update({
@@ -272,10 +404,37 @@ export class CompanyAssetsService {
       action: 'update',
       module: 'employee',
       recordId: assetId,
-      newValue: { returnedAssignmentId: updated.id },
+      oldValue: { status: AssetStatus.assigned, assignmentId: updated.id },
+      newValue: {
+        status: AssetStatus.available,
+        returnedAssignmentId: updated.id,
+        employeeId: updated.employeeId,
+        conditionOnReturn: updated.conditionOnReturn,
+      },
     });
 
-    return toAssignmentRecord(updated);
+    const offboardingNotes = await this.offboardingSync.syncAfterAssetReturn({
+      assignmentId: updated.id,
+      employeeId: updated.employeeId,
+      assetCategory: asset.category,
+      linkedTaskId: updated.offboardingTaskId,
+      userId: user.id,
+      tenantId: company.tenantId,
+    });
+    const onboardingNotes =
+      (await this.onboardingSync?.syncAfterAssetReturn({
+        employeeId: updated.employeeId,
+        assetId,
+      })) ?? [];
+
+    const refreshed = await this.prisma.unscoped.employeeAssetAssignment.findUniqueOrThrow({
+      where: { id: updated.id },
+      include: ASSIGNMENT_INCLUDE,
+    });
+    return {
+      ...toAssignmentRecord(refreshed),
+      checklistUpdates: [...offboardingNotes, ...onboardingNotes],
+    };
   }
 
   async listAssignments(
@@ -292,12 +451,10 @@ export class CompanyAssetsService {
       where: {
         asset: { companyId },
         employeeId: query.employeeId ?? (await this.dataScope.employeeIdFilter(user)),
+        ...(query.assetId ? { assetId: query.assetId } : {}),
         ...(query.activeOnly ? { status: AssetAssignmentStatus.active } : {}),
       },
-      include: {
-        asset: { select: { name: true, assetTag: true } },
-        employee: { select: { firstName: true, lastName: true } },
-      },
+      include: ASSIGNMENT_INCLUDE,
       orderBy: { assignedAt: 'desc' },
     });
 
@@ -312,9 +469,7 @@ export class CompanyAssetsService {
       where: {
         employeeId,
         status: AssetAssignmentStatus.active,
-        ...(category
-          ? { asset: { category: category as never } }
-          : {}),
+        ...(category ? { asset: { category: category as never } } : {}),
       },
     });
   }
@@ -322,14 +477,7 @@ export class CompanyAssetsService {
   private async findOrThrow(assetId: string) {
     const row = await this.prisma.unscoped.companyAsset.findUnique({
       where: { id: assetId },
-      include: {
-        assignments: {
-          where: { status: AssetAssignmentStatus.active },
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: ASSET_INCLUDE,
     });
     if (!row) {
       throw new NotFoundException({

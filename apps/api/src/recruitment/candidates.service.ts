@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Candidate } from '@prisma/client';
 import type { CandidateRecord } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -8,6 +8,7 @@ import { CompanyScopeService } from '../organization/company-scope.service';
 import type {
   CreateCandidateDto,
   ListCandidatesQueryDto,
+  UpdateCandidateDto,
 } from './dto/recruitment.dto';
 import { formatCandidateName } from './recruitment.utils';
 
@@ -63,20 +64,22 @@ export class CandidatesService {
   ): Promise<CandidateRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
 
-    const row = await this.prisma.unscoped.candidate.create({
-      data: {
-        tenantId: company.tenantId,
-        companyId,
-        firstName: dto.firstName.trim(),
-        lastName: dto.lastName.trim(),
-        email: dto.email.trim().toLowerCase(),
-        phone: dto.phone?.trim(),
-        source: dto.source,
-        yearsExperience: dto.yearsExperience,
-        notes: dto.notes?.trim(),
-      },
-      include: { _count: { select: { applications: true } } },
-    });
+    const row = await this.prisma.unscoped.candidate
+      .create({
+        data: {
+          tenantId: company.tenantId,
+          companyId,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          email: dto.email.trim().toLowerCase(),
+          phone: dto.phone?.trim(),
+          source: dto.source,
+          yearsExperience: dto.yearsExperience,
+          notes: dto.notes?.trim(),
+        },
+        include: { _count: { select: { applications: true } } },
+      })
+      .catch((error: unknown) => this.rethrowDuplicateEmail(error));
 
     await this.auditService.log({
       tenantId: row.tenantId,
@@ -84,6 +87,64 @@ export class CandidatesService {
       action: 'create',
       module: 'recruitment',
       recordId: row.id,
+    });
+
+    return this.toRecord(row);
+  }
+
+  async update(
+    candidateId: string,
+    dto: UpdateCandidateDto,
+    user: AuthenticatedUser,
+  ): Promise<CandidateRecord> {
+    const existing = await this.findOrThrow(candidateId);
+    await this.companyScope.assertCompanyInTenant(existing.companyId);
+
+    const blankToNull = (value: string | null | undefined) =>
+      value === undefined ? undefined : value?.trim() || null;
+
+    const data: Prisma.CandidateUpdateInput = {
+      ...(dto.firstName !== undefined ? { firstName: dto.firstName.trim() } : {}),
+      ...(dto.lastName !== undefined ? { lastName: dto.lastName.trim() } : {}),
+      ...(dto.email !== undefined ? { email: dto.email.trim().toLowerCase() } : {}),
+      ...(dto.phone !== undefined ? { phone: blankToNull(dto.phone) } : {}),
+      ...(dto.source !== undefined ? { source: dto.source } : {}),
+      ...(dto.yearsExperience !== undefined
+        ? { yearsExperience: dto.yearsExperience }
+        : {}),
+      ...(dto.notes !== undefined ? { notes: blankToNull(dto.notes) } : {}),
+    };
+
+    const row = await this.prisma.unscoped.candidate
+      .update({
+        where: { id: candidateId },
+        data,
+        include: { _count: { select: { applications: true } } },
+      })
+      .catch((error: unknown) => this.rethrowDuplicateEmail(error));
+
+    await this.auditService.log({
+      tenantId: row.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'recruitment',
+      recordId: row.id,
+      oldValue: {
+        firstName: existing.firstName,
+        lastName: existing.lastName,
+        email: existing.email,
+        phone: existing.phone,
+        source: existing.source,
+        yearsExperience: existing.yearsExperience,
+      },
+      newValue: {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        phone: row.phone,
+        source: row.source,
+        yearsExperience: row.yearsExperience,
+      },
     });
 
     return this.toRecord(row);
@@ -101,6 +162,19 @@ export class CandidatesService {
       });
     }
     return row;
+  }
+
+  private rethrowDuplicateEmail(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: 'A candidate with this email already exists in this company',
+      });
+    }
+    throw error;
   }
 
   private toRecord(row: CandidateWithCount): CandidateRecord {

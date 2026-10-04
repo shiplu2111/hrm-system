@@ -548,8 +548,12 @@ export interface PayrollSimulationResult {
 
 export type PayrollAdjustmentStatus = 'draft' | 'pending' | 'applied' | 'cancelled';
 
+/** `final_settlement` adjustments are created from an offboarding's settlement step. */
+export type PayrollAdjustmentKind = 'retroactive' | 'final_settlement';
+
 export interface PayrollAdjustmentRecord {
   id: string;
+  kind: PayrollAdjustmentKind;
   companyId: string;
   employeeId: string;
   originalPayrollRunId: string;
@@ -566,6 +570,9 @@ export interface PayrollAdjustmentRecord {
   adjustmentGrossPay: string;
   adjustmentTotalDeductions: string;
   adjustmentNetPay: string;
+  structureOverrides: PayrollSalaryStructureOverride[] | null;
+  /** Revised breakdown captured at creation; null for adjustments created before it was stored. */
+  calculation: PayrollCalculationPreview | null;
   status: PayrollAdjustmentStatus;
   appliedAt: string | null;
   createdAt: string;

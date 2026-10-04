@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AttendanceModule } from '../attendance/attendance.module';
+import { ContractsModule } from '../contracts/contracts.module';
 import { EngagementModule } from '../engagement/engagement.module';
 import { LeaveModule } from '../leave/leave.module';
 import { LocaleModule } from '../locale/locale.module';
@@ -15,6 +16,7 @@ import { EmployeeDashboardService } from './employee-dashboard.service';
   imports: [
     OrganizationModule,
     AttendanceModule,
+    ContractsModule,
     EngagementModule,
     LeaveModule,
     LocaleModule,

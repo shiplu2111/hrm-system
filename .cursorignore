@@ -1,0 +1,59 @@
+﻿# Dependencies
+**/node_modules/
+**/.pnpm-store/
+
+# Build output
+**/dist/
+**/build/
+**/dist-web/
+**/web-build/
+**/out/
+**/.turbo/
+**/.cache/
+**/*.tsbuildinfo
+
+# Expo / React Native native folders
+**/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+
+# Test / coverage
+**/coverage/
+**/.nyc_output/
+
+# Uploaded files / local storage
+/storage/
+apps/api/storage/
+
+# Logs
+**/*.log
+**/logs/
+
+# Lock files (very large, rarely useful as context)
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Nested git repo
+apps/backend/.git/
+
+# Binary / media assets
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.ico
+**/*.mp4
+**/*.mov
+**/*.pdf
+**/*.zip
+**/*.ttf
+**/*.otf
+**/*.woff
+**/*.woff2
+**/*.map
+
+# OS
+.DS_Store
+Thumbs.db

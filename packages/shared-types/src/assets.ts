@@ -10,6 +10,17 @@ export type AssetCategory =
   | 'id_card'
   | 'equipment';
 
+export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
+  laptop: 'Laptop',
+  monitor: 'Monitor',
+  mobile: 'Mobile',
+  phone: 'Phone',
+  sim: 'SIM',
+  accessory: 'Accessory',
+  id_card: 'ID Card',
+  equipment: 'Equipment',
+};
+
 export type AssetAssignmentStatus = 'active' | 'returned';
 
 export interface CompanyAssetRecord {
@@ -27,9 +38,17 @@ export interface CompanyAssetRecord {
   notes: string | null;
   assignedEmployeeId: string | null;
   assignedEmployeeName: string | null;
+  assignedEmployeeNumber: string | null;
+  /** The open assignment, when the asset is with an employee. */
+  assignmentId: string | null;
+  assignedAt: string | null;
+  conditionOnAssign: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** Common condition labels offered when assigning or returning an asset. */
+export const ASSET_CONDITIONS = ['New', 'Good', 'Fair', 'Minor wear', 'Damaged', 'Missing parts'] as const;
 
 export interface EmployeeAssetAssignmentRecord {
   id: string;
@@ -48,4 +67,6 @@ export interface EmployeeAssetAssignmentRecord {
   onboardingTaskId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Assign/return responses only: onboarding or offboarding checklist steps this change completed or reopened. */
+  checklistUpdates?: string[];
 }

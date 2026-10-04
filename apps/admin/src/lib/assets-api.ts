@@ -18,6 +18,21 @@ export interface CreateCompanyAssetInput {
   notes?: string;
 }
 
+export interface AssignAssetInput {
+  employeeId: string;
+  assignedAt?: string;
+  conditionOnAssign?: string;
+  notes?: string;
+  onboardingTaskId?: string;
+}
+
+export interface ReturnAssetInput {
+  returnedAt?: string;
+  conditionOnReturn?: string;
+  notes?: string;
+  offboardingTaskId?: string;
+}
+
 export function listCompanyAssets(
   companyId: string,
   query?: { status?: AssetStatus; category?: AssetCategory; employeeId?: string },
@@ -44,10 +59,11 @@ export function createCompanyAsset(
 
 export function listAssetAssignments(
   companyId: string,
-  query?: { employeeId?: string; activeOnly?: boolean },
+  query?: { employeeId?: string; assetId?: string; activeOnly?: boolean },
 ): Promise<EmployeeAssetAssignmentRecord[]> {
   const params = new URLSearchParams();
   if (query?.employeeId) params.set('employeeId', query.employeeId);
+  if (query?.assetId) params.set('assetId', query.assetId);
   if (query?.activeOnly) params.set('activeOnly', 'true');
   const qs = params.toString();
   return tenantApiRequest<EmployeeAssetAssignmentRecord[]>(
@@ -55,15 +71,10 @@ export function listAssetAssignments(
   );
 }
 
+/** Also completes the matching onboarding provisioning step (see `checklistUpdates`). */
 export function assignAsset(
   assetId: string,
-  input: {
-    employeeId: string;
-    assignedAt?: string;
-    conditionOnAssign?: string;
-    notes?: string;
-    onboardingTaskId?: string;
-  },
+  input: AssignAssetInput,
 ): Promise<EmployeeAssetAssignmentRecord> {
   return tenantApiRequest<EmployeeAssetAssignmentRecord>(`/assets/${assetId}/assign`, {
     method: 'POST',
@@ -71,14 +82,10 @@ export function assignAsset(
   });
 }
 
+/** Also completes offboarding asset-return steps with nothing left outstanding (see `checklistUpdates`). */
 export function returnAsset(
   assetId: string,
-  input?: {
-    returnedAt?: string;
-    conditionOnReturn?: string;
-    notes?: string;
-    offboardingTaskId?: string;
-  },
+  input?: ReturnAssetInput,
 ): Promise<EmployeeAssetAssignmentRecord> {
   return tenantApiRequest<EmployeeAssetAssignmentRecord>(`/assets/${assetId}/return`, {
     method: 'POST',

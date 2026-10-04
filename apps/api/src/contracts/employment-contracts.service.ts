@@ -31,6 +31,7 @@ import {
 import { WorkflowAssigneeService } from '../workflow/workflow-assignee.service';
 import { WorkflowEngineService } from '../workflow/workflow-engine.service';
 import { getCurrentWorkflowStep } from '../workflow/workflow.utils';
+import { ContractExpirySettingsService } from './contract-expiry-settings.service';
 import { ContractWorkflowService } from './contract-workflow.service';
 import type {
   ContractRenewalActionDto,
@@ -64,6 +65,7 @@ export class EmploymentContractsService {
     private readonly notificationEngine: NotificationEngineService,
     private readonly permissions: PermissionsService,
     private readonly dataScope: DataScopeService,
+    private readonly expirySettings: ContractExpirySettingsService,
   ) {}
 
   async list(
@@ -87,7 +89,10 @@ export class EmploymentContractsService {
     });
 
     const workflowMap = await this.loadWorkflowMap(rows.map((r) => r.id));
-    const records = rows.map((row) => this.toRecord(row, workflowMap.get(row.id)));
+    const warningDays = await this.expirySettings.getWindowDays(companyId);
+    const records = rows.map((row) =>
+      this.toRecord(row, workflowMap.get(row.id), warningDays),
+    );
     if (query.displayStatus) {
       return records.filter((r) => r.displayStatus === query.displayStatus);
     }
@@ -102,7 +107,7 @@ export class EmploymentContractsService {
     await this.companyScope.assertCompanyInTenant(row.companyId);
     await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const workflow = await this.contractWorkflow.findForContract(contractId);
-    return this.toRecord(row, workflow);
+    return this.present(row, workflow);
   }
 
   async create(
@@ -163,7 +168,7 @@ export class EmploymentContractsService {
       newValue: this.toRecord(row, null) as unknown as Record<string, unknown>,
     });
 
-    return this.toRecord(row, null);
+    return this.present(row, null);
   }
 
   async update(
@@ -177,8 +182,34 @@ export class EmploymentContractsService {
       includeSelf: false,
     });
 
-    if (dto.startDate && dto.endDate) {
-      this.validateDates(dto.startDate, dto.endDate);
+    const changesTerms = Object.entries(dto).some(
+      ([key, value]) => key !== 'status' && value !== undefined,
+    );
+    if (changesTerms) {
+      if (existing.status === EmploymentContractStatus.terminated) {
+        throw new BadRequestException({
+          code: 'CONTRACT_LOCKED',
+          message: 'Terminated contracts can’t be edited',
+        });
+      }
+      const workflow = await this.contractWorkflow.findForContract(contractId);
+      if (workflow?.status === 'pending') {
+        throw new BadRequestException({
+          code: 'CONTRACT_LOCKED',
+          message: 'Contract terms can’t change while the renewal is awaiting approval',
+        });
+      }
+    }
+
+    if (dto.startDate !== undefined || dto.endDate !== undefined) {
+      this.validateDates(
+        dto.startDate ?? formatDateValue(existing.startDate),
+        dto.endDate !== undefined
+          ? dto.endDate
+          : existing.endDate
+            ? formatDateValue(existing.endDate)
+            : null,
+      );
     }
 
     const row = await this.prisma.unscoped.employmentContract.update({
@@ -191,6 +222,11 @@ export class EmploymentContractsService {
           : {}),
         ...(dto.endDate !== undefined
           ? { endDate: dto.endDate ? parseDateString(dto.endDate) : null }
+          : {}),
+        ...(dto.endDate !== undefined &&
+        (dto.endDate ?? null) !==
+          (existing.endDate ? formatDateValue(existing.endDate) : null)
+          ? { expiryAlertSentAt: null }
           : {}),
         ...(dto.probationEndDate !== undefined
           ? {
@@ -258,7 +294,7 @@ export class EmploymentContractsService {
     });
 
     const workflow = await this.contractWorkflow.findForContract(contractId);
-    return this.toRecord(row, workflow);
+    return this.present(row, workflow);
   }
 
   async activate(contractId: string, user: AuthenticatedUser) {
@@ -331,7 +367,7 @@ export class EmploymentContractsService {
       return this.submitRenewal(row.id, user);
     }
 
-    return this.toRecord(row, null);
+    return this.present(row, null);
   }
 
   async submitRenewal(
@@ -365,7 +401,7 @@ export class EmploymentContractsService {
 
     await this.emitApprovalPending(row, instance);
 
-    return this.toRecord(row, instance);
+    return this.present(row, instance);
   }
 
   async approveRenewal(
@@ -412,7 +448,7 @@ export class EmploymentContractsService {
       await this.emitApprovalPending(row, transition.instance);
     }
 
-    return this.toRecord(updated, transition.instance);
+    return this.present(updated, transition.instance);
   }
 
   async rejectRenewal(
@@ -448,7 +484,7 @@ export class EmploymentContractsService {
 
     await this.emitRenewalOutcome('contract.renewal.rejected', row);
 
-    return this.toRecord(row, transition.instance);
+    return this.present(row, transition.instance);
   }
 
   /** The workflow engine still checks the user is eligible for the current step. */
@@ -717,9 +753,18 @@ export class EmploymentContractsService {
     };
   }
 
+  /** Record for API responses, with "expiring soon" based on the company's alert window. */
+  private async present(
+    row: ContractWithRelations,
+    workflow: WorkflowInstanceRecord | null | undefined,
+  ): Promise<EmploymentContractRecord> {
+    return this.toRecord(row, workflow, await this.expirySettings.getWindowDays(row.companyId));
+  }
+
   private toRecord(
     row: ContractWithRelations,
     workflow: WorkflowInstanceRecord | null | undefined,
+    warningDays?: number,
   ): EmploymentContractRecord {
     const renewalWorkflow = this.toRenewalWorkflow(workflow ?? null);
     return {
@@ -736,6 +781,7 @@ export class EmploymentContractsService {
         startDate: row.startDate,
         endDate: row.endDate,
         renewalWorkflowStatus: renewalWorkflow?.status ?? null,
+        warningDays,
       }),
       startDate: formatDateValue(row.startDate),
       endDate: row.endDate ? formatDateValue(row.endDate) : null,

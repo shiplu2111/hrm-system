@@ -304,6 +304,18 @@ export class WorkflowEngineService {
     };
   }
 
+  /** Removes a finished instance so the entity can be resubmitted (instances are unique per entity). */
+  async deleteInstance(instanceId: string): Promise<void> {
+    const row = await this.findInstanceOrThrow(instanceId);
+    if (row.status === WorkflowInstanceStatus.pending) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Pending workflows must be cancelled or completed before they can be replaced',
+      });
+    }
+    await this.prisma.unscoped.workflowInstance.delete({ where: { id: row.id } });
+  }
+
   async cancelInstance(instanceId: string): Promise<WorkflowInstanceRecord> {
     const row = await this.findInstanceOrThrow(instanceId);
     if (row.status !== WorkflowInstanceStatus.pending) {

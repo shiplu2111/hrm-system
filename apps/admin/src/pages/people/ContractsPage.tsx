@@ -1,144 +1,129 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Plus,
-  Search,
-  AlertTriangle,
-  FileText,
-  Upload,
-  Check,
-  Loader2,
-} from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { AlertCircle, AlertTriangle, BellRing, FileText, Loader2, Plus, Search, X } from 'lucide-react';
 import type {
   EmploymentContractDisplayStatus,
   EmploymentContractRecord,
   EmploymentContractType,
-  PayFrequency,
 } from '@hrm/shared-types';
-import { PermissionGate } from '@hrm/portal-ui';
+import { usePermission } from '@hrm/portal-ui';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select, Textarea } from '@/components/ui/Form';
+import { Input, Select } from '@/components/ui/Form';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { CompanySelector } from '@/components/org/CompanySelector';
 import { OrgPageState } from '@/components/org/OrgPageState';
+import { ContractStatusBadge, ContractTypeBadge } from '@/components/contracts/ContractBadges';
+import { ContractCreateModal } from '@/components/contracts/ContractCreateModal';
 import { useNav } from '@/context/NavContext';
-import { listEmployees } from '@/lib/employees-api';
+import { CONTRACT_TYPE_LABELS, listEmploymentContracts } from '@/lib/contracts-api';
 import {
-  CONTRACT_TYPE_LABELS,
-  DISPLAY_STATUS_LABELS,
-  createEmploymentContract,
-  listEmploymentContracts,
-  uploadContractDocument,
-  type CreateEmploymentContractInput,
-} from '@/lib/contracts-api';
+  daysUntil,
+  endsWithin,
+  formatContractDate,
+  formatContractPay,
+  relativeDays,
+} from '@/lib/contract-form';
 import { ApiError } from '@/lib/tenant-api-client';
 
-const statusTone: Record<
-  EmploymentContractDisplayStatus,
-  'success' | 'warning' | 'error' | 'neutral'
-> = {
-  active: 'success',
-  expiring_soon: 'warning',
-  expired: 'error',
-  draft: 'neutral',
-  pending_approval: 'warning',
-  terminated: 'neutral',
-};
+type StatusFilter =
+  | 'all'
+  | 'active'
+  | 'expiring_soon'
+  | 'pending_approval'
+  | 'draft'
+  | 'expired'
+  | 'terminated';
 
-const typeTone: Record<
-  EmploymentContractType,
-  'accent' | 'success' | 'warning' | 'info'
-> = {
-  permanent: 'accent',
-  fixed_term: 'warning',
-  casual: 'info',
-  project_based: 'info',
-};
-
-const DISPLAY_FILTER: { value: string; label: string }[] = [
-  { value: 'all', label: 'All Status' },
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All statuses' },
   { value: 'active', label: 'Active' },
-  { value: 'expiring_soon', label: 'Expiring Soon' },
-  { value: 'expired', label: 'Expired' },
+  { value: 'expiring_soon', label: 'Expiring soon' },
+  { value: 'pending_approval', label: 'Pending approval' },
   { value: 'draft', label: 'Draft' },
-  { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'expired', label: 'Expired' },
   { value: 'terminated', label: 'Terminated' },
 ];
 
-const emptyForm = {
-  employeeId: '',
-  contractType: 'permanent' as EmploymentContractType,
-  startDate: '',
-  endDate: '',
-  probationEndDate: '',
-  workingHoursPerWeek: '40',
-  payRate: '',
-  payFrequency: 'monthly' as PayFrequency,
-  currency: 'AUD',
-  leaveEntitlementDays: '25',
-  overtimeType: 'multiplier_after_weekly_hours',
-  overtimeThreshold: '40',
-  overtimeMultiplier: '1.5',
-  noticePeriodDays: '30',
-  employerNoticeDays: '30',
-  terminationConditions: '',
-  activate: false,
-  docLabel: 'Signed Contract',
-  docFile: null as File | null,
+/** "Active" includes contracts that are active but close to their end date. */
+const STATUS_MATCH: Record<Exclude<StatusFilter, 'all'>, EmploymentContractDisplayStatus[]> = {
+  active: ['active', 'expiring_soon'],
+  expiring_soon: ['expiring_soon'],
+  pending_approval: ['pending_approval'],
+  draft: ['draft'],
+  expired: ['expired'],
+  terminated: ['terminated'],
 };
 
-function formatPayDisplay(contract: EmploymentContractRecord): string {
-  if (contract.payRate == null) return '—';
-  const formatted = new Intl.NumberFormat('en-AU', {
-    style: 'currency',
-    currency: contract.currency,
-    maximumFractionDigits: 2,
-  }).format(contract.payRate);
-  const suffix: Record<string, string> = {
-    hourly: '/hr',
-    weekly: '/wk',
-    biweekly: '/fortnight',
-    monthly: '/mo',
-    annual: '/yr',
-  };
-  return contract.payFrequency
-    ? `${formatted}${suffix[contract.payFrequency] ?? ''}`
-    : formatted;
+const ENDING_OPTIONS = [
+  { value: '', label: 'Any end date' },
+  { value: '30', label: 'Expiring within 30 days' },
+  { value: '60', label: 'Expiring within 60 days' },
+  { value: '90', label: 'Expiring within 90 days' },
+];
+
+function readStatus(value: string | null): StatusFilter {
+  return STATUS_OPTIONS.some((o) => o.value === value) ? (value as StatusFilter) : 'all';
+}
+
+function readType(value: string | null): EmploymentContractType | '' {
+  return value && value in CONTRACT_TYPE_LABELS ? (value as EmploymentContractType) : '';
+}
+
+function readEnding(value: string | null): number | null {
+  return ENDING_OPTIONS.some((o) => o.value && o.value === value) ? Number(value) : null;
+}
+
+function EndDateCell({ contract }: { contract: EmploymentContractRecord }) {
+  if (!contract.endDate) return <span className="text-muted">Open-ended</span>;
+  const remaining = daysUntil(contract.endDate);
+  const live = contract.status === 'active';
+  return (
+    <div>
+      <div className="text-secondary">{formatContractDate(contract.endDate)}</div>
+      {live && remaining !== null && remaining <= 90 ? (
+        <div className={`text-xs ${remaining < 0 ? 'text-error-600' : contract.displayStatus === 'expiring_soon' ? 'text-warning-600' : 'text-muted'}`}>
+          {remaining < 0 ? 'Ended' : 'Ends'} {relativeDays(remaining)}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ContractsContent({ companyId }: { companyId: string }) {
-  const { openContract } = useNav();
+  const { openContract, navigate } = useNav();
+  const canCreate = usePermission('employee', 'create');
+  const [params, setParams] = useSearchParams();
   const [contracts, setContracts] = useState<EmploymentContractRecord[]>([]);
-  const [employees, setEmployees] = useState<
-    { id: string; fullName: string; employeeNumber: string }[]
-  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+
+  const status = readStatus(params.get('status'));
+  const type = readType(params.get('type'));
+  const ending = readEnding(params.get('ending'));
+
+  const setFilter = (key: 'status' | 'type' | 'ending', value: string) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value && value !== 'all') next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [contractRows, employeeRows] = await Promise.all([
-        listEmploymentContracts(companyId),
-        listEmployees(companyId),
-      ]);
-      setContracts(contractRows);
-      setEmployees(
-        employeeRows.map((e) => ({
-          id: e.id,
-          fullName: e.fullName,
-          employeeNumber: e.employeeNumber,
-        })),
-      );
+      setContracts(await listEmploymentContracts(companyId));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load contracts');
+      setError(err instanceof ApiError ? err.message : 'Could not load contracts');
     } finally {
       setLoading(false);
     }
@@ -149,511 +134,273 @@ function ContractsContent({ companyId }: { companyId: string }) {
   }, [load]);
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return contracts.filter((c) => {
-      const name = c.employeeName?.toLowerCase() ?? '';
-      if (search && !name.includes(search.toLowerCase())) return false;
-      if (statusFilter !== 'all' && c.displayStatus !== statusFilter) return false;
+      if (q && !`${c.employeeName ?? ''} ${c.employeeNumber ?? ''}`.toLowerCase().includes(q)) return false;
+      if (status !== 'all' && !STATUS_MATCH[status].includes(c.displayStatus)) return false;
+      if (type && c.contractType !== type) return false;
+      if (ending !== null && !endsWithin(c, ending)) return false;
       return true;
     });
-  }, [contracts, search, statusFilter]);
+  }, [contracts, search, status, type, ending]);
 
-  const expiringCount = contracts.filter(
-    (c) => c.displayStatus === 'expiring_soon',
-  ).length;
+  const counts = useMemo(
+    () => ({
+      active: contracts.filter((c) => STATUS_MATCH.active.includes(c.displayStatus)).length,
+      expiring: contracts.filter((c) => c.displayStatus === 'expiring_soon').length,
+      pending: contracts.filter((c) => c.displayStatus === 'pending_approval').length,
+      draft: contracts.filter((c) => c.displayStatus === 'draft').length,
+    }),
+    [contracts],
+  );
 
-  const handleCreate = async () => {
-    if (!form.employeeId || !form.startDate) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const input: CreateEmploymentContractInput = {
-        employeeId: form.employeeId,
-        contractType: form.contractType,
-        startDate: form.startDate,
-        endDate: form.endDate || undefined,
-        probationEndDate: form.probationEndDate || undefined,
-        workingHoursPerWeek: form.workingHoursPerWeek
-          ? Number(form.workingHoursPerWeek)
-          : undefined,
-        payRate: form.payRate ? Number(form.payRate) : undefined,
-        payFrequency: form.payFrequency,
-        currency: form.currency,
-        leaveEntitlementDays: form.leaveEntitlementDays
-          ? Number(form.leaveEntitlementDays)
-          : undefined,
-        noticePeriodDays: form.noticePeriodDays
-          ? Number(form.noticePeriodDays)
-          : undefined,
-        employerNoticeDays: form.employerNoticeDays
-          ? Number(form.employerNoticeDays)
-          : undefined,
-        terminationConditions: form.terminationConditions || undefined,
-        activate: form.activate,
-      };
-
-      if (form.overtimeType !== 'none') {
-        input.overtimeRule = {
-          type: form.overtimeType as
-            | 'multiplier_after_weekly_hours'
-            | 'multiplier_after_daily_hours',
-          thresholdHours: Number(form.overtimeThreshold) || undefined,
-          multiplier: Number(form.overtimeMultiplier) || undefined,
-        };
-      } else {
-        input.overtimeRule = { type: 'none' };
-      }
-
-      const created = await createEmploymentContract(companyId, input);
-
-      if (form.docFile) {
-        await uploadContractDocument(
-          created.id,
-          form.docLabel.trim() || 'Contract Document',
-          form.docFile,
-        );
-      }
-
-      setCreateOpen(false);
-      setForm(emptyForm);
-      await load();
-      openContract(created.id);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create contract');
-    } finally {
-      setSaving(false);
-    }
+  const filtersActive = status !== 'all' || type !== '' || ending !== null || search.trim() !== '';
+  const clearFilters = () => {
+    setSearch('');
+    setParams(new URLSearchParams(), { replace: true });
   };
 
-  if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted" />
-      </div>
-    );
-  }
+  const summary: { label: string; value: number; onClick: () => void; active: boolean; tone?: string }[] = [
+    {
+      label: 'Active',
+      value: counts.active,
+      onClick: () => setFilter('status', status === 'active' ? 'all' : 'active'),
+      active: status === 'active' && ending === null,
+    },
+    {
+      label: 'Expiring soon',
+      value: counts.expiring,
+      onClick: () => setFilter('status', status === 'expiring_soon' ? 'all' : 'expiring_soon'),
+      active: status === 'expiring_soon',
+      tone: counts.expiring > 0 ? 'text-warning-600' : undefined,
+    },
+    {
+      label: 'Pending approval',
+      value: counts.pending,
+      onClick: () => setFilter('status', status === 'pending_approval' ? 'all' : 'pending_approval'),
+      active: status === 'pending_approval',
+    },
+    {
+      label: 'Drafts',
+      value: counts.draft,
+      onClick: () => setFilter('status', status === 'draft' ? 'all' : 'draft'),
+      active: status === 'draft',
+    },
+  ];
 
   return (
     <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-primary">Contract Management</h1>
+          <h1 className="text-xl font-bold text-primary">Employment Contracts</h1>
           <p className="text-sm text-secondary mt-0.5">
-            {filtered.length} contracts · {expiringCount} expiring soon
+            Contract terms, renewals and signed documents for every employee.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <CompanySelector />
-          <PermissionGate module="employee" action="create">
+          <Button variant="secondary" onClick={() => navigate('emp-contract-expiry')}>
+            <BellRing className="h-4 w-4" /> Expiry alerts
+          </Button>
+          {canCreate ? (
             <Button variant="primary" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> Create Contract
+              <Plus className="h-4 w-4" /> New contract
             </Button>
-          </PermissionGate>
+          ) : null}
         </div>
       </div>
 
-      {error && (
-        <div className="text-sm text-error-600 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-3">
-          {error}
+      {notice ? (
+        <div className="flex items-start gap-2 text-sm text-warning-800 dark:text-warning-300 bg-warning-50 dark:bg-warning-950/30 border border-warning-200 dark:border-warning-800 rounded-lg px-4 py-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span className="flex-1">{notice}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      )}
+      ) : null}
+
+      {error ? (
+        <div className="flex items-center gap-3 text-sm text-error-700 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-3">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {summary.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={item.onClick}
+            aria-pressed={item.active}
+            className={`text-left rounded-xl border px-4 py-3 transition-colors surface ${
+              item.active
+                ? 'border-accent-500 ring-2 ring-accent-500/20'
+                : 'border-base hover:bg-[rgb(var(--bg-hover))]'
+            }`}
+          >
+            <div className={`text-2xl font-semibold ${item.tone ?? 'text-primary'}`}>
+              {loading ? '–' : item.value}
+            </div>
+            <div className="text-xs text-secondary mt-0.5">{item.label}</div>
+          </button>
+        ))}
+      </div>
 
       <Card>
-        <CardBody className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <CardBody className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by employee name..."
+              placeholder="Search by employee name or number…"
+              aria-label="Search contracts"
               className="pl-9"
             />
           </div>
           <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-auto h-9"
+            aria-label="Status"
+            value={status}
+            onChange={(e) => setFilter('status', e.target.value)}
+            className="lg:w-44 h-9"
           >
-            {DISPLAY_FILTER.map((opt) => (
+            {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
             ))}
           </Select>
+          <Select
+            aria-label="Contract type"
+            value={type}
+            onChange={(e) => setFilter('type', e.target.value)}
+            className="lg:w-40 h-9"
+          >
+            <option value="">All types</option>
+            {Object.entries(CONTRACT_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="End date"
+            value={ending === null ? '' : String(ending)}
+            onChange={(e) => setFilter('ending', e.target.value)}
+            className="lg:w-52 h-9"
+          >
+            {ENDING_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
+          {filtersActive ? (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="h-4 w-4" /> Clear
+            </Button>
+          ) : null}
         </CardBody>
       </Card>
 
       <Card>
         <CardBody className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Employee
-                  </th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden md:table-cell">
-                    Start Date
-                  </th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden md:table-cell">
-                    End Date
-                  </th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden lg:table-cell">
-                    Pay Rate
-                  </th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="w-12 px-5 py-2.5" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-5 py-8 text-center text-secondary">
-                      No contracts found.
-                    </td>
+          {loading ? (
+            <div className="p-10 flex justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title={contracts.length === 0 ? 'No contracts yet' : 'No contracts match these filters'}
+              description={
+                contracts.length === 0
+                  ? 'Create a contract here or from an employee’s profile.'
+                  : 'Try a different status, type or end-date range.'
+              }
+              action={
+                contracts.length === 0
+                  ? canCreate
+                    ? { label: 'New contract', onClick: () => setCreateOpen(true) }
+                    : undefined
+                  : { label: 'Clear filters', onClick: clearFilters }
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-base bg-[rgb(var(--bg-muted))]">
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">Employee</th>
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">Type</th>
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden md:table-cell">Start</th>
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden md:table-cell">End</th>
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider hidden lg:table-cell">Pay</th>
+                    <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase tracking-wider">Status</th>
                   </tr>
-                ) : (
-                  filtered.map((c) => (
+                </thead>
+                <tbody className="divide-y divide-[rgb(var(--border-base))]">
+                  {filtered.map((c) => (
                     <tr
                       key={c.id}
                       onClick={() => openContract(c.id)}
-                      className="hover:bg-[rgb(var(--bg-hover))] transition-colors cursor-pointer group"
+                      className="hover:bg-[rgb(var(--bg-hover))] transition-colors cursor-pointer"
                     >
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded-lg bg-accent-50 dark:bg-accent-950/40 flex items-center justify-center shrink-0">
-                            <FileText className="h-4 w-4 text-accent-600 dark:text-accent-400" />
-                          </div>
-                          <div>
-                            <div className="font-medium text-primary">
-                              {c.employeeName ?? '—'}
-                            </div>
-                            <div className="text-xs text-muted">
-                              {c.employeeNumber ?? c.employeeId.slice(0, 8)}
-                            </div>
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          className="text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openContract(c.id);
+                          }}
+                        >
+                          <div className="font-medium text-primary">{c.employeeName ?? '—'}</div>
+                          <div className="text-xs text-muted">{c.employeeNumber ?? c.employeeId.slice(0, 8)}</div>
+                        </button>
                       </td>
                       <td className="px-5 py-3">
-                        <Badge tone={typeTone[c.contractType]}>
-                          {CONTRACT_TYPE_LABELS[c.contractType]}
-                        </Badge>
+                        <ContractTypeBadge type={c.contractType} />
                       </td>
-                      <td className="px-5 py-3 text-secondary hidden md:table-cell">
-                        {c.startDate}
+                      <td className="px-5 py-3 text-secondary hidden md:table-cell">{formatContractDate(c.startDate)}</td>
+                      <td className="px-5 py-3 hidden md:table-cell">
+                        <EndDateCell contract={c} />
                       </td>
-                      <td className="px-5 py-3 text-secondary hidden md:table-cell">
-                        {c.endDate ?? '—'}
-                      </td>
-                      <td className="px-5 py-3 text-secondary hidden lg:table-cell">
-                        {formatPayDisplay(c)}
-                      </td>
+                      <td className="px-5 py-3 text-secondary hidden lg:table-cell">{formatContractPay(c)}</td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          {c.displayStatus === 'expiring_soon' && (
-                            <AlertTriangle className="h-3.5 w-3.5 text-warning-500" />
-                          )}
-                          <Badge tone={statusTone[c.displayStatus]} dot>
-                            {DISPLAY_STATUS_LABELS[c.displayStatus]}
-                          </Badge>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <Button variant="ghost" size="sm">
-                          View
-                        </Button>
+                        <ContractStatusBadge status={c.displayStatus} />
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-5 py-2.5 text-xs text-muted border-t border-base">
+                Showing {filtered.length} of {contracts.length} contracts
+              </div>
+            </div>
+          )}
         </CardBody>
       </Card>
 
-      <Modal
+      <ContractCreateModal
         open={createOpen}
-        onClose={() => !saving && setCreateOpen(false)}
-        title="Create Contract"
-        description="Define a new employment contract"
-        size="xl"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => setCreateOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => void handleCreate()}
-              disabled={saving || !form.employeeId || !form.startDate}
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Check className="h-4 w-4" />
-              )}
-              Create Contract
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-              Contract Basics
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Employee</Label>
-                <Select
-                  value={form.employeeId}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, employeeId: e.target.value }))
-                  }
-                >
-                  <option value="">Select employee...</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.fullName} ({e.employeeNumber})
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Contract Type</Label>
-                <Select
-                  value={form.contractType}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      contractType: e.target.value as EmploymentContractType,
-                    }))
-                  }
-                >
-                  {Object.entries(CONTRACT_TYPE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label>Start Date</Label>
-                <Input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, startDate: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>End Date (if applicable)</Label>
-                <Input
-                  type="date"
-                  value={form.endDate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, endDate: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-              Probation
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Probation End Date</Label>
-                <Input
-                  type="date"
-                  value={form.probationEndDate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, probationEndDate: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-              Compensation & Working Hours
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Pay Rate</Label>
-                <Input
-                  placeholder="e.g. 85000"
-                  value={form.payRate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, payRate: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>Pay Frequency</Label>
-                <Select
-                  value={form.payFrequency}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      payFrequency: e.target.value as PayFrequency,
-                    }))
-                  }
-                >
-                  <option value="monthly">Monthly</option>
-                  <option value="biweekly">Bi-weekly</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="hourly">Hourly</option>
-                  <option value="annual">Annual</option>
-                </Select>
-              </div>
-              <div>
-                <Label>Working Hours / Week</Label>
-                <Input
-                  type="number"
-                  value={form.workingHoursPerWeek}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, workingHoursPerWeek: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>Leave Entitlement (days/year)</Label>
-                <Input
-                  type="number"
-                  value={form.leaveEntitlementDays}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      leaveEntitlementDays: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>Overtime Rule</Label>
-                <Select
-                  value={form.overtimeType}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, overtimeType: e.target.value }))
-                  }
-                >
-                  <option value="multiplier_after_weekly_hours">
-                    1.5x after weekly hours
-                  </option>
-                  <option value="multiplier_after_daily_hours">
-                    1.5x after daily hours
-                  </option>
-                  <option value="none">No OT</option>
-                </Select>
-              </div>
-              <div>
-                <Label>Notice Period (days)</Label>
-                <Input
-                  type="number"
-                  value={form.noticePeriodDays}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, noticePeriodDays: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-              Termination Rules
-            </h3>
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <Label>Termination Notice — Employer (days)</Label>
-                <Input
-                  type="number"
-                  value={form.employerNoticeDays}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, employerNoticeDays: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>Termination Conditions</Label>
-                <Textarea
-                  rows={3}
-                  placeholder="Conditions under which contract may be terminated..."
-                  value={form.terminationConditions}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      terminationConditions: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-secondary">
-                <input
-                  type="checkbox"
-                  checked={form.activate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, activate: e.target.checked }))
-                  }
-                />
-                Activate immediately (otherwise save as draft)
-              </label>
-            </div>
-          </div>
-
-          <PermissionGate module="employee" action="edit">
-            <div>
-              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-                Contract Document (optional)
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label>Document Label</Label>
-                  <Input
-                    value={form.docLabel}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, docLabel: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>File</Label>
-                  <Input
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        docFile: e.target.files?.[0] ?? null,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-              {!form.docFile && (
-                <p className="text-xs text-muted mt-2 flex items-center gap-1">
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload signed contract PDF after creation from the detail page.
-                </p>
-              )}
-            </div>
-          </PermissionGate>
-        </div>
-      </Modal>
+        companyId={companyId}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(created, warning) => {
+          setCreateOpen(false);
+          if (warning) {
+            setNotice(warning);
+            void load();
+          } else {
+            openContract(created.id);
+          }
+        }}
+      />
     </div>
   );
 }

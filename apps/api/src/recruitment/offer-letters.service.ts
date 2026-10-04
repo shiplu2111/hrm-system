@@ -12,12 +12,18 @@ import type { OfferLetterRecord, WorkflowInstanceRecord } from '@hrm/shared-type
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationEngineService } from '../notifications/notification-engine.service';
+import { buildApprovalPendingVariables } from '../notifications/notification.helpers';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { StorageService } from '../storage/storage.service';
 import { MailService } from '../settings/mail.service';
 import { SmtpSettingsService } from '../settings/smtp-settings.service';
+import { WorkflowAssigneeService } from '../workflow/workflow-assignee.service';
+import { getCurrentWorkflowStep } from '../workflow/workflow.utils';
 import type {
+  DeclineOfferLetterDto,
   OfferLetterActionDto,
+  SendOfferLetterDto,
   UpsertOfferLetterDto,
 } from './dto/recruitment.dto';
 import { renderOfferLetterPdf } from './offer-letter-pdf.generator';
@@ -48,6 +54,19 @@ type OfferWithRelations = Prisma.OfferLetterGetPayload<{
   include: typeof OFFER_LETTER_INCLUDE;
 }>;
 
+const REVISABLE_STATUSES: OfferLetterStatus[] = [
+  OfferLetterStatus.cancelled,
+  OfferLetterStatus.declined,
+];
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 @Injectable()
 export class OfferLettersService {
   constructor(
@@ -58,6 +77,8 @@ export class OfferLettersService {
     private readonly offerWorkflow: OfferLetterWorkflowService,
     private readonly mailService: MailService,
     private readonly smtpSettingsService: SmtpSettingsService,
+    private readonly workflowAssignee: WorkflowAssigneeService,
+    private readonly notificationEngine: NotificationEngineService,
   ) {}
 
   async getOrCreateForApplication(
@@ -74,7 +95,7 @@ export class OfferLettersService {
     if (existing) {
       const workflow = await this.offerWorkflow.findForOfferLetter(existing.id);
       const synced = await this.syncOfferWithWorkflow(existing, workflow);
-      return this.toRecord(synced, workflow);
+      return this.present(synced, workflow);
     }
 
     const requisition = await this.prisma.unscoped.jobRequisition.findUnique({
@@ -110,7 +131,7 @@ export class OfferLettersService {
         workLocationId: requisition.locationId,
         startDate,
         expiryDate,
-        currency: 'AUD',
+        currency: await this.resolveCompanyCurrency(application.companyId),
         status: OfferLetterStatus.draft,
       },
       include: OFFER_LETTER_INCLUDE,
@@ -125,7 +146,7 @@ export class OfferLettersService {
       newValue: { applicationId },
     });
 
-    return this.toRecord(row, null);
+    return this.present(row, null);
   }
 
   async update(
@@ -159,16 +180,18 @@ export class OfferLettersService {
           ? { workLocationId: dto.workLocationId }
           : {}),
         ...(dto.annualSalary !== undefined ? { annualSalary: dto.annualSalary } : {}),
-        ...(dto.currency !== undefined ? { currency: dto.currency } : {}),
+        ...(dto.currency !== undefined
+          ? { currency: dto.currency.trim().toUpperCase() }
+          : {}),
         ...(dto.startDate !== undefined
           ? { startDate: new Date(dto.startDate) }
           : {}),
         ...(dto.reportingTo !== undefined
-          ? { reportingTo: dto.reportingTo?.trim() ?? null }
+          ? { reportingTo: dto.reportingTo?.trim() || null }
           : {}),
         ...(dto.signingBonus !== undefined ? { signingBonus: dto.signingBonus } : {}),
         ...(dto.equityNotes !== undefined
-          ? { equityNotes: dto.equityNotes?.trim() ?? null }
+          ? { equityNotes: dto.equityNotes?.trim() || null }
           : {}),
         ...(dto.probationMonths !== undefined
           ? { probationMonths: dto.probationMonths }
@@ -177,7 +200,7 @@ export class OfferLettersService {
           ? { expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null }
           : {}),
         ...(dto.additionalTerms !== undefined
-          ? { additionalTerms: dto.additionalTerms?.trim() ?? null }
+          ? { additionalTerms: dto.additionalTerms?.trim() || null }
           : {}),
       },
       include: OFFER_LETTER_INCLUDE,
@@ -192,7 +215,7 @@ export class OfferLettersService {
     });
 
     const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
-    return this.toRecord(row, workflow);
+    return this.present(row, workflow);
   }
 
   async generatePdf(
@@ -249,11 +272,11 @@ export class OfferLettersService {
       action: 'update',
       module: 'recruitment',
       recordId: updated.id,
-      newValue: { pdfGenerated: true },
+      newValue: { pdfGenerated: true, template: updated.template },
     });
 
     const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
-    return this.toRecord(updated, workflow);
+    return this.present(updated, workflow);
   }
 
   async submit(offerLetterId: string, user: AuthenticatedUser): Promise<OfferLetterRecord> {
@@ -264,6 +287,12 @@ export class OfferLettersService {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Only draft offers can be submitted for approval',
+      });
+    }
+    if (row.annualSalary == null) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Set the salary before submitting the offer for approval',
       });
     }
 
@@ -277,7 +306,7 @@ export class OfferLettersService {
 
     await this.generatePdf(offerLetterId, user);
 
-    await this.offerWorkflow.startForOfferLetter({
+    const instance = await this.offerWorkflow.startForOfferLetter({
       companyId: row.companyId,
       tenantId: row.tenantId,
       offerLetterId: row.id,
@@ -291,8 +320,20 @@ export class OfferLettersService {
       include: OFFER_LETTER_INCLUDE,
     });
 
-    const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
-    return this.toRecord(updated, workflow);
+    await this.auditService.log({
+      tenantId: updated.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'recruitment',
+      recordId: updated.id,
+      newValue: { status: 'pending_approval', workflowInstanceId: instance.id },
+    });
+
+    await this.emitApprovalPending(updated, instance);
+
+    // Some chains auto-complete (e.g. every step skipped); reflect that immediately.
+    const synced = await this.syncOfferWithWorkflow(updated, instance);
+    return this.present(synced, instance);
   }
 
   async approve(
@@ -323,7 +364,7 @@ export class OfferLettersService {
     const transition = await this.offerWorkflow.approve({
       offerLetterId: row.id,
       user,
-      comment: dto.comment,
+      comment: dto.comment?.trim() || null,
       audit: {
         tenantId: row.tenantId,
         module: 'recruitment',
@@ -335,8 +376,12 @@ export class OfferLettersService {
       requesterUserId: existingWorkflow?.requesterUserId ?? user.id,
     });
 
+    if (!transition.fullyApproved && !transition.rejected) {
+      await this.emitApprovalPending(row, transition.instance);
+    }
+
     const updated = await this.syncOfferWithWorkflow(row, transition.instance);
-    return this.toRecord(updated, transition.instance);
+    return this.present(updated, transition.instance);
   }
 
   async reject(
@@ -367,7 +412,7 @@ export class OfferLettersService {
     const transition = await this.offerWorkflow.reject({
       offerLetterId: row.id,
       user,
-      comment: dto.comment,
+      comment: dto.comment?.trim() || null,
       audit: {
         tenantId: row.tenantId,
         module: 'recruitment',
@@ -385,10 +430,60 @@ export class OfferLettersService {
       include: OFFER_LETTER_INCLUDE,
     });
 
-    return this.toRecord(updated, transition.instance);
+    return this.present(updated, transition.instance);
   }
 
-  async send(offerLetterId: string, user: AuthenticatedUser): Promise<OfferLetterRecord> {
+  /** Reopens a rejected or declined offer as a draft so terms can be changed and resubmitted. */
+  async revise(offerLetterId: string, user: AuthenticatedUser): Promise<OfferLetterRecord> {
+    const row = await this.findOrThrow(offerLetterId);
+    await this.companyScope.assertCompanyInTenant(row.companyId);
+
+    if (!REVISABLE_STATUSES.includes(row.status)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Only rejected or declined offers can be revised',
+      });
+    }
+
+    const application = await this.findApplicationOrThrow(row.applicationId);
+    if (application.hiredEmployeeId || application.stage === ApplicationStage.hired) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'This candidate has already been hired',
+      });
+    }
+
+    const updated = await this.prisma.unscoped.offerLetter.update({
+      where: { id: offerLetterId },
+      data: {
+        status: OfferLetterStatus.draft,
+        sentAt: null,
+        acceptedAt: null,
+        declinedAt: null,
+        declineReason: null,
+      },
+      include: OFFER_LETTER_INCLUDE,
+    });
+
+    await this.auditService.log({
+      tenantId: updated.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'recruitment',
+      recordId: updated.id,
+      oldValue: { status: row.status },
+      newValue: { status: 'draft', revised: true },
+    });
+
+    const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
+    return this.present(updated, workflow);
+  }
+
+  async send(
+    offerLetterId: string,
+    user: AuthenticatedUser,
+    dto: SendOfferLetterDto = {},
+  ): Promise<OfferLetterRecord> {
     const row = await this.findOrThrow(offerLetterId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
 
@@ -407,50 +502,18 @@ export class OfferLettersService {
     }
 
     const refreshed = await this.findOrThrow(offerLetterId);
+    const deliveryMethod = dto.deliveryMethod ?? 'email';
     const candidateEmail = refreshed.application.candidate.email?.trim();
-    if (!candidateEmail) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Candidate does not have an email address on file',
-      });
+
+    if (deliveryMethod === 'email') {
+      if (!candidateEmail) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Candidate does not have an email address on file',
+        });
+      }
+      await this.emailOfferToCandidate(refreshed, candidateEmail, dto.message, user);
     }
-
-    const { buffer, filename } = await this.downloadFile(offerLetterId, user);
-    const smtp = await this.smtpSettingsService.resolveDecryptedSettings(
-      refreshed.companyId,
-    );
-    const candidateName = formatCandidateName(
-      refreshed.application.candidate.firstName,
-      refreshed.application.candidate.lastName,
-    );
-    const companyName = refreshed.company?.name ?? 'Our company';
-
-    await this.mailService.sendMail({
-      settings: smtp,
-      to: candidateEmail,
-      subject: `Job Offer — ${refreshed.jobTitle} at ${companyName}`,
-      text: [
-        `Dear ${candidateName},`,
-        '',
-        `Please find attached your formal offer letter for the ${refreshed.jobTitle} position at ${companyName}.`,
-        '',
-        'We look forward to hearing from you.',
-        '',
-        'Best regards,',
-        'Human Resources',
-      ].join('\n'),
-      html: `<p>Dear ${candidateName},</p>
-<p>Please find attached your formal offer letter for the <strong>${refreshed.jobTitle}</strong> position at ${companyName}.</p>
-<p>We look forward to hearing from you.</p>
-<p>Best regards,<br/>Human Resources</p>`,
-      attachments: [
-        {
-          filename,
-          content: buffer,
-          contentType: 'application/pdf',
-        },
-      ],
-    });
 
     const updated = await this.prisma.unscoped.offerLetter.update({
       where: { id: offerLetterId },
@@ -469,11 +532,15 @@ export class OfferLettersService {
       action: 'update',
       module: 'recruitment',
       recordId: updated.id,
-      newValue: { status: 'sent', emailedTo: candidateEmail },
+      newValue: {
+        status: 'sent',
+        deliveryMethod,
+        ...(deliveryMethod === 'email' ? { emailedTo: candidateEmail } : {}),
+      },
     });
 
     const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
-    return this.toRecord(updated, workflow);
+    return this.present(updated, workflow);
   }
 
   async accept(offerLetterId: string, user: AuthenticatedUser): Promise<OfferLetterRecord> {
@@ -517,7 +584,48 @@ export class OfferLettersService {
     });
 
     const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
-    return this.toRecord(updated, workflow);
+    return this.present(updated, workflow);
+  }
+
+  async decline(
+    offerLetterId: string,
+    user: AuthenticatedUser,
+    dto: DeclineOfferLetterDto,
+  ): Promise<OfferLetterRecord> {
+    const row = await this.findOrThrow(offerLetterId);
+    await this.companyScope.assertCompanyInTenant(row.companyId);
+
+    if (
+      row.status !== OfferLetterStatus.sent &&
+      row.status !== OfferLetterStatus.approved
+    ) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Only sent or approved offers can be marked as declined',
+      });
+    }
+
+    const updated = await this.prisma.unscoped.offerLetter.update({
+      where: { id: offerLetterId },
+      data: {
+        status: OfferLetterStatus.declined,
+        declinedAt: new Date(),
+        declineReason: dto.reason?.trim() || null,
+      },
+      include: OFFER_LETTER_INCLUDE,
+    });
+
+    await this.auditService.log({
+      tenantId: updated.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'recruitment',
+      recordId: updated.id,
+      newValue: { status: 'declined', reason: updated.declineReason },
+    });
+
+    const workflow = await this.offerWorkflow.findForOfferLetter(offerLetterId);
+    return this.present(updated, workflow);
   }
 
   async downloadFile(
@@ -551,6 +659,87 @@ export class OfferLettersService {
       where: {
         applicationId,
         status: OfferLetterStatus.accepted,
+      },
+    });
+  }
+
+  private async emailOfferToCandidate(
+    row: OfferWithRelations,
+    candidateEmail: string,
+    message: string | undefined,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const { buffer, filename } = await this.downloadFile(row.id, user);
+    const smtp = await this.smtpSettingsService.resolveDecryptedSettings(row.companyId);
+    const candidateName = formatCandidateName(
+      row.application.candidate.firstName,
+      row.application.candidate.lastName,
+    );
+    const companyName = row.company?.name ?? 'Our company';
+    const personalNote = message?.trim();
+
+    await this.mailService.sendMail({
+      settings: smtp,
+      to: candidateEmail,
+      subject: `Job Offer — ${row.jobTitle} at ${companyName}`,
+      text: [
+        `Dear ${candidateName},`,
+        '',
+        `Please find attached your formal offer letter for the ${row.jobTitle} position at ${companyName}.`,
+        ...(personalNote ? ['', personalNote] : []),
+        '',
+        'We look forward to hearing from you.',
+        '',
+        'Best regards,',
+        'Human Resources',
+      ].join('\n'),
+      html: `<p>Dear ${escapeHtml(candidateName)},</p>
+<p>Please find attached your formal offer letter for the <strong>${escapeHtml(row.jobTitle)}</strong> position at ${escapeHtml(companyName)}.</p>
+${personalNote ? `<p>${escapeHtml(personalNote).replace(/\n/g, '<br/>')}</p>` : ''}
+<p>We look forward to hearing from you.</p>
+<p>Best regards,<br/>Human Resources</p>`,
+      attachments: [
+        {
+          filename,
+          content: buffer,
+          contentType: 'application/pdf',
+        },
+      ],
+    });
+  }
+
+  private async emitApprovalPending(
+    row: OfferWithRelations,
+    instance: WorkflowInstanceRecord,
+  ): Promise<void> {
+    const currentStep = getCurrentWorkflowStep(instance.steps);
+    if (!currentStep) return;
+
+    const approverUserIds = await this.workflowAssignee.resolveApproverUserIds({
+      step: currentStep,
+      requesterEmployeeId: instance.requesterEmployeeId,
+      tenantId: row.tenantId,
+    });
+    if (approverUserIds.length === 0) return;
+
+    await this.notificationEngine.emit({
+      tenantId: row.tenantId,
+      companyId: row.companyId,
+      eventType: 'approval.pending',
+      subjectEmployeeId: instance.requesterEmployeeId,
+      directUserIds: approverUserIds,
+      variables: buildApprovalPendingVariables({
+        employeeName: formatCandidateName(
+          row.application.candidate.firstName,
+          row.application.candidate.lastName,
+        ),
+        entityLabel: `${row.jobTitle} offer letter`,
+        stepName: currentStep.roleName,
+      }),
+      payload: {
+        offerLetterId: row.id,
+        applicationId: row.applicationId,
+        workflowInstanceId: instance.id,
       },
     });
   }
@@ -605,6 +794,14 @@ export class OfferLettersService {
     });
   }
 
+  private async resolveCompanyCurrency(companyId: string): Promise<string> {
+    const company = await this.prisma.unscoped.company.findUnique({
+      where: { id: companyId },
+      select: { payrollBaseCurrency: true, country: { select: { currency: true } } },
+    });
+    return (company?.payrollBaseCurrency ?? company?.country?.currency ?? 'AUD').toUpperCase();
+  }
+
   private async buildPdfBuffer(row: OfferWithRelations): Promise<Buffer> {
     const candidateName = formatCandidateName(
       row.application.candidate.firstName,
@@ -612,6 +809,7 @@ export class OfferLettersService {
     );
 
     return renderOfferLetterPdf({
+      template: row.template,
       companyName: row.company.name,
       candidateName,
       candidateEmail: row.application.candidate.email,
@@ -636,12 +834,11 @@ export class OfferLettersService {
       ),
       equityNotes: row.equityNotes ?? undefined,
       probationLabel:
-        row.probationMonths != null
+        row.probationMonths != null && row.probationMonths > 0
           ? `${row.probationMonths} month${row.probationMonths === 1 ? '' : 's'}`
           : undefined,
       expiryDate: row.expiryDate?.toISOString().slice(0, 10),
       additionalTerms: row.additionalTerms ?? undefined,
-      templateLabel: resolveOfferTemplateLabel(row.template),
     });
   }
 
@@ -654,25 +851,45 @@ export class OfferLettersService {
       workLocationId?: string | null;
     },
   ) {
+    const assertFound = (found: unknown, label: string) => {
+      if (!found) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: `${label} does not belong to this company`,
+        });
+      }
+    };
     if (dto.departmentId) {
-      await this.prisma.unscoped.department.findFirstOrThrow({
-        where: { id: dto.departmentId, companyId },
-      });
+      assertFound(
+        await this.prisma.unscoped.department.findFirst({
+          where: { id: dto.departmentId, companyId },
+        }),
+        'Department',
+      );
     }
     if (dto.designationId) {
-      await this.prisma.unscoped.designation.findFirstOrThrow({
-        where: { id: dto.designationId, companyId },
-      });
+      assertFound(
+        await this.prisma.unscoped.designation.findFirst({
+          where: { id: dto.designationId, companyId },
+        }),
+        'Designation',
+      );
     }
     if (dto.employmentTypeId) {
-      await this.prisma.unscoped.employmentType.findFirstOrThrow({
-        where: { id: dto.employmentTypeId, companyId },
-      });
+      assertFound(
+        await this.prisma.unscoped.employmentType.findFirst({
+          where: { id: dto.employmentTypeId, companyId },
+        }),
+        'Employment type',
+      );
     }
     if (dto.workLocationId) {
-      await this.prisma.unscoped.location.findFirstOrThrow({
-        where: { id: dto.workLocationId, companyId },
-      });
+      assertFound(
+        await this.prisma.unscoped.location.findFirst({
+          where: { id: dto.workLocationId, companyId },
+        }),
+        'Work location',
+      );
     }
   }
 
@@ -703,10 +920,11 @@ export class OfferLettersService {
     return row;
   }
 
-  private toRecord(
+  private async present(
     row: OfferWithRelations,
     workflow: WorkflowInstanceRecord | null,
-  ): OfferLetterRecord {
+  ): Promise<OfferLetterRecord> {
+    const approvalRoute = await this.offerWorkflow.resolveRoute(row.companyId, workflow);
     const candidateName = formatCandidateName(
       row.application.candidate.firstName,
       row.application.candidate.lastName,
@@ -715,6 +933,7 @@ export class OfferLettersService {
       id: row.id,
       tenantId: row.tenantId,
       companyId: row.companyId,
+      companyName: row.company.name,
       applicationId: row.applicationId,
       candidateName,
       candidateEmail: row.application.candidate.email,
@@ -745,8 +964,10 @@ export class OfferLettersService {
       sentAt: row.sentAt?.toISOString() ?? null,
       acceptedAt: row.acceptedAt?.toISOString() ?? null,
       declinedAt: row.declinedAt?.toISOString() ?? null,
+      declineReason: row.declineReason,
       downloadUrl: row.fileKey ? `/offer-letters/${row.id}/download` : undefined,
       workflow,
+      approvalRoute,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

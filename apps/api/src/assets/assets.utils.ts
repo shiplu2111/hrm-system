@@ -26,7 +26,7 @@ export function formatMoney(value: Prisma.Decimal | null | undefined): string | 
 type AssetRow = CompanyAsset & {
   assignments?: Array<
     EmployeeAssetAssignment & {
-      employee?: { firstName: string; lastName: string };
+      employee?: { firstName: string; lastName: string; employeeNumber?: string };
     }
   >;
 };
@@ -55,6 +55,10 @@ export function toAssetRecord(row: AssetRow): CompanyAssetRecord {
     assignedEmployeeName: activeAssignment?.employee
       ? `${activeAssignment.employee.firstName} ${activeAssignment.employee.lastName}`.trim()
       : null,
+    assignedEmployeeNumber: activeAssignment?.employee?.employeeNumber ?? null,
+    assignmentId: activeAssignment?.id ?? null,
+    assignedAt: activeAssignment ? activeAssignment.assignedAt.toISOString() : null,
+    conditionOnAssign: activeAssignment?.conditionOnAssign ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

@@ -8,7 +8,10 @@ import { SettingsModule } from '../settings/settings.module';
 import { StorageModule } from '../storage/storage.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { OnboardingModule } from '../onboarding/onboarding.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ApplicationInterviewRoundsService } from './application-interview-rounds.service';
+import { CandidateDocumentsService } from './candidate-documents.service';
+import { CandidateNotesService } from './candidate-notes.service';
 import { CandidatesService } from './candidates.service';
 import { JobApplicationsService } from './job-applications.service';
 import { JobPostingsService } from './job-postings.service';
@@ -29,6 +32,7 @@ import { RecruitmentController } from './recruitment.controller';
     OnboardingModule,
     SettingsModule,
     RbacModule,
+    NotificationsModule,
   ],
   controllers: [RecruitmentController],
   providers: [
@@ -36,6 +40,8 @@ import { RecruitmentController } from './recruitment.controller';
     JobRequisitionWorkflowService,
     JobPostingsService,
     CandidatesService,
+    CandidateNotesService,
+    CandidateDocumentsService,
     ApplicationInterviewRoundsService,
     OfferLetterWorkflowService,
     OfferLettersService,

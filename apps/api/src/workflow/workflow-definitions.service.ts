@@ -68,6 +68,13 @@ export class WorkflowDefinitionsService {
     return this.toRecord(row);
   }
 
+  async findById(definitionId: string): Promise<WorkflowDefinitionRecord | null> {
+    const row = await this.prisma.unscoped.workflowDefinition.findUnique({
+      where: { id: definitionId },
+    });
+    return row ? this.toRecord(row) : null;
+  }
+
   async create(
     companyId: string,
     dto: CreateWorkflowDefinitionDto,

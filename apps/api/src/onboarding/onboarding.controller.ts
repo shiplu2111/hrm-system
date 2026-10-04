@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -20,6 +21,8 @@ import {
   CreateOnboardingTemplateItemDto,
   ListEmployeeOnboardingsQueryDto,
   ListOnboardingTemplatesQueryDto,
+  ReopenOnboardingTaskDto,
+  ReorderOnboardingTemplateItemsDto,
   SkipOnboardingTaskDto,
   StartEmployeeOnboardingDto,
   UpdateOnboardingTemplateDto,
@@ -52,8 +55,9 @@ export class OnboardingController {
   async createTemplate(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: CreateOnboardingTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.templatesService.create(companyId, dto) };
+    return { data: await this.templatesService.create(companyId, dto, user) };
   }
 
   @Get('onboarding-templates/:templateId')
@@ -67,8 +71,30 @@ export class OnboardingController {
   async updateTemplate(
     @Param('templateId', ParseUUIDPipe) templateId: string,
     @Body() dto: UpdateOnboardingTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.templatesService.update(templateId, dto) };
+    return { data: await this.templatesService.update(templateId, dto, user) };
+  }
+
+  @Delete('onboarding-templates/:templateId')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Delete an unused onboarding checklist template' })
+  async deleteTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.templatesService.remove(templateId, user);
+    return { data: { success: true } };
+  }
+
+  @Post('onboarding-templates/:templateId/duplicate')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Copy a checklist template and its items' })
+  async duplicateTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.templatesService.duplicate(templateId, user) };
   }
 
   @Post('onboarding-templates/:templateId/items')
@@ -76,8 +102,20 @@ export class OnboardingController {
   async addTemplateItem(
     @Param('templateId', ParseUUIDPipe) templateId: string,
     @Body() dto: CreateOnboardingTemplateItemDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.templatesService.addItem(templateId, dto) };
+    return { data: await this.templatesService.addItem(templateId, dto, user) };
+  }
+
+  @Put('onboarding-templates/:templateId/items/order')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Set the order of checklist items' })
+  async reorderTemplateItems(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Body() dto: ReorderOnboardingTemplateItemsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.templatesService.reorderItems(templateId, dto, user) };
   }
 
   @Patch('onboarding-template-items/:itemId')
@@ -85,14 +123,18 @@ export class OnboardingController {
   async updateTemplateItem(
     @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() dto: UpdateOnboardingTemplateItemDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.templatesService.updateItem(itemId, dto) };
+    return { data: await this.templatesService.updateItem(itemId, dto, user) };
   }
 
   @Delete('onboarding-template-items/:itemId')
   @RequirePermission('employee', 'edit')
-  async deleteTemplateItem(@Param('itemId', ParseUUIDPipe) itemId: string) {
-    await this.templatesService.deleteItem(itemId);
+  async deleteTemplateItem(
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.templatesService.deleteItem(itemId, user);
     return { data: { success: true } };
   }
 
@@ -139,11 +181,11 @@ export class OnboardingController {
   async completeTask(
     @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Body() _dto: CompleteOnboardingTaskDto,
+    @Body() dto: CompleteOnboardingTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.onboardingService.completeTask(onboardingId, taskId, user),
+      data: await this.onboardingService.completeTask(onboardingId, taskId, dto, user),
     };
   }
 
@@ -152,11 +194,25 @@ export class OnboardingController {
   async skipTask(
     @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Body() _dto: SkipOnboardingTaskDto,
+    @Body() dto: SkipOnboardingTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.onboardingService.skipTask(onboardingId, taskId, user),
+      data: await this.onboardingService.skipTask(onboardingId, taskId, dto, user),
+    };
+  }
+
+  @Post('employee-onboardings/:onboardingId/tasks/:taskId/reopen')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Put a skipped or manually completed task back to pending' })
+  async reopenTask(
+    @Param('onboardingId', ParseUUIDPipe) onboardingId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: ReopenOnboardingTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.onboardingService.reopenTask(onboardingId, taskId, dto, user),
     };
   }
 

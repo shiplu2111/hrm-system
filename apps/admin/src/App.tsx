@@ -27,11 +27,17 @@ import { EmployeeProfilePage } from '@/pages/people/EmployeeProfilePage';
 import { LifecycleEventsPage } from '@/pages/people/LifecycleEventsPage';
 import { ContractsPage } from '@/pages/people/ContractsPage';
 import { ContractDetailPage } from '@/pages/people/ContractDetailPage';
+import { ContractExpiryAlertsPage } from '@/pages/people/ContractExpiryAlertsPage';
 import { RecruitmentPage } from '@/pages/people/RecruitmentPage';
+import { JobRequisitionsPage } from '@/pages/people/JobRequisitionsPage';
+import { InterviewSchedulePage } from '@/pages/people/InterviewSchedulePage';
 import { CandidateProfilePage } from '@/pages/people/CandidateProfilePage';
 import { OfferLetterPage } from '@/pages/people/OfferLetterPage';
 import { OnboardingPage } from '@/pages/people/OnboardingPage';
+import { OnboardingTemplatesPage } from '@/pages/people/OnboardingTemplatesPage';
+import { EmployeeOnboardingPage } from '@/pages/people/EmployeeOnboardingPage';
 import { OffboardingPage } from '@/pages/people/OffboardingPage';
+import { EmployeeOffboardingPage } from '@/pages/people/EmployeeOffboardingPage';
 import { DocumentTypesPage } from '@/pages/people/DocumentTypesPage';
 import { EmployeeDocumentsPage } from '@/pages/people/EmployeeDocumentsPage';
 import { CustomFieldBuilderPage } from '@/pages/people/CustomFieldBuilderPage';
@@ -91,8 +97,11 @@ function PageRoutes() {
       <Route path="/employees/directory" element={<EmployeeDirectoryPage />} />
       <Route path="/employees/lifecycle" element={<LifecycleEventsPage />} />
       <Route path="/employees/contracts" element={<ContractsPage />} />
+      <Route path="/employees/contracts/expiry-alerts" element={<ContractExpiryAlertsPage />} />
       <Route path="/employees/contracts/:contractId" element={<ContractDetailPage />} />
       <Route path="/employees/recruitment" element={<RecruitmentPage />} />
+      <Route path="/employees/recruitment/requisitions" element={<JobRequisitionsPage />} />
+      <Route path="/employees/recruitment/interviews" element={<InterviewSchedulePage />} />
       <Route
         path="/employees/recruitment/candidates/:applicationId"
         element={<CandidateProfilePage />}
@@ -102,11 +111,14 @@ function PageRoutes() {
         element={<OfferLetterPage />}
       />
       <Route path="/employees/onboarding" element={<OnboardingPage />} />
+      <Route path="/employees/onboarding/templates" element={<OnboardingTemplatesPage />} />
       <Route path="/employees/offboarding" element={<OffboardingPage />} />
       <Route path="/employees/document-types" element={<DocumentTypesPage />} />
       <Route path="/employees/documents" element={<EmployeeDocumentsPage />} />
       <Route path="/employees/custom-fields" element={<CustomFieldBuilderPage />} />
       <Route path="/employees/:employeeId" element={<EmployeeProfilePage />} />
+      <Route path="/employees/:employeeId/onboarding" element={<EmployeeOnboardingPage />} />
+      <Route path="/employees/:employeeId/offboarding" element={<EmployeeOffboardingPage />} />
 
       <Route path="/organization/profile" element={<CompanyProfilePage />} />
       <Route path="/organization/departments" element={<DepartmentsPage />} />

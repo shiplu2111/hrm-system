@@ -8,7 +8,11 @@ import {
   Prisma,
   type JobRequisition,
 } from '@prisma/client';
-import type { JobRequisitionRecord, WorkflowInstanceRecord } from '@hrm/shared-types';
+import type {
+  JobRequisitionRecord,
+  RecruitmentLookups,
+  WorkflowInstanceRecord,
+} from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -152,6 +156,16 @@ export class JobRequisitionsService {
       });
     }
 
+    if (
+      dto.requestedByEmployeeId !== undefined &&
+      existing.status !== JobRequisitionStatus.draft
+    ) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'The requester can only be changed while the requisition is a draft',
+      });
+    }
+
     await this.validateOrgRefs(existing.companyId, dto);
 
     const row = await this.prisma.unscoped.jobRequisition.update({
@@ -173,6 +187,9 @@ export class JobRequisitionsService {
           ? { description: dto.description.trim() }
           : {}),
         ...(dto.headcount !== undefined ? { headcount: dto.headcount } : {}),
+        ...(dto.requestedByEmployeeId !== undefined
+          ? { requestedByEmployeeId: dto.requestedByEmployeeId }
+          : {}),
       },
       include: this.defaultInclude(),
     });
@@ -183,6 +200,12 @@ export class JobRequisitionsService {
       action: 'update',
       module: 'recruitment',
       recordId: row.id,
+      oldValue: {
+        title: existing.title,
+        departmentId: existing.departmentId,
+        headcount: existing.headcount,
+      },
+      newValue: { title: row.title, departmentId: row.departmentId, headcount: row.headcount },
     });
 
     const workflow = await this.requisitionWorkflow.findForRequisition(requisitionId);
@@ -389,6 +412,13 @@ export class JobRequisitionsService {
     const existing = await this.findOrThrow(requisitionId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
 
+    if (existing.status !== JobRequisitionStatus.open) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Only open requisitions can be closed',
+      });
+    }
+
     const row = await this.prisma.unscoped.jobRequisition.update({
       where: { id: requisitionId },
       data: {
@@ -438,16 +468,80 @@ export class JobRequisitionsService {
     };
   }
 
+  async lookups(companyId: string): Promise<RecruitmentLookups> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    const where = { companyId };
+    const [departments, designations, jobLevels, employmentTypes, locations, employees] =
+      await Promise.all([
+        this.prisma.unscoped.department.findMany({
+          where,
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.unscoped.designation.findMany({
+          where,
+          select: { id: true, name: true, departmentId: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.unscoped.jobLevel.findMany({
+          where,
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.unscoped.employmentType.findMany({
+          where,
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.unscoped.location.findMany({
+          where,
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.unscoped.employee.findMany({
+          where: { companyId, deletedAt: null },
+          select: { id: true, firstName: true, lastName: true, employeeNumber: true },
+          orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        }),
+      ]);
+
+    return {
+      departments,
+      designations,
+      jobLevels,
+      employmentTypes,
+      locations,
+      employees: employees.map((e) => ({
+        id: e.id,
+        name: `${e.firstName} ${e.lastName}`.trim(),
+        employeeNumber: e.employeeNumber,
+      })),
+    };
+  }
+
   private async validateOrgRefs(
     companyId: string,
     dto: {
-      departmentId?: string;
-      designationId?: string;
-      jobLevelId?: string;
-      employmentTypeId?: string;
-      locationId?: string;
+      departmentId?: string | null;
+      designationId?: string | null;
+      jobLevelId?: string | null;
+      employmentTypeId?: string | null;
+      locationId?: string | null;
+      requestedByEmployeeId?: string | null;
     },
   ) {
+    if (dto.requestedByEmployeeId) {
+      const employee = await this.prisma.unscoped.employee.findFirst({
+        where: { id: dto.requestedByEmployeeId, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!employee) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Requester must be an active employee of this company',
+        });
+      }
+    }
     if (dto.departmentId) {
       await this.prisma.unscoped.department.findFirstOrThrow({
         where: { id: dto.departmentId, companyId },

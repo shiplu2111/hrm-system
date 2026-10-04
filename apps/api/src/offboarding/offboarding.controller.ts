@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -14,12 +15,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import {
+  CancelFinalSettlementDto,
+  CompleteOffboardingTaskDto,
   CreateOffboardingTemplateDto,
   CreateOffboardingTemplateItemDto,
   ListEmployeeOffboardingsQueryDto,
   ListOffboardingTemplatesQueryDto,
-  RecordExitInterviewDto,
+  ReopenOffboardingTaskDto,
+  ReturnOffboardingAssetDto,
   ReturnOffboardingAssetsDto,
+  SaveExitInterviewDto,
+  SkipOffboardingTaskDto,
   StartEmployeeOffboardingDto,
   TriggerFinalSettlementDto,
   UpdateOffboardingTemplateDto,
@@ -125,19 +131,109 @@ export class OffboardingController {
     return { data: await this.offboardingService.get(offboardingId, user) };
   }
 
+  @Get('employees/:employeeId/offboarding')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: "Get an employee's offboarding tracker (null when none)" })
+  async getEmployeeOffboarding(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.offboardingService.getForEmployee(employeeId, user) };
+  }
+
   @Post('employee-offboardings/:offboardingId/tasks/:taskId/complete')
   @RequirePermission('employee', 'edit')
   async completeTask(
     @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: CompleteOffboardingTaskDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
       data: await this.offboardingService.completeTask(
         offboardingId,
         taskId,
+        dto,
         user,
       ),
+    };
+  }
+
+  @Post('employee-offboardings/:offboardingId/tasks/:taskId/skip')
+  @RequirePermission('employee', 'approve')
+  async skipTask(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: SkipOffboardingTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.skipTask(offboardingId, taskId, dto, user),
+    };
+  }
+
+  @Post('employee-offboardings/:offboardingId/tasks/:taskId/reopen')
+  @RequirePermission('employee', 'edit')
+  async reopenTask(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: ReopenOffboardingTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.reopenTask(offboardingId, taskId, dto, user),
+    };
+  }
+
+  @Post('employee-offboardings/:offboardingId/assets/:assetId/return')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Return one assigned asset during offboarding' })
+  async returnAsset(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @Param('assetId', ParseUUIDPipe) assetId: string,
+    @Body() dto: ReturnOffboardingAssetDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.returnAsset(offboardingId, assetId, dto, user),
+    };
+  }
+
+  @Put('employee-offboardings/:offboardingId/exit-interview')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Save the exit interview; `complete` marks it conducted' })
+  async saveExitInterview(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @Body() dto: SaveExitInterviewDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.saveExitInterview(offboardingId, dto, user),
+    };
+  }
+
+  @Get('employee-offboardings/:offboardingId/settlement-options')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Finalized runs, open periods and pay components for a settlement' })
+  async settlementOptions(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.settlementOptions(offboardingId, user),
+    };
+  }
+
+  @Post('employee-offboardings/:offboardingId/settlement/cancel')
+  @RequirePermission('payroll', 'edit')
+  @ApiOperation({ summary: 'Cancel the settlement entry and reopen the settlement step' })
+  async cancelSettlement(
+    @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
+    @Body() dto: CancelFinalSettlementDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offboardingService.cancelFinalSettlement(offboardingId, dto, user),
     };
   }
 
@@ -180,7 +276,7 @@ export class OffboardingController {
   async recordExitInterview(
     @Param('offboardingId', ParseUUIDPipe) offboardingId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Body() dto: RecordExitInterviewDto,
+    @Body() dto: SaveExitInterviewDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return {

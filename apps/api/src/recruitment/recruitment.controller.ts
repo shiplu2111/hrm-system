@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,9 +22,14 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { DOCUMENT_FILE_POLICY } from '../storage/document-file.policy';
+import { CandidateDocumentsService } from './candidate-documents.service';
+import { CandidateNotesService } from './candidate-notes.service';
 import { CandidatesService } from './candidates.service';
 import {
   CreateCandidateDto,
+  CreateCandidateNoteDto,
+  UpdateCandidateDto,
+  UploadCandidateDocumentDto,
   CreateJobApplicationDto,
   CreateJobPostingDto,
   CreateJobRequisitionDto,
@@ -38,8 +45,13 @@ import {
   ScheduleInterviewRoundDto,
   CompleteInterviewRoundDto,
   SkipInterviewRoundDto,
+  CancelInterviewRoundDto,
+  ListInterviewScheduleQueryDto,
+  ListMyInterviewsQueryDto,
   UpsertOfferLetterDto,
   OfferLetterActionDto,
+  SendOfferLetterDto,
+  DeclineOfferLetterDto,
 } from './dto/recruitment.dto';
 import { ApplicationInterviewRoundsService } from './application-interview-rounds.service';
 import { OfferLettersService } from './offer-letters.service';
@@ -58,7 +70,18 @@ export class RecruitmentController {
     private readonly applicationsService: JobApplicationsService,
     private readonly interviewRoundsService: ApplicationInterviewRoundsService,
     private readonly offerLettersService: OfferLettersService,
+    private readonly candidateNotesService: CandidateNotesService,
+    private readonly candidateDocumentsService: CandidateDocumentsService,
   ) {}
+
+  @Get('companies/:companyId/recruitment/lookups')
+  @RequirePermission('recruitment', 'view')
+  @ApiOperation({
+    summary: 'Org options for requisition forms (departments, designations, levels, types, locations, employees)',
+  })
+  async getLookups(@Param('companyId', ParseUUIDPipe) companyId: string) {
+    return { data: await this.requisitionsService.lookups(companyId) };
+  }
 
   @Get('companies/:companyId/job-requisitions')
   @RequirePermission('recruitment', 'view')
@@ -226,6 +249,102 @@ export class RecruitmentController {
     return { data: await this.candidatesService.create(companyId, dto, user) };
   }
 
+  @Patch('candidates/:candidateId')
+  @RequirePermission('recruitment', 'edit')
+  async updateCandidate(
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+    @Body() dto: UpdateCandidateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.candidatesService.update(candidateId, dto, user) };
+  }
+
+  @Get('candidates/:candidateId/notes')
+  @RequirePermission('recruitment', 'view')
+  async listCandidateNotes(
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+  ) {
+    return { data: await this.candidateNotesService.list(candidateId) };
+  }
+
+  @Post('candidates/:candidateId/notes')
+  @RequirePermission('recruitment', 'edit')
+  async createCandidateNote(
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+    @Body() dto: CreateCandidateNoteDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.candidateNotesService.create(candidateId, dto, user),
+    };
+  }
+
+  @Delete('candidate-notes/:noteId')
+  @RequirePermission('recruitment', 'edit')
+  @HttpCode(204)
+  async deleteCandidateNote(
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.candidateNotesService.remove(noteId, user);
+  }
+
+  @Get('candidates/:candidateId/documents')
+  @RequirePermission('recruitment', 'view')
+  async listCandidateDocuments(
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+  ) {
+    return { data: await this.candidateDocumentsService.list(candidateId) };
+  }
+
+  @Post('candidates/:candidateId/documents')
+  @RequirePermission('recruitment', 'edit')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: DOCUMENT_FILE_POLICY.maxBytes },
+    }),
+  )
+  async uploadCandidateDocument(
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: UploadCandidateDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (!file) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Document file is required',
+      });
+    }
+    return {
+      data: await this.candidateDocumentsService.upload(
+        candidateId,
+        file,
+        dto.label,
+        user,
+      ),
+    };
+  }
+
+  @Get('candidate-documents/:documentId/file-url')
+  @RequirePermission('recruitment', 'view')
+  async getCandidateDocumentFileUrl(
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+  ) {
+    return { data: await this.candidateDocumentsService.getFileUrl(documentId) };
+  }
+
+  @Delete('candidate-documents/:documentId')
+  @RequirePermission('recruitment', 'edit')
+  @HttpCode(204)
+  async deleteCandidateDocument(
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.candidateDocumentsService.remove(documentId, user);
+  }
+
   @Get('companies/:companyId/job-applications')
   @RequirePermission('recruitment', 'view')
   async listApplications(
@@ -297,6 +416,15 @@ export class RecruitmentController {
     return { data: await this.applicationsService.getResumeFileUrl(applicationId) };
   }
 
+  @Get('job-applications/:applicationId/hire-prefill')
+  @RequirePermission('recruitment', 'approve')
+  async getHirePrefill(
+    @Param('applicationId', ParseUUIDPipe) applicationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.applicationsService.getHirePrefill(applicationId, user) };
+  }
+
   @Post('job-applications/:applicationId/hire')
   @RequirePermission('recruitment', 'approve')
   async hireApplication(
@@ -360,6 +488,67 @@ export class RecruitmentController {
   ) {
     return {
       data: await this.interviewRoundsService.skip(roundId, dto, user),
+    };
+  }
+
+  @Post('interview-rounds/:roundId/cancel')
+  @RequirePermission('recruitment', 'edit')
+  @ApiOperation({ summary: 'Cancel a scheduled interview (round returns to pending)' })
+  async cancelInterviewRound(
+    @Param('roundId', ParseUUIDPipe) roundId: string,
+    @Body() dto: CancelInterviewRoundDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.interviewRoundsService.cancel(roundId, dto, user),
+    };
+  }
+
+  @Get('companies/:companyId/interview-rounds')
+  @RequirePermission('recruitment', 'view')
+  @ApiOperation({ summary: 'Company interview schedule (calendar / list / needs-scheduling queue)' })
+  async listInterviewSchedule(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListInterviewScheduleQueryDto,
+  ) {
+    return {
+      data: await this.interviewRoundsService.listForCompany(companyId, query),
+    };
+  }
+
+  @Get('my-interviews')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'Interview rounds assigned to the signed-in employee' })
+  async listMyInterviews(
+    @Query() query: ListMyInterviewsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.interviewRoundsService.listMine(user, query) };
+  }
+
+  @Post('my-interviews/:roundId/complete')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'Submit the scorecard for an interview assigned to me' })
+  async completeMyInterview(
+    @Param('roundId', ParseUUIDPipe) roundId: string,
+    @Body() dto: CompleteInterviewRoundDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.interviewRoundsService.complete(roundId, dto, user, {
+        asInterviewer: true,
+      }),
+    };
+  }
+
+  @Get('my-interviews/:roundId/resume/file-url')
+  @RequirePermission('employee', 'view')
+  async getMyInterviewResumeUrl(
+    @Param('roundId', ParseUUIDPipe) roundId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.interviewRoundsService.getResumeUrlForInterviewer(roundId, user),
     };
   }
 
@@ -439,14 +628,38 @@ export class RecruitmentController {
     };
   }
 
-  @Post('offer-letters/:offerLetterId/send')
+  @Post('offer-letters/:offerLetterId/revise')
   @RequirePermission('recruitment', 'edit')
-  async sendOfferLetter(
+  async reviseOfferLetter(
     @Param('offerLetterId', ParseUUIDPipe) offerLetterId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return {
-      data: await this.offerLettersService.send(offerLetterId, user),
+      data: await this.offerLettersService.revise(offerLetterId, user),
+    };
+  }
+
+  @Post('offer-letters/:offerLetterId/send')
+  @RequirePermission('recruitment', 'edit')
+  async sendOfferLetter(
+    @Param('offerLetterId', ParseUUIDPipe) offerLetterId: string,
+    @Body() dto: SendOfferLetterDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offerLettersService.send(offerLetterId, user, dto),
+    };
+  }
+
+  @Post('offer-letters/:offerLetterId/decline')
+  @RequirePermission('recruitment', 'approve')
+  async declineOfferLetter(
+    @Param('offerLetterId', ParseUUIDPipe) offerLetterId: string,
+    @Body() dto: DeclineOfferLetterDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.offerLettersService.decline(offerLetterId, user, dto),
     };
   }
 
@@ -467,13 +680,14 @@ export class RecruitmentController {
     @Param('offerLetterId', ParseUUIDPipe) offerLetterId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
+    @Query('disposition') disposition?: string,
   ): Promise<void> {
     const { buffer, filename, contentType } =
       await this.offerLettersService.downloadFile(offerLetterId, user);
     res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="${filename.replace(/"/g, '')}"`,
+      `${disposition === 'attachment' ? 'attachment' : 'inline'}; filename="${filename.replace(/"/g, '')}"`,
     );
     res.send(buffer);
   }

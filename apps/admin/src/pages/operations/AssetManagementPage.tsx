@@ -1,613 +1,859 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
+  AlertCircle,
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   History,
-  Laptop,
+  Loader2,
   Package,
   Plus,
-  QrCode,
+  RotateCcw,
   Search,
-  ShieldCheck,
   UserRound,
-  Wrench,
+  X,
 } from 'lucide-react';
-import { PermissionGate } from '@hrm/portal-ui';
+import {
+  ASSET_CATEGORY_LABELS,
+  type AssetCategory,
+  type CompanyAssetRecord,
+  type EmployeeAssetAssignmentRecord,
+} from '@hrm/shared-types';
+import { usePermission } from '@hrm/portal-ui';
+import { CompanySelector } from '@/components/org/CompanySelector';
+import { AssignAssetModal } from '@/components/assets/AssignAssetModal';
+import { ReturnAssetModal, type ReturnableAsset } from '@/components/assets/ReturnAssetModal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
+import { DataTable, DataTableBody, DataTableHead } from '@/components/ui/DataTable';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Toggle';
 import { useCompany } from '@/context/CompanyContext';
+import { useNav } from '@/context/NavContext';
+import { createCompanyAsset, listAssetAssignments, listCompanyAssets } from '@/lib/assets-api';
 import {
-  assignAsset,
-  createCompanyAsset,
-  listAssetAssignments,
-  listCompanyAssets,
-  returnAsset,
-} from '@/lib/assets-api';
-import { listEmployees } from '@/lib/employees-api';
-import type { CompanyAssetRecord, EmployeeAssetAssignmentRecord, EmployeeRecord } from '@hrm/shared-types';
+  ASSET_STATUS_META,
+  formatAssetDate,
+  formatAssetValue,
+  warrantyState,
+} from '@/lib/assets-display';
+import { getEmployee } from '@/lib/employees-api';
 import { ApiError } from '@/lib/tenant-api-client';
 
-type AssetStatus = 'Assigned' | 'Available' | 'In repair' | 'Retired';
+type StatusTab = 'all' | 'assigned' | 'available' | 'in_repair' | 'retired';
 
-interface Asset {
-  id: string;
-  name: string;
-  tag: string;
-  category: string;
-  categoryKey: string;
-  employee: string | null;
-  employeeId: string | null;
-  status: AssetStatus;
-  purchased: string;
-  warranty: string;
-  serial: string;
-  value: string;
+const CATEGORIES = Object.keys(ASSET_CATEGORY_LABELS) as AssetCategory[];
+
+function isStatusTab(value: string | null): value is StatusTab {
+  return value === 'all' || value === 'assigned' || value === 'available' || value === 'in_repair' || value === 'retired';
 }
 
-const CATEGORY_OPTIONS = [
-  { value: 'laptop', label: 'Laptop' },
-  { value: 'monitor', label: 'Monitor' },
-  { value: 'mobile', label: 'Mobile' },
-  { value: 'phone', label: 'Phone' },
-  { value: 'sim', label: 'SIM' },
-  { value: 'accessory', label: 'Accessory' },
-  { value: 'id_card', label: 'ID Card' },
-  { value: 'equipment', label: 'Equipment' },
-] as const;
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
+}
 
-
-const maintenance = [
-  { date: '22 May 2025', service: 'Initial device inspection', provider: 'Internal IT', cost: '$0', status: 'Completed' },
-  { date: '18 Jul 2025', service: 'BIOS and firmware update', provider: 'Internal IT', cost: '$0', status: 'Completed' },
-];
-
-const statusTone: Record<AssetStatus, 'success' | 'accent' | 'warning' | 'neutral'> = {
-  Assigned: 'accent',
-  Available: 'success',
-  'In repair': 'warning',
-  Retired: 'neutral',
-};
-
-function mapApiAsset(row: CompanyAssetRecord): Asset {
-  const statusMap: Record<string, AssetStatus> = {
-    assigned: 'Assigned',
-    available: 'Available',
-    in_repair: 'In repair',
-    retired: 'Retired',
-  };
-  const categoryMap: Record<string, string> = Object.fromEntries(
-    CATEGORY_OPTIONS.map((item) => [item.value, item.label]),
-  );
+function toReturnable(asset: CompanyAssetRecord): ReturnableAsset {
   return {
-    id: row.id,
-    name: row.name,
-    tag: row.assetTag,
-    category: categoryMap[row.category] ?? row.category,
-    categoryKey: row.category,
-    employee: row.assignedEmployeeName,
-    employeeId: row.assignedEmployeeId,
-    status: statusMap[row.status] ?? 'Available',
-    purchased: row.purchaseDate
-      ? new Date(`${row.purchaseDate}T00:00:00`).toLocaleDateString(undefined, {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        })
-      : '—',
-    warranty: row.warrantyExpiryDate
-      ? new Date(`${row.warrantyExpiryDate}T00:00:00`).toLocaleDateString(undefined, {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        })
-      : '—',
-    serial: row.serialNumber ?? '—',
-    value: row.purchaseValue ? `$${row.purchaseValue}` : '—',
+    id: asset.id,
+    name: asset.name,
+    assetTag: asset.assetTag,
+    holderName: asset.assignedEmployeeName,
+    assignedAt: asset.assignedAt,
+    conditionOnAssign: asset.conditionOnAssign,
   };
 }
+
+const EMPTY_NEW_ASSET = {
+  name: '',
+  assetTag: '',
+  category: 'laptop' as AssetCategory,
+  serialNumber: '',
+  purchaseDate: '',
+  warrantyExpiryDate: '',
+  purchaseValue: '',
+  currency: '',
+  notes: '',
+};
 
 export function AssetManagementPage() {
   const { companyId } = useCompany();
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
-  const [assignments, setAssignments] = useState<EmployeeAssetAssignmentRecord[]>([]);
+  const { openEmployee } = useNav();
+  const canEdit = usePermission('employee', 'edit');
+  const [params, setParams] = useSearchParams();
+
+  const statusParam = params.get('status');
+  const tab: StatusTab = isStatusTab(statusParam) ? statusParam : 'all';
+  const employeeFilter = params.get('employee');
+  const selectedAssetId = params.get('asset');
+
+  const [assets, setAssets] = useState<CompanyAssetRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('All');
-  const [status, setStatus] = useState('All');
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [returnOpen, setReturnOpen] = useState(false);
-  const [assetId, setAssetId] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
-  const [assignmentDate, setAssignmentDate] = useState(new Date().toISOString().slice(0, 10));
-  const [conditionOnAssign, setConditionOnAssign] = useState('New');
-  const [conditionOnReturn, setConditionOnReturn] = useState('Good');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [newAsset, setNewAsset] = useState({
-    name: '',
-    assetTag: '',
-    category: 'laptop',
-    serialNumber: '',
-    purchaseDate: '',
-    warrantyExpiryDate: '',
-    purchaseValue: '',
-  });
+  const [category, setCategory] = useState<AssetCategory | ''>('');
+  const [employeeName, setEmployeeName] = useState<string | null>(null);
 
-  const loadAssets = useCallback(async () => {
+  const [history, setHistory] = useState<EmployeeAssetAssignmentRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const [assignTarget, setAssignTarget] = useState<{ asset: CompanyAssetRecord | null } | null>(null);
+  const [returnTarget, setReturnTarget] = useState<CompanyAssetRecord | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newAsset, setNewAsset] = useState(EMPTY_NEW_ASSET);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const updateParams = useCallback(
+    (changes: Record<string, string | null>) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(changes)) {
+            if (value) next.set(key, value);
+            else next.delete(key);
+          }
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setParams],
+  );
+
+  const load = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
     setError(null);
     try {
-      const [rows, employeeRows] = await Promise.all([
-        listCompanyAssets(companyId),
-        listEmployees(companyId),
-      ]);
-      setAssets(rows.map(mapApiAsset));
-      setEmployees(employeeRows);
+      setAssets(await listCompanyAssets(companyId));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load assets');
+      setError(errorMessage(err, 'Failed to load assets'));
     } finally {
       setLoading(false);
     }
   }, [companyId]);
 
-  const loadAssignments = useCallback(async (assetIdToLoad: string) => {
-    if (!companyId) return;
-    const rows = await listAssetAssignments(companyId, { activeOnly: false });
-    setAssignments(rows.filter((row) => row.assetId === assetIdToLoad));
-  }, [companyId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
-    void loadAssets();
-  }, [loadAssets]);
-
-  useEffect(() => {
-    if (selectedAsset) {
-      void loadAssignments(selectedAsset.id);
-    } else {
-      setAssignments([]);
+    if (!employeeFilter) {
+      setEmployeeName(null);
+      return;
     }
-  }, [selectedAsset, loadAssignments]);
+    const holder = assets.find((asset) => asset.assignedEmployeeId === employeeFilter);
+    if (holder?.assignedEmployeeName) {
+      setEmployeeName(holder.assignedEmployeeName);
+      return;
+    }
+    let cancelled = false;
+    getEmployee(employeeFilter)
+      .then((emp) => !cancelled && setEmployeeName(emp.fullName))
+      .catch(() => !cancelled && setEmployeeName('Selected employee'));
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeFilter, assets]);
 
-  const filteredAssets = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return assets.filter((asset) => {
-      const matchesSearch = !query || [asset.name, asset.tag, asset.category, asset.employee ?? '', asset.serial]
-        .some((value) => value.toLowerCase().includes(query));
-      return matchesSearch && (category === 'All' || asset.category === category) && (status === 'All' || asset.status === status);
-    });
-  }, [assets, category, search, status]);
+  const selectedAsset = useMemo(
+    () => (selectedAssetId ? assets.find((asset) => asset.id === selectedAssetId) ?? null : null),
+    [assets, selectedAssetId],
+  );
 
-  const assignableAssets = assets.filter((asset) => asset.status === 'Available');
-
-  const handleAssign = async () => {
-    if (!assetId || !employeeId) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await assignAsset(assetId, {
-        employeeId,
-        assignedAt: assignmentDate,
-        conditionOnAssign: conditionOnAssign.trim() || undefined,
-        notes: notes.trim() || undefined,
-      });
-      setAssignOpen(false);
-      await loadAssets();
-      if (selectedAsset?.id === assetId) {
-        const refreshed = await listCompanyAssets(companyId!);
-        const updated = refreshed.find((row) => row.id === assetId);
-        if (updated) setSelectedAsset(mapApiAsset(updated));
-        await loadAssignments(assetId);
+  const loadHistory = useCallback(
+    async (assetId: string) => {
+      if (!companyId) return;
+      setHistoryLoading(true);
+      try {
+        setHistory(await listAssetAssignments(companyId, { assetId }));
+      } catch (err) {
+        setError(errorMessage(err, 'Failed to load asset history'));
+      } finally {
+        setHistoryLoading(false);
       }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to assign asset');
-    } finally {
-      setSaving(false);
-    }
+    },
+    [companyId],
+  );
+
+  useEffect(() => {
+    if (selectedAssetId) void loadHistory(selectedAssetId);
+    else setHistory([]);
+  }, [selectedAssetId, loadHistory]);
+
+  const afterChange = async (message: string, updates?: string[]) => {
+    await load();
+    if (selectedAssetId) await loadHistory(selectedAssetId);
+    setError(null);
+    setNotice([message, ...(updates ?? [])].join(' · '));
   };
 
-  const handleReturn = async () => {
-    if (!selectedAsset) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await returnAsset(selectedAsset.id, {
-        conditionOnReturn: conditionOnReturn.trim() || undefined,
-        notes: notes.trim() || undefined,
-      });
-      setReturnOpen(false);
-      setSelectedAsset(null);
-      await loadAssets();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to return asset');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const scoped = useMemo(
+    () =>
+      assets.filter(
+        (asset) =>
+          (!employeeFilter || asset.assignedEmployeeId === employeeFilter) &&
+          (!category || asset.category === category),
+      ),
+    [assets, employeeFilter, category],
+  );
+
+  const counts = useMemo(
+    () => ({
+      all: scoped.length,
+      assigned: scoped.filter((a) => a.status === 'assigned').length,
+      available: scoped.filter((a) => a.status === 'available').length,
+      in_repair: scoped.filter((a) => a.status === 'in_repair').length,
+      retired: scoped.filter((a) => a.status === 'retired').length,
+    }),
+    [scoped],
+  );
+
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return scoped.filter(
+      (asset) =>
+        (tab === 'all' || asset.status === tab) &&
+        (!term ||
+          [asset.name, asset.assetTag, asset.serialNumber ?? '', asset.assignedEmployeeName ?? '']
+            .some((value) => value.toLowerCase().includes(term))),
+    );
+  }, [scoped, tab, search]);
+
+  const warrantyAttention = assets.filter((asset) => {
+    const state = warrantyState(asset.warrantyExpiryDate);
+    return asset.status !== 'retired' && (state === 'expired' || state === 'expiring');
+  }).length;
+
+  const tabs: { key: StatusTab; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'assigned', label: 'Assigned' },
+    { key: 'available', label: 'Available' },
+    ...(counts.in_repair > 0 ? [{ key: 'in_repair' as const, label: 'In repair' }] : []),
+    ...(counts.retired > 0 ? [{ key: 'retired' as const, label: 'Retired' }] : []),
+  ];
 
   const handleCreate = async () => {
-    if (!companyId || !newAsset.name.trim() || !newAsset.assetTag.trim()) return;
-    setSaving(true);
-    setError(null);
+    if (!companyId) return;
+    const value = newAsset.purchaseValue.trim();
+    if (value && !/^\d+(\.\d{1,2})?$/.test(value)) {
+      setCreateError('Purchase value must be a number with up to 2 decimals.');
+      return;
+    }
+    if (newAsset.purchaseDate && newAsset.warrantyExpiryDate && newAsset.warrantyExpiryDate < newAsset.purchaseDate) {
+      setCreateError('Warranty expiry cannot be before the purchase date.');
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
     try {
-      await createCompanyAsset(companyId, {
+      const created = await createCompanyAsset(companyId, {
         name: newAsset.name.trim(),
         assetTag: newAsset.assetTag.trim(),
-        category: newAsset.category as CompanyAssetRecord['category'],
+        category: newAsset.category,
         serialNumber: newAsset.serialNumber.trim() || undefined,
         purchaseDate: newAsset.purchaseDate || undefined,
         warrantyExpiryDate: newAsset.warrantyExpiryDate || undefined,
-        purchaseValue: newAsset.purchaseValue ? Number(newAsset.purchaseValue) : undefined,
+        purchaseValue: value ? Number(value) : undefined,
+        currency: newAsset.currency.trim().toUpperCase() || undefined,
+        notes: newAsset.notes.trim() || undefined,
       });
       setCreateOpen(false);
-      setNewAsset({
-        name: '',
-        assetTag: '',
-        category: 'laptop',
-        serialNumber: '',
-        purchaseDate: '',
-        warrantyExpiryDate: '',
-        purchaseValue: '',
-      });
-      await loadAssets();
+      setNewAsset(EMPTY_NEW_ASSET);
+      await afterChange(`${created.name} (${created.assetTag}) added to the register.`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create asset');
+      setCreateError(errorMessage(err, 'Failed to create asset'));
     } finally {
-      setSaving(false);
+      setCreating(false);
     }
   };
 
-  if (selectedAsset) {
+  if (!companyId) {
     return (
-      <div className="mx-auto max-w-[1400px] space-y-5 p-4 lg:p-6">
-        <button onClick={() => setSelectedAsset(null)} className="inline-flex items-center gap-2 text-sm font-medium text-secondary hover:text-accent-600">
-          <ArrowLeft className="h-4 w-4" /> Back to asset inventory
-        </button>
-
-        <div className="surface flex flex-col gap-5 rounded-xl border border-base p-5 shadow-card md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-400">
-              <Laptop className="h-7 w-7" />
-            </div>
-            <div>
-              <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold text-primary">{selectedAsset.name}</h1>
-                <Badge tone={statusTone[selectedAsset.status]} dot>{selectedAsset.status}</Badge>
-              </div>
-              <p className="font-mono text-xs text-secondary">{selectedAsset.tag} · S/N {selectedAsset.serial}</p>
-            </div>
-          </div>
-          <PermissionGate module="employee" action="edit">
-            <Button onClick={() => { setAssetId(selectedAsset.id); setAssignOpen(true); }} disabled={selectedAsset.status !== 'Available'}>
-              <UserRound className="h-4 w-4" /> Assign asset
-            </Button>
-            {selectedAsset.status === 'Assigned' && (
-              <Button variant="secondary" onClick={() => setReturnOpen(true)}>
-                Return asset
-              </Button>
-            )}
-          </PermissionGate>
+      <div className="p-4 lg:p-6">
+        <CompanySelector />
+        <div className="mt-6 rounded-xl border border-dashed border-strong px-6 py-12 text-center text-sm text-secondary">
+          Select a company to view its asset register.
         </div>
-
-        <div className="grid gap-5 lg:grid-cols-3">
-          <div className="space-y-5 lg:col-span-2">
-            <section className="surface rounded-xl border border-base shadow-card">
-              <div className="flex items-center gap-2 border-b border-base px-5 py-4">
-                <History className="h-4 w-4 text-accent-500" />
-                <h2 className="text-sm font-semibold text-primary">Asset history</h2>
-              </div>
-              <div className="p-5">
-                {assignments.length === 0 ? (
-                  <p className="text-sm text-secondary">No assignment history yet.</p>
-                ) : (
-                  assignments.map((event, index) => (
-                    <div key={event.id} className="relative flex gap-4 pb-6 last:pb-0">
-                      {index < assignments.length - 1 && (
-                        <span className="absolute left-[15px] top-8 h-[calc(100%-24px)] w-px bg-[rgb(var(--border-base))]" />
-                      )}
-                      <div className="z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-accent-200 bg-accent-50 text-accent-600 dark:border-accent-800 dark:bg-accent-950/40 dark:text-accent-400">
-                        <Package className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-primary">
-                          {event.status === 'active' ? 'Assigned to' : 'Returned by'} {event.employeeName}
-                        </div>
-                        <div className="mt-0.5 text-xs text-secondary">
-                          {event.status === 'active'
-                            ? `Condition: ${event.conditionOnAssign ?? '—'}`
-                            : `Return condition: ${event.conditionOnReturn ?? '—'}`}
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted">
-                          {new Date(event.status === 'active' ? event.assignedAt : event.returnedAt ?? event.assignedAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
-              <div className="flex items-center justify-between border-b border-base px-5 py-4">
-                <div className="flex items-center gap-2"><Wrench className="h-4 w-4 text-accent-500" /><h2 className="text-sm font-semibold text-primary">Maintenance log</h2></div>
-                <Button size="sm" variant="secondary"><Plus className="h-3.5 w-3.5" /> Log service</Button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] uppercase tracking-wide text-secondary">
-                    <tr><th className="px-5 py-3">Date</th><th className="px-5 py-3">Service</th><th className="px-5 py-3">Provider</th><th className="px-5 py-3">Cost</th><th className="px-5 py-3">Status</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                    {maintenance.map((item) => (
-                      <tr key={item.date + item.service}>
-                        <td className="whitespace-nowrap px-5 py-3 text-secondary">{item.date}</td>
-                        <td className="px-5 py-3 font-medium text-primary">{item.service}</td>
-                        <td className="px-5 py-3 text-secondary">{item.provider}</td>
-                        <td className="px-5 py-3 font-mono text-primary">{item.cost}</td>
-                        <td className="px-5 py-3"><Badge tone="success">{item.status}</Badge></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-
-          <div className="space-y-5">
-            <section className="surface rounded-xl border border-base p-5 shadow-card">
-              <h2 className="mb-4 text-sm font-semibold text-primary">Asset information</h2>
-              <dl className="space-y-3 text-sm">
-                {[
-                  ['Category', selectedAsset.category],
-                  ['Purchase date', selectedAsset.purchased],
-                  ['Warranty through', selectedAsset.warranty],
-                  ['Purchase value', selectedAsset.value],
-                  ['Assigned to', selectedAsset.employee ?? 'Unassigned'],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between gap-4 border-b border-base pb-3 last:border-0 last:pb-0">
-                    <dt className="text-secondary">{label}</dt><dd className="text-right font-medium text-primary">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-
-            <section className="surface rounded-xl border border-base p-5 text-center shadow-card">
-              <div className="mb-4 flex items-center justify-between text-left">
-                <div><h2 className="text-sm font-semibold text-primary">QR asset label</h2><p className="mt-0.5 text-xs text-secondary">Ready for 50 × 30 mm print</p></div>
-                <Badge tone="accent">Preview</Badge>
-              </div>
-              <div className="mx-auto w-52 rounded-lg border-2 border-slate-900 bg-white p-3 text-slate-950">
-                <div className="flex items-center gap-3">
-                  <QrCode className="h-20 w-20 shrink-0" strokeWidth={1.4} />
-                  <div className="text-left"><div className="text-xs font-bold">COMPANY ADMIN</div><div className="mt-1 text-[10px] font-semibold">{selectedAsset.tag}</div><div className="mt-1 text-[9px]">{selectedAsset.name}</div></div>
-                </div>
-              </div>
-              <Button className="mt-4 w-full" variant="secondary" size="sm">Print label</Button>
-            </section>
-          </div>
-        </div>
-
-        <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employees={employees} employeeId={employeeId} setEmployeeId={setEmployeeId} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} conditionOnAssign={conditionOnAssign} setConditionOnAssign={setConditionOnAssign} notes={notes} setNotes={setNotes} onAssign={() => void handleAssign()} saving={saving} />
-        <ReturnAssetModal open={returnOpen} onClose={() => setReturnOpen(false)} conditionOnReturn={conditionOnReturn} setConditionOnReturn={setConditionOnReturn} notes={notes} setNotes={setNotes} onReturn={() => void handleReturn()} saving={saving} />
       </div>
     );
   }
 
-  const assignedCount = assets.filter((asset) => asset.status === 'Assigned').length;
-  const availableCount = assets.filter((asset) => asset.status === 'Available').length;
-  const expiringCount = assets.filter((asset) => asset.warranty.includes('2026') || asset.warranty === 'Expired').length;
+  const banners = (
+    <>
+      {error ? (
+        <div className="flex items-start gap-2 text-sm text-error-700 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-4 py-3">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span className="flex-1">{error}</span>
+        </div>
+      ) : null}
+      {notice ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 text-sm text-success-700 dark:text-success-400 bg-success-50 dark:bg-success-950/30 border border-success-200 dark:border-success-800 rounded-lg px-4 py-2"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="text-muted hover:text-primary">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+
+  const modals = (
+    <>
+      <AssignAssetModal
+        open={assignTarget !== null}
+        onClose={() => setAssignTarget(null)}
+        companyId={companyId}
+        asset={assignTarget?.asset ?? null}
+        onAssigned={(assignment) =>
+          afterChange(`${assignment.assetName} assigned to ${assignment.employeeName}.`, assignment.checklistUpdates)
+        }
+      />
+      <ReturnAssetModal
+        open={returnTarget !== null}
+        onClose={() => setReturnTarget(null)}
+        asset={returnTarget ? toReturnable(returnTarget) : null}
+        onReturned={(assignment) =>
+          afterChange(`${assignment.assetName} returned by ${assignment.employeeName}.`, assignment.checklistUpdates)
+        }
+      />
+    </>
+  );
+
+  if (selectedAssetId) {
+    if (loading && !selectedAsset) {
+      return (
+        <div className="flex items-center justify-center py-16 text-secondary">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading asset…
+        </div>
+      );
+    }
+    if (!selectedAsset) {
+      return (
+        <div className="p-8 text-center text-sm space-y-4">
+          <p className="text-secondary">This asset is not in the selected company's register.</p>
+          <Button variant="secondary" onClick={() => updateParams({ asset: null })}>
+            Back to asset register
+          </Button>
+        </div>
+      );
+    }
+    const status = ASSET_STATUS_META[selectedAsset.status];
+    const warranty = warrantyState(selectedAsset.warrantyExpiryDate);
+    return (
+      <div className="mx-auto max-w-[1200px] space-y-5 p-4 lg:p-6">
+        <button
+          type="button"
+          onClick={() => updateParams({ asset: null })}
+          className="inline-flex items-center gap-2 text-sm font-medium text-secondary hover:text-accent-600"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to asset register
+        </button>
+        {banners}
+
+        <Card>
+          <CardBody className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-400">
+                <Package className="h-7 w-7" />
+              </div>
+              <div>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-bold text-primary">{selectedAsset.name}</h1>
+                  <Badge tone={status.tone} dot>
+                    {status.label}
+                  </Badge>
+                </div>
+                <p className="font-mono text-xs text-secondary">
+                  {selectedAsset.assetTag}
+                  {selectedAsset.serialNumber ? ` · S/N ${selectedAsset.serialNumber}` : ''}
+                </p>
+              </div>
+            </div>
+            {canEdit ? (
+              <div className="flex gap-2">
+                {selectedAsset.status === 'available' ? (
+                  <Button onClick={() => setAssignTarget({ asset: selectedAsset })}>
+                    <UserRound className="h-4 w-4" /> Assign
+                  </Button>
+                ) : null}
+                {selectedAsset.status === 'assigned' ? (
+                  <Button variant="secondary" onClick={() => setReturnTarget(selectedAsset)}>
+                    <RotateCcw className="h-4 w-4" /> Return
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </CardBody>
+        </Card>
+
+        <div className="grid gap-5 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>
+                <span className="inline-flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted" /> Assignment history
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              {historyLoading ? (
+                <div className="flex items-center text-sm text-secondary">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-sm text-secondary">Never assigned.</p>
+              ) : (
+                <ol className="space-y-4">
+                  {history.map((event) => (
+                    <li key={event.id} className="flex gap-3">
+                      <div
+                        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                          event.status === 'active'
+                            ? 'bg-accent-50 text-accent-600 dark:bg-accent-950/40'
+                            : 'bg-[rgb(var(--bg-muted))] text-muted'
+                        }`}
+                      >
+                        {event.status === 'active' ? <UserRound className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="text-sm font-semibold text-primary hover:text-accent-600"
+                            onClick={() => openEmployee(event.employeeId)}
+                          >
+                            {event.employeeName}
+                          </button>
+                          {event.status === 'active' ? <Badge tone="accent">Current holder</Badge> : null}
+                          {event.onboardingTaskId ? <Badge tone="neutral">Onboarding</Badge> : null}
+                          {event.offboardingTaskId ? <Badge tone="neutral">Offboarding</Badge> : null}
+                        </div>
+                        <div className="mt-0.5 text-xs text-secondary">
+                          Assigned {formatAssetDate(event.assignedAt)}
+                          {event.conditionOnAssign ? ` (${event.conditionOnAssign})` : ''}
+                          {event.returnedAt
+                            ? ` · Returned ${formatAssetDate(event.returnedAt)}${
+                                event.conditionOnReturn ? ` (${event.conditionOnReturn})` : ''
+                              }`
+                            : ''}
+                        </div>
+                        {event.notes ? <p className="mt-0.5 text-xs text-muted">{event.notes}</p> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+            </CardHeader>
+            <CardBody>
+              <dl className="space-y-3 text-sm">
+                {[
+                  ['Category', ASSET_CATEGORY_LABELS[selectedAsset.category]],
+                  ['Purchased', formatAssetDate(selectedAsset.purchaseDate)],
+                  ['Purchase value', formatAssetValue(selectedAsset.purchaseValue, selectedAsset.currency)],
+                  [
+                    'Warranty until',
+                    `${formatAssetDate(selectedAsset.warrantyExpiryDate)}${
+                      warranty === 'expired' ? ' (expired)' : warranty === 'expiring' ? ' (expiring soon)' : ''
+                    }`,
+                  ],
+                  ['Held by', selectedAsset.assignedEmployeeName ?? '—'],
+                  ['Notes', selectedAsset.notes ?? '—'],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-4 border-b border-base pb-3 last:border-0 last:pb-0">
+                    <dt className="text-secondary">{label}</dt>
+                    <dd className="text-right font-medium text-primary">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </CardBody>
+          </Card>
+        </div>
+        {modals}
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5 p-4 lg:p-6">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div><h1 className="text-xl font-bold text-primary">Asset Management</h1><p className="mt-0.5 text-sm text-secondary">Track company equipment, ownership, warranty, and maintenance.</p></div>
-        <PermissionGate module="employee" action="edit">
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Add asset</Button>
-            <Button onClick={() => setAssignOpen(true)}><Plus className="h-4 w-4" /> Assign Asset</Button>
-          </div>
-        </PermissionGate>
+    <div className="mx-auto max-w-[1200px] space-y-5 p-4 lg:p-6">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div>
+          <h1 className="text-xl font-bold text-primary">Asset Register</h1>
+          <p className="mt-0.5 text-sm text-secondary">
+            Company equipment, who holds it, and its condition at hand-over and return
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <CompanySelector />
+          {canEdit ? (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setCreateError(null);
+                  setNewAsset({ ...EMPTY_NEW_ASSET, currency: assets[0]?.currency ?? 'AUD' });
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Add asset
+              </Button>
+              <Button onClick={() => setAssignTarget({ asset: null })}>
+                <UserRound className="h-4 w-4" /> Assign asset
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
-          {error}
-        </div>
-      )}
+      {banners}
 
-      {loading ? (
-        <div className="py-16 text-center text-sm text-secondary">Loading assets…</div>
-      ) : (
-      <>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { label: 'Total assets', value: assets.length, icon: Package, color: 'text-accent-600 bg-accent-50 dark:bg-accent-950/40' },
-          { label: 'Assigned', value: assignedCount, icon: UserRound, color: 'text-sky-600 bg-sky-50 dark:bg-sky-950/40' },
-          { label: 'Available', value: availableCount, icon: CheckCircle2, color: 'text-success-600 bg-success-50 dark:bg-success-950/40' },
-          { label: 'Warranty attention', value: expiringCount, icon: CalendarDays, color: 'text-warning-600 bg-warning-50 dark:bg-warning-950/40' },
+          { label: 'Assigned', value: assets.filter((a) => a.status === 'assigned').length, icon: UserRound, color: 'text-sky-600 bg-sky-50 dark:bg-sky-950/40' },
+          { label: 'Available', value: assets.filter((a) => a.status === 'available').length, icon: CheckCircle2, color: 'text-success-600 bg-success-50 dark:bg-success-950/40' },
+          { label: 'Warranty expired or due in 60 days', value: warrantyAttention, icon: CalendarDays, color: 'text-warning-600 bg-warning-50 dark:bg-warning-950/40' },
         ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="surface flex items-center gap-3 rounded-xl border border-base p-4 shadow-card">
-            <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${color}`}><Icon className="h-5 w-5" /></div>
-            <div><div className="text-xl font-bold text-primary">{value}</div><div className="text-xs text-secondary">{label}</div></div>
-          </div>
+          <Card key={label}>
+            <CardBody className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${color}`}>
+                <Icon className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-primary">{loading ? '—' : value}</div>
+                <div className="text-xs text-secondary">{label}</div>
+              </div>
+            </CardBody>
+          </Card>
         ))}
       </div>
 
-      <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
-        <div className="flex flex-col gap-3 border-b border-base p-4 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search asset, tag, employee, or serial…" />
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Select className="sm:w-40" value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option>All</option>{CATEGORY_OPTIONS.map((item) => <option key={item.value}>{item.label}</option>)}
-            </Select>
-            <Select className="sm:w-40" value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option>All</option>{['Assigned', 'Available', 'In repair', 'Retired'].map((item) => <option key={item}>{item}</option>)}
-            </Select>
+      <div className="flex flex-col gap-3 border-b border-base lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex gap-1 overflow-x-auto overflow-y-hidden scrollbar-thin">
+          {tabs.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => updateParams({ status: key === 'all' ? null : key })}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                tab === key
+                  ? 'border-accent-600 text-accent-600'
+                  : 'border-transparent text-secondary hover:text-primary'
+              }`}
+            >
+              {label} <span className="text-xs text-muted">({counts[key]})</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2 pb-2 sm:flex-row">
+          <Select
+            className="sm:w-40"
+            aria-label="Category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value as AssetCategory | '')}
+          >
+            <option value="">All categories</option>
+            {CATEGORIES.map((key) => (
+              <option key={key} value={key}>
+                {ASSET_CATEGORY_LABELS[key]}
+              </option>
+            ))}
+          </Select>
+          <div className="relative sm:w-64">
+            <Search className="absolute left-3 top-[9px] h-4 w-4 text-muted" />
+            <Input
+              className="pl-9"
+              value={search}
+              placeholder="Search name, tag, serial, holder"
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] font-semibold uppercase tracking-wide text-secondary">
-              <tr><th className="px-5 py-3">Asset / tag</th><th className="px-5 py-3">Category</th><th className="px-5 py-3">Employee</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Purchased</th><th className="px-5 py-3">Warranty</th><th className="px-5 py-3" /></tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--border-base))]">
-              {filteredAssets.map((asset) => (
-                <tr key={asset.id} onClick={() => setSelectedAsset(asset)} className="cursor-pointer transition-colors hover:bg-[rgb(var(--bg-hover))]">
-                  <td className="px-5 py-3.5"><div className="font-semibold text-primary">{asset.name}</div><div className="mt-0.5 font-mono text-[11px] text-muted">{asset.tag}</div></td>
-                  <td className="px-5 py-3.5 text-secondary">{asset.category}</td>
-                  <td className="px-5 py-3.5">{asset.employee ? <div className="flex items-center gap-2"><Avatar name={asset.employee} size="sm" /><span className="whitespace-nowrap font-medium text-primary">{asset.employee}</span></div> : <span className="text-muted">Unassigned</span>}</td>
-                  <td className="px-5 py-3.5"><Badge tone={statusTone[asset.status]} dot>{asset.status}</Badge></td>
-                  <td className="whitespace-nowrap px-5 py-3.5 text-secondary">{asset.purchased}</td>
-                  <td className="whitespace-nowrap px-5 py-3.5"><span className={asset.warranty === 'Expired' ? 'text-error-600 dark:text-error-400' : 'text-secondary'}>{asset.warranty}</span></td>
-                  <td className="px-5 py-3.5 text-right"><ChevronRight className="ml-auto h-4 w-4 text-muted" /></td>
+      </div>
+
+      {employeeFilter ? (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-secondary">Held by</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-base bg-[rgb(var(--bg-muted))] px-3 py-1 font-medium text-primary">
+            {employeeName ?? '…'}
+            <button
+              type="button"
+              aria-label="Clear employee filter"
+              className="text-muted hover:text-primary"
+              onClick={() => updateParams({ employee: null })}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-secondary">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading assets…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-strong px-6 py-12 text-center text-sm text-secondary">
+          {assets.length === 0
+            ? 'The register is empty. Add the first asset to start tracking assignments.'
+            : employeeFilter && scoped.length === 0
+              ? `${employeeName ?? 'This employee'} holds no company assets.`
+              : 'No assets match these filters.'}
+        </div>
+      ) : (
+        <Card>
+          <CardBody className="p-0">
+            <DataTable>
+              <DataTableHead>
+                <tr>
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Asset</th>
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden md:table-cell">
+                    Category
+                  </th>
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Status</th>
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase">Held by</th>
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-secondary uppercase hidden lg:table-cell">
+                    Warranty
+                  </th>
+                  <th className="w-32" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredAssets.length === 0 && <div className="p-10 text-center text-sm text-secondary">No assets match these filters.</div>}
-        </div>
-      </section>
-      </>
+              </DataTableHead>
+              <DataTableBody>
+                {rows.map((asset) => {
+                  const status = ASSET_STATUS_META[asset.status];
+                  const warranty = warrantyState(asset.warrantyExpiryDate);
+                  return (
+                    <tr
+                      key={asset.id}
+                      className="hover:bg-[rgb(var(--bg-hover))] cursor-pointer"
+                      onClick={() => updateParams({ asset: asset.id })}
+                    >
+                      <td className="px-5 py-3">
+                        <div className="text-sm font-semibold text-primary">{asset.name}</div>
+                        <div className="font-mono text-[11px] text-muted">
+                          {asset.assetTag}
+                          {asset.serialNumber ? ` · ${asset.serialNumber}` : ''}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-secondary hidden md:table-cell">
+                        {ASSET_CATEGORY_LABELS[asset.category]}
+                      </td>
+                      <td className="px-5 py-3">
+                        <Badge tone={status.tone} dot>
+                          {status.label}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3">
+                        {asset.assignedEmployeeName ? (
+                          <div className="flex items-center gap-2">
+                            <Avatar name={asset.assignedEmployeeName} size="sm" />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-primary truncate">{asset.assignedEmployeeName}</div>
+                              <div className="text-xs text-muted truncate">
+                                Since {formatAssetDate(asset.assignedAt)}
+                                {asset.conditionOnAssign ? ` · ${asset.conditionOnAssign}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-sm hidden lg:table-cell">
+                        <span
+                          className={
+                            warranty === 'expired'
+                              ? 'text-error-600'
+                              : warranty === 'expiring'
+                                ? 'text-warning-700'
+                                : 'text-secondary'
+                          }
+                        >
+                          {formatAssetDate(asset.warrantyExpiryDate)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {canEdit && asset.status === 'available' ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssignTarget({ asset });
+                              }}
+                            >
+                              Assign
+                            </Button>
+                          ) : null}
+                          {canEdit && asset.status === 'assigned' ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReturnTarget(asset);
+                              }}
+                            >
+                              Return
+                            </Button>
+                          ) : null}
+                          <ChevronRight className="h-4 w-4 text-muted" />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </DataTableBody>
+            </DataTable>
+          </CardBody>
+        </Card>
       )}
 
-      <AssignAssetModal open={assignOpen} onClose={() => setAssignOpen(false)} assets={assignableAssets} assetId={assetId} setAssetId={setAssetId} employees={employees} employeeId={employeeId} setEmployeeId={setEmployeeId} assignmentDate={assignmentDate} setAssignmentDate={setAssignmentDate} conditionOnAssign={conditionOnAssign} setConditionOnAssign={setConditionOnAssign} notes={notes} setNotes={setNotes} onAssign={() => void handleAssign()} saving={saving} />
-      <CreateAssetModal open={createOpen} onClose={() => setCreateOpen(false)} newAsset={newAsset} setNewAsset={setNewAsset} onCreate={() => void handleCreate()} saving={saving} />
+      {modals}
+
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Add asset to register"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleCreate()}
+              disabled={creating || !newAsset.name.trim() || !newAsset.assetTag.trim()}
+            >
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Add asset
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {createError ? (
+            <div className="flex items-start gap-2 text-sm text-error-700 bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800 rounded-lg px-3 py-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{createError}</span>
+            </div>
+          ) : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="new-name">Name *</Label>
+              <Input
+                id="new-name"
+                maxLength={200}
+                value={newAsset.name}
+                placeholder='MacBook Pro 14"'
+                onChange={(e) => setNewAsset({ ...newAsset, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="new-tag">Asset tag *</Label>
+              <Input
+                id="new-tag"
+                maxLength={60}
+                value={newAsset.assetTag}
+                placeholder="AST-LAP-1050"
+                onChange={(e) => setNewAsset({ ...newAsset, assetTag: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="new-category">Category</Label>
+              <Select
+                id="new-category"
+                value={newAsset.category}
+                onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as AssetCategory })}
+              >
+                {CATEGORIES.map((key) => (
+                  <option key={key} value={key}>
+                    {ASSET_CATEGORY_LABELS[key]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="new-serial">Serial number</Label>
+              <Input
+                id="new-serial"
+                maxLength={120}
+                value={newAsset.serialNumber}
+                onChange={(e) => setNewAsset({ ...newAsset, serialNumber: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="new-purchased">Purchase date</Label>
+              <Input
+                id="new-purchased"
+                type="date"
+                value={newAsset.purchaseDate}
+                onChange={(e) => setNewAsset({ ...newAsset, purchaseDate: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="new-warranty">Warranty expiry</Label>
+              <Input
+                id="new-warranty"
+                type="date"
+                min={newAsset.purchaseDate || undefined}
+                value={newAsset.warrantyExpiryDate}
+                onChange={(e) => setNewAsset({ ...newAsset, warrantyExpiryDate: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-[1fr,7rem]">
+            <div>
+              <Label htmlFor="new-value">Purchase value</Label>
+              <Input
+                id="new-value"
+                inputMode="decimal"
+                value={newAsset.purchaseValue}
+                placeholder="0.00"
+                onChange={(e) => setNewAsset({ ...newAsset, purchaseValue: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="new-currency">Currency</Label>
+              <Input
+                id="new-currency"
+                maxLength={3}
+                value={newAsset.currency}
+                onChange={(e) => setNewAsset({ ...newAsset, currency: e.target.value.toUpperCase() })}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="new-notes">Notes</Label>
+            <Textarea
+              id="new-notes"
+              rows={2}
+              maxLength={1000}
+              value={newAsset.notes}
+              onChange={(e) => setNewAsset({ ...newAsset, notes: e.target.value })}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
-  );
-}
-
-interface AssignAssetModalProps {
-  open: boolean;
-  onClose: () => void;
-  assets: Asset[];
-  assetId: string;
-  setAssetId: (value: string) => void;
-  employees: EmployeeRecord[];
-  employeeId: string;
-  setEmployeeId: (value: string) => void;
-  assignmentDate: string;
-  setAssignmentDate: (value: string) => void;
-  conditionOnAssign: string;
-  setConditionOnAssign: (value: string) => void;
-  notes: string;
-  setNotes: (value: string) => void;
-  onAssign: () => void;
-  saving: boolean;
-}
-
-function AssignAssetModal({ open, onClose, assets, assetId, setAssetId, employees, employeeId, setEmployeeId, assignmentDate, setAssignmentDate, conditionOnAssign, setConditionOnAssign, notes, setNotes, onAssign, saving }: AssignAssetModalProps) {
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title="Assign Asset"
-      description="Record custody, assigned date, and condition."
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={onAssign} disabled={!assetId || !employeeId || saving}>Confirm assignment</Button></>}
-    >
-      <div className="space-y-5">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div><Label>Asset</Label><Select value={assetId} onChange={(event) => setAssetId(event.target.value)}><option value="">Select available asset</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.tag}</option>)}</Select></div>
-          <div><Label>Employee</Label><Select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName}</option>)}</Select></div>
-        </div>
-        <div><Label>Assignment date</Label><Input type="date" value={assignmentDate} onChange={(event) => setAssignmentDate(event.target.value)} /></div>
-        <div><Label>Condition on assign</Label><Input value={conditionOnAssign} onChange={(event) => setConditionOnAssign(event.target.value)} placeholder="New, Good, Fair…" /></div>
-        <div><Label>Notes</Label><Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Accessories included, existing marks…" /></div>
-      </div>
-    </Modal>
-  );
-}
-
-interface CreateAssetModalProps {
-  open: boolean;
-  onClose: () => void;
-  newAsset: {
-    name: string;
-    assetTag: string;
-    category: string;
-    serialNumber: string;
-    purchaseDate: string;
-    warrantyExpiryDate: string;
-    purchaseValue: string;
-  };
-  setNewAsset: Dispatch<SetStateAction<CreateAssetModalProps['newAsset']>>;
-  onCreate: () => void;
-  saving: boolean;
-}
-
-function CreateAssetModal({ open, onClose, newAsset, setNewAsset, onCreate, saving }: CreateAssetModalProps) {
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Add asset to register"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={onCreate} disabled={!newAsset.name.trim() || !newAsset.assetTag.trim() || saving}>
-            Create asset
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div><Label>Name</Label><Input value={newAsset.name} onChange={(e) => setNewAsset((v) => ({ ...v, name: e.target.value }))} /></div>
-          <div><Label>Asset tag</Label><Input value={newAsset.assetTag} onChange={(e) => setNewAsset((v) => ({ ...v, assetTag: e.target.value }))} /></div>
-        </div>
-        <div><Label>Category</Label><Select value={newAsset.category} onChange={(e) => setNewAsset((v) => ({ ...v, category: e.target.value }))}>{CATEGORY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></div>
-        <div><Label>Serial number</Label><Input value={newAsset.serialNumber} onChange={(e) => setNewAsset((v) => ({ ...v, serialNumber: e.target.value }))} /></div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div><Label>Purchase date</Label><Input type="date" value={newAsset.purchaseDate} onChange={(e) => setNewAsset((v) => ({ ...v, purchaseDate: e.target.value }))} /></div>
-          <div><Label>Warranty expiry</Label><Input type="date" value={newAsset.warrantyExpiryDate} onChange={(e) => setNewAsset((v) => ({ ...v, warrantyExpiryDate: e.target.value }))} /></div>
-        </div>
-        <div><Label>Purchase value</Label><Input type="number" min={0} value={newAsset.purchaseValue} onChange={(e) => setNewAsset((v) => ({ ...v, purchaseValue: e.target.value }))} /></div>
-      </div>
-    </Modal>
-  );
-}
-
-interface ReturnAssetModalProps {
-  open: boolean;
-  onClose: () => void;
-  conditionOnReturn: string;
-  setConditionOnReturn: (value: string) => void;
-  notes: string;
-  setNotes: (value: string) => void;
-  onReturn: () => void;
-  saving: boolean;
-}
-
-function ReturnAssetModal({ open, onClose, conditionOnReturn, setConditionOnReturn, notes, setNotes, onReturn, saving }: ReturnAssetModalProps) {
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Return asset"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={onReturn} disabled={saving}>Confirm return</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div><Label>Condition on return</Label><Input value={conditionOnReturn} onChange={(event) => setConditionOnReturn(event.target.value)} placeholder="Good, Fair, Damaged…" /></div>
-        <div><Label>Notes</Label><Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
-      </div>
-    </Modal>
   );
 }

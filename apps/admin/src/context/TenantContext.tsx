@@ -25,6 +25,8 @@ interface TenantContextValue {
   switching: boolean;
   error: string | null;
   sessionVersion: number;
+  /** Changes whenever the active organization session changes; key tenant-scoped state on it. */
+  tenantKey: string;
   switchOrganization: (tenantId: string) => Promise<void>;
   refreshMemberships: () => Promise<void>;
 }
@@ -97,11 +99,13 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
   const current = useMemo(
     () =>
-      memberships.find((m) => m.isCurrent) ??
       memberships.find((m) => m.tenantId === user?.tenantId) ??
+      memberships.find((m) => m.isCurrent) ??
       null,
     [memberships, user?.tenantId],
   );
+
+  const tenantKey = `${user?.tenantId ?? 'none'}:${sessionVersion}`;
 
   const value = useMemo(
     () => ({
@@ -111,6 +115,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       switching,
       error,
       sessionVersion,
+      tenantKey,
       switchOrganization,
       refreshMemberships,
     }),
@@ -121,6 +126,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       switching,
       error,
       sessionVersion,
+      tenantKey,
       switchOrganization,
       refreshMemberships,
     ],

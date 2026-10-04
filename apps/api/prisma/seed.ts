@@ -1083,6 +1083,64 @@ async function main(): Promise<void> {
     });
   }
 
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
+
+  const seedUserIds: Record<string, string> = {
+    [ID.empOwner]: ID.userOwner,
+    [ID.empHrAdmin]: ID.userHrAdmin,
+    [ID.empPayrollAdmin]: ID.userPayrollAdmin,
+    [ID.empManager]: ID.userManager,
+    [ID.empStaff]: ID.userStaff,
+  };
+
+  for (const emp of employees) {
+    await prisma.user.upsert({
+      where: { id: seedUserIds[emp.id] },
+      create: {
+        id: seedUserIds[emp.id],
+        tenantId: tenant.id,
+        employeeId: emp.id,
+        roleId: emp.roleId,
+        email: emp.email,
+        passwordHash,
+        isActive: true,
+      },
+      update: {
+        tenantId: tenant.id,
+        employeeId: emp.id,
+        roleId: emp.roleId,
+        email: emp.email,
+        passwordHash,
+        isActive: true,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+  }
+
+  await prisma.user.upsert({
+    where: { id: ID.userSuperAdmin },
+    create: {
+      id: ID.userSuperAdmin,
+      tenantId: null,
+      employeeId: null,
+      roleId: ID.roleSuperAdmin,
+      email: `super@${SEED_EMAIL_DOMAIN}`,
+      passwordHash,
+      isActive: true,
+    },
+    update: {
+      tenantId: null,
+      employeeId: null,
+      roleId: ID.roleSuperAdmin,
+      email: `super@${SEED_EMAIL_DOMAIN}`,
+      passwordHash,
+      isActive: true,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    },
+  });
+
   const shiftStart = new Date('1970-01-01T09:00:00.000Z');
   const shiftEnd = new Date('1970-01-01T17:00:00.000Z');
 
@@ -3076,64 +3134,6 @@ async function main(): Promise<void> {
     update: {
       scheduledAt: new Date('2026-09-07T02:00:00.000Z'),
       interviewerEmployeeId: ID.empHrAdmin,
-    },
-  });
-
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);
-
-  const seedUserIds: Record<string, string> = {
-    [ID.empOwner]: ID.userOwner,
-    [ID.empHrAdmin]: ID.userHrAdmin,
-    [ID.empPayrollAdmin]: ID.userPayrollAdmin,
-    [ID.empManager]: ID.userManager,
-    [ID.empStaff]: ID.userStaff,
-  };
-
-  for (const emp of employees) {
-    await prisma.user.upsert({
-      where: { id: seedUserIds[emp.id] },
-      create: {
-        id: seedUserIds[emp.id],
-        tenantId: tenant.id,
-        employeeId: emp.id,
-        roleId: emp.roleId,
-        email: emp.email,
-        passwordHash,
-        isActive: true,
-      },
-      update: {
-        tenantId: tenant.id,
-        employeeId: emp.id,
-        roleId: emp.roleId,
-        email: emp.email,
-        passwordHash,
-        isActive: true,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-      },
-    });
-  }
-
-  await prisma.user.upsert({
-    where: { id: ID.userSuperAdmin },
-    create: {
-      id: ID.userSuperAdmin,
-      tenantId: null,
-      employeeId: null,
-      roleId: ID.roleSuperAdmin,
-      email: `super@${SEED_EMAIL_DOMAIN}`,
-      passwordHash,
-      isActive: true,
-    },
-    update: {
-      tenantId: null,
-      employeeId: null,
-      roleId: ID.roleSuperAdmin,
-      email: `super@${SEED_EMAIL_DOMAIN}`,
-      passwordHash,
-      isActive: true,
-      failedLoginAttempts: 0,
-      lockedUntil: null,
     },
   });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { InAppNotificationRecord } from '@hrm/shared-types';
 import {
   listNotifications,
@@ -9,17 +9,23 @@ import { ApiError } from '@/lib/tenant-api-client';
 
 const POLL_MS = 60_000;
 
-export function useNotifications(reloadKey: number = 0) {
+/** `reloadKey` identifies the session; changing it drops loaded items and ignores in-flight responses. */
+export function useNotifications(reloadKey: string | number = 0) {
   const [items, setItems] = useState<InAppNotificationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeKey = useRef(reloadKey);
+  activeKey.current = reloadKey;
 
   const refresh = useCallback(async () => {
+    const requestKey = activeKey.current;
     try {
       const data = await listNotifications({ limit: 20 });
+      if (activeKey.current !== requestKey) return;
       setItems(data);
       setError(null);
     } catch (err) {
+      if (activeKey.current !== requestKey) return;
       const message =
         err instanceof ApiError
           ? err.message
@@ -28,11 +34,14 @@ export function useNotifications(reloadKey: number = 0) {
             : 'Failed to load notifications';
       setError(message);
     } finally {
-      setLoading(false);
+      if (activeKey.current === requestKey) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    setItems([]);
+    setError(null);
+    setLoading(true);
     void refresh();
     const timer = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(timer);

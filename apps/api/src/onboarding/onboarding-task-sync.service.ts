@@ -8,12 +8,27 @@ export class OnboardingTaskSyncService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** The pending provisioning task an assignment may be linked to, when it belongs to this employee's in-progress onboarding. */
+  async findLinkableProvisioningTask(employeeId: string, taskId: string) {
+    return this.prisma.unscoped.employeeOnboardingTask.findFirst({
+      where: {
+        id: taskId,
+        status: OnboardingTaskStatus.pending,
+        taskType: OnboardingTaskType.provisioning,
+        onboarding: { employeeId, status: 'in_progress' },
+      },
+      select: { id: true, assetCategory: true },
+    });
+  }
+
+  /** Completes the matching provisioning step; returns notes describing what changed. */
   async syncAfterAssetAssignment(input: {
     employeeId: string;
     assetId: string;
     assetCategory: string;
+    assignmentId?: string;
     onboardingTaskId?: string | null;
-  }): Promise<void> {
+  }): Promise<string[]> {
     if (input.onboardingTaskId) {
       const task = await this.prisma.unscoped.employeeOnboardingTask.findFirst({
         where: {
@@ -25,19 +40,19 @@ export class OnboardingTaskSyncService {
             status: 'in_progress',
           },
         },
-        select: { id: true, onboardingId: true, assetCategory: true },
+        select: { id: true, onboardingId: true, assetCategory: true, title: true },
       });
 
       if (!task) {
-        return;
+        return [];
       }
 
       if (task.assetCategory && task.assetCategory !== input.assetCategory) {
-        return;
+        return [];
       }
 
       await this.completeProvisioningTask(task.id, task.onboardingId, input.assetId);
-      return;
+      return [`Onboarding step "${task.title}" completed`];
     }
 
     const tasks = await this.prisma.unscoped.employeeOnboardingTask.findMany({
@@ -53,14 +68,49 @@ export class OnboardingTaskSyncService {
           { assetCategory: null },
         ],
       },
-      select: { id: true, onboardingId: true, assetCategory: true },
+      select: { id: true, onboardingId: true, assetCategory: true, title: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
-    for (const task of tasks) {
-      await this.completeProvisioningTask(task.id, task.onboardingId, input.assetId);
-      break;
+    const task =
+      tasks.find((row) => row.assetCategory === input.assetCategory) ?? tasks[0];
+    if (!task) return [];
+    if (input.assignmentId) {
+      await this.prisma.unscoped.employeeAssetAssignment.updateMany({
+        where: { id: input.assignmentId, onboardingTaskId: null },
+        data: { onboardingTaskId: task.id },
+      });
     }
+    await this.completeProvisioningTask(task.id, task.onboardingId, input.assetId);
+    return [`Onboarding step "${task.title}" completed`];
+  }
+
+  /**
+   * A returned asset no longer satisfies the provisioning step it completed: in-progress
+   * onboardings put that step back to pending.
+   */
+  async syncAfterAssetReturn(input: { employeeId: string; assetId: string }): Promise<string[]> {
+    const tasks = await this.prisma.unscoped.employeeOnboardingTask.findMany({
+      where: {
+        companyAssetId: input.assetId,
+        status: OnboardingTaskStatus.completed,
+        taskType: OnboardingTaskType.provisioning,
+        onboarding: { employeeId: input.employeeId, status: 'in_progress' },
+      },
+      select: { id: true, title: true },
+    });
+    if (tasks.length === 0) return [];
+
+    await this.prisma.unscoped.employeeOnboardingTask.updateMany({
+      where: { id: { in: tasks.map((task) => task.id) } },
+      data: {
+        status: OnboardingTaskStatus.pending,
+        completedAt: null,
+        completedByUserId: null,
+        companyAssetId: null,
+      },
+    });
+    return tasks.map((task) => `Onboarding step "${task.title}" reopened`);
   }
 
   private async completeProvisioningTask(
@@ -160,6 +210,97 @@ export class OnboardingTaskSyncService {
         await this.refreshOnboardingCompletion(task.onboardingId);
       }
     }
+  }
+
+  /**
+   * Links documents the employee already has (e.g. uploaded before onboarding started)
+   * to the new checklist, completing tasks they already satisfy.
+   */
+  async linkExistingDocuments(onboardingId: string): Promise<void> {
+    const onboarding = await this.prisma.unscoped.employeeOnboarding.findUnique({
+      where: { id: onboardingId },
+      select: {
+        employeeId: true,
+        tasks: {
+          where: { status: OnboardingTaskStatus.pending, documentTypeId: { not: null } },
+          select: { documentTypeId: true },
+        },
+      },
+    });
+    if (!onboarding) return;
+
+    const typeIds = [
+      ...new Set(onboarding.tasks.map((task) => task.documentTypeId as string)),
+    ];
+    if (typeIds.length === 0) return;
+
+    const documents = await this.prisma.unscoped.employeeDocument.findMany({
+      where: { employeeId: onboarding.employeeId, documentTypeId: { in: typeIds } },
+      select: { id: true, documentTypeId: true, verifiedAt: true, fileKey: true, createdAt: true },
+    });
+
+    for (const typeId of typeIds) {
+      const best = documents
+        .filter((doc) => doc.documentTypeId === typeId)
+        .sort(
+          (a, b) =>
+            Number(b.verifiedAt != null) - Number(a.verifiedAt != null) ||
+            Number(b.fileKey != null) - Number(a.fileKey != null) ||
+            b.createdAt.getTime() - a.createdAt.getTime(),
+        )[0];
+      if (best) {
+        await this.syncAfterDocumentChange(onboarding.employeeId, best.id);
+      }
+    }
+  }
+
+  /**
+   * Called before an employee document is deleted: tasks of in-progress onboardings that
+   * were satisfied by it go back to pending, since the evidence is gone.
+   */
+  async syncBeforeDocumentDelete(documentId: string): Promise<void> {
+    const tasks = await this.prisma.unscoped.employeeOnboardingTask.findMany({
+      where: {
+        employeeDocumentId: documentId,
+        status: OnboardingTaskStatus.completed,
+        policyAcceptedAt: null,
+        onboarding: { status: 'in_progress' },
+      },
+      select: { id: true },
+    });
+    if (tasks.length === 0) return;
+
+    await this.prisma.unscoped.employeeOnboardingTask.updateMany({
+      where: { id: { in: tasks.map((task) => task.id) } },
+      data: {
+        status: OnboardingTaskStatus.pending,
+        completedAt: null,
+        completedByUserId: null,
+      },
+    });
+  }
+
+  /** A completed onboarding whose required tasks are no longer all done goes back to in progress. */
+  async reopenOnboardingIfIncomplete(onboardingId: string): Promise<void> {
+    const onboarding = await this.prisma.unscoped.employeeOnboarding.findUnique({
+      where: { id: onboardingId },
+      include: {
+        tasks: { where: { isRequired: true }, select: { status: true } },
+      },
+    });
+    if (!onboarding || onboarding.status !== 'completed') return;
+
+    const allDone = onboarding.tasks.every(
+      (task) =>
+        task.status === OnboardingTaskStatus.completed ||
+        task.status === OnboardingTaskStatus.skipped,
+    );
+    if (allDone) return;
+
+    await this.prisma.unscoped.employeeOnboarding.update({
+      where: { id: onboardingId },
+      data: { status: 'in_progress', completedAt: null },
+    });
   }
 
   async refreshOnboardingCompletion(onboardingId: string): Promise<void> {

@@ -54,6 +54,8 @@ export interface AdminDashboardView {
   attendanceTrend: AdminAttendanceTrendPoint[];
   pendingApprovals: AdminPendingApprovalItem[];
   expiryItems: AdminExpiryItem[];
+  /** Company's contract expiry window; documents, certifications and probation use 30 days. */
+  contractExpiryWindowDays: number;
 }
 
 export interface EmployeeDashboardView {

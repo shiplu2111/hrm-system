@@ -5,7 +5,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { StorageModule } from '../storage/storage.module';
 import { WorkflowModule } from '../workflow/workflow.module';
+import { ContractExpiryAlertsController } from './contract-expiry-alerts.controller';
 import { ContractExpiryAlertsService } from './contract-expiry-alerts.service';
+import { ContractExpirySettingsService } from './contract-expiry-settings.service';
 import { ContractWorkflowService } from './contract-workflow.service';
 import { EmploymentContractsController } from './employment-contracts.controller';
 import { EmploymentContractsService } from './employment-contracts.service';
@@ -19,12 +21,13 @@ import { EmploymentContractsService } from './employment-contracts.service';
     WorkflowModule,
     NotificationsModule,
   ],
-  controllers: [EmploymentContractsController],
+  controllers: [EmploymentContractsController, ContractExpiryAlertsController],
   providers: [
     EmploymentContractsService,
     ContractWorkflowService,
     ContractExpiryAlertsService,
+    ContractExpirySettingsService,
   ],
-  exports: [EmploymentContractsService, ContractExpiryAlertsService],
+  exports: [EmploymentContractsService, ContractExpiryAlertsService, ContractExpirySettingsService],
 })
 export class ContractsModule {}

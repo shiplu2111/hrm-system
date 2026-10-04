@@ -4,11 +4,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { pathForPage, resolveRoute } from '@/config/routes';
+import { usePermissions } from '@hrm/portal-ui';
+import { canViewPage } from '@/config/page-permissions';
+import { pathForPage, recordFreePath, resolveRoute } from '@/config/routes';
+import { useTenant } from '@/context/TenantContext';
 
 export type PageKey =
   | 'dashboard'
@@ -29,11 +33,17 @@ export type PageKey =
   | 'emp-lifecycle'
   | 'emp-contracts'
   | 'emp-contract-detail'
+  | 'emp-contract-expiry'
   | 'recruitment'
+  | 'recruitment-requisitions'
+  | 'recruitment-interviews'
   | 'candidate-profile'
   | 'offer-letter'
   | 'onboarding'
+  | 'onboarding-templates'
+  | 'emp-onboarding'
   | 'offboarding'
+  | 'emp-offboarding'
   | 'doc-types'
   | 'emp-documents'
   | 'field-builder'
@@ -107,9 +117,12 @@ interface NavContextValue {
   selectedContractId: string | null;
   selectedApplicationId: string | null;
   openEmployee: (id: string) => void;
+  openEmployeeOnboarding: (id: string) => void;
+  openEmployeeOffboarding: (id: string) => void;
   openLifecycle: (id: string) => void;
   openContract: (id: string) => void;
-  openApplication: (id: string) => void;
+  /** `convert` opens the Convert to Employee form once the page loads. */
+  openApplication: (id: string, options?: { convert?: boolean }) => void;
   openOfferLetter: (applicationId: string) => void;
 }
 
@@ -129,6 +142,28 @@ export function NavProvider({ children }: { children: ReactNode }) {
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(
     null,
   );
+
+  const { tenantKey } = useTenant();
+  const { can } = usePermissions();
+  const previousTenantKey = useRef(tenantKey);
+
+  // Record IDs, query strings and route state belong to the previous organization.
+  useEffect(() => {
+    if (previousTenantKey.current === tenantKey) return;
+    previousTenantKey.current = tenantKey;
+    setSelectedEmployeeId(null);
+    setSelectedContractId(null);
+    setSelectedApplicationId(null);
+
+    const listPath = recordFreePath(location.pathname);
+    if (listPath !== null) {
+      routerNavigate(listPath, { replace: true });
+    } else if (!canViewPage(resolved.page, can)) {
+      routerNavigate(pathForPage('dashboard'), { replace: true });
+    } else if (location.search || location.state) {
+      routerNavigate(location.pathname, { replace: true });
+    }
+  }, [tenantKey, location.pathname, location.search, location.state, resolved.page, can, routerNavigate]);
 
   useEffect(() => {
     if (resolved.employeeId) setSelectedEmployeeId(resolved.employeeId);
@@ -151,6 +186,22 @@ export function NavProvider({ children }: { children: ReactNode }) {
     [routerNavigate],
   );
 
+  const openEmployeeOnboarding = useCallback(
+    (id: string) => {
+      setSelectedEmployeeId(id);
+      routerNavigate(pathForPage('emp-onboarding', { employeeId: id }));
+    },
+    [routerNavigate],
+  );
+
+  const openEmployeeOffboarding = useCallback(
+    (id: string) => {
+      setSelectedEmployeeId(id);
+      routerNavigate(pathForPage('emp-offboarding', { employeeId: id }));
+    },
+    [routerNavigate],
+  );
+
   const openLifecycle = useCallback(
     (id: string) => {
       setSelectedEmployeeId(id);
@@ -168,9 +219,10 @@ export function NavProvider({ children }: { children: ReactNode }) {
   );
 
   const openApplication = useCallback(
-    (id: string) => {
+    (id: string, options?: { convert?: boolean }) => {
       setSelectedApplicationId(id);
-      routerNavigate(pathForPage('candidate-profile', { applicationId: id }));
+      const path = pathForPage('candidate-profile', { applicationId: id });
+      routerNavigate(options?.convert ? `${path}?convert=1` : path);
     },
     [routerNavigate],
   );
@@ -192,6 +244,8 @@ export function NavProvider({ children }: { children: ReactNode }) {
         selectedContractId: resolved.contractId ?? selectedContractId,
         selectedApplicationId: resolved.applicationId ?? selectedApplicationId,
         openEmployee,
+        openEmployeeOnboarding,
+        openEmployeeOffboarding,
         openLifecycle,
         openContract,
         openApplication,

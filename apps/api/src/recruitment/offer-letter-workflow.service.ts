@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { WorkflowInstanceRecord } from '@hrm/shared-types';
+import type { OfferApprovalRoute, WorkflowInstanceRecord } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
   WorkflowEngineService,
@@ -13,6 +13,8 @@ export const DEFAULT_OFFER_LETTER_APPROVAL_STEPS = [
   { roleName: 'HR Admin' },
   { roleName: 'Company Owner' },
 ] as const;
+
+export const DEFAULT_OFFER_LETTER_ROUTE_NAME = 'Default offer approval';
 
 @Injectable()
 export class OfferLetterWorkflowService {
@@ -33,7 +35,12 @@ export class OfferLetterWorkflowService {
       input.offerLetterId,
     );
     if (existing) {
-      return this.workflowEngine.toRecord(existing);
+      const record = this.workflowEngine.toRecord(existing);
+      if (record.status === 'pending' || record.status === 'approved') {
+        return record;
+      }
+      // A revised offer goes through a fresh approval run; the previous decision stays in the audit log.
+      await this.workflowEngine.deleteInstance(existing.id);
     }
 
     const definition = await this.definitionsService.findEffectiveDefault(
@@ -53,6 +60,47 @@ export class OfferLetterWorkflowService {
         ? undefined
         : policyStepsToDefinitionSteps([...DEFAULT_OFFER_LETTER_APPROVAL_STEPS]),
     });
+  }
+
+  /** The chain a submission uses (or used), for display before and during approval. */
+  async resolveRoute(
+    companyId: string,
+    workflow: WorkflowInstanceRecord | null,
+  ): Promise<OfferApprovalRoute> {
+    const definition = workflow
+      ? workflow.definitionId
+        ? await this.definitionsService.findById(workflow.definitionId)
+        : null
+      : await this.definitionsService.findEffectiveDefault(companyId, 'offer_letter');
+
+    if (workflow) {
+      return {
+        definitionId: workflow.definitionId,
+        name: definition?.name ?? DEFAULT_OFFER_LETTER_ROUTE_NAME,
+        source: workflow.definitionId ? 'workflow_builder' : 'system_default',
+        steps: workflow.steps.map(({ order, assigneeType, roleName }) => ({
+          order,
+          assigneeType,
+          roleName,
+        })),
+      };
+    }
+
+    if (definition) {
+      return {
+        definitionId: definition.id,
+        name: definition.name,
+        source: 'workflow_builder',
+        steps: definition.steps,
+      };
+    }
+
+    return {
+      definitionId: null,
+      name: DEFAULT_OFFER_LETTER_ROUTE_NAME,
+      source: 'system_default',
+      steps: policyStepsToDefinitionSteps([...DEFAULT_OFFER_LETTER_APPROVAL_STEPS]),
+    };
   }
 
   async findForOfferLetter(

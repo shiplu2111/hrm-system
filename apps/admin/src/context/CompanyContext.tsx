@@ -3,13 +3,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import type { CompanySummary } from '@hrm/shared-types';
 import { listCompanies } from '@/lib/organization-api';
 import { ApiError } from '@/lib/tenant-api-client';
-import { useAuth } from '@hrm/portal-ui';
 import { useTenant } from '@/context/TenantContext';
 
 const COMPANY_KEY = 'hrm_selected_company_id';
@@ -24,63 +24,76 @@ interface CompanyContextValue {
   refresh: () => Promise<void>;
 }
 
+interface CompanyState {
+  /** Organization session the companies were loaded for. */
+  tenantKey: string | null;
+  companies: CompanySummary[];
+  companyId: string | null;
+  error: string | null;
+}
+
+const EMPTY_STATE: CompanyState = { tenantKey: null, companies: [], companyId: null, error: null };
+
 const CompanyContext = createContext<CompanyContextValue | undefined>(
   undefined,
 );
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-  const { sessionVersion } = useTenant();
-  const [companies, setCompanies] = useState<CompanySummary[]>([]);
-  const [companyId, setCompanyIdState] = useState<string | null>(null);
+  const { tenantKey } = useTenant();
+  const [state, setState] = useState<CompanyState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const activeKey = useRef(tenantKey);
+  activeKey.current = tenantKey;
 
   const refresh = useCallback(async () => {
+    const requestKey = activeKey.current;
     setLoading(true);
-    setError(null);
     try {
       const list = await listCompanies();
-      setCompanies(list);
+      if (activeKey.current !== requestKey) return;
       const saved = localStorage.getItem(COMPANY_KEY);
       const nextId =
         saved && list.some((c) => c.id === saved)
           ? saved
           : (list[0]?.id ?? null);
-      setCompanyIdState(nextId);
+      setState({ tenantKey: requestKey, companies: list, companyId: nextId, error: null });
       if (nextId) localStorage.setItem(COMPANY_KEY, nextId);
     } catch (err) {
+      if (activeKey.current !== requestKey) return;
       const message =
         err instanceof ApiError
           ? err.message
           : err instanceof Error
             ? err.message
             : 'Failed to load company context';
-      setError(message);
+      setState({ tenantKey: requestKey, companies: [], companyId: null, error: message });
     } finally {
-      setLoading(false);
+      if (activeKey.current === requestKey) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void refresh();
-  }, [refresh, user?.tenantId, sessionVersion]);
+  }, [refresh, tenantKey]);
 
   const setCompanyId = useCallback((id: string) => {
-    setCompanyIdState(id);
+    setState((prev) => ({ ...prev, companyId: id }));
     localStorage.setItem(COMPANY_KEY, id);
   }, []);
 
-  const company = companies.find((c) => c.id === companyId) ?? null;
+  // Never expose companies loaded for a previous organization, even for the render
+  // between the switch and the reload effect.
+  const current = state.tenantKey === tenantKey ? state : EMPTY_STATE;
+  const company = current.companies.find((c) => c.id === current.companyId) ?? null;
 
   return (
     <CompanyContext.Provider
       value={{
-        companies,
-        companyId,
+        companies: current.companies,
+        companyId: current.companyId,
         company,
-        loading,
-        error,
+        loading: loading || state.tenantKey !== tenantKey,
+        error: current.error,
         setCompanyId,
         refresh,
       }}

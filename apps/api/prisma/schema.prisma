@@ -71,6 +71,8 @@ model Tenant {
   jobRequisitions             JobRequisition[]
   jobPostings                 JobPosting[]
   candidates                  Candidate[]
+  candidateNotes              CandidateNote[]
+  candidateDocuments          CandidateDocument[]
   jobApplications             JobApplication[]
   jobApplicationResumes       JobApplicationResume[]
   jobApplicationInterviewRounds JobApplicationInterviewRound[]
@@ -1253,14 +1255,60 @@ model Candidate {
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company      Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
   applications JobApplication[]
+  noteEntries  CandidateNote[]
+  documents    CandidateDocument[]
 
   @@unique([companyId, email])
   @@index([tenantId])
   @@index([companyId])
   @@map("candidates")
+}
+
+model CandidateNote {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  candidateId   String   @map("candidate_id") @db.Uuid
+  applicationId String?  @map("application_id") @db.Uuid
+  authorUserId  String?  @map("author_user_id") @db.Uuid
+  body          String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  candidate   Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  application JobApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  author      User?           @relation("CandidateNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([candidateId, createdAt])
+  @@index([applicationId])
+  @@map("candidate_notes")
+}
+
+model CandidateDocument {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  candidateId      String   @map("candidate_id") @db.Uuid
+  label            String
+  fileKey          String   @map("file_key")
+  originalName     String   @map("original_name")
+  contentType      String   @map("content_type")
+  sizeBytes        Int      @map("size_bytes")
+  uploadedByUserId String?  @map("uploaded_by_user_id") @db.Uuid
+  uploadedAt       DateTime @default(now()) @map("uploaded_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  uploadedBy User?     @relation("CandidateDocumentUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([candidateId])
+  @@map("candidate_documents")
 }
 
 model JobApplication {
@@ -1288,6 +1336,7 @@ model JobApplication {
   resume        JobApplicationResume?
   interviewRounds JobApplicationInterviewRound[]
   offerLetter     OfferLetter?
+  candidateNotes  CandidateNote[]
 
   @@unique([candidateId, requisitionId])
   @@index([tenantId])
@@ -1334,6 +1383,8 @@ model JobApplicationInterviewRound {
   score                 Decimal?                @db.Decimal(3, 1)
   recommendation        InterviewRecommendation?
   feedback              String?
+  /// Structured per-criterion ratings: { ratings: [{ key, rating, comment? }], strengths?, concerns? }
+  scorecard             Json?
   completedAt           DateTime?               @map("completed_at")
   completedByUserId     String?                 @map("completed_by_user_id") @db.Uuid
   createdAt             DateTime                @default(now()) @map("created_at")
@@ -1350,6 +1401,8 @@ model JobApplicationInterviewRound {
   @@index([companyId])
   @@index([applicationId])
   @@index([status])
+  @@index([companyId, scheduledStartAt])
+  @@index([interviewerEmployeeId, scheduledStartAt])
   @@map("job_application_interview_rounds")
 }
 
@@ -1400,6 +1453,7 @@ model OfferLetter {
   sentAt            DateTime?           @map("sent_at")
   acceptedAt        DateTime?           @map("accepted_at")
   declinedAt        DateTime?           @map("declined_at")
+  declineReason     String?             @map("decline_reason")
   createdAt         DateTime            @default(now()) @map("created_at")
   updatedAt         DateTime            @updatedAt @map("updated_at")
 
@@ -1813,9 +1867,16 @@ model ExitInterviewRecord {
   conductedAt            DateTime? @map("conducted_at")
   interviewerEmployeeId  String?   @map("interviewer_employee_id") @db.Uuid
   feedback               String?
+  reasonCategory         String?   @map("reason_category")
   reasonForLeaving       String?   @map("reason_for_leaving")
+  /// Area → 1–5 score, e.g. { "manager": 4, "compensation": 2 }
+  ratings                Json?
+  likedMost              String?   @map("liked_most")
+  improvementSuggestions String?   @map("improvement_suggestions")
+  wouldRecommend         Boolean?  @map("would_recommend")
   wouldRehire            Boolean?  @map("would_rehire")
   rating                 Int?
+  recordedByUserId       String?   @map("recorded_by_user_id") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
@@ -2505,9 +2566,17 @@ enum PayrollAdjustmentStatus {
   @@map("payroll_adjustment_status")
 }
 
+enum PayrollAdjustmentKind {
+  retroactive
+  final_settlement
+
+  @@map("payroll_adjustment_kind")
+}
+
 /// Retroactive correction entry — never mutates a finalized payroll run (PAYROLL_LOGIC.md §11)
 model PayrollAdjustment {
   id                     String                  @id @default(uuid()) @db.Uuid
+  kind                   PayrollAdjustmentKind   @default(retroactive)
   companyId              String                  @map("company_id") @db.Uuid
   employeeId             String                  @map("employee_id") @db.Uuid
   originalPayrollRunId   String                  @map("original_payroll_run_id") @db.Uuid
@@ -2524,6 +2593,10 @@ model PayrollAdjustment {
   adjustmentGrossPay     Decimal                 @map("adjustment_gross_pay") @db.Decimal(14, 2)
   adjustmentTotalDeductions Decimal              @map("adjustment_total_deductions") @db.Decimal(14, 2)
   adjustmentNetPay       Decimal                 @map("adjustment_net_pay") @db.Decimal(14, 2)
+  /// Structure overrides the revised figures were calculated with
+  structureOverrides     Json?                   @map("structure_overrides")
+  /// Revised earnings/deductions breakdown captured at creation
+  calculationSnapshot    Json?                   @map("calculation_snapshot")
   status                 PayrollAdjustmentStatus @default(draft)
   appliedAt              DateTime?               @map("applied_at")
   createdAt              DateTime                @default(now()) @map("created_at")
@@ -4974,6 +5047,8 @@ model User {
   inAppNotifications InAppNotification[]
   pushDeviceTokens PushDeviceToken[]
   completedInterviewRounds JobApplicationInterviewRound[] @relation("InterviewCompletedBy")
+  candidateNotes           CandidateNote[]                @relation("CandidateNoteAuthor")
+  candidateDocuments       CandidateDocument[]            @relation("CandidateDocumentUploader")
 
   @@index([tenantId])
   @@index([roleId])

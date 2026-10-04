@@ -31,6 +31,7 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'certification.expiring': true,
   'kudos.received': true,
   'safety.incident.reported': true,
+  'interview.scheduled': true,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -107,6 +108,7 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'certification.expiring': 'Certification expiring soon',
   'kudos.received': 'Kudos received',
   'safety.incident.reported': 'Safety incident reported',
+  'interview.scheduled': 'Interview scheduled',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

@@ -354,6 +354,8 @@ export class EmployeeDocumentsService {
       await this.storageService.delete(existing.fileKey).catch(() => undefined);
     }
 
+    await this.onboardingTaskSync.syncBeforeDocumentDelete(documentId);
+
     await this.prisma.unscoped.employeeDocument.delete({
       where: { id: documentId },
     });

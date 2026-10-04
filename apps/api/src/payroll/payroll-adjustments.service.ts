@@ -5,11 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  PayrollAdjustmentKind,
   PayrollAdjustmentStatus,
   PayrollRunStatus,
+  Prisma,
   type PayrollAdjustment,
 } from '@prisma/client';
-import type { PayrollAdjustmentRecord } from '@hrm/shared-types';
+import type {
+  PayrollAdjustmentRecord,
+  PayrollCalculationPreview,
+  PayrollSalaryStructureOverride,
+} from '@hrm/shared-types';
 import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
@@ -61,6 +67,7 @@ export class PayrollAdjustmentsService {
     companyId: string,
     dto: CreatePayrollAdjustmentDto,
     user: AuthenticatedUser,
+    options: { kind?: PayrollAdjustmentKind } = {},
   ): Promise<PayrollAdjustmentRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
 
@@ -145,6 +152,7 @@ export class PayrollAdjustmentsService {
 
     const row = await this.prisma.unscoped.payrollAdjustment.create({
       data: {
+        kind: options.kind ?? PayrollAdjustmentKind.retroactive,
         companyId,
         employeeId: originalRun.employeeId,
         originalPayrollRunId: originalRun.id,
@@ -161,6 +169,10 @@ export class PayrollAdjustmentsService {
         adjustmentGrossPay: parseMoney(delta.grossPay),
         adjustmentTotalDeductions: parseMoney(delta.totalDeductions),
         adjustmentNetPay: parseMoney(delta.netPay),
+        structureOverrides: dto.structureOverrides?.length
+          ? (dto.structureOverrides as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+        calculationSnapshot: revised as unknown as Prisma.InputJsonValue,
         status: PayrollAdjustmentStatus.draft,
       },
     });
@@ -301,9 +313,10 @@ export class PayrollAdjustmentsService {
     return row;
   }
 
-  private toRecord(row: PayrollAdjustment): PayrollAdjustmentRecord {
+  toRecord(row: PayrollAdjustment): PayrollAdjustmentRecord {
     return {
       id: row.id,
+      kind: row.kind,
       companyId: row.companyId,
       employeeId: row.employeeId,
       originalPayrollRunId: row.originalPayrollRunId,
@@ -320,6 +333,10 @@ export class PayrollAdjustmentsService {
       adjustmentGrossPay: formatMoney(row.adjustmentGrossPay),
       adjustmentTotalDeductions: formatMoney(row.adjustmentTotalDeductions),
       adjustmentNetPay: formatMoney(row.adjustmentNetPay),
+      structureOverrides:
+        (row.structureOverrides as unknown as PayrollSalaryStructureOverride[] | null) ?? null,
+      calculation:
+        (row.calculationSnapshot as unknown as PayrollCalculationPreview | null) ?? null,
       status: row.status,
       appliedAt: row.appliedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),

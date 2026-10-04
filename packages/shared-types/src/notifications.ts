@@ -13,7 +13,8 @@ export type NotificationEventType =
   | 'onboarding.welcome'
   | 'certification.expiring'
   | 'kudos.received'
-  | 'safety.incident.reported';
+  | 'safety.incident.reported'
+  | 'interview.scheduled';
 
 export type NotificationRecipientRole =
   | 'subject_employee'

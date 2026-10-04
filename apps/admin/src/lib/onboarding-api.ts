@@ -1,4 +1,5 @@
 import type {
+  AssetCategory,
   EmployeeOnboardingRecord,
   EmployeeOnboardingTaskRecord,
   OnboardingChecklistTemplateItemRecord,
@@ -16,17 +17,31 @@ export interface CreateOnboardingTemplateInput {
   isActive?: boolean;
 }
 
-export interface CreateOnboardingTemplateItemInput {
+export interface UpdateOnboardingTemplateInput {
+  name?: string;
+  description?: string | null;
+  isDefault?: boolean;
+  isActive?: boolean;
+}
+
+export interface OnboardingTemplateItemInput {
   title: string;
-  description?: string;
+  description?: string | null;
   category: OnboardingTaskCategory;
   taskType: OnboardingTaskType;
-  documentTypeId?: string;
-  policyDocumentUrl?: string;
-  assigneeLabel?: string;
-  dueDaysOffset?: number;
-  sortOrder?: number;
+  documentTypeId?: string | null;
+  assetCategory?: AssetCategory | null;
+  policyDocumentUrl?: string | null;
+  assigneeLabel?: string | null;
+  dueDaysOffset?: number | null;
   isRequired?: boolean;
+}
+
+export interface StartEmployeeOnboardingInput {
+  employeeId: string;
+  templateId?: string;
+  startDate?: string;
+  sendWelcome?: boolean;
 }
 
 export function listOnboardingTemplates(
@@ -59,13 +74,64 @@ export function createOnboardingTemplate(
   );
 }
 
+export function updateOnboardingTemplate(
+  templateId: string,
+  input: UpdateOnboardingTemplateInput,
+): Promise<OnboardingChecklistTemplateRecord> {
+  return tenantApiRequest<OnboardingChecklistTemplateRecord>(
+    `/onboarding-templates/${templateId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function deleteOnboardingTemplate(templateId: string): Promise<void> {
+  return tenantApiRequest<void>(`/onboarding-templates/${templateId}`, {
+    method: 'DELETE',
+  });
+}
+
+export function duplicateOnboardingTemplate(
+  templateId: string,
+): Promise<OnboardingChecklistTemplateRecord> {
+  return tenantApiRequest<OnboardingChecklistTemplateRecord>(
+    `/onboarding-templates/${templateId}/duplicate`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
 export function addOnboardingTemplateItem(
   templateId: string,
-  input: CreateOnboardingTemplateItemInput,
+  input: OnboardingTemplateItemInput,
 ): Promise<OnboardingChecklistTemplateItemRecord> {
   return tenantApiRequest<OnboardingChecklistTemplateItemRecord>(
     `/onboarding-templates/${templateId}/items`,
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function updateOnboardingTemplateItem(
+  itemId: string,
+  input: Partial<OnboardingTemplateItemInput>,
+): Promise<OnboardingChecklistTemplateItemRecord> {
+  return tenantApiRequest<OnboardingChecklistTemplateItemRecord>(
+    `/onboarding-template-items/${itemId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function deleteOnboardingTemplateItem(itemId: string): Promise<void> {
+  return tenantApiRequest<void>(`/onboarding-template-items/${itemId}`, {
+    method: 'DELETE',
+  });
+}
+
+export function reorderOnboardingTemplateItems(
+  templateId: string,
+  itemIds: string[],
+): Promise<OnboardingChecklistTemplateRecord> {
+  return tenantApiRequest<OnboardingChecklistTemplateRecord>(
+    `/onboarding-templates/${templateId}/items/order`,
+    { method: 'PUT', body: JSON.stringify({ itemIds }) },
   );
 }
 
@@ -81,6 +147,16 @@ export function listEmployeeOnboardings(
   );
 }
 
+export function startEmployeeOnboarding(
+  companyId: string,
+  input: StartEmployeeOnboardingInput,
+): Promise<EmployeeOnboardingRecord> {
+  return tenantApiRequest<EmployeeOnboardingRecord>(
+    `/companies/${companyId}/employee-onboardings`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
 export function getEmployeeOnboarding(
   onboardingId: string,
 ): Promise<EmployeeOnboardingRecord> {
@@ -89,13 +165,45 @@ export function getEmployeeOnboarding(
   );
 }
 
+/** Resolves to null when the employee has no onboarding yet. */
+export function getOnboardingForEmployee(
+  employeeId: string,
+): Promise<EmployeeOnboardingRecord | null> {
+  return tenantApiRequest<EmployeeOnboardingRecord | null>(
+    `/employees/${employeeId}/onboarding`,
+  );
+}
+
 export function completeOnboardingTask(
   onboardingId: string,
   taskId: string,
+  note?: string,
 ): Promise<EmployeeOnboardingTaskRecord> {
   return tenantApiRequest<EmployeeOnboardingTaskRecord>(
     `/employee-onboardings/${onboardingId}/tasks/${taskId}/complete`,
-    { method: 'POST', body: JSON.stringify({}) },
+    { method: 'POST', body: JSON.stringify(note ? { note } : {}) },
+  );
+}
+
+export function skipOnboardingTask(
+  onboardingId: string,
+  taskId: string,
+  reason?: string,
+): Promise<EmployeeOnboardingTaskRecord> {
+  return tenantApiRequest<EmployeeOnboardingTaskRecord>(
+    `/employee-onboardings/${onboardingId}/tasks/${taskId}/skip`,
+    { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+  );
+}
+
+export function reopenOnboardingTask(
+  onboardingId: string,
+  taskId: string,
+  reason?: string,
+): Promise<EmployeeOnboardingTaskRecord> {
+  return tenantApiRequest<EmployeeOnboardingTaskRecord>(
+    `/employee-onboardings/${onboardingId}/tasks/${taskId}/reopen`,
+    { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
   );
 }
 

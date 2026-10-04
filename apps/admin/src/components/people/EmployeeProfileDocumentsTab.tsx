@@ -6,8 +6,6 @@ import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Label, Select } from '@/components/ui/Form';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
@@ -15,12 +13,11 @@ import {
   DataTableBody,
   DataTableHead,
 } from '@/components/ui/DataTable';
+import { EmployeeDocumentUploadModal } from '@/components/people/EmployeeDocumentUploadModal';
 import { listDocumentTypes } from '@/lib/documents-api';
 import {
-  createEmployeeDocument,
   deleteEmployeeDocument,
   listEmployeeDocuments,
-  uploadEmployeeDocumentFile,
   verifyEmployeeDocument,
 } from '@/lib/employee-documents-api';
 import {
@@ -43,19 +40,9 @@ export function EmployeeProfileDocumentsTab({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<EmployeeDocumentRecord | null>(null);
-  const [form, setForm] = useState({
-    documentTypeId: '',
-    expiryDate: '',
-    fieldValues: {} as Record<string, string>,
-    file: null as File | null,
-  });
-
-  const selectedType = docTypes.find((t) => t.id === form.documentTypeId);
 
   const canCreate = usePermission('employee', 'create');
-  const canEdit = usePermission('employee', 'edit');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,29 +64,6 @@ export function EmployeeProfileDocumentsTab({
   useEffect(() => {
     void load();
   }, [load]);
-
-  const handleUpload = async () => {
-    if (!form.documentTypeId) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const created = await createEmployeeDocument(employeeId, {
-        documentTypeId: form.documentTypeId,
-        fields: form.fieldValues,
-        expiryDate: form.expiryDate || null,
-      });
-      if (form.file && canEdit) {
-        await uploadEmployeeDocumentFile(employeeId, created.id, form.file);
-      }
-      setModalOpen(false);
-      setForm({ documentTypeId: '', expiryDate: '', fieldValues: {}, file: null });
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const handleVerify = async (documentId: string) => {
     setError(null);
@@ -267,123 +231,13 @@ export function EmployeeProfileDocumentsTab({
         onClose={() => setDeleteTarget(null)}
       />
 
-      <Modal
+      <EmployeeDocumentUploadModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Upload document"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => void handleUpload()}
-              disabled={uploading || !form.documentTypeId}
-            >
-              {uploading ? 'Uploading…' : 'Save'}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <Label>Document type</Label>
-            <Select
-              value={form.documentTypeId}
-              onChange={(e) =>
-                setForm({ ...form, documentTypeId: e.target.value, fieldValues: {} })
-              }
-            >
-              <option value="">Select type…</option>
-              {docTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {selectedType?.tracksExpiry ? (
-            <div>
-              <Label>Expiry date</Label>
-              <Input
-                type="date"
-                value={form.expiryDate}
-                onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
-              />
-            </div>
-          ) : null}
-          {selectedType?.fields.map((field) => (
-            <div key={field.id ?? field.fieldKey}>
-              <Label>
-                {field.label}
-                {field.required ? ' *' : ''}
-              </Label>
-              {field.fieldType === 'dropdown' ? (
-                <Select
-                  value={form.fieldValues[field.fieldKey ?? ''] ?? ''}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fieldValues: {
-                        ...form.fieldValues,
-                        [field.fieldKey ?? '']: e.target.value,
-                      },
-                    })
-                  }
-                >
-                  <option value="">Select…</option>
-                  {field.options.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </Select>
-              ) : field.fieldType === 'date' ? (
-                <Input
-                  type="date"
-                  value={form.fieldValues[field.fieldKey ?? ''] ?? ''}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fieldValues: {
-                        ...form.fieldValues,
-                        [field.fieldKey ?? '']: e.target.value,
-                      },
-                    })
-                  }
-                />
-              ) : (
-                <Input
-                  type={field.fieldType === 'number' ? 'number' : 'text'}
-                  value={form.fieldValues[field.fieldKey ?? ''] ?? ''}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fieldValues: {
-                        ...form.fieldValues,
-                        [field.fieldKey ?? '']: e.target.value,
-                      },
-                    })
-                  }
-                />
-              )}
-            </div>
-          ))}
-          {canEdit ? (
-            <div>
-              <Label>Attachment (PDF, JPG, PNG — max 10MB)</Label>
-              <Input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                onChange={(e) =>
-                  setForm({ ...form, file: e.target.files?.[0] ?? null })
-                }
-              />
-            </div>
-          ) : null}
-        </div>
-      </Modal>
+        employeeId={employeeId}
+        documentTypes={docTypes}
+        onUploaded={() => load()}
+      />
     </div>
   );
 }

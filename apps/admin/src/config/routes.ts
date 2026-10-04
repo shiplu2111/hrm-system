@@ -13,11 +13,17 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'emp-lifecycle': '/employees/lifecycle',
   'emp-contracts': '/employees/contracts',
   'emp-contract-detail': '/employees/contracts/:contractId',
+  'emp-contract-expiry': '/employees/contracts/expiry-alerts',
   recruitment: '/employees/recruitment',
+  'recruitment-requisitions': '/employees/recruitment/requisitions',
+  'recruitment-interviews': '/employees/recruitment/interviews',
   'candidate-profile': '/employees/recruitment/candidates/:applicationId',
   'offer-letter': '/employees/recruitment/offer-letter/:applicationId',
   onboarding: '/employees/onboarding',
+  'onboarding-templates': '/employees/onboarding/templates',
+  'emp-onboarding': '/employees/:employeeId/onboarding',
   offboarding: '/employees/offboarding',
+  'emp-offboarding': '/employees/:employeeId/offboarding',
   'doc-types': '/employees/document-types',
   'emp-documents': '/employees/documents',
   'field-builder': '/employees/custom-fields',
@@ -116,6 +122,14 @@ const DYNAMIC_ROUTES: Array<{
     resolve: (m) => ({ page: 'candidate-profile', applicationId: m[1] }),
   },
   {
+    pattern: /^\/employees\/([0-9a-f-]{36})\/onboarding$/i,
+    resolve: (m) => ({ page: 'emp-onboarding', employeeId: m[1] }),
+  },
+  {
+    pattern: /^\/employees\/([0-9a-f-]{36})\/offboarding$/i,
+    resolve: (m) => ({ page: 'emp-offboarding', employeeId: m[1] }),
+  },
+  {
     pattern: /^\/employees\/([0-9a-f-]{36})$/i,
     resolve: (m) => ({ page: 'emp-profile', employeeId: m[1] }),
   },
@@ -138,6 +152,12 @@ export function pathForPage(
 
   if (page === 'emp-profile' && params?.employeeId) {
     return `/employees/${params.employeeId}`;
+  }
+  if (page === 'emp-onboarding' && params?.employeeId) {
+    return `/employees/${params.employeeId}/onboarding`;
+  }
+  if (page === 'emp-offboarding' && params?.employeeId) {
+    return `/employees/${params.employeeId}/offboarding`;
   }
   if (page === 'emp-contract-detail' && params?.contractId) {
     return `/employees/contracts/${params.contractId}`;
@@ -165,6 +185,23 @@ export function resolveRoute(pathname: string): ResolvedRoute {
   }
 
   return { page: 'dashboard' };
+}
+
+const RECORD_PARENT: Partial<Record<PageKey, PageKey>> = {
+  'emp-profile': 'emp-directory',
+  'emp-onboarding': 'onboarding',
+  'emp-offboarding': 'offboarding',
+  'emp-contract-detail': 'emp-contracts',
+  'candidate-profile': 'recruitment',
+  'offer-letter': 'recruitment',
+};
+
+/** The list page for a URL that names a specific record; null when the URL names no record. */
+export function recordFreePath(pathname: string): string | null {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  if (PATH_TO_PAGE[normalized]) return null;
+  const { page } = resolveRoute(normalized);
+  return pathForPage(RECORD_PARENT[page] ?? page);
 }
 
 export function pageFromPath(pathname: string): PageKey {

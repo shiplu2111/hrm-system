@@ -33,6 +33,15 @@ export function verifyEmployeeDocument(
   );
 }
 
+export function getEmployeeDocumentFileUrl(
+  employeeId: string,
+  documentId: string,
+): Promise<{ url: string; expiresInSeconds: number }> {
+  return tenantApiRequest<{ url: string; expiresInSeconds: number }>(
+    `/employees/${employeeId}/documents/${documentId}/file-url`,
+  );
+}
+
 export function deleteEmployeeDocument(
   employeeId: string,
   documentId: string,

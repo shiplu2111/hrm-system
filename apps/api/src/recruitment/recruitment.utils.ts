@@ -1,8 +1,10 @@
-import type {
-  ApplicationStage,
-  JobPostingStatus,
-  JobRequisitionStatus,
-  WorkflowInstanceRecord,
+import {
+  OFFER_LETTER_TEMPLATES,
+  type ApplicationStage,
+  type JobPostingStatus,
+  type JobRequisitionStatus,
+  type OfferLetterTemplate,
+  type WorkflowInstanceRecord,
 } from '@hrm/shared-types';
 import { getCurrentWorkflowStep } from '../workflow/workflow.utils';
 
@@ -89,6 +91,27 @@ export const PIPELINE_STAGES: ApplicationStage[] = [
   'offer',
   'hired',
 ];
+
+/**
+ * Returns why a manual stage change is not allowed, or null when it is.
+ * `hired` is only reachable through the hire endpoint (accepted offer + employee record),
+ * and hired applications are final.
+ */
+export function stageChangeBlockReason(
+  current: ApplicationStage,
+  target: ApplicationStage,
+  hiredEmployeeId: string | null,
+): string | null {
+  if (current === 'hired' || hiredEmployeeId) {
+    return current === target
+      ? null
+      : 'Hired applications are final and cannot change stage';
+  }
+  if (target === 'hired') {
+    return 'Use "Convert to employee" to hire — it requires an accepted offer letter';
+  }
+  return null;
+}
 
 export type InterviewRoundType =
   | 'technical'
@@ -178,15 +201,44 @@ export function averageInterviewScore(scores: number[]): number | null {
   return Math.round((sum / scores.length) * 10) / 10;
 }
 
-const OFFER_TEMPLATE_LABELS: Record<string, string> = {
-  standard: 'Standard Offer Letter',
-  senior: 'Senior Role Offer',
-  contract: 'Contract Offer',
-  remote: 'Remote Worker Offer',
-};
-
 export function resolveOfferTemplateLabel(template: string): string {
-  return OFFER_TEMPLATE_LABELS[template] ?? template;
+  return OFFER_LETTER_TEMPLATES[template as OfferLetterTemplate]?.label ?? template;
+}
+
+const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Matches an offer's free-text "Reporting to" against employee names (case-insensitive).
+ * A trailing title is ignored, e.g. "Alex Thompson, Engineering Manager" or "Alex Thompson (CTO)".
+ */
+export function matchReportingToEmployee<T extends { id: string; firstName: string; lastName: string }>(
+  reportingTo: string | null | undefined,
+  employees: T[],
+): T | null {
+  if (!reportingTo?.trim()) return null;
+  const full = normalizeName(reportingTo);
+  const nameOnly = normalizeName(reportingTo.split(/[,(]| - | – | — /)[0] ?? '');
+  for (const needle of [full, nameOnly]) {
+    if (!needle) continue;
+    const matches = employees.filter((e) => normalizeName(`${e.firstName} ${e.lastName}`) === needle);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return null;
+  }
+  return null;
+}
+
+/** First `EMP-###` number not already taken in the tenant. */
+export function nextEmployeeNumber(existingNumbers: Iterable<string>, startAt: number): string {
+  const taken = new Set(Array.from(existingNumbers, (n) => n.trim().toUpperCase()));
+  let n = Math.max(1, startAt);
+  while (taken.has(`EMP-${String(n).padStart(3, '0')}`)) n += 1;
+  return `EMP-${String(n).padStart(3, '0')}`;
+}
+
+export function addMonthsIsoDate(isoDate: string, months: number): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return date.toISOString().slice(0, 10);
 }
 
 export function resolveOfferLetterDisplayStatus(
@@ -198,7 +250,7 @@ export function resolveOfferLetterDisplayStatus(
   if (status === 'sent') return 'Sent';
   if (status === 'accepted') return 'Accepted';
   if (status === 'declined') return 'Declined';
-  if (status === 'cancelled') return 'Cancelled';
+  if (status === 'cancelled') return workflow?.status === 'rejected' ? 'Rejected' : 'Cancelled';
   if (status === 'pending_approval') {
     const step = workflow ? getCurrentWorkflowStep(workflow.steps) : null;
     if (!step) return 'Pending Approval';

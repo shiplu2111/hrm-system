@@ -3,11 +3,12 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
-  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Length,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -30,10 +31,12 @@ export class ListCompanyAssetsQueryDto {
 export class CreateCompanyAssetDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   name!: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(60)
   assetTag!: string;
 
   @IsEnum(AssetCategory)
@@ -41,6 +44,7 @@ export class CreateCompanyAssetDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   serialNumber?: string;
 
   @IsOptional()
@@ -52,16 +56,18 @@ export class CreateCompanyAssetDto {
   warrantyExpiryDate?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   purchaseValue?: number;
 
   @IsOptional()
   @IsString()
+  @Length(3, 3)
   currency?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 }
 
@@ -75,10 +81,12 @@ export class AssignAssetDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   conditionOnAssign?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 
   @IsOptional()
@@ -93,10 +101,12 @@ export class ReturnAssetDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   conditionOnReturn?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   notes?: string;
 
   @IsOptional()
@@ -108,6 +118,10 @@ export class ListAssetAssignmentsQueryDto {
   @IsOptional()
   @IsUUID()
   employeeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assetId?: string;
 
   @IsOptional()
   @Type(() => Boolean)

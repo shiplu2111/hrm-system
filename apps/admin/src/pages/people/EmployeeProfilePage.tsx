@@ -7,16 +7,22 @@ import {
   Briefcase,
   Save,
   User,
+  FileSignature,
   FileText,
   History,
   Palmtree,
   Pencil,
   CheckCircle2,
   KeyRound,
+  ListChecks,
+  ChevronRight,
+  LogOut,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
+  EmployeeOffboardingRecord,
+  EmployeeOnboardingRecord,
   EmployeePersonalInfo,
   EmployeeRecord,
   EmploymentStatus,
@@ -27,9 +33,11 @@ import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Toggle';
+import { ProgressBar } from '@/components/ui/Progress';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { EmployeeProfileSkeleton } from '@/components/people/EmployeeProfileSkeleton';
 import { EmployeeFormWizard } from '@/components/people/EmployeeFormWizard';
+import { EmployeeProfileContractsTab } from '@/components/people/EmployeeProfileContractsTab';
 import { EmployeeProfileDocumentsTab } from '@/components/people/EmployeeProfileDocumentsTab';
 import { EmployeeProfileLifecycleTab } from '@/components/people/EmployeeProfileLifecycleTab';
 import { EmployeeLeaveBalances } from '@/components/leave/EmployeeLeaveBalances';
@@ -40,6 +48,9 @@ import { useNav } from '@/context/NavContext';
 import { EVENT_LABELS } from '@/lib/lifecycle-display';
 import type { LifecycleActionKind } from '@/lib/lifecycle-actions';
 import { getEmployee, listEmployees, updateEmployee } from '@/lib/employees-api';
+import { getOnboardingForEmployee } from '@/lib/onboarding-api';
+import { getOffboardingForEmployee } from '@/lib/offboarding-api';
+import { formatShortDate } from '@/lib/onboarding-display';
 import {
   listCostCentres,
   listDepartments,
@@ -49,11 +60,12 @@ import {
 import { useCompany } from '@/context/CompanyContext';
 import { ApiError } from '@/lib/tenant-api-client';
 
-type Tab = 'personal' | 'employment' | 'leave' | 'documents' | 'lifecycle' | 'access';
+type Tab = 'personal' | 'employment' | 'contracts' | 'leave' | 'documents' | 'lifecycle' | 'access';
 
 const tabs: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: 'personal', label: 'Personal Info', icon: User },
   { key: 'employment', label: 'Employment Info', icon: Briefcase },
+  { key: 'contracts', label: 'Contracts', icon: FileSignature },
   { key: 'leave', label: 'Leave', icon: Palmtree },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'lifecycle', label: 'Lifecycle History', icon: History },
@@ -87,7 +99,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 export function EmployeeProfilePage() {
-  const { navigate, selectedEmployeeId } = useNav();
+  const { navigate, selectedEmployeeId, openEmployeeOnboarding, openEmployeeOffboarding } =
+    useNav();
   const { companyId } = useCompany();
   const canViewAccess = usePermission('settings', 'view');
   const canViewLeave = usePermission('leave', 'view');
@@ -96,6 +109,8 @@ export function EmployeeProfilePage() {
       (tab.key !== 'access' || canViewAccess) && (tab.key !== 'leave' || canViewLeave),
   );
   const [emp, setEmp] = useState<EmployeeRecord | null>(null);
+  const [onboarding, setOnboarding] = useState<EmployeeOnboardingRecord | null>(null);
+  const [offboarding, setOffboarding] = useState<EmployeeOffboardingRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,15 +190,20 @@ export function EmployeeProfilePage() {
     setLoading(true);
     setError(null);
     try {
-      const [record, depts, desigs, types, centres, allEmps] = await Promise.all([
-        getEmployee(selectedEmployeeId),
-        listDepartments(companyId),
-        listDesignations(companyId),
-        listEmploymentTypes(companyId),
-        listCostCentres(companyId),
-        listEmployees(companyId),
-      ]);
+      const [record, depts, desigs, types, centres, allEmps, onboardingRecord, offboardingRecord] =
+        await Promise.all([
+          getEmployee(selectedEmployeeId),
+          listDepartments(companyId),
+          listDesignations(companyId),
+          listEmploymentTypes(companyId),
+          listCostCentres(companyId),
+          listEmployees(companyId),
+          getOnboardingForEmployee(selectedEmployeeId).catch(() => null),
+          getOffboardingForEmployee(selectedEmployeeId).catch(() => null),
+        ]);
       setEmp(record);
+      setOnboarding(onboardingRecord);
+      setOffboarding(offboardingRecord);
       applyEmployeeToForm(record);
       setDepartments(depts.map((d) => ({ id: d.id, name: d.name })));
       setDesignations(desigs.map((d) => ({ id: d.id, name: d.name })));
@@ -212,8 +232,12 @@ export function EmployeeProfilePage() {
     setEditMode(false);
     if (!selectedEmployeeId) return;
     try {
-      const record = await getEmployee(selectedEmployeeId);
+      const [record, offboardingRecord] = await Promise.all([
+        getEmployee(selectedEmployeeId),
+        getOffboardingForEmployee(selectedEmployeeId).catch(() => null),
+      ]);
       setEmp(record);
+      setOffboarding(offboardingRecord);
       applyEmployeeToForm(record);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to refresh profile');
@@ -374,6 +398,30 @@ export function EmployeeProfilePage() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-2 shrink-0">
+              {onboarding && onboarding.status !== 'in_progress' ? (
+                <Button variant="secondary" onClick={() => openEmployeeOnboarding(emp.id)}>
+                  <ListChecks className="h-4 w-4" /> Onboarding checklist
+                </Button>
+              ) : null}
+              {!onboarding && !offboarding ? (
+                <PermissionGate module="employee" action="create">
+                  <Button variant="secondary" onClick={() => openEmployeeOnboarding(emp.id)}>
+                    <ListChecks className="h-4 w-4" /> Start onboarding
+                  </Button>
+                </PermissionGate>
+              ) : null}
+              {offboarding && offboarding.status !== 'in_progress' ? (
+                <Button variant="secondary" onClick={() => openEmployeeOffboarding(emp.id)}>
+                  <LogOut className="h-4 w-4" /> Offboarding checklist
+                </Button>
+              ) : null}
+              {!offboarding && emp.employmentStatus === 'terminated' ? (
+                <PermissionGate module="employee" action="create">
+                  <Button variant="secondary" onClick={() => openEmployeeOffboarding(emp.id)}>
+                    <LogOut className="h-4 w-4" /> Start offboarding
+                  </Button>
+                </PermissionGate>
+              ) : null}
               <LifecycleActionsMenu employee={emp} onSelect={setLifecycleAction} />
               <PermissionGate module="employee" action="edit">
                 <Button variant="secondary" onClick={() => setWizardOpen(true)}>
@@ -389,6 +437,104 @@ export function EmployeeProfilePage() {
           )}
         </CardBody>
       </Card>
+
+      {onboarding?.status === 'in_progress' ? (
+        <button
+          type="button"
+          onClick={() => openEmployeeOnboarding(emp.id)}
+          className="w-full text-left surface rounded-xl border shadow-card px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 hover:ring-1 hover:ring-accent-200 transition"
+        >
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="h-9 w-9 rounded-lg bg-accent-50 dark:bg-accent-950/40 text-accent-600 flex items-center justify-center">
+              <ListChecks className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-primary">Onboarding in progress</div>
+              <div className="text-xs text-muted">
+                {onboarding.templateName ?? 'Checklist'} · started{' '}
+                {formatShortDate(onboarding.startedAt)}
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-secondary">
+                {onboarding.requiredCompletedCount} of {onboarding.requiredTaskCount} required
+                tasks done
+              </span>
+              <span className="font-semibold text-primary">{onboarding.progressPercent}%</span>
+            </div>
+            <ProgressBar value={onboarding.progressPercent} />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {onboarding.overdueTaskCount > 0 ? (
+              <Badge tone="error">{onboarding.overdueTaskCount} overdue</Badge>
+            ) : null}
+            {onboarding.documentsMissingCount > 0 ? (
+              <Badge tone="neutral">
+                {onboarding.documentsMissingCount} doc
+                {onboarding.documentsMissingCount === 1 ? '' : 's'} missing
+              </Badge>
+            ) : null}
+            {onboarding.documentsPendingVerificationCount > 0 ? (
+              <Badge tone="warning">
+                {onboarding.documentsPendingVerificationCount} to verify
+              </Badge>
+            ) : null}
+            <span className="inline-flex items-center text-sm font-medium text-accent-600 ml-1">
+              Open tracker <ChevronRight className="h-4 w-4" />
+            </span>
+          </div>
+        </button>
+      ) : null}
+
+      {offboarding?.status === 'in_progress' ? (
+        <button
+          type="button"
+          onClick={() => openEmployeeOffboarding(emp.id)}
+          className="w-full text-left surface rounded-xl border shadow-card px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3 hover:ring-1 hover:ring-warning-200 transition"
+        >
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="h-9 w-9 rounded-lg bg-warning-50 dark:bg-warning-950/40 text-warning-600 flex items-center justify-center">
+              <LogOut className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-primary">Offboarding in progress</div>
+              <div className="text-xs text-muted">
+                Last working day{' '}
+                {offboarding.lastWorkingDate ? formatShortDate(offboarding.lastWorkingDate) : 'not set'}
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-secondary">
+                {offboarding.requiredCompletedCount} of {offboarding.requiredTaskCount} required
+                steps done
+              </span>
+              <span className="font-semibold text-primary">{offboarding.progressPercent}%</span>
+            </div>
+            <ProgressBar value={offboarding.progressPercent} />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {offboarding.overdueTaskCount > 0 ? (
+              <Badge tone="error">{offboarding.overdueTaskCount} overdue</Badge>
+            ) : null}
+            {offboarding.assetsOutstandingCount > 0 ? (
+              <Badge tone="warning">
+                {offboarding.assetsOutstandingCount} asset
+                {offboarding.assetsOutstandingCount === 1 ? '' : 's'} out
+              </Badge>
+            ) : null}
+            <Badge tone={offboarding.accessRevokedAt ? 'success' : 'neutral'}>
+              {offboarding.accessRevokedAt ? 'Access revoked' : 'Access active'}
+            </Badge>
+            <span className="inline-flex items-center text-sm font-medium text-accent-600 ml-1">
+              Open tracker <ChevronRight className="h-4 w-4" />
+            </span>
+          </div>
+        </button>
+      ) : null}
 
       <div className="flex gap-1 border-b border-base overflow-x-auto scrollbar-thin">
         {visibleTabs.map(({ key, label, icon: Icon }) => (
@@ -796,6 +942,15 @@ export function EmployeeProfilePage() {
           </CardBody>
         </Card>
       )}
+
+      {activeTab === 'contracts' ? (
+        <EmployeeProfileContractsTab
+          key={emp.id}
+          employeeId={emp.id}
+          employeeName={emp.fullName}
+          companyId={emp.companyId}
+        />
+      ) : null}
 
       {activeTab === 'leave' && canViewLeave && companyId ? (
         <EmployeeLeaveBalances

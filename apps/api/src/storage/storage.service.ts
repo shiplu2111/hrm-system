@@ -47,6 +47,14 @@ export class StorageService {
     return buildStorageKey(tenantId, 'recruitment', applicationId, originalFilename);
   }
 
+  buildCandidateDocumentKey(
+    tenantId: string,
+    candidateId: string,
+    originalFilename: string,
+  ): string {
+    return buildStorageKey(tenantId, 'candidates', candidateId, originalFilename);
+  }
+
   buildOfferLetterKey(
     tenantId: string,
     offerLetterId: string,

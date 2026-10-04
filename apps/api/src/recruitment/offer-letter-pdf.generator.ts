@@ -1,6 +1,12 @@
 import PDFDocument from 'pdfkit';
+import {
+  OFFER_LETTER_TEMPLATES,
+  renderOfferTemplateText,
+  type OfferLetterTemplate,
+} from '@hrm/shared-types';
 
 export interface OfferLetterPdfData {
+  template: OfferLetterTemplate;
   companyName: string;
   companyAddress?: string;
   candidateName: string;
@@ -18,10 +24,20 @@ export interface OfferLetterPdfData {
   probationLabel?: string;
   expiryDate?: string;
   additionalTerms?: string;
-  templateLabel: string;
 }
 
 export function renderOfferLetterPdf(data: OfferLetterPdfData): Promise<Buffer> {
+  const template = OFFER_LETTER_TEMPLATES[data.template] ?? OFFER_LETTER_TEMPLATES.standard;
+  const vars = {
+    companyName: data.companyName,
+    candidateName: data.candidateName,
+    jobTitle: data.jobTitle,
+    startDate: data.startDate,
+    workLocation: data.workLocation,
+    employmentType: data.employmentType,
+    reportingTo: data.reportingTo,
+  };
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     const chunks: Buffer[] = [];
@@ -32,7 +48,7 @@ export function renderOfferLetterPdf(data: OfferLetterPdfData): Promise<Buffer> 
 
     doc.fontSize(16).text('Offer of Employment', { align: 'center' });
     doc.moveDown(0.25);
-    doc.fontSize(10).fillColor('#555555').text(data.templateLabel, { align: 'center' });
+    doc.fontSize(10).fillColor('#555555').text(template.label, { align: 'center' });
     doc.fillColor('#000000');
     doc.moveDown();
 
@@ -54,11 +70,7 @@ export function renderOfferLetterPdf(data: OfferLetterPdfData): Promise<Buffer> 
     doc.fontSize(11).font('Helvetica-Bold').text(`Dear ${firstName},`);
     doc.font('Helvetica').moveDown(0.5);
 
-    doc.fontSize(10).text(
-      `We are pleased to offer you the position of ${data.jobTitle} at ${data.companyName}. ` +
-        'We believe your skills and experience will be a strong match for our team.',
-      { align: 'justify' },
-    );
+    doc.fontSize(10).text(renderOfferTemplateText(template.intro, vars), { align: 'justify' });
     doc.moveDown();
 
     writeSection(doc, 'Position Details', [
@@ -71,11 +83,20 @@ export function renderOfferLetterPdf(data: OfferLetterPdfData): Promise<Buffer> 
     ]);
 
     writeSection(doc, 'Compensation', [
-      ['Annual Salary', data.annualSalary],
+      [template.salaryLabel, data.annualSalary],
       ['Signing Bonus', data.signingBonus],
-      ['Equity / Options', data.equityNotes],
-      ['Probation Period', data.probationLabel],
+      ['Equity / Options', template.showEquity ? data.equityNotes : undefined],
+      ['Probation Period', template.showProbation ? data.probationLabel : undefined],
     ]);
+
+    for (const clause of template.clauses) {
+      doc.moveDown(0.5);
+      doc.fontSize(11).font('Helvetica-Bold').text(clause.title);
+      doc
+        .font('Helvetica')
+        .fontSize(10)
+        .text(renderOfferTemplateText(clause.body, vars), { align: 'justify' });
+    }
 
     if (data.additionalTerms?.trim()) {
       doc.moveDown(0.5);

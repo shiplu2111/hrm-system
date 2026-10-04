@@ -6,6 +6,7 @@ import {
 import {
   OnboardingTaskStatus,
   OnboardingTaskType,
+  type Prisma,
 } from '@prisma/client';
 import type { EmployeeOnboardingRecord } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -19,7 +20,10 @@ import { OnboardingChecklistTemplatesService } from './onboarding-checklist-temp
 import { OnboardingTaskSyncService } from './onboarding-task-sync.service';
 import type {
   AssignOnboardingAssetsDto,
+  CompleteOnboardingTaskDto,
   ListEmployeeOnboardingsQueryDto,
+  ReopenOnboardingTaskDto,
+  SkipOnboardingTaskDto,
   StartEmployeeOnboardingDto,
 } from './dto/onboarding.dto';
 import {
@@ -28,6 +32,12 @@ import {
   toOnboardingRecord,
   toTaskRecord,
 } from './onboarding.utils';
+
+const TASK_INCLUDE = {
+  documentType: { select: { name: true, requiresVerification: true } },
+  employeeDocument: { select: { verifiedAt: true, fileKey: true, createdAt: true } },
+  companyAsset: { select: { name: true } },
+};
 
 const ONBOARDING_INCLUDE = {
   employee: {
@@ -42,20 +52,12 @@ const ONBOARDING_INCLUDE = {
   template: { select: { name: true } },
   tasks: {
     orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
-    include: {
-      documentType: { select: { name: true, requiresVerification: true } },
-      employeeDocument: { select: { verifiedAt: true } },
-      companyAsset: { select: { name: true } },
-    },
+    include: TASK_INCLUDE,
   },
   _count: { select: { tasks: true } },
 };
 
-const TASK_INCLUDE = {
-  documentType: { select: { name: true, requiresVerification: true } },
-  employeeDocument: { select: { verifiedAt: true } },
-  companyAsset: { select: { name: true } },
-};
+type TemplateItemForCopy = Prisma.OnboardingChecklistTemplateItemGetPayload<object>;
 
 @Injectable()
 export class EmployeeOnboardingService {
@@ -87,12 +89,7 @@ export class EmployeeOnboardingService {
       orderBy: [{ status: 'asc' }, { startedAt: 'desc' }],
     });
 
-    const records: EmployeeOnboardingRecord[] = [];
-    for (const row of rows) {
-      const pendingCounts = await this.buildPendingAssetCounts(row);
-      records.push(toOnboardingRecord(row, true, pendingCounts));
-    }
-    return records;
+    return rows.map((row) => toOnboardingRecord(row));
   }
 
   async get(
@@ -102,8 +99,7 @@ export class EmployeeOnboardingService {
     const row = await this.findOrThrow(onboardingId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
     await this.dataScope.assertEmployeeInScope(user, row.employeeId);
-    const pendingCounts = await this.buildPendingAssetCounts(row);
-    return toOnboardingRecord(row, true, pendingCounts);
+    return this.present(row);
   }
 
   async getForEmployee(
@@ -117,8 +113,7 @@ export class EmployeeOnboardingService {
     });
     if (!row) return null;
     await this.companyScope.assertCompanyInTenant(row.companyId);
-    const pendingCounts = await this.buildPendingAssetCounts(row);
-    return toOnboardingRecord(row, true, pendingCounts);
+    return this.present(row);
   }
 
   async start(
@@ -151,56 +146,37 @@ export class EmployeeOnboardingService {
 
     const template = dto.templateId
       ? await this.prisma.unscoped.onboardingChecklistTemplate.findFirst({
-          where: {
-            id: dto.templateId,
-            companyId,
-            isActive: true,
-          },
-          include: {
-            items: {
-              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-            },
-          },
+          where: { id: dto.templateId, companyId, isActive: true },
+          include: { items: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
         })
       : await this.templatesService.findDefaultTemplate(companyId);
 
     if (!template) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'No active onboarding checklist template found for this company',
+        message: dto.templateId
+          ? 'Checklist template not found or inactive'
+          : 'No default onboarding checklist template is set for this company',
+      });
+    }
+    if (template.items.length === 0) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `"${template.name}" has no checklist items yet`,
       });
     }
 
     const startDate = dto.startDate
-      ? new Date(`${dto.startDate}T00:00:00.000Z`)
+      ? new Date(`${dto.startDate.slice(0, 10)}T00:00:00.000Z`)
       : employee.hireDate;
 
-    const onboarding = await this.prisma.unscoped.employeeOnboarding.create({
-      data: {
-        tenantId: company.tenantId,
-        companyId,
-        employeeId: dto.employeeId,
-        templateId: template.id,
-        tasks: {
-          create: template.items.map((item) => ({
-            templateItemId: item.id,
-            title: item.title,
-            description: item.description,
-            category: item.category,
-            taskType: item.taskType,
-            documentTypeId: item.documentTypeId,
-            assetCategory: item.assetCategory,
-            policyDocumentUrl: item.policyDocumentUrl,
-            assigneeLabel: item.assigneeLabel,
-            dueDate: item.dueDaysOffset != null
-              ? addDays(startDate, item.dueDaysOffset)
-              : null,
-            sortOrder: item.sortOrder,
-            isRequired: item.isRequired,
-          })),
-        },
-      },
-      include: ONBOARDING_INCLUDE,
+    const onboardingId = await this.createFromTemplate({
+      tenantId: company.tenantId,
+      companyId,
+      employeeId: dto.employeeId,
+      templateId: template.id,
+      items: template.items,
+      startDate,
     });
 
     await this.auditService.log({
@@ -208,20 +184,20 @@ export class EmployeeOnboardingService {
       userId: user.id,
       action: 'create',
       module: 'employee',
-      recordId: onboarding.id,
+      recordId: onboardingId,
       newValue: {
         employeeId: dto.employeeId,
         templateId: template.id,
         taskCount: template.items.length,
+        startDate: formatDateValue(startDate),
       },
     });
 
-    const sendWelcome = dto.sendWelcome !== false;
-    if (sendWelcome) {
-      await this.sendWelcomeNotification(onboarding.id);
+    if (dto.sendWelcome !== false) {
+      await this.sendWelcomeNotification(onboardingId);
     }
 
-    return toOnboardingRecord(onboarding, true);
+    return this.present(await this.findOrThrow(onboardingId));
   }
 
   async startFromHire(input: {
@@ -245,34 +221,13 @@ export class EmployeeOnboardingService {
       return null;
     }
 
-    const startDate = new Date(`${input.hireDate}T00:00:00.000Z`);
-
-    const onboarding = await this.prisma.unscoped.employeeOnboarding.create({
-      data: {
-        tenantId: input.tenantId,
-        companyId: input.companyId,
-        employeeId: input.employeeId,
-        templateId: template.id,
-        tasks: {
-          create: template.items.map((item) => ({
-            templateItemId: item.id,
-            title: item.title,
-            description: item.description,
-            category: item.category,
-            taskType: item.taskType,
-            documentTypeId: item.documentTypeId,
-            assetCategory: item.assetCategory,
-            policyDocumentUrl: item.policyDocumentUrl,
-            assigneeLabel: item.assigneeLabel,
-            dueDate: item.dueDaysOffset != null
-              ? addDays(startDate, item.dueDaysOffset)
-              : null,
-            sortOrder: item.sortOrder,
-            isRequired: item.isRequired,
-          })),
-        },
-      },
-      include: ONBOARDING_INCLUDE,
+    const onboardingId = await this.createFromTemplate({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      employeeId: input.employeeId,
+      templateId: template.id,
+      items: template.items,
+      startDate: new Date(`${input.hireDate}T00:00:00.000Z`),
     });
 
     await this.auditService.log({
@@ -280,7 +235,7 @@ export class EmployeeOnboardingService {
       userId: input.userId,
       action: 'create',
       module: 'employee',
-      recordId: onboarding.id,
+      recordId: onboardingId,
       newValue: {
         employeeId: input.employeeId,
         templateId: template.id,
@@ -288,27 +243,19 @@ export class EmployeeOnboardingService {
       },
     });
 
-    await this.sendWelcomeNotification(onboarding.id);
-    return toOnboardingRecord(onboarding, true);
+    await this.sendWelcomeNotification(onboardingId);
+    return toOnboardingRecord(await this.findOrThrow(onboardingId), true);
   }
 
   async completeTask(
     onboardingId: string,
     taskId: string,
+    dto: CompleteOnboardingTaskDto,
     user: AuthenticatedUser,
   ) {
-    const onboarding = await this.findOrThrow(onboardingId);
-    await this.companyScope.assertCompanyInTenant(onboarding.companyId);
-    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
-
+    const onboarding = await this.findActiveOrThrow(onboardingId, user);
     const task = await this.getTaskOrThrow(onboardingId, taskId);
-
-    if (task.status !== OnboardingTaskStatus.pending) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Task is not pending',
-      });
-    }
+    this.assertPending(task.status);
 
     if (
       task.taskType === OnboardingTaskType.document_collection ||
@@ -341,6 +288,9 @@ export class EmployeeOnboardingService {
       include: TASK_INCLUDE,
     });
 
+    await this.logTaskChange(onboarding.tenantId, user, onboardingId, task, 'completed', {
+      note: dto.note?.trim() || undefined,
+    });
     await this.taskSync.refreshOnboardingCompletion(onboardingId);
     return toTaskRecord(updated);
   }
@@ -348,21 +298,14 @@ export class EmployeeOnboardingService {
   async skipTask(
     onboardingId: string,
     taskId: string,
+    dto: SkipOnboardingTaskDto,
     user: AuthenticatedUser,
   ) {
-    const onboarding = await this.findOrThrow(onboardingId);
-    await this.companyScope.assertCompanyInTenant(onboarding.companyId);
-    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId, {
+    const onboarding = await this.findActiveOrThrow(onboardingId, user, {
       includeSelf: false,
     });
-
     const task = await this.getTaskOrThrow(onboardingId, taskId);
-    if (task.status !== OnboardingTaskStatus.pending) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Task is not pending',
-      });
-    }
+    this.assertPending(task.status);
 
     const updated = await this.prisma.unscoped.employeeOnboardingTask.update({
       where: { id: taskId },
@@ -374,7 +317,63 @@ export class EmployeeOnboardingService {
       include: TASK_INCLUDE,
     });
 
+    await this.logTaskChange(onboarding.tenantId, user, onboardingId, task, 'skipped', {
+      reason: dto.reason?.trim() || undefined,
+    });
     await this.taskSync.refreshOnboardingCompletion(onboardingId);
+    return toTaskRecord(updated);
+  }
+
+  /**
+   * Puts a skipped or hand-completed task back to pending. Tasks completed by a document
+   * or an asset assignment follow that record instead: replace the document or return the asset.
+   */
+  async reopenTask(
+    onboardingId: string,
+    taskId: string,
+    dto: ReopenOnboardingTaskDto,
+    user: AuthenticatedUser,
+  ) {
+    const onboarding = await this.findActiveOrThrow(onboardingId, user);
+    const task = await this.getTaskOrThrow(onboardingId, taskId);
+
+    if (task.status === OnboardingTaskStatus.pending) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Task is already pending',
+      });
+    }
+
+    if (task.status === OnboardingTaskStatus.completed) {
+      if (task.companyAssetId) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'This task was completed by an asset assignment. Return the asset from Asset Management instead.',
+        });
+      }
+      if (task.employeeDocumentId && !task.policyAcceptedAt) {
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'This task was completed by an uploaded document. Replace or delete the document instead.',
+        });
+      }
+    }
+
+    const updated = await this.prisma.unscoped.employeeOnboardingTask.update({
+      where: { id: taskId },
+      data: {
+        status: OnboardingTaskStatus.pending,
+        completedAt: null,
+        completedByUserId: null,
+        policyAcceptedAt: null,
+      },
+      include: TASK_INCLUDE,
+    });
+
+    await this.logTaskChange(onboarding.tenantId, user, onboardingId, task, 'reopened', {
+      reason: dto.reason?.trim() || undefined,
+    });
+    await this.taskSync.reopenOnboardingIfIncomplete(onboardingId);
     return toTaskRecord(updated);
   }
 
@@ -384,9 +383,7 @@ export class EmployeeOnboardingService {
     dto: AssignOnboardingAssetsDto,
     user: AuthenticatedUser,
   ) {
-    const onboarding = await this.findOrThrow(onboardingId);
-    await this.companyScope.assertCompanyInTenant(onboarding.companyId);
-    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
+    const onboarding = await this.findActiveOrThrow(onboardingId, user);
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
     if (task.taskType !== OnboardingTaskType.provisioning) {
@@ -395,12 +392,7 @@ export class EmployeeOnboardingService {
         message: 'This task is not an asset provisioning task',
       });
     }
-    if (task.status !== OnboardingTaskStatus.pending) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Task is not pending',
-      });
-    }
+    this.assertPending(task.status);
 
     const asset = await this.prisma.unscoped.companyAsset.findFirst({
       where: {
@@ -445,9 +437,7 @@ export class EmployeeOnboardingService {
     taskId: string,
     user: AuthenticatedUser,
   ) {
-    const onboarding = await this.findOrThrow(onboardingId);
-    await this.companyScope.assertCompanyInTenant(onboarding.companyId);
-    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId);
+    const onboarding = await this.findActiveOrThrow(onboardingId, user);
 
     const task = await this.getTaskOrThrow(onboardingId, taskId);
     if (task.taskType !== OnboardingTaskType.policy_acceptance) {
@@ -456,12 +446,7 @@ export class EmployeeOnboardingService {
         message: 'This task is not a policy acceptance task',
       });
     }
-    if (task.status !== OnboardingTaskStatus.pending) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Task is not pending',
-      });
-    }
+    this.assertPending(task.status);
 
     if (task.documentTypeId) {
       const docType = await this.prisma.unscoped.documentType.findUnique({
@@ -488,6 +473,7 @@ export class EmployeeOnboardingService {
       include: TASK_INCLUDE,
     });
 
+    await this.logTaskChange(onboarding.tenantId, user, onboardingId, task, 'policy_accepted');
     await this.taskSync.refreshOnboardingCompletion(onboardingId);
     return toTaskRecord(updated);
   }
@@ -500,9 +486,101 @@ export class EmployeeOnboardingService {
     await this.companyScope.assertCompanyInTenant(row.companyId);
     await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     await this.sendWelcomeNotification(onboardingId);
-    const refreshed = await this.findOrThrow(onboardingId);
-    const pendingCounts = await this.buildPendingAssetCounts(refreshed);
-    return toOnboardingRecord(refreshed, true, pendingCounts);
+    return this.present(await this.findOrThrow(onboardingId));
+  }
+
+  private async createFromTemplate(input: {
+    tenantId: string;
+    companyId: string;
+    employeeId: string;
+    templateId: string;
+    items: TemplateItemForCopy[];
+    startDate: Date;
+  }): Promise<string> {
+    const onboarding = await this.prisma.unscoped.employeeOnboarding.create({
+      data: {
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        templateId: input.templateId,
+        tasks: {
+          create: input.items.map((item) => ({
+            templateItemId: item.id,
+            title: item.title,
+            description: item.description,
+            category: item.category,
+            taskType: item.taskType,
+            documentTypeId: item.documentTypeId,
+            assetCategory: item.assetCategory,
+            policyDocumentUrl: item.policyDocumentUrl,
+            assigneeLabel: item.assigneeLabel,
+            dueDate:
+              item.dueDaysOffset != null
+                ? addDays(input.startDate, item.dueDaysOffset)
+                : null,
+            sortOrder: item.sortOrder,
+            isRequired: item.isRequired,
+          })),
+        },
+      },
+      select: { id: true },
+    });
+
+    await this.taskSync.linkExistingDocuments(onboarding.id);
+    await this.taskSync.refreshOnboardingCompletion(onboarding.id);
+    return onboarding.id;
+  }
+
+  private async present(
+    row: Awaited<ReturnType<EmployeeOnboardingService['findOrThrow']>>,
+  ): Promise<EmployeeOnboardingRecord> {
+    const pendingCounts = await this.buildPendingAssetCounts(row);
+    return toOnboardingRecord(row, true, pendingCounts);
+  }
+
+  private async logTaskChange(
+    tenantId: string,
+    user: AuthenticatedUser,
+    onboardingId: string,
+    task: { id: string; title: string; status: OnboardingTaskStatus },
+    change: 'completed' | 'skipped' | 'reopened' | 'policy_accepted',
+    extra: Record<string, string | undefined> = {},
+  ): Promise<void> {
+    await this.auditService.log({
+      tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'employee',
+      recordId: onboardingId,
+      oldValue: { taskId: task.id, title: task.title, status: task.status },
+      newValue: { taskId: task.id, title: task.title, change, ...extra },
+    });
+  }
+
+  private assertPending(status: OnboardingTaskStatus): void {
+    if (status !== OnboardingTaskStatus.pending) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Task is not pending',
+      });
+    }
+  }
+
+  private async findActiveOrThrow(
+    onboardingId: string,
+    user: AuthenticatedUser,
+    scopeOptions?: { includeSelf?: boolean },
+  ) {
+    const onboarding = await this.findOrThrow(onboardingId);
+    await this.companyScope.assertCompanyInTenant(onboarding.companyId);
+    await this.dataScope.assertEmployeeInScope(user, onboarding.employeeId, scopeOptions);
+    if (onboarding.status === 'cancelled') {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'This onboarding was cancelled',
+      });
+    }
+    return onboarding;
   }
 
   private async buildPendingAssetCounts(

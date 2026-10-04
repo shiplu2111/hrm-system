@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -7,6 +9,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -27,10 +31,12 @@ export class ListOnboardingTemplatesQueryDto {
 export class CreateOnboardingTemplateDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   name!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   @IsOptional()
@@ -46,10 +52,12 @@ export class UpdateOnboardingTemplateDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   name?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string | null;
 
   @IsOptional()
@@ -64,10 +72,12 @@ export class UpdateOnboardingTemplateDto {
 export class CreateOnboardingTemplateItemDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   title!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   @IsEnum(OnboardingTaskCategory)
@@ -86,15 +96,18 @@ export class CreateOnboardingTemplateItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   policyDocumentUrl?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   assigneeLabel?: string;
 
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(365)
   dueDaysOffset?: number;
 
   @IsOptional()
@@ -110,10 +123,12 @@ export class UpdateOnboardingTemplateItemDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   title?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string | null;
 
   @IsOptional()
@@ -134,15 +149,18 @@ export class UpdateOnboardingTemplateItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   policyDocumentUrl?: string | null;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   assigneeLabel?: string | null;
 
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(365)
   dueDaysOffset?: number | null;
 
   @IsOptional()
@@ -152,6 +170,13 @@ export class UpdateOnboardingTemplateItemDto {
   @IsOptional()
   @IsBoolean()
   isRequired?: boolean;
+}
+
+export class ReorderOnboardingTemplateItemsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID('all', { each: true })
+  itemIds!: string[];
 }
 
 export class ListEmployeeOnboardingsQueryDto {
@@ -180,12 +205,21 @@ export class StartEmployeeOnboardingDto {
 export class CompleteOnboardingTaskDto {
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   note?: string;
 }
 
 export class SkipOnboardingTaskDto {
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export class ReopenOnboardingTaskDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   reason?: string;
 }
 

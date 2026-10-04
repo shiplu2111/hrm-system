@@ -1,10 +1,20 @@
-import type {
-  EmploymentContractDisplayStatus,
-  EmploymentContractStatus,
-  OvertimeRule,
+import {
+  CONTRACT_EXPIRY_WINDOW_DEFAULT_DAYS,
+  type EmploymentContractDisplayStatus,
+  type EmploymentContractStatus,
+  type OvertimeRule,
 } from '@hrm/shared-types';
 
-export const EXPIRY_WARNING_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function startOfUtcDate(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+/** Whole days from `today` (UTC midnight) to `date`; negative once `date` has passed. */
+export function daysBetween(today: Date, date: Date): number {
+  return Math.round((startOfUtcDate(date).getTime() - startOfUtcDate(today).getTime()) / DAY_MS);
+}
 
 export function parseDateString(value: string): Date {
   const [year, month, day] = value.split('-').map(Number);
@@ -24,6 +34,7 @@ export function computeDisplayStatus(input: {
   endDate: Date | null;
   renewalWorkflowStatus?: 'pending' | 'approved' | 'rejected' | 'cancelled' | null;
   asOf?: Date;
+  warningDays?: number;
 }): EmploymentContractDisplayStatus {
   if (
     input.status === 'draft' &&
@@ -50,7 +61,7 @@ export function computeDisplayStatus(input: {
     );
     if (end < today) return 'expired';
     const daysUntil = Math.ceil((end - today) / (24 * 60 * 60 * 1000));
-    if (daysUntil <= EXPIRY_WARNING_DAYS) return 'expiring_soon';
+    if (daysUntil <= (input.warningDays ?? CONTRACT_EXPIRY_WINDOW_DEFAULT_DAYS)) return 'expiring_soon';
   }
 
   return 'active';

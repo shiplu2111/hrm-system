@@ -43,8 +43,8 @@ export function Topbar({
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
   const { navigate } = useNav();
-  const { sessionVersion } = useTenant();
-  const notifications = useNotifications(sessionVersion);
+  const { tenantKey } = useTenant();
+  const notifications = useNotifications(tenantKey);
 
   const displayName = user?.email
     ? displayNameFromEmail(user.email)
@@ -55,11 +55,6 @@ export function Topbar({
     if (!n.readAt) {
       await notifications.markRead(n.id);
     }
-  };
-
-  const handleOrganizationSwitched = () => {
-    navigate('dashboard');
-    void notifications.refresh();
   };
 
   return (
@@ -113,7 +108,7 @@ export function Topbar({
         onMarkAllRead={() => void notifications.markAllRead()}
       />
 
-      <OrganizationSwitcher onSwitched={handleOrganizationSwitched} />
+      <OrganizationSwitcher />
 
       <Dropdown
         width="w-56"

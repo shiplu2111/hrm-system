@@ -13,6 +13,7 @@ import {
   Award,
   RefreshCw,
   AlertCircle,
+  BellRing,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { KpiCard } from '@/components/dashboard/KpiCard';
@@ -83,7 +84,7 @@ export function DashboardPage() {
     error: companyError,
     refresh: refreshCompany,
   } = useCompany();
-  const { navigate } = useNav();
+  const { navigate, openContract, openEmployee } = useNav();
   const { data, loading, error, refresh } = useAdminDashboard(companyId);
   const [chartMode, setChartMode] = useState<'line' | 'bar'>('line');
 
@@ -331,11 +332,19 @@ export function DashboardPage() {
             </Card>
 
             <Card>
-              <CardHeader className="flex items-center justify-between">
-                <CardTitle>Document & Contract Expiry</CardTitle>
-                <Badge tone="error" dot>
-                  Next 30 days
-                </Badge>
+              <CardHeader className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Document & Contract Expiry</CardTitle>
+                  <p className="text-xs text-muted mt-0.5">
+                    Next 30 days
+                    {data.contractExpiryWindowDays !== 30
+                      ? ` · contracts ${data.contractExpiryWindowDays} days`
+                      : ''}
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => navigate('emp-contract-expiry')}>
+                  <BellRing className="h-4 w-4" /> Contract alerts
+                </Button>
               </CardHeader>
               <CardBody className="p-0">
                 {data.expiryItems.length === 0 ? (
@@ -363,9 +372,15 @@ export function DashboardPage() {
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
 
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={`${item.type}-${item.id}`}
-                          className="flex items-center gap-3 px-5 py-3 hover:bg-[rgb(var(--bg-hover))] transition-colors"
+                          onClick={() =>
+                            item.type === 'contract'
+                              ? openContract(item.id)
+                              : openEmployee(item.employeeId)
+                          }
+                          className="w-full text-left flex items-center gap-3 px-5 py-3 hover:bg-[rgb(var(--bg-hover))] transition-colors"
                         >
                           <div
                             className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${iconTone}`}
@@ -384,7 +399,7 @@ export function DashboardPage() {
                             </div>
                           </div>
                           <ChevronRight className="h-4 w-4 text-muted shrink-0" />
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
