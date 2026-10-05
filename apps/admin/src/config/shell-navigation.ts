@@ -136,6 +136,9 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Loans & Advances', page: 'loans' },
       { label: 'Expense Claims', page: 'expenses' },
       { label: 'Expense Categories', page: 'expense-categories' },
+      { label: 'Chart of Accounts', page: 'accounting-mapping' },
+      { label: 'GL Export & Sync', page: 'accounting-exports' },
+      { label: 'Accounting Integration', page: 'accounting' },
     ],
   },
   {

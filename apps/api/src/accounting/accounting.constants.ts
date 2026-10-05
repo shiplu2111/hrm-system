@@ -12,22 +12,36 @@ export type JournalAggregateCategory =
   | 'expense'
   | 'liability';
 
+export interface JournalCostCentre {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export interface JournalAggregateInput {
+  /** `component:<payComponentId>` or `system:<GlSystemMappingKey>` */
   key: string;
   category: JournalAggregateCategory;
   sourceLabel: string;
   amount: string;
+  /** Only employee-cost aggregates (earnings, employer super expense) carry a cost centre. */
+  costCentre?: JournalCostCentre | null;
 }
 
-export interface ResolvedGlMapping {
+export interface GlAccountRef {
   glAccountCode: string;
   glAccountName: string;
+}
+
+export interface ResolvedGlMapping extends GlAccountRef {
   postingSide: 'debit' | 'credit';
 }
 
 export interface MappingLookup {
   byComponentId: Map<string, ResolvedGlMapping>;
   bySystemKey: Map<string, ResolvedGlMapping>;
+  /** costCentreId → sourceKey (`default`, `component:<id>`, `system:…`) → override account */
+  byCostCentre?: Map<string, Map<string, GlAccountRef>>;
 }
 
 export interface BuiltJournalLine {
@@ -38,6 +52,8 @@ export interface BuiltJournalLine {
   credit: string;
   mappingSource: string;
   category: JournalAggregateCategory;
+  costCentreCode?: string | null;
+  costCentreName?: string | null;
 }
 
 export interface BuiltJournalResult {
@@ -49,5 +65,6 @@ export interface BuiltJournalResult {
     source: string;
     category: JournalAggregateCategory;
     amount: string;
+    costCentreCode?: string | null;
   }>;
 }

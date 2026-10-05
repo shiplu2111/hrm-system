@@ -78,6 +78,8 @@ export const PAGE_VIEW_PERMISSIONS: Partial<Record<PageKey, PagePermission>> = {
   billing: { module: 'settings', action: 'view' },
   assets: { module: 'employee', action: 'view' },
   accounting: { module: 'payroll', action: 'view' },
+  'accounting-mapping': { module: 'payroll', action: 'view' },
+  'accounting-exports': { module: 'payroll', action: 'view' },
   'help-center': { module: 'support', action: 'view' },
   'support-kb-admin': { module: 'support', action: 'edit' },
   'support-tickets': { module: 'support', action: 'view' },

@@ -5,9 +5,11 @@ import type {
   PayrollJournalPreview,
   PayrollJournalUnmappedItem,
 } from '@hrm/shared-types';
+import { GL_COST_CENTRE_DEFAULT_SOURCE } from '@hrm/shared-types';
 import {
   type BuiltJournalResult,
   type JournalAggregateInput,
+  type JournalCostCentre,
   type MappingLookup,
   type ResolvedGlMapping,
 } from './accounting.constants';
@@ -15,6 +17,7 @@ import { formatMoney, parseMoney } from '../payroll/payroll.utils';
 
 export function collectAggregatesFromPreview(
   preview: PayrollCalculationPreview,
+  costCentre: JournalCostCentre | null = null,
 ): JournalAggregateInput[] {
   const items: JournalAggregateInput[] = [];
 
@@ -24,6 +27,7 @@ export function collectAggregatesFromPreview(
       category: 'earning',
       sourceLabel: line.componentName,
       amount: line.amount,
+      costCentre,
     });
   }
 
@@ -51,6 +55,7 @@ export function collectAggregatesFromPreview(
         category: 'expense',
         sourceLabel: preview.superannuation.schemeName,
         amount: employerAmount,
+        costCentre,
       });
       items.push({
         key: 'system:employer_superannuation_liability',
@@ -70,19 +75,25 @@ export function mergeAggregates(
   const merged = new Map<string, JournalAggregateInput>();
 
   for (const item of batches) {
-    const existing = merged.get(item.key);
+    const mergeKey = `${item.key}|${item.costCentre?.id ?? ''}`;
+    const existing = merged.get(mergeKey);
     if (!existing) {
-      merged.set(item.key, { ...item });
+      merged.set(mergeKey, { ...item });
       continue;
     }
     const total = parseMoney(existing.amount).plus(parseMoney(item.amount));
-    merged.set(item.key, { ...existing, amount: formatMoney(total) });
+    merged.set(mergeKey, { ...existing, amount: formatMoney(total) });
   }
 
   return [...merged.values()];
 }
 
-export function resolveMappingForAggregate(
+/** Earnings and employer super expense are employee costs that can be split by cost centre. */
+export function isEmployeeCostAggregate(aggregate: JournalAggregateInput): boolean {
+  return aggregate.category === 'earning' || aggregate.category === 'expense';
+}
+
+function resolveCompanyMapping(
   aggregate: JournalAggregateInput,
   lookup: MappingLookup,
 ): ResolvedGlMapping | null {
@@ -95,6 +106,27 @@ export function resolveMappingForAggregate(
     return lookup.bySystemKey.get(systemKey) ?? null;
   }
   return null;
+}
+
+/**
+ * Cost-centre override for the exact source, then the cost centre's default account, then the
+ * company-wide mapping. Overrides change the account only; the posting side comes from the
+ * company mapping (debit when the source has none).
+ */
+export function resolveMappingForAggregate(
+  aggregate: JournalAggregateInput,
+  lookup: MappingLookup,
+): ResolvedGlMapping | null {
+  const companyMapping = resolveCompanyMapping(aggregate, lookup);
+  if (aggregate.costCentre && isEmployeeCostAggregate(aggregate)) {
+    const overrides = lookup.byCostCentre?.get(aggregate.costCentre.id);
+    const override =
+      overrides?.get(aggregate.key) ?? overrides?.get(GL_COST_CENTRE_DEFAULT_SOURCE);
+    if (override) {
+      return { ...override, postingSide: companyMapping?.postingSide ?? 'debit' };
+    }
+  }
+  return companyMapping;
 }
 
 export function buildJournalFromAggregates(input: {
@@ -112,17 +144,21 @@ export function buildJournalFromAggregates(input: {
       continue;
     }
 
+    const costCentre = isEmployeeCostAggregate(aggregate)
+      ? (aggregate.costCentre ?? null)
+      : null;
     const mapping = resolveMappingForAggregate(aggregate, lookup);
     if (!mapping) {
       unmapped.push({
         source: aggregate.sourceLabel,
         category: aggregate.category,
         amount: formatMoney(amount),
+        costCentreCode: costCentre?.code ?? null,
       });
       continue;
     }
 
-    const lineKey = `${mapping.glAccountCode}:${mapping.postingSide}:${aggregate.category}`;
+    const lineKey = `${mapping.glAccountCode}:${mapping.postingSide}:${aggregate.category}:${costCentre?.id ?? ''}`;
     const debit = mapping.postingSide === 'debit' ? amount : new Decimal(0);
     const credit = mapping.postingSide === 'credit' ? amount : new Decimal(0);
 
@@ -139,16 +175,22 @@ export function buildJournalFromAggregates(input: {
     lineMap.set(lineKey, {
       glAccountCode: mapping.glAccountCode,
       glAccountName: mapping.glAccountName,
-      description: `${periodLabel} payroll — ${aggregate.sourceLabel}`,
+      description: costCentre
+        ? `${periodLabel} payroll — ${aggregate.sourceLabel} (${costCentre.code})`
+        : `${periodLabel} payroll — ${aggregate.sourceLabel}`,
       debit: formatMoney(debit),
       credit: formatMoney(credit),
       mappingSource: aggregate.sourceLabel,
       category: aggregate.category,
+      costCentreCode: costCentre?.code ?? null,
+      costCentreName: costCentre?.name ?? null,
     });
   }
 
-  const lines = [...lineMap.values()].sort((a, b) =>
-    a.glAccountCode.localeCompare(b.glAccountCode),
+  const lines = [...lineMap.values()].sort(
+    (a, b) =>
+      a.glAccountCode.localeCompare(b.glAccountCode) ||
+      (a.costCentreCode ?? '').localeCompare(b.costCentreCode ?? ''),
   );
 
   let totalDebit = new Decimal(0);
@@ -194,7 +236,7 @@ export function journalToCsv(
   referenceNumber: string,
 ): string {
   const header =
-    'Posting Date,Account Code,Account Name,Description,Debit,Credit,Reference';
+    'Posting Date,Account Code,Account Name,Description,Debit,Credit,Reference,Cost Centre';
   const rows = journal.lines.map((line) =>
     [
       journal.postingDate,
@@ -204,6 +246,7 @@ export function journalToCsv(
       line.debit,
       line.credit,
       csvEscape(referenceNumber),
+      csvEscape(line.costCentreCode ?? ''),
     ].join(','),
   );
   return [header, ...rows].join('\n');

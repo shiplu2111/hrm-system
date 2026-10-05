@@ -9,6 +9,8 @@ import { AccountingSyncQueueService } from './accounting-sync-queue.service';
 import { AccountingController } from './accounting.controller';
 import { AccountingService } from './accounting.service';
 import { ContractorAccountingService } from './contractor-accounting.service';
+import { GlCostCentreMappingService } from './gl-cost-centre-mapping.service';
+import { GlExportStatusService } from './gl-export-status.service';
 import { AccountingGlProviderFactory } from './providers/accounting-gl-provider.factory';
 import { XeroGlProvider } from './providers/xero-gl.provider';
 
@@ -25,6 +27,8 @@ import { XeroGlProvider } from './providers/xero-gl.provider';
     ContractorAccountingService,
     AccountingConnectionService,
     AccountingSyncQueueService,
+    GlCostCentreMappingService,
+    GlExportStatusService,
     XeroGlProvider,
     AccountingGlProviderFactory,
   ],

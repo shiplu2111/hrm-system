@@ -89,6 +89,7 @@ model Tenant {
   glAccounts                  GlAccount[]
   glPayrollMappings           GlPayrollMapping[]
   glContractorMappings        GlContractorMapping[]
+  glCostCentreMappings        GlCostCentreMapping[]
   payrollJournalExports       PayrollJournalExport[]
   contractorJournalExports    ContractorJournalExport[]
   accountingConnections       AccountingConnection[]
@@ -307,6 +308,7 @@ model Company {
   glAccounts                  GlAccount[]
   glPayrollMappings           GlPayrollMapping[]
   glContractorMappings        GlContractorMapping[]
+  glCostCentreMappings        GlCostCentreMapping[]
   payrollJournalExports       PayrollJournalExport[]
   accountingConnections       AccountingConnection[]
   accountingSyncJobs          AccountingSyncJob[]
@@ -473,6 +475,7 @@ model CostCentre {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employees Employee[] @relation("EmployeeCostCentre")
+  glMappings GlCostCentreMapping[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -1947,6 +1950,7 @@ model PayComponent {
   salaryStructures SalaryStructure[]
   employeeLoans    EmployeeLoan[]
   glPayrollMappings GlPayrollMapping[]
+  glCostCentreMappings GlCostCentreMapping[]
 
   @@index([companyId])
   @@map("pay_components")
@@ -3015,6 +3019,7 @@ model GlAccount {
   company          Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   payrollMappings  GlPayrollMapping[]
   contractorMappings GlContractorMapping[]
+  costCentreMappings GlCostCentreMapping[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -3044,6 +3049,33 @@ model GlPayrollMapping {
   @@index([companyId])
   @@index([glAccountId])
   @@map("gl_payroll_mappings")
+}
+
+/// Cost-centre override for employee-cost journal lines (earnings, employer super expense).
+/// sourceKey is 'default' (every cost line in the cost centre), 'component:<payComponentId>',
+/// or 'system:employer_superannuation_expense'.
+model GlCostCentreMapping {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  costCentreId   String   @map("cost_centre_id") @db.Uuid
+  sourceKey      String   @map("source_key")
+  payComponentId String?  @map("pay_component_id") @db.Uuid
+  glAccountId    String   @map("gl_account_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  costCentre   CostCentre    @relation(fields: [costCentreId], references: [id], onDelete: Cascade)
+  payComponent PayComponent? @relation(fields: [payComponentId], references: [id], onDelete: Cascade)
+  glAccount    GlAccount     @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([costCentreId, sourceKey])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([glAccountId])
+  @@map("gl_cost_centre_mappings")
 }
 
 model GlContractorMapping {

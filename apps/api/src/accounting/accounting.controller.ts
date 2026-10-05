@@ -7,23 +7,27 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { AccountingProvider } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
 import { AccountingConnectionService } from './accounting-connection.service';
-import { AccountingSyncQueueService } from './accounting-sync-queue.service';
 import { AccountingService } from './accounting.service';
 import { ContractorAccountingService } from './contractor-accounting.service';
 import {
   BulkUpsertGlContractorMappingsDto,
   BulkUpsertGlPayrollMappingsDto,
   CreateGlAccountDto,
+  ListGlAccountsQueryDto,
+  ListGlExportsQueryDto,
+  ReplaceGlCostCentreMappingsDto,
   UpdateGlAccountDto,
 } from './dto/accounting.dto';
+import { GlCostCentreMappingService } from './gl-cost-centre-mapping.service';
+import { GlExportStatusService } from './gl-export-status.service';
 
 @ApiTags('accounting')
 @ApiBearerAuth('access-token')
@@ -33,14 +37,23 @@ export class AccountingController {
     private readonly accountingService: AccountingService,
     private readonly contractorAccountingService: ContractorAccountingService,
     private readonly connectionService: AccountingConnectionService,
-    private readonly syncQueue: AccountingSyncQueueService,
+    private readonly costCentreMappings: GlCostCentreMappingService,
+    private readonly exportStatus: GlExportStatusService,
   ) {}
 
   @Get('companies/:companyId/gl-accounts')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'List chart of accounts for a company' })
-  async listGlAccounts(@Param('companyId', ParseUUIDPipe) companyId: string) {
-    return { data: await this.accountingService.listGlAccounts(companyId) };
+  async listGlAccounts(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListGlAccountsQueryDto,
+  ) {
+    return {
+      data: await this.accountingService.listGlAccounts(
+        companyId,
+        query.includeInactive === 'true',
+      ),
+    };
   }
 
   @Post('companies/:companyId/gl-accounts')
@@ -87,6 +100,60 @@ export class AccountingController {
         user,
       ),
     };
+  }
+
+  @Get('companies/:companyId/gl-cost-centre-mappings')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Cost centres with their GL overrides for employee-cost lines' })
+  async listCostCentreMappings(@Param('companyId', ParseUUIDPipe) companyId: string) {
+    return { data: await this.costCentreMappings.listGroups(companyId) };
+  }
+
+  @Put('companies/:companyId/gl-cost-centre-mappings/:costCentreId')
+  @RequirePermission('payroll', 'edit')
+  @ApiOperation({ summary: "Replace a cost centre's GL overrides" })
+  async replaceCostCentreMappings(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('costCentreId', ParseUUIDPipe) costCentreId: string,
+    @Body() dto: ReplaceGlCostCentreMappingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.costCentreMappings.replaceOverrides(
+        companyId,
+        costCentreId,
+        dto,
+        user,
+      ),
+    };
+  }
+
+  @Get('companies/:companyId/gl-exports')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'GL export and sync history with success/failure per export' })
+  async listGlExports(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListGlExportsQueryDto,
+  ) {
+    return { data: await this.exportStatus.list(companyId, query) };
+  }
+
+  @Get('companies/:companyId/gl-exports/payroll/:exportId')
+  @RequirePermission('payroll', 'view')
+  async getPayrollGlExport(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('exportId', ParseUUIDPipe) exportId: string,
+  ) {
+    return { data: await this.exportStatus.detail(companyId, 'payroll', exportId) };
+  }
+
+  @Get('companies/:companyId/gl-exports/contractor/:exportId')
+  @RequirePermission('payroll', 'view')
+  async getContractorGlExport(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Param('exportId', ParseUUIDPipe) exportId: string,
+  ) {
+    return { data: await this.exportStatus.detail(companyId, 'contractor', exportId) };
   }
 
   @Get('companies/:companyId/gl-contractor-mappings')
@@ -234,10 +301,11 @@ export class AccountingController {
   @Post('companies/:companyId/accounting-sync-jobs/:jobId/retry')
   @RequirePermission('payroll', 'edit')
   async retrySyncJob(
-    @Param('companyId', ParseUUIDPipe) _companyId: string,
+    @Param('companyId', ParseUUIDPipe) companyId: string,
     @Param('jobId', ParseUUIDPipe) jobId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    await this.syncQueue.retrySyncJob(jobId);
-    return { data: { retried: true } };
+    const row = await this.exportStatus.retrySync(companyId, jobId, user);
+    return { data: { retried: true, export: row } };
   }
 }

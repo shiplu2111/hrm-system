@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   AccountingConnectionStatus,
@@ -140,9 +141,17 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
     }
   }
 
+  isAvailable(): boolean {
+    return this.queue != null;
+  }
+
+  /** Callers must check company scope and job status first (GlExportStatusService.retrySync). */
   async retrySyncJob(syncJobId: string): Promise<void> {
     if (!this.queue) {
-      throw new Error('Accounting sync queue is not available');
+      throw new ServiceUnavailableException({
+        code: 'QUEUE_UNAVAILABLE',
+        message: 'Background jobs are not running on the server, so the sync cannot be retried',
+      });
     }
 
     const syncJob = await this.prisma.unscoped.accountingSyncJob.findUniqueOrThrow({

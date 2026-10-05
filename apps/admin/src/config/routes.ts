@@ -72,6 +72,8 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   billing: '/billing',
   assets: '/operations/assets',
   accounting: '/operations/accounting',
+  'accounting-mapping': '/operations/accounting/mapping',
+  'accounting-exports': '/operations/accounting/exports',
   'help-center': '/support/help',
   'support-kb-admin': '/support/knowledge-base',
   'support-tickets': '/support/tickets',

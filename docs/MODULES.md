@@ -476,6 +476,21 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Integration with Xero / QuickBooks / Tally
 - Cost-centre-wise accounting and chart of accounts mapping
 
+**Accounting rules** (enforced by the API):
+
+- Account mapping lives at `/operations/accounting/mapping`. The export and sync history is at `/operations/accounting/exports`, and connections and the journal preview stay at `/operations/accounting`. Viewing needs `payroll:view`. Adding accounts needs `payroll:create`. Changing mappings or accounts, and retrying a sync, need `payroll:edit`. Every change is audit-logged under `accounting`.
+- Account codes are unique per company (`409 CONFLICT`). Each pay component or system line maps to one active account in the same company. An account can't be deactivated while any mapping uses it.
+- Cost centres can override the account for employee-cost lines only, meaning earnings and employer superannuation expense. Deductions, tax, net pay and super payable always use the company-wide mapping. Overrides must point at active expense accounts, so an account used by an override can't be changed to another type. Only earning components can be overridden.
+- For each employee-cost line, the account is chosen in this order:
+  1. the cost centre's override for that exact component or system line;
+  2. the cost centre's default account;
+  3. the company-wide mapping.
+
+  If none of these exist, the line is reported as unmapped.
+- An employee is costed to their current cost centre when the journal is built. Lines are split per cost centre, the description carries the cost centre code, and the CSV has a `Cost Centre` column. Employees without a cost centre use the company-wide mapping.
+- Each export or sync attempt is listed with its outcome: succeeded, failed or in progress. When a sync job exists, its status decides the outcome. A newer attempt for the same period or batch and destination supersedes older ones. Only the latest failure counts as needing attention.
+- A failed sync can be retried only if it is the latest attempt for that period and provider, and the job queue is running (`503 QUEUE_UNAVAILABLE` otherwise). Retries never touch payroll. A finalized payroll stays finalized whether the export or sync succeeds or fails.
+
 ## 37. Data Import / Export & Migration
 
 **Phase:** MVP — Phase 1

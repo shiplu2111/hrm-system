@@ -84,6 +84,8 @@ export type PageKey =
   | 'billing'
   | 'assets'
   | 'accounting'
+  | 'accounting-mapping'
+  | 'accounting-exports'
   | 'help-center'
   | 'support-kb-admin'
   | 'support-tickets'

@@ -79,6 +79,8 @@ import { ExpenseCategoriesPage } from '@/pages/payroll/ExpenseCategoriesPage';
 import { BillingPage } from '@/pages/billing/BillingPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
+import { ChartOfAccountsMappingPage } from '@/pages/operations/ChartOfAccountsMappingPage';
+import { GlExportStatusPage } from '@/pages/operations/GlExportStatusPage';
 import { HelpCenterPage } from '@/pages/support/HelpCenterPage';
 import {
   KnowledgeBaseAdminPage,
@@ -178,6 +180,8 @@ function PageRoutes() {
       <Route path="/billing" element={<BillingPage />} />
       <Route path="/operations/assets" element={<AssetManagementPage />} />
       <Route path="/operations/accounting" element={<AccountingIntegrationPage />} />
+      <Route path="/operations/accounting/mapping" element={<ChartOfAccountsMappingPage />} />
+      <Route path="/operations/accounting/exports" element={<GlExportStatusPage />} />
       <Route path="/support/help" element={<HelpCenterPage />} />
       <Route path="/support/knowledge-base" element={<KnowledgeBaseAdminPage />} />
       <Route path="/support/tickets" element={<SupportTicketsAdminPage />} />

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowDownToLine,
   BookOpen,
@@ -8,48 +9,37 @@ import {
   Clock3,
   Cloud,
   FileSpreadsheet,
+  History,
   Link2,
   Loader2,
-  Settings2,
   Unplug,
 } from 'lucide-react';
 import { usePermissions } from '@hrm/portal-ui';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Form';
+import { pathForPage } from '@/config/routes';
 import { useCompany } from '@/context/CompanyContext';
 import {
   downloadCsv,
   exportPayrollJournal,
   listAccountingConnections,
   listAccountingSyncJobs,
-  listGlAccounts,
-  listGlContractorMappings,
-  listGlPayrollMappings,
   listJournalExports,
   listPayrollPeriods,
   previewPayrollJournal,
-  saveGlContractorMappings,
-  saveGlPayrollMappings,
   beginXeroConnect,
   disconnectXero,
-  retryAccountingSyncJob,
 } from '@/lib/accounting-api';
 import { ApiError } from '@/lib/tenant-api-client';
 import type {
   AccountingConnectionRecord,
   AccountingSyncJobRecord,
-  GlAccountRecord,
-  GlContractorMappingRecord,
-  GlContractorSystemMappingKey,
-  GlPayrollMappingRecord,
-  GlSystemMappingKey,
   PayrollJournalPreview,
   PayrollPeriodRecord,
 } from '@hrm/shared-types';
-import { GL_CONTRACTOR_MAPPING_LABELS, GL_SYSTEM_MAPPING_LABELS } from '@hrm/shared-types';
 
-type Tab = 'mapping' | 'connections' | 'journal';
+type Tab = 'connections' | 'journal';
 
 const PLANNED_PROVIDERS = [
   {
@@ -87,57 +77,16 @@ function connectionStatusTone(
   }
 }
 
-function syncStatusTone(
-  status: AccountingSyncJobRecord['status'],
-): 'success' | 'warning' | 'error' | 'neutral' | 'accent' {
-  switch (status) {
-    case 'completed':
-      return 'success';
-    case 'failed':
-      return 'error';
-    case 'processing':
-      return 'accent';
-    case 'queued':
-      return 'warning';
-    default:
-      return 'neutral';
-  }
-}
-
-function mappingLabel(row: GlPayrollMappingRecord): string {
-  if (row.payComponentName) {
-    return row.payComponentName;
-  }
-  if (row.systemKey) {
-    return GL_SYSTEM_MAPPING_LABELS[row.systemKey as GlSystemMappingKey];
-  }
-  return 'Unknown';
-}
-
-function mappingType(row: GlPayrollMappingRecord): string {
-  if (row.systemKey) {
-    if (row.systemKey.includes('expense')) return 'Expense';
-    if (row.systemKey.includes('liability') || row.systemKey.includes('payable')) {
-      return 'Liability';
-    }
-  }
-  return row.postingSide === 'debit' ? 'Earning' : 'Deduction';
-}
-
 export function AccountingIntegrationPage() {
+  const navigate = useNavigate();
   const { companyId, loading: companyLoading, error: companyError } = useCompany();
   const { can } = usePermissions();
   const canEdit = can('payroll', 'edit');
   const canExport = can('payroll', 'create');
-  const [tab, setTab] = useState<Tab>('mapping');
+  const [tab, setTab] = useState<Tab>('connections');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [accounts, setAccounts] = useState<GlAccountRecord[]>([]);
-  const [mappings, setMappings] = useState<GlPayrollMappingRecord[]>([]);
-  const [contractorMappings, setContractorMappings] = useState<GlContractorMappingRecord[]>([]);
-  const [draftGlByKey, setDraftGlByKey] = useState<Record<string, string>>({});
-  const [draftContractorGlByKey, setDraftContractorGlByKey] = useState<Record<string, string>>({});
   const [periods, setPeriods] = useState<PayrollPeriodRecord[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [journal, setJournal] = useState<PayrollJournalPreview | null>(null);
@@ -151,52 +100,22 @@ export function AccountingIntegrationPage() {
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  const [saved, setSaved] = useState(false);
-  const [contractorSaved, setContractorSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [contractorSaving, setContractorSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [contractorSaveError, setContractorSaveError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
-
-  const mappingKey = (row: GlPayrollMappingRecord) =>
-    row.payComponentId ?? row.systemKey ?? row.id;
 
   const loadBase = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
     setError(null);
     try {
-      const [accountRows, mappingRows, contractorMappingRows, periodRows, connectionRows, syncJobRows] =
-        await Promise.all([
-        listGlAccounts(companyId),
-        listGlPayrollMappings(companyId),
-        listGlContractorMappings(companyId),
+      const [periodRows, connectionRows, syncJobRows] = await Promise.all([
         listPayrollPeriods(companyId),
         listAccountingConnections(companyId),
         listAccountingSyncJobs(companyId),
       ]);
-      setAccounts(accountRows);
-      setMappings(mappingRows);
-      setContractorMappings(contractorMappingRows);
       setPeriods(periodRows);
       setConnections(connectionRows);
       setSyncJobs(syncJobRows);
-      setDraftGlByKey(
-        Object.fromEntries(
-          mappingRows
-            .filter((row) => row.glAccountId)
-            .map((row) => [mappingKey(row), row.glAccountId]),
-        ),
-      );
-      setDraftContractorGlByKey(
-        Object.fromEntries(
-          contractorMappingRows
-            .filter((row) => row.glAccountId)
-            .map((row) => [row.systemKey, row.glAccountId]),
-        ),
-      );
       if (periodRows.length > 0) {
         setSelectedPeriodId((current) => current || periodRows[0].id);
       }
@@ -266,27 +185,6 @@ export function AccountingIntegrationPage() {
     }
   }, [tab, selectedPeriodId, loadJournal]);
 
-  const mappedCount = useMemo(
-    () =>
-      mappings.filter((row) => {
-        const key = mappingKey(row);
-        return Boolean(draftGlByKey[key]);
-      }).length,
-    [mappings, draftGlByKey],
-  );
-
-  const coveragePercent = mappings.length
-    ? Math.round((mappedCount / mappings.length) * 100)
-    : 0;
-
-  const accountName = (accountId: string) =>
-    accounts.find((account) => account.id === accountId)?.name ?? 'Unmapped';
-
-  const accountLabel = (accountId: string) => {
-    const account = accounts.find((item) => item.id === accountId);
-    return account ? `${account.code} · ${account.name}` : 'Unmapped';
-  };
-
   const currency = (value: string | number) => {
     const amount = typeof value === 'string' ? Number(value) : value;
     return Number.isFinite(amount)
@@ -294,79 +192,8 @@ export function AccountingIntegrationPage() {
       : '—';
   };
 
-  const updateDraft = (key: string, glAccountId: string) => {
-    setSaved(false);
-    setDraftGlByKey((current) => ({ ...current, [key]: glAccountId }));
-  };
-
-  const handleSaveMappings = async () => {
-    if (!companyId) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const payload = mappings
-        .map((row) => {
-          const key = mappingKey(row);
-          const glAccountId = draftGlByKey[key];
-          if (!glAccountId) return null;
-          return {
-            payComponentId: row.payComponentId ?? undefined,
-            systemKey: row.systemKey ?? undefined,
-            postingSide: row.postingSide,
-            glAccountId,
-          };
-        })
-        .filter(Boolean) as Array<{
-        payComponentId?: string;
-        systemKey?: GlSystemMappingKey;
-        postingSide: 'debit' | 'credit';
-        glAccountId: string;
-      }>;
-
-      const updated = await saveGlPayrollMappings(companyId, payload);
-      setMappings(updated);
-      setSaved(true);
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Failed to save mappings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveContractorMappings = async () => {
-    if (!companyId) return;
-    setContractorSaving(true);
-    setContractorSaveError(null);
-    try {
-      const payload = contractorMappings
-        .map((row) => {
-          const glAccountId = draftContractorGlByKey[row.systemKey];
-          if (!glAccountId) return null;
-          return {
-            systemKey: row.systemKey,
-            postingSide: row.postingSide,
-            glAccountId,
-          };
-        })
-        .filter(Boolean) as Array<{
-        systemKey: GlContractorSystemMappingKey;
-        postingSide: 'debit' | 'credit';
-        glAccountId: string;
-      }>;
-
-      const updated = await saveGlContractorMappings(companyId, payload);
-      setContractorMappings(updated);
-      setContractorSaved(true);
-    } catch (err) {
-      setContractorSaveError(
-        err instanceof ApiError ? err.message : 'Failed to save contractor mappings',
-      );
-    } finally {
-      setContractorSaving(false);
-    }
-  };
-
   const xeroConnection = connections.find((row) => row.provider === 'xero');
+  const failedSyncCount = syncJobs.filter((job) => job.status === 'failed').length;
 
   const handleConnectXero = async () => {
     if (!companyId) return;
@@ -397,19 +224,6 @@ export function AccountingIntegrationPage() {
       );
     } finally {
       setDisconnecting(false);
-    }
-  };
-
-  const handleRetrySync = async (jobId: string) => {
-    if (!companyId) return;
-    try {
-      await retryAccountingSyncJob(companyId, jobId);
-      const rows = await listAccountingSyncJobs(companyId);
-      setSyncJobs(rows);
-    } catch (err) {
-      setConnectMessage(
-        err instanceof ApiError ? err.message : 'Failed to retry sync job',
-      );
     }
   };
 
@@ -447,7 +261,7 @@ export function AccountingIntegrationPage() {
   const pageError =
     companyError ??
     (companyId ? null : 'No company found for this tenant.') ??
-    (error && mappings.length === 0 ? error : null);
+    (error && periods.length === 0 && connections.length === 0 ? error : null);
   if (pageError) {
     return (
       <div className="p-6">
@@ -463,8 +277,8 @@ export function AccountingIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-5 p-4 lg:p-6">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div>
+      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-400">
               <BookOpen className="h-4 w-4" />
@@ -472,12 +286,21 @@ export function AccountingIntegrationPage() {
             <h1 className="text-xl font-bold text-primary">Accounting Integration</h1>
           </div>
           <p className="text-sm text-secondary">
-            Map payroll to GL accounts, export CSV journals, and push to Xero automatically when payroll is finalized.
+            Connect accounting software, preview payroll journals, and export them as CSV. Xero syncs automatically when
+            payroll is finalized.
           </p>
         </div>
-        <Badge tone={xeroConnection?.status === 'connected' ? 'success' : 'accent'} dot>
-          {xeroConnection?.status === 'connected' ? 'Xero connected' : 'CSV + Xero sync'}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:flex-nowrap">
+          <Badge tone={xeroConnection?.status === 'connected' ? 'success' : 'accent'} dot>
+            {xeroConnection?.status === 'connected' ? 'Xero connected' : 'CSV + Xero sync'}
+          </Badge>
+          <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-mapping'))}>
+            <BookOpen className="h-4 w-4" /> Account mapping
+          </Button>
+          <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-exports'))}>
+            <History className="h-4 w-4" /> Export &amp; sync status
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -488,7 +311,6 @@ export function AccountingIntegrationPage() {
 
       <div className="surface flex gap-1 overflow-x-auto rounded-xl border border-base p-1 shadow-card">
         {([
-          ['mapping', 'Chart of accounts', Settings2],
           ['connections', 'Connected software', Cloud],
           ['journal', 'Journal preview', FileSpreadsheet],
         ] as const).map(([id, label, Icon]) => (
@@ -501,208 +323,6 @@ export function AccountingIntegrationPage() {
           </button>
         ))}
       </div>
-
-      {tab === 'mapping' && (
-        <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-          <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
-            <div className="flex flex-col justify-between gap-2 border-b border-base px-5 py-4 sm:flex-row sm:items-center">
-              <div>
-                <h2 className="text-sm font-semibold text-primary">Payroll component mapping</h2>
-                <p className="mt-0.5 text-xs text-secondary">
-                  Map pay components and system lines to GL accounts before exporting journals.
-                </p>
-              </div>
-              <Badge tone="accent">{mappings.length} lines</Badge>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] uppercase tracking-wide text-secondary">
-                  <tr>
-                    <th className="px-5 py-3">Payroll source</th>
-                    <th className="px-5 py-3">Type</th>
-                    <th className="px-5 py-3">GL account</th>
-                    <th className="px-5 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                  {mappings.map((mapping) => {
-                    const key = mappingKey(mapping);
-                    const glAccountId = draftGlByKey[key] ?? '';
-                    return (
-                      <tr key={key} className="hover:bg-[rgb(var(--bg-hover))]">
-                        <td className="px-5 py-3.5">
-                          <div className="font-semibold text-primary">{mappingLabel(mapping)}</div>
-                          <div className="mt-0.5 text-[11px] text-muted">
-                            {mapping.systemKey ? 'System journal line' : 'Pay component'}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <Badge tone={mapping.postingSide === 'debit' ? 'success' : 'warning'}>
-                            {mappingType(mapping)}
-                          </Badge>
-                        </td>
-                        <td className="min-w-[280px] px-5 py-3.5">
-                          <Select
-                            value={glAccountId}
-                            onChange={(event) => updateDraft(key, event.target.value)}
-                            disabled={!canEdit}
-                          >
-                            <option value="">Choose GL account</option>
-                            {accounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.code} · {account.name}
-                              </option>
-                            ))}
-                          </Select>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span
-                            className={`inline-flex items-center gap-1.5 text-xs font-medium ${glAccountId ? 'text-success-600 dark:text-success-400' : 'text-warning-600 dark:text-warning-400'}`}
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {glAccountId ? 'Ready' : 'Action needed'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {canEdit && (
-              <div className="flex items-center justify-end gap-3 border-t border-base px-5 py-4">
-                {saveError && (
-                  <span className="text-sm text-error-600 dark:text-error-400">{saveError}</span>
-                )}
-                <Button onClick={() => void handleSaveMappings()} disabled={saving}>
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : saved ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Settings2 className="h-4 w-4" />
-                  )}
-                  {saved ? 'Mappings saved' : saving ? 'Saving…' : 'Save mappings'}
-                </Button>
-              </div>
-            )}
-          </section>
-
-          <aside className="space-y-4">
-            <div className="surface rounded-xl border border-base p-5 shadow-card">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-400">
-                <Link2 className="h-5 w-5" />
-              </div>
-              <h3 className="text-sm font-semibold text-primary">Mapping coverage</h3>
-              <div className="mt-2 text-3xl font-bold text-primary">{coveragePercent}%</div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[rgb(var(--bg-muted))]">
-                <div
-                  className="h-full rounded-full bg-accent-600"
-                  style={{ width: `${coveragePercent}%` }}
-                />
-              </div>
-              <p className="mt-3 text-xs leading-5 text-secondary">
-                All payroll components and system lines (net pay, employer super) should be mapped before CSV export.
-              </p>
-            </div>
-            {mappings[0] && draftGlByKey[mappingKey(mappings[0])] && (
-              <div className="rounded-xl border border-accent-200 bg-accent-50/70 p-4 dark:border-accent-800 dark:bg-accent-950/30">
-                <div className="text-xs font-semibold uppercase tracking-wide text-accent-700 dark:text-accent-300">
-                  Example mapping
-                </div>
-                <div className="mt-2 text-sm font-semibold text-primary">
-                  {mappingLabel(mappings[0])} → {accountLabel(draftGlByKey[mappingKey(mappings[0])])}
-                </div>
-                <div className="mt-1 text-xs text-secondary">
-                  {accountName(draftGlByKey[mappingKey(mappings[0])])}
-                </div>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
-
-      {tab === 'mapping' && (
-        <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
-          <div className="flex flex-col justify-between gap-2 border-b border-base px-5 py-4 sm:flex-row sm:items-center">
-            <div>
-              <h2 className="text-sm font-semibold text-primary">Contractor payment mapping</h2>
-              <p className="mt-0.5 text-xs text-secondary">
-                Separate from payroll journals — paid contractor batches export to these accounts.
-              </p>
-            </div>
-            <Badge tone="accent">{contractorMappings.length} lines</Badge>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] uppercase tracking-wide text-secondary">
-                <tr>
-                  <th className="px-5 py-3">Contractor source</th>
-                  <th className="px-5 py-3">Side</th>
-                  <th className="px-5 py-3">GL account</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                {contractorMappings.map((mapping) => (
-                  <tr key={mapping.systemKey} className="hover:bg-[rgb(var(--bg-hover))]">
-                    <td className="px-5 py-3.5 font-semibold text-primary">
-                      {GL_CONTRACTOR_MAPPING_LABELS[mapping.systemKey]}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <Badge tone={mapping.postingSide === 'debit' ? 'success' : 'warning'}>
-                        {mapping.postingSide === 'debit' ? 'Expense' : 'Liability'}
-                      </Badge>
-                    </td>
-                    <td className="min-w-[280px] px-5 py-3.5">
-                      <Select
-                        value={draftContractorGlByKey[mapping.systemKey] ?? ''}
-                        onChange={(event) => {
-                          setContractorSaved(false);
-                          setDraftContractorGlByKey((current) => ({
-                            ...current,
-                            [mapping.systemKey]: event.target.value,
-                          }));
-                        }}
-                        disabled={!canEdit}
-                      >
-                        <option value="">Choose GL account</option>
-                        {accounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.code} · {account.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {canEdit && (
-            <div className="flex items-center justify-end gap-3 border-t border-base px-5 py-4">
-              {contractorSaveError && (
-                <span className="text-sm text-error-600 dark:text-error-400">
-                  {contractorSaveError}
-                </span>
-              )}
-              <Button onClick={() => void handleSaveContractorMappings()} disabled={contractorSaving}>
-                {contractorSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : contractorSaved ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Settings2 className="h-4 w-4" />
-                )}
-                {contractorSaved
-                  ? 'Contractor mappings saved'
-                  : contractorSaving
-                    ? 'Saving…'
-                    : 'Save contractor mappings'}
-              </Button>
-            </div>
-          )}
-        </section>
-      )}
 
       {tab === 'connections' && (
         <div className="space-y-5">
@@ -815,66 +435,20 @@ export function AccountingIntegrationPage() {
             ))}
           </div>
 
-          <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
-            <div className="border-b border-base px-5 py-4">
-              <h2 className="text-sm font-semibold text-primary">Xero sync jobs</h2>
+          <section className="surface flex flex-col gap-3 rounded-xl border border-base p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-primary">Sync history</h2>
               <p className="mt-1 text-xs text-secondary">
-                Recent automatic journal pushes triggered by payroll finalization.
+                {syncJobs.length === 0
+                  ? 'No syncs yet. Connect Xero and finalize payroll to push a journal automatically.'
+                  : failedSyncCount > 0
+                    ? `${failedSyncCount} of the last ${syncJobs.length} syncs failed. See why and retry them on the status screen.`
+                    : `The last ${syncJobs.length} sync${syncJobs.length === 1 ? '' : 's'} had no failures.`}
               </p>
             </div>
-            {syncJobs.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-secondary">
-                No sync jobs yet — connect Xero and finalize payroll to enqueue a journal push.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-[rgb(var(--bg-muted))] text-left text-[11px] uppercase tracking-wide text-secondary">
-                    <tr>
-                      <th className="px-5 py-3">Period</th>
-                      <th className="px-5 py-3">Status</th>
-                      <th className="px-5 py-3">Attempts</th>
-                      <th className="px-5 py-3">Error</th>
-                      <th className="px-5 py-3">Queued</th>
-                      <th className="px-5 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[rgb(var(--border-base))]">
-                    {syncJobs.map((job) => {
-                      const period = periods.find((row) => row.id === job.payrollPeriodId);
-                      const periodLabel = period
-                        ? `${period.startDate} – ${period.endDate}`
-                        : job.payrollPeriodId.slice(0, 8);
-                      return (
-                        <tr key={job.id}>
-                          <td className="px-5 py-3.5 font-medium text-primary">{periodLabel}</td>
-                          <td className="px-5 py-3.5">
-                            <Badge tone={syncStatusTone(job.status)}>{job.status}</Badge>
-                          </td>
-                          <td className="px-5 py-3.5 text-secondary">{job.attempts}</td>
-                          <td className="max-w-xs truncate px-5 py-3.5 text-xs text-error-600 dark:text-error-400">
-                            {job.errorMessage ?? '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3.5 text-xs text-secondary">
-                            {formatWhen(job.queuedAt)}
-                          </td>
-                          <td className="px-5 py-3.5 text-right">
-                            {canEdit && job.status === 'failed' && (
-                              <Button
-                                variant="secondary"
-                                onClick={() => void handleRetrySync(job.id)}
-                              >
-                                Retry
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-exports'))}>
+              <History className="h-4 w-4" /> View export &amp; sync status
+            </Button>
           </section>
         </div>
       )}
@@ -926,6 +500,21 @@ export function AccountingIntegrationPage() {
                   </div>
                 ))}
               </div>
+
+              {journal.unmapped.length > 0 && (
+                <div className="flex flex-col gap-3 rounded-xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 sm:flex-row sm:items-center sm:justify-between dark:border-warning-900 dark:bg-warning-950/30 dark:text-warning-200">
+                  <div>
+                    Not mapped:{' '}
+                    {journal.unmapped
+                      .map((item) => (item.costCentreCode ? `${item.source} (${item.costCentreCode})` : item.source))
+                      .join(', ')}
+                    . Exporting this period will fail until they have GL accounts.
+                  </div>
+                  <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-mapping'))}>
+                    <BookOpen className="h-4 w-4" /> Fix mappings
+                  </Button>
+                </div>
+              )}
 
               <section className="surface overflow-hidden rounded-xl border border-base shadow-card">
                 <div className="flex flex-col justify-between gap-3 border-b border-base px-5 py-4 sm:flex-row sm:items-center">

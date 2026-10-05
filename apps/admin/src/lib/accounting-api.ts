@@ -3,8 +3,14 @@ import type {
   AccountingSyncJobRecord,
   ContractorJournalExportRecord,
   GlAccountRecord,
+  GlAccountType,
   GlContractorMappingRecord,
   GlContractorSystemMappingKey,
+  GlCostCentreMappingGroup,
+  GlExportKind,
+  GlExportStatusDetail,
+  GlExportStatusList,
+  GlExportStatusRecord,
   GlPayrollMappingRecord,
   GlSystemMappingKey,
   PayrollJournalExportRecord,
@@ -13,9 +19,85 @@ import type {
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
-export function listGlAccounts(companyId: string): Promise<GlAccountRecord[]> {
+export function listGlAccounts(
+  companyId: string,
+  options: { includeInactive?: boolean } = {},
+): Promise<GlAccountRecord[]> {
+  const qs = options.includeInactive ? '?includeInactive=true' : '';
   return tenantApiRequest<GlAccountRecord[]>(
-    `/companies/${companyId}/gl-accounts`,
+    `/companies/${companyId}/gl-accounts${qs}`,
+  );
+}
+
+export interface GlAccountInput {
+  code: string;
+  name: string;
+  accountType: GlAccountType;
+}
+
+export function createGlAccount(
+  companyId: string,
+  input: GlAccountInput,
+): Promise<GlAccountRecord> {
+  return tenantApiRequest<GlAccountRecord>(`/companies/${companyId}/gl-accounts`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateGlAccount(
+  accountId: string,
+  input: Partial<GlAccountInput> & { isActive?: boolean },
+): Promise<GlAccountRecord> {
+  return tenantApiRequest<GlAccountRecord>(`/gl-accounts/${accountId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listCostCentreMappings(
+  companyId: string,
+): Promise<GlCostCentreMappingGroup[]> {
+  return tenantApiRequest<GlCostCentreMappingGroup[]>(
+    `/companies/${companyId}/gl-cost-centre-mappings`,
+  );
+}
+
+export function replaceCostCentreMappings(
+  companyId: string,
+  costCentreId: string,
+  overrides: Array<{ sourceKey: string; glAccountId: string }>,
+): Promise<GlCostCentreMappingGroup> {
+  return tenantApiRequest<GlCostCentreMappingGroup>(
+    `/companies/${companyId}/gl-cost-centre-mappings/${costCentreId}`,
+    { method: 'PUT', body: JSON.stringify({ overrides }) },
+  );
+}
+
+export type GlExportOutcomeFilter = 'succeeded' | 'failed' | 'in_progress' | 'needs_attention';
+
+export function listGlExports(
+  companyId: string,
+  query: { outcome?: GlExportOutcomeFilter; kind?: GlExportKind; page?: number; pageSize?: number } = {},
+): Promise<GlExportStatusList> {
+  const params = new URLSearchParams();
+  if (query.outcome) params.set('outcome', query.outcome);
+  if (query.kind) params.set('kind', query.kind);
+  if (query.page) params.set('page', String(query.page));
+  if (query.pageSize) params.set('pageSize', String(query.pageSize));
+  const qs = params.toString();
+  return tenantApiRequest<GlExportStatusList>(
+    `/companies/${companyId}/gl-exports${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export function getGlExport(
+  companyId: string,
+  kind: GlExportKind,
+  exportId: string,
+): Promise<GlExportStatusDetail> {
+  return tenantApiRequest<GlExportStatusDetail>(
+    `/companies/${companyId}/gl-exports/${kind}/${exportId}`,
   );
 }
 
@@ -35,10 +117,11 @@ export function saveGlPayrollMappings(
     postingSide: 'debit' | 'credit';
     glAccountId: string;
   }>,
+  remove: Array<{ payComponentId?: string; systemKey?: GlSystemMappingKey }> = [],
 ): Promise<GlPayrollMappingRecord[]> {
   return tenantApiRequest<GlPayrollMappingRecord[]>(
     `/companies/${companyId}/gl-payroll-mappings`,
-    { method: 'POST', body: JSON.stringify({ mappings }) },
+    { method: 'POST', body: JSON.stringify({ mappings, remove }) },
   );
 }
 
@@ -162,8 +245,8 @@ export function listAccountingSyncJobs(
 export function retryAccountingSyncJob(
   companyId: string,
   jobId: string,
-): Promise<{ retried: boolean }> {
-  return tenantApiRequest<{ retried: boolean }>(
+): Promise<{ retried: boolean; export: GlExportStatusRecord | null }> {
+  return tenantApiRequest<{ retried: boolean; export: GlExportStatusRecord | null }>(
     `/companies/${companyId}/accounting-sync-jobs/${jobId}/retry`,
     { method: 'POST' },
   );

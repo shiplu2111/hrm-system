@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -19,18 +20,26 @@ import type {
   GlSystemMappingKey,
   PayrollJournalExportRecord,
   PayrollJournalPreview,
-} from '@hrm/shared-types';import type { AuthenticatedUser } from '../auth/auth.types';
+} from '@hrm/shared-types';
+import { GL_SYSTEM_MAPPING_LABELS } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { PayrollCalculationService } from '../payroll/payroll-calculation.service';
 import { formatDateOnly, parseMoney } from '../payroll/payroll.utils';
-import { GL_SYSTEM_KEYS, type MappingLookup } from './accounting.constants';
+import {
+  GL_SYSTEM_KEYS,
+  type GlAccountRef,
+  type MappingLookup,
+} from './accounting.constants';
 import type {
   BulkUpsertGlPayrollMappingsDto,
   CreateGlAccountDto,
   UpdateGlAccountDto,
 } from './dto/accounting.dto';
+import { journalReferenceForPeriodEnd } from './gl-export-status.rules';
+import { findDuplicate } from './gl-mapping.rules';
 import {
   buildJournalFromAggregates,
   collectAggregatesFromPreview,
@@ -38,6 +47,12 @@ import {
   mergeAggregates,
   toJournalPreview,
 } from './payroll-journal.builder';
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+  );
+}
 
 type MappingWithAccount = GlPayrollMapping & {
   glAccount: GlAccount;
@@ -53,13 +68,31 @@ export class AccountingService {
     private readonly payrollCalculation: PayrollCalculationService,
   ) {}
 
-  async listGlAccounts(companyId: string): Promise<GlAccountRecord[]> {
+  async listGlAccounts(
+    companyId: string,
+    includeInactive = false,
+  ): Promise<GlAccountRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
     const rows = await this.prisma.unscoped.glAccount.findMany({
-      where: { companyId, isActive: true },
+      where: { companyId, ...(includeInactive ? {} : { isActive: true }) },
       orderBy: [{ code: 'asc' }],
+      include: {
+        _count: {
+          select: {
+            payrollMappings: true,
+            contractorMappings: true,
+            costCentreMappings: true,
+          },
+        },
+      },
     });
-    return rows.map((row) => this.toGlAccountRecord(row));
+    return rows.map((row) => ({
+      ...this.toGlAccountRecord(row),
+      mappingCount:
+        row._count.payrollMappings +
+        row._count.contractorMappings +
+        row._count.costCentreMappings,
+    }));
   }
 
   async createGlAccount(
@@ -68,16 +101,23 @@ export class AccountingService {
     user: AuthenticatedUser,
   ): Promise<GlAccountRecord> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
-    const row = await this.prisma.unscoped.glAccount.create({
-      data: {
-        tenantId: company.tenantId,
-        companyId,
-        code: dto.code.trim(),
-        name: dto.name.trim(),
-        accountType: dto.accountType,
-        isActive: dto.isActive ?? true,
-      },
-    });
+    const code = dto.code.trim();
+    let row: GlAccount;
+    try {
+      row = await this.prisma.unscoped.glAccount.create({
+        data: {
+          tenantId: company.tenantId,
+          companyId,
+          code,
+          name: dto.name.trim(),
+          accountType: dto.accountType,
+          isActive: dto.isActive ?? true,
+        },
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw this.duplicateCodeError(code);
+      throw error;
+    }
 
     await this.auditService.log({
       tenantId: company.tenantId,
@@ -99,15 +139,42 @@ export class AccountingService {
     const existing = await this.findGlAccountOrThrow(accountId);
     await this.companyScope.assertCompanyInTenant(existing.companyId);
 
-    const row = await this.prisma.unscoped.glAccount.update({
-      where: { id: accountId },
-      data: {
-        ...(dto.code != null ? { code: dto.code.trim() } : {}),
-        ...(dto.name != null ? { name: dto.name.trim() } : {}),
-        ...(dto.accountType != null ? { accountType: dto.accountType } : {}),
-        ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
-      },
-    });
+    if (dto.isActive === false && existing.isActive) {
+      const inUse = await this.countAccountMappings(accountId);
+      if (inUse > 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `${existing.code} (${existing.name}) is used by ${inUse} mapping${inUse === 1 ? '' : 's'} — map those to another account before deactivating it`,
+        });
+      }
+    }
+    if (dto.accountType != null && dto.accountType !== 'expense') {
+      const costCentreUses = await this.prisma.unscoped.glCostCentreMapping.count({
+        where: { glAccountId: accountId },
+      });
+      if (costCentreUses > 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `${existing.code} is used by cost-centre overrides, which must post to an expense account`,
+        });
+      }
+    }
+
+    let row: GlAccount;
+    try {
+      row = await this.prisma.unscoped.glAccount.update({
+        where: { id: accountId },
+        data: {
+          ...(dto.code != null ? { code: dto.code.trim() } : {}),
+          ...(dto.name != null ? { name: dto.name.trim() } : {}),
+          ...(dto.accountType != null ? { accountType: dto.accountType } : {}),
+          ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
+        },
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw this.duplicateCodeError(dto.code!.trim());
+      throw error;
+    }
 
     await this.auditService.log({
       tenantId: existing.tenantId,
@@ -158,6 +225,7 @@ export class AccountingService {
       return this.virtualMapping(companyId, {
         payComponentId: component.id,
         payComponentName: component.name,
+        payComponentType: component.type,
         postingSide: component.type === 'earning' ? 'debit' : 'credit',
       });
     });
@@ -189,33 +257,115 @@ export class AccountingService {
     user: AuthenticatedUser,
   ): Promise<GlPayrollMappingRecord[]> {
     const company = await this.companyScope.assertCompanyInTenant(companyId);
+    const removals = dto.remove ?? [];
+    const refs = [...dto.mappings, ...removals];
 
-    for (const mapping of dto.mappings) {
-      if (!mapping.payComponentId && !mapping.systemKey) {
+    for (const ref of refs) {
+      if (!ref.payComponentId && !ref.systemKey) {
         throw new BadRequestException({
           code: 'VALIDATION_ERROR',
           message: 'Each mapping requires payComponentId or systemKey',
         });
       }
-      if (mapping.payComponentId && mapping.systemKey) {
+      if (ref.payComponentId && ref.systemKey) {
         throw new BadRequestException({
           code: 'VALIDATION_ERROR',
           message: 'Mapping cannot specify both payComponentId and systemKey',
         });
       }
+    }
 
-      const glAccount = await this.prisma.unscoped.glAccount.findFirst({
-        where: { id: mapping.glAccountId, companyId },
+    const refKey = (ref: { payComponentId?: string; systemKey?: string }) =>
+      ref.payComponentId
+        ? `component:${ref.payComponentId.toLowerCase()}`
+        : `system:${ref.systemKey}`;
+    if (findDuplicate(refs, refKey)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Each pay component or system line can only appear once per save',
       });
-      if (!glAccount) {
-        throw new NotFoundException({
-          code: 'NOT_FOUND',
-          message: 'GL account not found in this company',
-        });
+    }
+
+    const componentIds = [
+      ...new Set(refs.map((ref) => ref.payComponentId).filter(Boolean) as string[]),
+    ];
+    const components = componentIds.length
+      ? await this.prisma.unscoped.payComponent.findMany({
+          where: { id: { in: componentIds }, companyId },
+          select: { id: true, name: true },
+        })
+      : [];
+    if (components.length !== componentIds.length) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Pay component not found in this company',
+      });
+    }
+
+    const accountIds = [...new Set(dto.mappings.map((mapping) => mapping.glAccountId))];
+    const accounts = accountIds.length
+      ? await this.prisma.unscoped.glAccount.findMany({
+          where: { id: { in: accountIds }, companyId },
+        })
+      : [];
+    if (accounts.length !== accountIds.length) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'GL account not found in this company',
+      });
+    }
+    const inactive = accounts.find((account) => !account.isActive);
+    if (inactive) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: `GL account ${inactive.code} (${inactive.name}) is inactive`,
+      });
+    }
+
+    const existing = await this.prisma.unscoped.glPayrollMapping.findMany({
+      where: { companyId },
+      include: { glAccount: { select: { code: true } } },
+    });
+    const existingByRef = new Map(
+      existing.map((row) => [
+        refKey({
+          payComponentId: row.payComponentId ?? undefined,
+          systemKey: row.systemKey ?? undefined,
+        }),
+        row,
+      ]),
+    );
+    const componentNames = new Map(components.map((row) => [row.id.toLowerCase(), row.name]));
+    const accountCodes = new Map(accounts.map((row) => [row.id, row.code]));
+    const sourceLabel = (ref: { payComponentId?: string; systemKey?: string }) =>
+      ref.payComponentId
+        ? (componentNames.get(ref.payComponentId.toLowerCase()) ?? ref.payComponentId)
+        : GL_SYSTEM_MAPPING_LABELS[ref.systemKey as GlSystemMappingKey];
+
+    const changes: Array<{ source: string; from: string | null; to: string | null }> = [];
+    for (const mapping of dto.mappings) {
+      const before = existingByRef.get(refKey(mapping));
+      const to = accountCodes.get(mapping.glAccountId) ?? null;
+      if (before?.glAccount.code !== to || before?.postingSide !== mapping.postingSide) {
+        changes.push({ source: sourceLabel(mapping), from: before?.glAccount.code ?? null, to });
+      }
+    }
+    for (const removal of removals) {
+      const before = existingByRef.get(refKey(removal));
+      if (before) {
+        changes.push({ source: sourceLabel(removal), from: before.glAccount.code, to: null });
       }
     }
 
     await this.prisma.unscoped.$transaction(async (tx) => {
+      for (const removal of removals) {
+        await tx.glPayrollMapping.deleteMany({
+          where: removal.payComponentId
+            ? { companyId, payComponentId: removal.payComponentId }
+            : { companyId, systemKey: removal.systemKey! },
+        });
+      }
+
       for (const mapping of dto.mappings) {
         if (mapping.payComponentId) {
           await tx.glPayrollMapping.upsert({
@@ -262,14 +412,16 @@ export class AccountingService {
       }
     });
 
-    await this.auditService.log({
-      tenantId: company.tenantId,
-      userId: user.id,
-      action: 'update',
-      module: 'accounting',
-      recordId: companyId,
-      newValue: { mappingsUpdated: dto.mappings.length },
-    });
+    if (changes.length > 0) {
+      await this.auditService.log({
+        tenantId: company.tenantId,
+        userId: user.id,
+        action: 'update',
+        module: 'accounting',
+        recordId: companyId,
+        newValue: { payrollMappingChanges: changes },
+      });
+    }
 
     return this.listPayrollMappings(companyId);
   }
@@ -290,7 +442,9 @@ export class AccountingService {
         run.employeeId,
         asOf,
       );
-      aggregateBatches.push(...collectAggregatesFromPreview(preview));
+      aggregateBatches.push(
+        ...collectAggregatesFromPreview(preview, run.employee.costCentre ?? null),
+      );
     }
 
     const aggregates = mergeAggregates(aggregateBatches);
@@ -442,6 +596,7 @@ export class AccountingService {
     input: {
       payComponentId?: string;
       payComponentName?: string;
+      payComponentType?: 'earning' | 'deduction';
       systemKey?: GlSystemMappingKey;
       postingSide: 'debit' | 'credit';
     },
@@ -452,6 +607,7 @@ export class AccountingService {
       companyId,
       payComponentId: input.payComponentId ?? null,
       payComponentName: input.payComponentName ?? null,
+      payComponentType: input.payComponentType ?? null,
       systemKey: input.systemKey ?? null,
       postingSide: input.postingSide,
       glAccountId: '',
@@ -467,15 +623,37 @@ export class AccountingService {
         deletedAt: null,
         status: { in: [PayrollRunStatus.finalized, PayrollRunStatus.paid] },
       },
-      select: { id: true, employeeId: true },
+      select: {
+        id: true,
+        employeeId: true,
+        employee: {
+          select: { costCentre: { select: { id: true, code: true, name: true } } },
+        },
+      },
     });
   }
 
   private async loadMappingLookup(companyId: string): Promise<MappingLookup> {
-    const mappings = await this.prisma.unscoped.glPayrollMapping.findMany({
-      where: { companyId },
-      include: { glAccount: true },
-    });
+    const [mappings, costCentreMappings] = await Promise.all([
+      this.prisma.unscoped.glPayrollMapping.findMany({
+        where: { companyId },
+        include: { glAccount: true },
+      }),
+      this.prisma.unscoped.glCostCentreMapping.findMany({
+        where: { companyId },
+        include: { glAccount: { select: { code: true, name: true } } },
+      }),
+    ]);
+
+    const byCostCentre = new Map<string, Map<string, GlAccountRef>>();
+    for (const row of costCentreMappings) {
+      const overrides = byCostCentre.get(row.costCentreId) ?? new Map<string, GlAccountRef>();
+      overrides.set(row.sourceKey, {
+        glAccountCode: row.glAccount.code,
+        glAccountName: row.glAccount.name,
+      });
+      byCostCentre.set(row.costCentreId, overrides);
+    }
 
     const byComponentId = new Map<
       string,
@@ -500,13 +678,27 @@ export class AccountingService {
       }
     }
 
-    return { byComponentId, bySystemKey };
+    return { byComponentId, bySystemKey, byCostCentre };
   }
 
   private buildReferenceNumber(endDate: Date): string {
-    const year = endDate.getUTCFullYear();
-    const month = String(endDate.getUTCMonth() + 1).padStart(2, '0');
-    return `JE-${year}-${month}`;
+    return journalReferenceForPeriodEnd(endDate);
+  }
+
+  private async countAccountMappings(accountId: string): Promise<number> {
+    const [payroll, contractor, costCentre] = await Promise.all([
+      this.prisma.unscoped.glPayrollMapping.count({ where: { glAccountId: accountId } }),
+      this.prisma.unscoped.glContractorMapping.count({ where: { glAccountId: accountId } }),
+      this.prisma.unscoped.glCostCentreMapping.count({ where: { glAccountId: accountId } }),
+    ]);
+    return payroll + contractor + costCentre;
+  }
+
+  private duplicateCodeError(code: string): ConflictException {
+    return new ConflictException({
+      code: 'CONFLICT',
+      message: `GL account code ${code} already exists in this company`,
+    });
   }
 
   private async findGlAccountOrThrow(accountId: string): Promise<GlAccount> {
@@ -554,6 +746,8 @@ export class AccountingService {
       companyId: row.companyId,
       payComponentId: row.payComponentId,
       payComponentName: row.payComponent?.name ?? null,
+      payComponentType:
+        (row.payComponent?.type as 'earning' | 'deduction' | undefined) ?? null,
       systemKey: row.systemKey as GlSystemMappingKey | null,
       postingSide: row.postingSide,
       glAccountId: row.glAccountId,
