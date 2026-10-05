@@ -6,10 +6,13 @@ export interface RolePermission {
   action: PermissionAction;
 }
 
-/** ROLES_PERMISSIONS.md §5 — `team` limits employee data to the holder's reporting tree. */
-export type RoleDataScope = 'all' | 'team';
+/**
+ * ROLES_PERMISSIONS.md §5 — `team` limits employee data to the holder's reporting tree;
+ * `own` limits it to the holder's own record and only self-service endpoints.
+ */
+export type RoleDataScope = 'all' | 'team' | 'own';
 
-export const ROLE_DATA_SCOPES: readonly RoleDataScope[] = ['all', 'team'];
+export const ROLE_DATA_SCOPES: readonly RoleDataScope[] = ['all', 'team', 'own'];
 
 export interface TenantRoleRecord {
   id: string;

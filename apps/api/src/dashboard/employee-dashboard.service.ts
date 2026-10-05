@@ -80,7 +80,9 @@ export class EmployeeDashboardService {
         page: 1,
         pageSize: 20,
       }),
-      this.payslipService.listForEmployee(employeeId),
+      this.payslipService.canAccessEmployeePayslips(employeeId, user)
+        ? this.payslipService.listForEmployee(employeeId, user)
+        : Promise.resolve([]),
       this.inAppNotificationsService.listForUser(user, { limit: 8 }),
       this.prisma.unscoped.inAppNotification.count({
         where: { userId: user.id, readAt: null },

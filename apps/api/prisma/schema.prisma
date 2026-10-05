@@ -5010,10 +5010,12 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/// ROLES_PERMISSIONS.md §5 — `team` limits employee data to the user's reporting tree.
+/// ROLES_PERMISSIONS.md §5 — `team` limits employee data to the user's reporting tree;
+/// `own` limits it to the user's own record and only `@SelfService()` endpoints.
 enum RoleDataScope {
   all
   team
+  own
 
   @@map("role_data_scope")
 }

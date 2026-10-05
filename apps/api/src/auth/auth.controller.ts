@@ -23,7 +23,7 @@ import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type { Request, Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import type { AuthenticatedUser } from './auth.types';
 import { AllowPendingPasswordChange } from './allow-pending-password-change.decorator';
 import { AUTH_CONSTANTS } from './auth.constants';
@@ -39,6 +39,7 @@ import {
 import { parseDurationToMs } from './auth.utils';
 
 @ApiTags('auth')
+@SelfService()
 @Controller('auth')
 export class AuthController {
   private readonly refreshCookieMaxAge: number;

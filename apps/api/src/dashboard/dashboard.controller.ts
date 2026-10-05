@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { DataScopeService } from '../rbac/data-scope.service';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { AdminDashboardService } from './admin-dashboard.service';
 import { EmployeeDashboardService } from './employee-dashboard.service';
 
@@ -29,6 +29,7 @@ export class DashboardController {
     };
   }
 
+  @SelfService()
   @Get('employees/:employeeId/dashboard')
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'Employee dashboard (MODULES.md §39)' })

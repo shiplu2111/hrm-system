@@ -8,6 +8,13 @@ export interface ResolvedRoute {
 }
 export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   dashboard: '/',
+  'my-dashboard': '/my',
+  'my-profile': '/my/profile',
+  'my-attendance': '/my/attendance',
+  'my-leave': '/my/leave',
+  'my-roster': '/my/roster',
+  'my-payslips': '/my/payslips',
+  'my-help': '/my/help',
   'emp-directory': '/employees/directory',
   'emp-profile': '/employees/:employeeId',
   'emp-lifecycle': '/employees/lifecycle',

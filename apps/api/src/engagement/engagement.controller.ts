@@ -11,7 +11,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { DataScopeService } from '../rbac/data-scope.service';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { AnnouncementsService } from './announcements.service';
 import { EngagementSurveysService } from './engagement-surveys.service';
 import { KudosService } from './kudos.service';
@@ -36,6 +37,7 @@ export class EngagementController {
     private readonly announcementsService: AnnouncementsService,
     private readonly surveysService: EngagementSurveysService,
     private readonly kudosService: KudosService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   @Get('companies/:companyId/engagement/summary')
@@ -164,6 +166,7 @@ export class EngagementController {
 
   // --- Kudos / recognition ---
 
+  @SelfService()
   @Get('companies/:companyId/engagement/kudos')
   @RequirePermission('engagement', 'view')
   @ApiOperation({ summary: 'Company recognition feed' })
@@ -190,17 +193,21 @@ export class EngagementController {
 
   // --- Employee-facing ---
 
+  @SelfService()
   @Get('employees/:employeeId/engagement/surveys/:surveyId')
   @RequirePermission('engagement', 'view')
   async getSurveyForEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('surveyId', ParseUUIDPipe) surveyId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.surveysService.getSurveyForEmployee(surveyId, employeeId),
     };
   }
 
+  @SelfService()
   @Post('employees/:employeeId/engagement/surveys/:surveyId/responses')
   @RequirePermission('engagement', 'create')
   async submitSurveyResponse(
@@ -209,6 +216,7 @@ export class EngagementController {
     @Body() dto: SubmitSurveyResponseDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.surveysService.submitResponse(
         surveyId,
@@ -219,6 +227,7 @@ export class EngagementController {
     };
   }
 
+  @SelfService()
   @Post('employees/:employeeId/engagement/kudos')
   @RequirePermission('engagement', 'create')
   @ApiOperation({ summary: 'Send peer or manager recognition' })
@@ -227,6 +236,7 @@ export class EngagementController {
     @Body() dto: CreateEmployeeKudosDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.kudosService.createForEmployee(employeeId, dto, user),
     };

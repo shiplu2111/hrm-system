@@ -12,12 +12,13 @@ import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DataScopeService } from '../rbac/data-scope.service';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { AttendanceService } from './attendance.service';
 import { AttendanceCaptureDto, AttendanceDateQueryDto } from './dto/attendance.dto';
 
 @ApiTags('attendance')
 @ApiBearerAuth('access-token')
+@SelfService()
 @Controller('employees/:employeeId/attendance')
 export class AttendanceController {
   constructor(

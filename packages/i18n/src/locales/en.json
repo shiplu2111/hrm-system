@@ -67,7 +67,16 @@
     "attendance": "Attendance",
     "leave": "Leave",
     "roster": "Roster",
-    "help": "Help"
+    "help": "Help",
+    "payslips": "Payslips",
+    "mySpace": "My Space"
+  },
+  "payslips": {
+    "title": "My payslips",
+    "subtitle": "Payslips from finalized payroll runs.",
+    "empty": "No payslips have been generated for you yet.",
+    "generated": "Generated {{date}}",
+    "run": "Payroll run {{id}}"
   },
   "portal": {
     "title": "Employee Portal",

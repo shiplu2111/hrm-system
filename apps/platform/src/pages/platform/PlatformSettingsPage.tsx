@@ -45,7 +45,7 @@ export function PlatformSettingsPage() {
   const [maintenance, setMaintenance] = useState(false);
   const [maintenanceDate, setMaintenanceDate] = useState('2026-08-29T02:00');
   const [duration, setDuration] = useState('60');
-  const [message, setMessage] = useState('Nexus HR will be temporarily unavailable while we improve platform reliability.');
+  const [message, setMessage] = useState('CMSN-HR will be temporarily unavailable while we improve platform reliability.');
   const [saved, setSaved] = useState(false);
 
   const save = () => {

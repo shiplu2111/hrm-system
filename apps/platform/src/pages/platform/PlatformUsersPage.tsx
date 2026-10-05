@@ -33,14 +33,14 @@ const rolePermissions: Record<PlatformRole, string[]> = {
 };
 
 const initialStaff: PlatformStaff[] = [
-  { id: 'u1', name: 'Alex Morgan', email: 'alex.morgan@nexushr.com', role: 'Super Admin', permissions: rolePermissions['Super Admin'], lastActive: 'Just now', status: 'Active' },
-  { id: 'u2', name: 'Priya Shah', email: 'priya.shah@nexushr.com', role: 'Super Admin', permissions: rolePermissions['Super Admin'], lastActive: '12 minutes ago', status: 'Active' },
-  { id: 'u3', name: 'Jordan Hale', email: 'jordan.hale@nexushr.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: '28 minutes ago', status: 'Active' },
-  { id: 'u4', name: 'Mei Chen', email: 'mei.chen@nexushr.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: '1 hour ago', status: 'Active' },
-  { id: 'u5', name: 'Diego Alvarez', email: 'diego.alvarez@nexushr.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: 'Yesterday', status: 'Active' },
-  { id: 'u6', name: 'Hannah Cole', email: 'hannah.cole@nexushr.com', role: 'Billing Ops', permissions: rolePermissions['Billing Ops'], lastActive: '3 hours ago', status: 'Active' },
-  { id: 'u7', name: 'Omar Rahman', email: 'omar.rahman@nexushr.com', role: 'Billing Ops', permissions: rolePermissions['Billing Ops'], lastActive: 'Aug 24, 2026', status: 'Active' },
-  { id: 'u8', name: 'Sofia Rossi', email: 'sofia.rossi@nexushr.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: 'Invite pending', status: 'Invited' },
+  { id: 'u1', name: 'Alex Morgan', email: 'alex.morgan@cmsnbd.com', role: 'Super Admin', permissions: rolePermissions['Super Admin'], lastActive: 'Just now', status: 'Active' },
+  { id: 'u2', name: 'Priya Shah', email: 'priya.shah@cmsnbd.com', role: 'Super Admin', permissions: rolePermissions['Super Admin'], lastActive: '12 minutes ago', status: 'Active' },
+  { id: 'u3', name: 'Jordan Hale', email: 'jordan.hale@cmsnbd.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: '28 minutes ago', status: 'Active' },
+  { id: 'u4', name: 'Mei Chen', email: 'mei.chen@cmsnbd.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: '1 hour ago', status: 'Active' },
+  { id: 'u5', name: 'Diego Alvarez', email: 'diego.alvarez@cmsnbd.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: 'Yesterday', status: 'Active' },
+  { id: 'u6', name: 'Hannah Cole', email: 'hannah.cole@cmsnbd.com', role: 'Billing Ops', permissions: rolePermissions['Billing Ops'], lastActive: '3 hours ago', status: 'Active' },
+  { id: 'u7', name: 'Omar Rahman', email: 'omar.rahman@cmsnbd.com', role: 'Billing Ops', permissions: rolePermissions['Billing Ops'], lastActive: 'Aug 24, 2026', status: 'Active' },
+  { id: 'u8', name: 'Sofia Rossi', email: 'sofia.rossi@cmsnbd.com', role: 'Support Agent', permissions: rolePermissions['Support Agent'], lastActive: 'Invite pending', status: 'Invited' },
 ];
 
 function roleTone(role: PlatformRole) {
@@ -133,7 +133,7 @@ export function PlatformUsersPage() {
           </div>
           <h1 className="text-2xl lg:text-3xl font-extrabold">Platform Users</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Internal Nexus HR operators — not tenant employees or company admins.
+            Internal CMSN-HR operators — not tenant employees or company admins.
           </p>
         </div>
         <button
@@ -283,7 +283,7 @@ export function PlatformUsersPage() {
                 type="email"
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="name@nexushr.com"
+                placeholder="name@cmsnbd.com"
                 className="w-full h-11 pl-9 pr-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent text-sm focus:outline-none focus:border-indigo-400"
               />
             </div>

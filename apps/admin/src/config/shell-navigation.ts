@@ -11,6 +11,7 @@ import {
   Wallet,
   BarChart3,
   Settings,
+  UserCircle,
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
@@ -39,6 +40,21 @@ export const adminNavItems: AdminNavItem[] = [
     page: 'dashboard',
     icon: LayoutDashboard,
     permission: { module: 'employee', action: 'view' },
+  },
+  {
+    label: 'My Space',
+    page: 'my-dashboard',
+    icon: UserCircle,
+    permission: { module: 'employee', action: 'view' },
+    children: [
+      { label: 'Home', page: 'my-dashboard' },
+      { label: 'My Profile', page: 'my-profile' },
+      { label: 'My Attendance', page: 'my-attendance' },
+      { label: 'My Leave', page: 'my-leave' },
+      { label: 'My Roster', page: 'my-roster' },
+      { label: 'My Payslips', page: 'my-payslips' },
+      { label: 'Help & Support', page: 'my-help' },
+    ],
   },
   {
     label: 'Employees',

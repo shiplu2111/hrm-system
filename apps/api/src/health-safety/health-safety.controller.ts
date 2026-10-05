@@ -11,7 +11,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import type {
   CreateEmployeeIncidentDto,
   CreateInjuryLogEntryDto,
@@ -55,6 +55,7 @@ export class HealthSafetyController {
 
   // --- Incidents ---
 
+  @SelfService()
   @Get('companies/:companyId/health-safety/incidents')
   @RequirePermission('health_safety', 'view')
   async listIncidents(
@@ -65,6 +66,7 @@ export class HealthSafetyController {
     return { data: await this.incidentsService.list(companyId, query, user) };
   }
 
+  @SelfService()
   @Get('health-safety/incidents/:id')
   @RequirePermission('health_safety', 'view')
   async getIncident(
@@ -96,6 +98,7 @@ export class HealthSafetyController {
     return { data: await this.incidentsService.update(id, dto, user) };
   }
 
+  @SelfService()
   @Post('employees/:employeeId/health-safety/incidents')
   @RequirePermission('health_safety', 'create')
   @ApiOperation({ summary: 'Employee / mobile incident report' })

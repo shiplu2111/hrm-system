@@ -126,7 +126,7 @@ const seedLogs: ErrorLog[] = [
   { id: 'log-5', timestamp: '2026-08-25 17:18:09', severity: 'info', service: 'API', message: 'Deployed gateway build 2026.08.25.14 · rolling 12/12 healthy' },
   { id: 'log-6', timestamp: '2026-08-25 17:11:55', severity: 'warning', service: 'Queue / Jobs', message: 'attendance.sync-device backlog exceeded 2,000 pending jobs' },
   { id: 'log-7', timestamp: '2026-08-25 16:58:22', severity: 'info', service: 'Database', message: 'Autovacuum completed on payroll_runs (1.2M rows, 4m 11s)' },
-  { id: 'log-8', timestamp: '2026-08-25 16:44:03', severity: 'error', service: 'Email / SMTP', message: 'SMTP AUTH failed for failover relay smtp-backup-2.nexushr.net' },
+  { id: 'log-8', timestamp: '2026-08-25 16:44:03', severity: 'error', service: 'Email / SMTP', message: 'SMTP AUTH failed for failover relay smtp-backup-2.cmsnbd.com' },
   { id: 'log-9', timestamp: '2026-08-25 16:31:17', severity: 'info', service: 'WebSocket / Real-time', message: 'Presence reconnect storm absorbed · peak 18.4k sockets' },
   { id: 'log-10', timestamp: '2026-08-25 16:12:40', severity: 'warning', service: 'Storage (S3)', message: 'Multipart upload abort rate elevated in ap-southeast-1' },
 ];

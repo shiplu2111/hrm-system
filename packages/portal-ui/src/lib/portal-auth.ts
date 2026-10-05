@@ -35,7 +35,7 @@ export interface PortalSessionUser {
   roleName: string;
   employeeId: string | null;
   permissions: PermissionClaim[];
-  dataScope?: 'all' | 'team';
+  dataScope?: 'all' | 'team' | 'own';
   mustChangePassword?: boolean;
 }
 
@@ -46,7 +46,7 @@ interface JwtPayload {
   role_name?: string;
   employee_id: string | null;
   permissions?: PermissionClaim[];
-  data_scope?: 'all' | 'team';
+  data_scope?: 'all' | 'team' | 'own';
   must_change_password?: boolean;
   exp?: number;
 }
@@ -211,17 +211,25 @@ function hasPermission(
   );
 }
 
-/** Admin-capable tenant user (HR, manager, owner, etc.) */
+/**
+ * Every tenant user signs in to the company panel; what they see there follows their role's
+ * permissions and data scope (ROLES_PERMISSIONS.md §5).
+ */
 export function isAdminPortalUser(
-  user: Pick<PortalSessionUser, 'roleName' | 'permissions' | 'employeeId'>,
+  user: Pick<PortalSessionUser, 'tenantId'>,
 ): boolean {
-  if (user.roleName === 'Employee') return false;
-  if (user.roleName) return true;
-  return (
-    hasPermission(user, 'settings', 'view') ||
-    hasPermission(user, 'employee', 'create') ||
-    hasPermission(user, 'leave', 'approve')
-  );
+  return !!user.tenantId;
+}
+
+/**
+ * Roles limited to their own record (`own` scope) only get the self-service pages. Tokens issued
+ * before the scope existed fall back to the self-service role name.
+ */
+export function isSelfServiceOnlyUser(
+  user: Pick<PortalSessionUser, 'dataScope' | 'roleName'>,
+): boolean {
+  if (user.dataScope) return user.dataScope === 'own';
+  return user.roleName === 'Employee';
 }
 
 /** Self-service employee (ESS) login */
@@ -230,7 +238,12 @@ export function isEmployeePortalUser(
 ): boolean {
   if (user.roleName === 'Employee') return true;
   if (user.roleName) return false;
-  return !!user.employeeId && !isAdminPortalUser(user);
+  return (
+    !!user.employeeId &&
+    !hasPermission(user, 'settings', 'view') &&
+    !hasPermission(user, 'employee', 'create') &&
+    !hasPermission(user, 'leave', 'approve')
+  );
 }
 
 export function assertPortalAccess(
@@ -240,7 +253,7 @@ export function assertPortalAccess(
   if (portal === 'platform') {
     if (user.tenantId) {
       throw new ApiError(
-        'This account belongs to a company tenant. Use the Company Admin or Employee portal.',
+        'This account belongs to a company tenant. Use the company portal.',
         403,
         'WRONG_PORTAL',
       );
@@ -258,15 +271,7 @@ export function assertPortalAccess(
 
   if (portal === 'employee' && !isEmployeePortalUser(user)) {
     throw new ApiError(
-      'This account is not an employee self-service login. Use the Company Admin portal.',
-      403,
-      'WRONG_PORTAL',
-    );
-  }
-
-  if (portal === 'admin' && !isAdminPortalUser(user)) {
-    throw new ApiError(
-      'Employee accounts must use the Employee portal, not Company Admin.',
+      'This account is not an employee self-service login. Use the company portal.',
       403,
       'WRONG_PORTAL',
     );

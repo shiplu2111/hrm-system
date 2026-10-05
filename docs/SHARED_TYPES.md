@@ -18,7 +18,7 @@ Types/DTOs used by both backend (NestJS) and clients (React web, React Native mo
   package.json
 ```
 
-Consumed via npm workspaces (`@hrm/shared-types`) by `apps/api`, `apps/web`, `apps/admin`, and `apps/mobile`.
+Consumed via npm workspaces (`@hrm/shared-types`) by `apps/api`, `apps/admin`, and `apps/mobile`.
 
 ## 3. Core Shared Enums (examples)
 

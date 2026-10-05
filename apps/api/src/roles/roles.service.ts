@@ -345,7 +345,7 @@ export class RolesService {
     actor: AuthenticatedUser,
     dataScope: RoleDataScope,
   ): Promise<void> {
-    if (dataScope === 'team') return;
+    if (dataScope !== 'all') return;
     if (await this.dataScope.isOrgWide(actor)) return;
     throw new ForbiddenException({
       code: 'DATA_SCOPE_NOT_HELD',

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { usePermission, usePermissions } from '@hrm/portal-ui';
+import { usePermission } from '@hrm/portal-ui';
 import type { PageKey } from '@/context/NavContext';
-import { canViewPage } from '@/config/page-permissions';
 import { pathForPage } from '@/config/routes';
+import { usePageAccess } from '@/hooks/usePageAccess';
 import type { AdminNavItem } from '@/config/shell-navigation';
 import { navItemContainsPage } from '@/config/shell-navigation';
 
@@ -22,8 +22,9 @@ export function AdminNavGroup({
   onNavigate,
 }: AdminNavGroupProps) {
   const routerNavigate = useNavigate();
-  const parentAllowed = usePermission(item.permission.module, item.permission.action);
-  const { can } = usePermissions();
+  const hasParentPermission = usePermission(item.permission.module, item.permission.action);
+  const { canView } = usePageAccess();
+  const parentAllowed = hasParentPermission && canView(item.page);
 
   const goToPage = (page: PageKey) => {
     routerNavigate(pathForPage(page));
@@ -31,9 +32,8 @@ export function AdminNavGroup({
   };
 
   const visibleChildren = useMemo(
-    () =>
-      (item.children ?? []).filter((child) => canViewPage(child.page, can)),
-    [item.children, can],
+    () => (item.children ?? []).filter((child) => canView(child.page)),
+    [item.children, canView],
   );
 
   const isActive = navItemContainsPage(item, current);

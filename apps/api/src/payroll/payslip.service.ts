@@ -26,8 +26,9 @@ export class PayslipService {
     private readonly companyScope: CompanyScopeService,
   ) {}
 
-  async listForEmployee(employeeId: string): Promise<PayslipRecord[]> {
+  async listForEmployee(employeeId: string, user: AuthenticatedUser): Promise<PayslipRecord[]> {
     await this.assertEmployee(employeeId);
+    this.assertCanAccessPayslip(employeeId, user);
     const rows = await this.prisma.unscoped.payslip.findMany({
       where: { payrollRun: { employeeId, deletedAt: null } },
       include: {
@@ -317,15 +318,15 @@ export class PayslipService {
     }
   }
 
+  canAccessEmployeePayslips(employeeId: string, user: AuthenticatedUser): boolean {
+    return !user.employeeId || user.employeeId === employeeId || this.canViewAnyEmployeePayslip(user);
+  }
+
   private assertCanAccessPayslip(
     employeeId: string,
     user: AuthenticatedUser,
   ): void {
-    if (
-      user.employeeId &&
-      user.employeeId !== employeeId &&
-      !this.canViewAnyEmployeePayslip(user)
-    ) {
+    if (!this.canAccessEmployeePayslips(employeeId, user)) {
       throw new ForbiddenException({
         code: 'FORBIDDEN',
         message: 'Cannot download another employee payslip',

@@ -408,7 +408,7 @@ export const integrationConnectors: IntegrationConnector[] = [
 export const backupRecords: BackupRecord[] = [
   {
     id: 'bk-1',
-    filename: 'nexus_hr_full_backup_20240825_020000.enc',
+    filename: 'cmsn_hr_full_backup_20240825_020000.enc',
     size: '142.8 MB',
     createdDate: '2024-08-25 02:00 UTC',
     type: 'Automated Daily',
@@ -416,7 +416,7 @@ export const backupRecords: BackupRecord[] = [
   },
   {
     id: 'bk-2',
-    filename: 'nexus_hr_snapshot_aug_payroll_finalized.enc',
+    filename: 'cmsn_hr_snapshot_aug_payroll_finalized.enc',
     size: '138.4 MB',
     createdDate: '2024-08-24 18:30 UTC',
     type: 'Pre-Payroll Snapshot',
@@ -424,7 +424,7 @@ export const backupRecords: BackupRecord[] = [
   },
   {
     id: 'bk-3',
-    filename: 'nexus_hr_full_backup_20240824_020000.enc',
+    filename: 'cmsn_hr_full_backup_20240824_020000.enc',
     size: '137.9 MB',
     createdDate: '2024-08-24 02:00 UTC',
     type: 'Automated Daily',
@@ -432,7 +432,7 @@ export const backupRecords: BackupRecord[] = [
   },
   {
     id: 'bk-4',
-    filename: 'nexus_hr_manual_pre_migration_backup.enc',
+    filename: 'cmsn_hr_manual_pre_migration_backup.enc',
     size: '132.1 MB',
     createdDate: '2024-08-15 14:00 UTC',
     type: 'Manual Backup',

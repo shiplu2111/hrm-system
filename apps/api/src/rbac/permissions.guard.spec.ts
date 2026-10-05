@@ -4,13 +4,36 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { OrganizationController } from '../organization/organization.controller';
 import { PermissionsGuard } from './permissions.guard';
 import { PermissionsService } from './permissions.service';
-import { PERMISSION_KEY, type RequiredPermission } from './require-permission.decorator';
+import { DataScopeService } from './data-scope.service';
+import {
+  PERMISSION_KEY,
+  SELF_SERVICE_KEY,
+  type RequiredPermission,
+} from './require-permission.decorator';
 
-function run(required: RequiredPermission, permissions: AuthenticatedUser['permissions']) {
+function run(
+  required: RequiredPermission,
+  permissions: AuthenticatedUser['permissions'],
+  options: { dataScope?: 'all' | 'team' | 'own'; selfService?: boolean } = {},
+) {
   const reflector = {
-    getAllAndOverride: (key: string) => (key === 'isPublic' ? false : required),
+    getAllAndOverride: (key: string) => {
+      if (key === 'isPublic') return false;
+      if (key === SELF_SERVICE_KEY) return options.selfService ?? false;
+      return required;
+    },
   } as unknown as Reflector;
-  const guard = new PermissionsGuard(reflector, new PermissionsService({} as never));
+  const prisma = {
+    unscoped: {
+      role: { findUnique: jest.fn().mockResolvedValue({ dataScope: options.dataScope ?? 'all' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    },
+  };
+  const guard = new PermissionsGuard(
+    reflector,
+    new PermissionsService({} as never),
+    new DataScopeService(prisma as never),
+  );
   const user = { roleId: 'r', authMethod: 'jwt', permissions } as unknown as AuthenticatedUser;
   const context = {
     getHandler: () => ({ name: 'handler' }),
@@ -50,6 +73,32 @@ describe('PermissionsGuard alternatives', () => {
     await expect(run(required, [{ module: 'payroll', action: 'finalize' }])).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+});
+
+describe('PermissionsGuard own-scoped roles', () => {
+  const view: RequiredPermission = { module: 'employee', action: 'view' };
+  const perms: AuthenticatedUser['permissions'] = [{ module: 'employee', action: 'view' }];
+
+  it('rejects own-scoped users on endpoints not marked @SelfService', async () => {
+    await expect(run(view, perms, { dataScope: 'own' })).rejects.toMatchObject({
+      response: { code: 'OWN_SCOPE_FORBIDDEN' },
+    });
+  });
+
+  it('allows own-scoped users on @SelfService endpoints', async () => {
+    await expect(run(view, perms, { dataScope: 'own', selfService: true })).resolves.toBe(true);
+  });
+
+  it('still requires the declared permission on @SelfService endpoints', async () => {
+    await expect(
+      run(view, [{ module: 'leave', action: 'view' }], { dataScope: 'own', selfService: true }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('leaves company-wide and team roles unaffected', async () => {
+    await expect(run(view, perms, { dataScope: 'all' })).resolves.toBe(true);
+    await expect(run(view, perms, { dataScope: 'team' })).resolves.toBe(true);
   });
 });
 

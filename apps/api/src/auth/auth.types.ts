@@ -11,7 +11,7 @@ export interface AccessTokenPayload {
   employee_id: string | null;
   permissions: PermissionClaim[];
   /** UI hint only — DataScopeService reads the role's scope from the DB. */
-  data_scope?: 'all' | 'team';
+  data_scope?: 'all' | 'team' | 'own';
   must_change_password?: boolean;
 }
 
@@ -23,7 +23,7 @@ export interface AuthenticatedUser {
   employeeId: string | null;
   email: string;
   permissions: PermissionClaim[];
-  dataScope?: 'all' | 'team';
+  dataScope?: 'all' | 'team' | 'own';
   mustChangePassword?: boolean;
   authMethod?: 'jwt' | 'api_key' | 'oauth';
   apiKeyId?: string;

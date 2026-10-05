@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { AuthUser, EmployeeKudosRecord, EmployeeRecord } from '@hrm/shared-types';
+import type { AuthUser, EmployeeDirectoryEntry, EmployeeKudosRecord } from '@hrm/shared-types';
 import { useAppTranslation } from '@hrm/i18n';
 import { ApiError } from '../api/client';
 import {
@@ -29,7 +29,7 @@ export function KudosScreen({ user, onBack }: KudosScreenProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feed, setFeed] = useState<EmployeeKudosRecord[]>([]);
-  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeDirectoryEntry[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [toEmployeeId, setToEmployeeId] = useState('');
   const [message, setMessage] = useState('');
@@ -52,11 +52,7 @@ export function KudosScreen({ user, onBack }: KudosScreenProps) {
         listCompanyEmployees(profile.companyId),
       ]);
       setFeed(kudosRows);
-      setEmployees(
-        employeeRows.filter(
-          (emp) => emp.id !== employeeId && emp.employmentStatus === 'active',
-        ),
-      );
+      setEmployees(employeeRows.filter((emp) => emp.id !== employeeId));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('errors.loadKudos'));
     } finally {

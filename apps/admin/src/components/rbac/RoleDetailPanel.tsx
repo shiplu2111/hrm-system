@@ -222,6 +222,7 @@ export function RoleDetailPanel({
                 {copy.scope.options.all}
               </option>
               <option value="team">{copy.scope.options.team}</option>
+              <option value="own">{copy.scope.options.own}</option>
             </Select>
             <p className="mt-1 text-xs text-muted">{actorOrgWide ? copy.scope.fieldHint : copy.scope.notHeld}</p>
           </div>

@@ -12,7 +12,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   CreateKbArticleDto,
   CreateKbCategoryDto,
@@ -36,6 +36,7 @@ export class SupportController {
 
   // ---- Knowledge base (read: support view; write: support edit) ----
 
+  @SelfService()
   @Get('kb/categories')
   @RequirePermission('support', 'view')
   async listCategories(@CurrentUser() user: AuthenticatedUser) {
@@ -72,6 +73,7 @@ export class SupportController {
     };
   }
 
+  @SelfService()
   @Get('kb/articles')
   @RequirePermission('support', 'view')
   async listArticles(
@@ -87,6 +89,7 @@ export class SupportController {
     };
   }
 
+  @SelfService()
   @Get('kb/articles/:articleId')
   @RequirePermission('support', 'view')
   async getArticle(
@@ -139,6 +142,7 @@ export class SupportController {
 
   // ---- Support tickets ----
 
+  @SelfService()
   @Get('tickets')
   @RequirePermission('support', 'view')
   async listTickets(@CurrentUser() user: AuthenticatedUser) {
@@ -147,6 +151,7 @@ export class SupportController {
     };
   }
 
+  @SelfService()
   @Get('tickets/:ticketId')
   @RequirePermission('support', 'view')
   async getTicket(
@@ -158,6 +163,7 @@ export class SupportController {
     };
   }
 
+  @SelfService()
   @Post('tickets')
   @RequirePermission('support', 'create')
   async createTicket(
@@ -186,6 +192,7 @@ export class SupportController {
     };
   }
 
+  @SelfService()
   @Post('tickets/:ticketId/messages')
   @RequirePermission('support', 'view')
   async addMessage(

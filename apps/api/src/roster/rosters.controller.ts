@@ -16,7 +16,7 @@ import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DataScopeService } from '../rbac/data-scope.service';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   BulkAssignRosterDto,
   BulkClearRosterDto,
@@ -35,6 +35,7 @@ export class RostersController {
     private readonly dataScope: DataScopeService,
   ) {}
 
+  @SelfService()
   @Get()
   @RequirePermission('attendance', 'view')
   @ApiOperation({

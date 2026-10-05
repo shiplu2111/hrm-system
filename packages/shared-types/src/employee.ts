@@ -57,6 +57,17 @@ export interface EmployeeSummary {
   employmentType?: { id: string; name: string } | null;
 }
 
+/** Colleague picker row — safe for self-service users (no personal or employment details). */
+export interface EmployeeDirectoryEntry {
+  id: string;
+  companyId: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  department: { id: string; name: string } | null;
+  designation: { id: string; name: string } | null;
+}
+
 export interface BulkUpdateEmployeeStatusInput {
   employeeIds: string[];
   employmentStatus: EmploymentStatus;

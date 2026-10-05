@@ -80,6 +80,28 @@ describe('DataScopeService', () => {
     expect(prisma.unscoped.$queryRaw).not.toHaveBeenCalled();
   });
 
+  it('limits own-scoped roles to the user themselves', async () => {
+    const { prisma, service } = setup(RoleDataScope.own);
+    const u = user({ roleName: 'Employee' });
+
+    expect(await service.isOrgWide(u)).toBe(false);
+    expect(await service.isOwnOnly(u)).toBe(true);
+    expect(await service.employeeIds(u)).toEqual([SELF]);
+    expect(await service.employeeIdFilter(u, { includeSelf: false })).toEqual({ in: [] });
+    expect(await service.canAccessEmployee(u, SELF)).toBe(true);
+    expect(await service.canAccessEmployee(u, REPORT)).toBe(false);
+    await expect(service.assertEmployeeInScope(u, SELF, { includeSelf: false })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.unscoped.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('gives an own-scoped user without an employee record no reach', async () => {
+    const { service } = setup(RoleDataScope.own);
+
+    expect(await service.employeeIds(user({ employeeId: null }))).toEqual([]);
+  });
+
   it('resolves the scope once per authenticated user object', async () => {
     const { prisma, service } = setup(RoleDataScope.team);
     const u = user();

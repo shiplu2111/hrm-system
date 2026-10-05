@@ -140,7 +140,7 @@ export function SettingsHubPage() {
     setTimeout(() => {
       const newBk: BackupRecord = {
         id: `bk-${Date.now()}`,
-        filename: `nexus_hr_manual_backup_${new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14)}.enc`,
+        filename: `cmsn_hr_manual_backup_${new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14)}.enc`,
         size: '144.2 MB',
         createdDate: 'Just now',
         type: 'Manual Backup',
@@ -497,7 +497,7 @@ export function SettingsHubPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Organization / System Name</Label>
-                    <Input defaultValue="Nexus HR Technologies Inc." />
+                    <Input defaultValue="CMSN-HR" />
                   </div>
                   <div>
                     <Label>Default System Timezone</Label>

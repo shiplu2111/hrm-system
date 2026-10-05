@@ -9,10 +9,9 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { usePermissions } from '@hrm/portal-ui';
-import { canViewPage } from '@/config/page-permissions';
 import { pathForPage, recordFreePath, resolveRoute } from '@/config/routes';
 import { useTenant } from '@/context/TenantContext';
+import { usePageAccess } from '@/hooks/usePageAccess';
 
 export type PageKey =
   | 'dashboard'
@@ -118,7 +117,14 @@ export type PageKey =
   | 'shell-leave'
   | 'shell-payroll'
   | 'shell-reports'
-  | 'shell-settings';
+  | 'shell-settings'
+  | 'my-dashboard'
+  | 'my-profile'
+  | 'my-attendance'
+  | 'my-leave'
+  | 'my-roster'
+  | 'my-payslips'
+  | 'my-help';
 
 interface NavContextValue {
   current: PageKey;
@@ -154,7 +160,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
   );
 
   const { tenantKey } = useTenant();
-  const { can } = usePermissions();
+  const { canView, homePage } = usePageAccess();
   const previousTenantKey = useRef(tenantKey);
 
   // Record IDs, query strings and route state belong to the previous organization.
@@ -168,12 +174,19 @@ export function NavProvider({ children }: { children: ReactNode }) {
     const listPath = recordFreePath(location.pathname);
     if (listPath !== null) {
       routerNavigate(listPath, { replace: true });
-    } else if (!canViewPage(resolved.page, can)) {
-      routerNavigate(pathForPage('dashboard'), { replace: true });
+    } else if (!canView(resolved.page)) {
+      routerNavigate(pathForPage(homePage), { replace: true });
     } else if (location.search || location.state) {
       routerNavigate(location.pathname, { replace: true });
     }
-  }, [tenantKey, location.pathname, location.search, location.state, resolved.page, can, routerNavigate]);
+  }, [tenantKey, location.pathname, location.search, location.state, resolved.page, canView, homePage, routerNavigate]);
+
+  // Self-service users have no admin dashboard; `/` opens My Space for them.
+  useEffect(() => {
+    if (resolved.page === 'dashboard' && homePage !== 'dashboard' && canView(homePage)) {
+      routerNavigate(pathForPage(homePage), { replace: true });
+    }
+  }, [resolved.page, homePage, canView, routerNavigate]);
 
   useEffect(() => {
     if (resolved.employeeId) setSelectedEmployeeId(resolved.employeeId);

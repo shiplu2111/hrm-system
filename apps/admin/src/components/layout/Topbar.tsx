@@ -12,6 +12,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useNav } from '@/context/NavContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTenant } from '@/context/TenantContext';
+import { usePageAccess } from '@/hooks/usePageAccess';
 import {
   Dropdown,
   DropdownItem,
@@ -44,6 +45,7 @@ export function Topbar({
   const { user } = useAuth();
   const { navigate } = useNav();
   const { tenantKey } = useTenant();
+  const { selfServiceOnly } = usePageAccess();
   const notifications = useNotifications(tenantKey);
 
   const displayName = user?.email
@@ -68,7 +70,7 @@ export function Topbar({
         <Menu className="h-5 w-5" />
       </button>
 
-      <div className="flex-1 max-w-md hidden md:block">
+      <div className={`flex-1 max-w-md hidden ${selfServiceOnly ? '' : 'md:block'}`}>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
           <input
@@ -82,12 +84,10 @@ export function Topbar({
         </div>
       </div>
 
-      <div className="flex-1 md:hidden" />
-
       <button
         type="button"
         onClick={toggleTheme}
-        className="text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors"
+        className="ml-auto text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors"
         title="Toggle theme"
         aria-label="Toggle theme"
       >

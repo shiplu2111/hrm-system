@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   AttendanceSyncService,
   type AttendanceSyncItemResult,
@@ -17,6 +17,7 @@ import {
 
 @ApiTags('sync')
 @ApiBearerAuth('access-token')
+@SelfService()
 @Controller('sync')
 export class AttendanceSyncController {
   constructor(private readonly attendanceSyncService: AttendanceSyncService) {}
@@ -44,6 +45,7 @@ export class AttendanceSyncController {
 
 @ApiTags('sync')
 @ApiBearerAuth('access-token')
+@SelfService()
 @Controller('sync')
 export class TimesheetSyncController {
   constructor(private readonly timesheetSyncService: TimesheetSyncService) {}

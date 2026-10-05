@@ -17,6 +17,7 @@ export {
   getPortalToken,
   isAdminPortalUser,
   isEmployeePortalUser,
+  isSelfServiceOnlyUser,
   listPortalTenants,
   notifySessionExpired,
   portalApiRequest,

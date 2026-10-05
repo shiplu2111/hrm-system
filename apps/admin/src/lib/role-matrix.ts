@@ -166,7 +166,8 @@ export type RoleScope = 'team' | 'self' | null;
 /** Row-level scoping for default roles (ROLES_PERMISSIONS.md §5), enforced in queries, not permissions. */
 export function roleScope(role: { name: string; isSystem: boolean; dataScope?: string }): RoleScope {
   if (role.dataScope === 'team') return 'team';
-  if (role.isSystem && role.name === 'Employee') return 'self';
+  if (role.dataScope === 'own') return 'self';
+  if (!role.dataScope && role.isSystem && role.name === 'Employee') return 'self';
   return null;
 }
 

@@ -4,7 +4,7 @@
 
 Shared design tokens and component conventions across the admin web app, employee web app, and mobile app, so the product feels like one system rather than three separately-designed apps.
 
-**Source of truth:** token values are implemented in `apps/web/src/index.css` (CSS custom properties) and wired into Tailwind via `apps/web/tailwind.config.js`. Admin and other apps should converge on these values over time.
+**Source of truth:** token values are implemented in `packages/portal-ui/src/styles/design-tokens.css` (CSS custom properties) with the matching Tailwind wiring in `packages/portal-ui/design-tokens.tailwind.js` (both moved from the retired employee portal; the marketing website in `apps/web` mirrors the accent scale as its `brand` colour). Admin and other apps should converge on these values over time.
 
 **Design intent:** professional HR/payroll admin — high information density, trustworthy, restrained. Avoid bright or playful colors on financial and payroll surfaces.
 
@@ -229,4 +229,4 @@ Consistent mapping across payroll, leave, and attendance. Use semantic tints (50
 
 ## 8. Ownership
 
-- This file is the living reference for design decisions. Update it when tokens change in `apps/web/src/index.css`.
+- This file is the living reference for design decisions. Update it when tokens change in `packages/portal-ui/src/styles/design-tokens.css`.

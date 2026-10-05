@@ -39,8 +39,10 @@ export const rolesCopy = {
     options: {
       all: 'Company-wide',
       team: 'Own reporting line',
+      own: 'Self-service only',
     },
-    fieldHint: 'Own reporting line limits employee records, requests and approvals to the holder’s direct and indirect reports.',
+    fieldHint:
+      'Own reporting line limits employee records, requests and approvals to the holder’s direct and indirect reports. Self-service only opens My Space and the holder’s own records.',
     notHeld: 'Only company-wide roles can grant company-wide access.',
     changed: (from: string, to: string) => `Data access changed from ${from} to ${to}.`,
   },

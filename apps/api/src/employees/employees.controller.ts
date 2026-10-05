@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -18,7 +19,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { EmploymentStatus } from '@prisma/client';
-import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
+import type { ApiResponse as ApiEnvelope, EmployeeDirectoryEntry } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
@@ -27,7 +28,7 @@ import {
 } from '../organization/dto/organization.dto';
 import { BulkUpdateEmployeeStatusDto } from './dto/bulk-update-employee-status.dto';
 import { DataScopeService } from '../rbac/data-scope.service';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { EmployeesService } from './employees.service';
 
 @ApiTags('employees')
@@ -39,6 +40,7 @@ export class EmployeesController {
     private readonly dataScope: DataScopeService,
   ) {}
 
+  @SelfService()
   @Get()
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'List employees (tenant-scoped; team-scoped roles see their reporting tree)' })
@@ -55,6 +57,7 @@ export class EmployeesController {
     };
   }
 
+  @SelfService()
   @Get(':id')
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'Get employee by ID (tenant-scoped)' })
@@ -117,5 +120,35 @@ export class EmployeesController {
   ): Promise<void> {
     await this.dataScope.assertEmployeeInScope(user, id, { includeSelf: false });
     await this.employeesService.deleteEmployee(id);
+  }
+}
+
+@ApiTags('employees')
+@ApiBearerAuth('access-token')
+@Controller('companies/:companyId/employee-directory')
+export class EmployeeDirectoryController {
+  constructor(
+    private readonly employeesService: EmployeesService,
+    private readonly dataScope: DataScopeService,
+  ) {}
+
+  @SelfService()
+  @Get()
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'Active colleagues (names and job titles only) for pickers such as kudos' })
+  async list(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<EmployeeDirectoryEntry[]>> {
+    if (await this.dataScope.isOwnOnly(user)) {
+      const self = user.employeeId ? await this.employeesService.getEmployee(user.employeeId) : null;
+      if (self?.companyId !== companyId) {
+        throw new ForbiddenException({
+          code: 'OUT_OF_SCOPE',
+          message: 'You can only see colleagues in your own company',
+        });
+      }
+    }
+    return { data: await this.employeesService.listDirectory(companyId) };
   }
 }

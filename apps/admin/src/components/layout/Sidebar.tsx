@@ -4,6 +4,7 @@ import { useNav, type PageKey } from '@/context/NavContext';
 import { useCompany } from '@/context/CompanyContext';
 import { useTenant } from '@/context/TenantContext';
 import { AdminNavGroup } from '@/components/layout/AdminNavGroup';
+import { usePageAccess } from '@/hooks/usePageAccess';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -16,6 +17,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
   const { current, navigate } = useNav();
   const { company } = useCompany();
   const { current: currentTenant } = useTenant();
+  const { selfServiceOnly } = usePageAccess();
   const companyName =
     currentTenant?.tenantName ?? company?.name ?? 'Company Admin';
 
@@ -27,7 +29,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
   const sidebarContent = (
     <>
       {/* Logo */}
-      <div className={`flex items-center gap-2.5 h-16 px-4 border-b border-base shrink-0 ${collapsed ? 'justify-center' : ''}`}>
+      <div className={`flex items-center gap-2.5 h-14 px-4 border-b border-base shrink-0 ${collapsed ? 'justify-center' : ''}`}>
         <div className="h-8 w-8 rounded-lg bg-accent-600 flex items-center justify-center shrink-0">
           <svg viewBox="0 0 24 24" className="h-5 w-5 text-white" fill="none">
             <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
@@ -37,7 +39,9 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
         {!collapsed && (
           <div className="flex flex-col leading-tight min-w-0">
             <span className="text-sm font-bold text-primary truncate">{companyName}</span>
-            <span className="text-[10px] text-muted font-medium">Admin Portal</span>
+            <span className="text-[10px] text-muted font-medium">
+              {selfServiceOnly ? 'Employee Portal' : 'Admin Portal'}
+            </span>
           </div>
         )}
       </div>

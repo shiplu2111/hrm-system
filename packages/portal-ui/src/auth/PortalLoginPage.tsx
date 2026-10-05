@@ -18,8 +18,8 @@ const PORTAL_META: Record<
   }
 > = {
   admin: {
-    title: 'Company Admin',
-    subtitle: 'HR operations for your organization',
+    title: 'Company Portal',
+    subtitle: 'HR operations and employee self-service',
     icon: Building2,
     tenantRequired: true,
     defaultEmail: 'admin@cmsnbd.com',

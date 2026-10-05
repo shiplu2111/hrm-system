@@ -44,7 +44,7 @@ const TENANT_BRANDS: TenantBrand[] = [
   { id: 'techflow', name: 'TechFlow Labs', subdomain: 'techflow', initials: 'TF', logoClass: 'from-emerald-600 to-teal-400', accentLabel: 'Emerald' },
   { id: 'globex', name: 'Globex Industries', subdomain: 'globex', initials: 'GI', logoClass: 'from-amber-600 to-orange-500', accentLabel: 'Amber' },
 ];
-const PLATFORM = 'Nexus HR';
+const PLATFORM = 'CMSN-HR';
 const DEMO_EMAIL = 'sarah.chen@acme.com';
 
 /* ─────────────────────────────────────────────
@@ -321,7 +321,7 @@ function LoginView({
         </div>
         <div className="text-xs text-secondary">
           Signing in to <span className="font-bold text-primary">{tenant.name}</span>
-          <span className="text-muted ml-1 font-mono">({tenant.subdomain}.nexushr.com)</span>
+          <span className="text-muted ml-1 font-mono">({tenant.subdomain}.cmsnbd.com)</span>
         </div>
       </div>
 
@@ -1339,7 +1339,7 @@ function PlatformLoginView({
         </button>
       </div>
       <h2 className="text-2xl font-extrabold text-white">Secure console access</h2>
-      <p className="text-sm text-slate-400 mt-1 mb-6">Restricted to authorized Nexus HR platform operators.</p>
+      <p className="text-sm text-slate-400 mt-1 mb-6">Restricted to authorized CMSN-HR platform operators.</p>
 
       <div className="flex items-start gap-2.5 p-3 rounded-xl bg-orange-500/10 border border-orange-400/20 text-orange-200 text-xs mb-5">
         <Shield className="h-4 w-4 shrink-0 mt-0.5" />
@@ -1354,7 +1354,7 @@ function PlatformLoginView({
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="admin@nexushr.com"
+            placeholder="admin@cmsnbd.com"
             className="w-full h-11 px-4 rounded-xl border border-slate-700 bg-slate-900 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20"
           />
         </div>

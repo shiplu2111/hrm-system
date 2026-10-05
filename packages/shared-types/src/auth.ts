@@ -20,8 +20,11 @@ export interface AuthUser {
   roleId: string;
   employeeId: string | null;
   permissions: PermissionClaim[];
-  /** ROLES_PERMISSIONS.md §5 — `team` means employee data is limited to the user's reporting tree. */
-  dataScope?: 'all' | 'team';
+  /**
+   * ROLES_PERMISSIONS.md §5 — `team` limits employee data to the user's reporting tree;
+   * `own` limits it to the user's own record (self-service only).
+   */
+  dataScope?: 'all' | 'team' | 'own';
   /** Set when an admin issued a temporary password; every API except change-password/logout returns 403 until cleared. */
   mustChangePassword?: boolean;
 }

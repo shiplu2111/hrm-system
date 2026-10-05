@@ -111,7 +111,34 @@ export const PAGE_VIEW_PERMISSIONS: Partial<Record<PageKey, PagePermission>> = {
   'shell-payroll': { module: 'payroll', action: 'view' },
   'shell-reports': { module: 'employee', action: 'view' },
   'shell-settings': { module: 'settings', action: 'view' },
+  'my-dashboard': { module: 'employee', action: 'view' },
+  'my-profile': { module: 'employee', action: 'view' },
+  'my-attendance': { module: 'attendance', action: 'view' },
+  'my-leave': { module: 'leave', action: 'view' },
+  'my-roster': { module: 'attendance', action: 'view' },
+  'my-payslips': { module: 'payroll', action: 'view' },
+  'my-help': { module: 'support', action: 'view' },
 };
+
+/** My Space pages — the only pages `own`-scoped roles can open (ROLES_PERMISSIONS.md §5). */
+export const SELF_SERVICE_PAGES: ReadonlySet<PageKey> = new Set<PageKey>([
+  'my-dashboard',
+  'my-profile',
+  'my-attendance',
+  'my-leave',
+  'my-roster',
+  'my-payslips',
+  'my-help',
+]);
+
+export interface PageAccessContext {
+  /** `own`-scoped roles only get My Space pages. */
+  selfServiceOnly: boolean;
+  /** My Space pages act on the signed-in user's own employee record. */
+  hasEmployeeRecord: boolean;
+}
+
+const FULL_ACCESS: PageAccessContext = { selfServiceOnly: false, hasEmployeeRecord: true };
 
 export function getPageViewPermission(page: PageKey): PagePermission | null {
   return PAGE_VIEW_PERMISSIONS[page] ?? null;
@@ -120,7 +147,13 @@ export function getPageViewPermission(page: PageKey): PagePermission | null {
 export function canViewPage(
   page: PageKey,
   can: (module: string, action: PermissionAction) => boolean,
+  access: PageAccessContext = FULL_ACCESS,
 ): boolean {
+  if (SELF_SERVICE_PAGES.has(page)) {
+    if (!access.hasEmployeeRecord) return false;
+  } else if (access.selfServiceOnly) {
+    return false;
+  }
   const required = getPageViewPermission(page);
   if (!required) return true;
   return can(required.module, required.action);

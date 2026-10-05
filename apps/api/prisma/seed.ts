@@ -335,6 +335,14 @@ const ROLE_PERMISSIONS: Record<string, ModulePermission[]> = {
 
 /** ROLES_PERMISSIONS.md §5 — roles limited to their reporting tree. */
 const TEAM_SCOPED_ROLES = new Set(['Manager']);
+/** ROLES_PERMISSIONS.md §5 — roles limited to their own record and self-service endpoints. */
+const OWN_SCOPED_ROLES = new Set(['Employee']);
+
+function seedDataScope(roleName: string): RoleDataScope {
+  if (OWN_SCOPED_ROLES.has(roleName)) return RoleDataScope.own;
+  if (TEAM_SCOPED_ROLES.has(roleName)) return RoleDataScope.team;
+  return RoleDataScope.all;
+}
 
 async function upsertRolePermissions(
   roleId: string,
@@ -882,7 +890,7 @@ async function main(): Promise<void> {
   ];
 
   for (const role of systemRoles) {
-    const dataScope = TEAM_SCOPED_ROLES.has(role.name) ? RoleDataScope.team : RoleDataScope.all;
+    const dataScope = seedDataScope(role.name);
     await prisma.role.upsert({
       where: { id: role.id },
       create: { ...role, dataScope },

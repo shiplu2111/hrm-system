@@ -5,7 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 
 export type EmployeeScope =
   | { kind: 'all' }
-  | { kind: 'team'; selfId: string | null; reportIds: string[] };
+  | { kind: 'team'; selfId: string | null; reportIds: string[] }
+  | { kind: 'own'; selfId: string | null };
 
 export interface ScopeOptions {
   /** Include the user's own employee record (reads); exclude it for approvals of own requests. */
@@ -14,7 +15,8 @@ export interface ScopeOptions {
 
 /**
  * ROLES_PERMISSIONS.md §5 — roles with `data_scope = team` only reach employees in their
- * reporting tree (direct + indirect reports via employees.manager_id).
+ * reporting tree (direct + indirect reports via employees.manager_id); `own` reaches only
+ * the user's own employee record.
  */
 @Injectable()
 export class DataScopeService {
@@ -35,6 +37,10 @@ export class DataScopeService {
     return (await this.resolve(user)).kind === 'all';
   }
 
+  async isOwnOnly(user: AuthenticatedUser): Promise<boolean> {
+    return (await this.resolve(user)).kind === 'own';
+  }
+
   /** Employee ids the user may reach, or `null` when unrestricted. */
   async employeeIds(
     user: AuthenticatedUser,
@@ -43,6 +49,7 @@ export class DataScopeService {
     const scope = await this.resolve(user);
     if (scope.kind === 'all') return null;
     const includeSelf = options.includeSelf ?? true;
+    if (scope.kind === 'own') return includeSelf && scope.selfId ? [scope.selfId] : [];
     return includeSelf && scope.selfId
       ? [scope.selfId, ...scope.reportIds]
       : [...scope.reportIds];
@@ -84,6 +91,9 @@ export class DataScopeService {
       where: { id: user.roleId },
       select: { dataScope: true },
     });
+    if (role?.dataScope === RoleDataScope.own) {
+      return { kind: 'own', selfId: user.employeeId ?? null };
+    }
     if (role?.dataScope !== RoleDataScope.team) return { kind: 'all' };
     if (!user.employeeId) return { kind: 'team', selfId: null, reportIds: [] };
 

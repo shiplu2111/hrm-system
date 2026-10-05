@@ -34,7 +34,7 @@ function accessStatus(access: EmployeePortalAccessView): { tone: StatusPillTone;
 }
 
 function portalName(roleName: string): string {
-  return roleName === EMPLOYEE_ROLE ? 'Employee Portal' : 'Company Admin portal';
+  return roleName === EMPLOYEE_ROLE ? 'Company Portal (My Space)' : 'Company Portal';
 }
 
 function formatDateTime(iso: string | null): string {

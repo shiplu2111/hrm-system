@@ -1,13 +1,17 @@
-import type { EmployeeKudosRecord, EmployeeRecord } from '@hrm/shared-types';
+import type {
+  EmployeeDirectoryEntry,
+  EmployeeKudosRecord,
+  EmployeeRecord,
+} from '@hrm/shared-types';
 import { request } from './client';
 
 export function getEmployee(employeeId: string): Promise<EmployeeRecord> {
   return request<EmployeeRecord>(`/employees/${employeeId}`);
 }
 
-export function listCompanyEmployees(companyId: string): Promise<EmployeeRecord[]> {
-  return request<EmployeeRecord[]>(
-    `/employees?companyId=${encodeURIComponent(companyId)}`,
+export function listCompanyEmployees(companyId: string): Promise<EmployeeDirectoryEntry[]> {
+  return request<EmployeeDirectoryEntry[]>(
+    `/companies/${encodeURIComponent(companyId)}/employee-directory`,
   );
 }
 

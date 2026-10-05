@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EmploymentStatus, Prisma } from '@prisma/client';
+import type { EmployeeDirectoryEntry } from '@hrm/shared-types';
 import { SubscriptionService } from '../billing/subscription.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
@@ -57,6 +58,27 @@ export class EmployeesService {
     });
 
     return rows.map((row) => this.toEmployeeResponse(row));
+  }
+
+  /** Active colleagues for pickers (e.g. kudos); exposes names and job titles only. */
+  async listDirectory(companyId: string): Promise<EmployeeDirectoryEntry[]> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    const rows = await this.prisma.scoped.employee.findMany({
+      where: { companyId, deletedAt: null, employmentStatus: EmploymentStatus.active },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      select: {
+        id: true,
+        companyId: true,
+        firstName: true,
+        lastName: true,
+        department: { select: { id: true, name: true } },
+        designation: { select: { id: true, name: true } },
+      },
+    });
+    return rows.map((row) => ({
+      ...row,
+      fullName: `${row.firstName} ${row.lastName}`.trim(),
+    }));
   }
 
   async getEmployee(id: string) {

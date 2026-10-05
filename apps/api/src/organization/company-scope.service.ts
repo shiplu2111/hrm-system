@@ -21,9 +21,14 @@ export class CompanyScopeService {
     return tenantId;
   }
 
-  async listCompanies() {
+  /** `onlyEmployeeId` limits the list to that employee's company (`own`-scoped roles). */
+  async listCompanies(options: { onlyEmployeeId?: string | null } = {}) {
     this.requireTenantId();
+    if (options.onlyEmployeeId === null) return [];
     return this.prisma.scoped.company.findMany({
+      where: options.onlyEmployeeId
+        ? { employees: { some: { id: options.onlyEmployeeId, deletedAt: null } } }
+        : undefined,
       orderBy: { name: 'asc' },
       select: {
         id: true,

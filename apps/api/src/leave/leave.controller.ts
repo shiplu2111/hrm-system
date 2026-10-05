@@ -16,7 +16,7 @@ import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { DataScopeService } from '../rbac/data-scope.service';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   AccrueLeaveQueryDto,
   CreateLeavePolicyDto,
@@ -40,6 +40,7 @@ import { LeaveTypesService } from './leave-types.service';
 export class LeaveTypesController {
   constructor(private readonly leaveTypesService: LeaveTypesService) {}
 
+  @SelfService()
   @Get()
   @RequirePermission('leave', 'view')
   async list(@Param('companyId', ParseUUIDPipe) companyId: string) {
@@ -120,6 +121,7 @@ export class LeaveBalancesController {
     private readonly dataScope: DataScopeService,
   ) {}
 
+  @SelfService()
   @Get('employees/:employeeId/leave-balances')
   @RequirePermission('leave', 'view')
   @ApiOperation({ summary: 'Leave balances with accrual applied as of today' })
@@ -168,6 +170,7 @@ export class LeaveRequestsController {
     private readonly dataScope: DataScopeService,
   ) {}
 
+  @SelfService()
   @Get('companies/:companyId/leave-requests')
   @RequirePermission('leave', 'view')
   async list(
@@ -198,6 +201,7 @@ export class LeaveRequestsController {
     return { data: await this.leaveRequestsService.listApprovals(companyId, user) };
   }
 
+  @SelfService()
   @Get('leave-requests/:requestId')
   @RequirePermission('leave', 'view')
   async get(
@@ -207,6 +211,7 @@ export class LeaveRequestsController {
     return { data: await this.leaveRequestsService.get(requestId, user) };
   }
 
+  @SelfService()
   @Post('employees/:employeeId/leave-requests/preview')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('leave', 'create')
@@ -221,6 +226,7 @@ export class LeaveRequestsController {
     return { data: await this.leaveRequestsService.preview(employeeId, dto, user) };
   }
 
+  @SelfService()
   @Post('employees/:employeeId/leave-requests')
   @RequirePermission('leave', 'create')
   async create(
@@ -231,6 +237,7 @@ export class LeaveRequestsController {
     return { data: await this.leaveRequestsService.create(employeeId, dto, user) };
   }
 
+  @SelfService()
   @Post('leave-requests/:requestId/submit')
   @RequirePermission('leave', 'create')
   async submit(
@@ -260,6 +267,7 @@ export class LeaveRequestsController {
     return { data: await this.leaveRequestsService.reject(requestId, user, dto) };
   }
 
+  @SelfService()
   @Post('leave-requests/:requestId/cancel')
   @RequirePermission('leave', 'create')
   async cancel(

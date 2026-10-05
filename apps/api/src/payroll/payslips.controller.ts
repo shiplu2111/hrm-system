@@ -11,7 +11,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { DataScopeService } from '../rbac/data-scope.service';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { ListPayslipsQueryDto } from './dto/payslips.dto';
 import { PayslipService } from './payslip.service';
 
@@ -19,17 +20,24 @@ import { PayslipService } from './payslip.service';
 @ApiBearerAuth('access-token')
 @Controller()
 export class PayslipsController {
-  constructor(private readonly payslipService: PayslipService) {}
+  constructor(
+    private readonly payslipService: PayslipService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
+  @SelfService()
   @Get('employees/:employeeId/payslips')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'List payslips for an employee (MODULES.md §19)' })
   async listForEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.payslipService.listForEmployee(employeeId) };
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
+    return { data: await this.payslipService.listForEmployee(employeeId, user) };
   }
 
+  @SelfService()
   @Get('employees/:employeeId/payslips/:payslipId/download')
   @RequirePermission('payroll', 'view')
   @ApiOperation({
@@ -41,6 +49,7 @@ export class PayslipsController {
     @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
   ): Promise<void> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
     const { buffer, meta, filename } =
       await this.payslipService.downloadPayslipFile(employeeId, payslipId, user);
     res.setHeader('Content-Type', meta.contentType ?? 'application/pdf');

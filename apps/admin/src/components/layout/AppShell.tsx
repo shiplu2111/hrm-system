@@ -6,10 +6,10 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { HelpWidget } from '@/components/support/HelpWidget';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { canViewPage } from '@/config/page-permissions';
 import { useCompany } from '@/context/CompanyContext';
 import { useNav } from '@/context/NavContext';
 import { useTenant } from '@/context/TenantContext';
+import { usePageAccess } from '@/hooks/usePageAccess';
 
 export function AppShell({
   children,
@@ -24,7 +24,8 @@ export function AppShell({
   const { company } = useCompany();
   const { current, navigate } = useNav();
   const { can } = usePermissions();
-  const pageAllowed = canViewPage(current, can);
+  const { canView, homePage } = usePageAccess();
+  const pageAllowed = canView(current);
   const footerLabel =
     currentTenant?.tenantName ?? company?.name ?? 'Company Admin';
 
@@ -47,21 +48,24 @@ export function AppShell({
           ) : pageAllowed ? (
             // Remount every page per organization session so no screen keeps the previous tenant's state.
             <Fragment key={tenantKey}>{children}</Fragment>
-          ) : (
+          ) : current === 'dashboard' && canView(homePage) ? null : (
             <EmptyState
               icon={ShieldOff}
               title="You don't have access to this page"
               description="Your role doesn't include the permission this screen needs. Ask a Company Owner if you think this is a mistake."
               action={
-                current !== 'dashboard' && canViewPage('dashboard', can)
-                  ? { label: 'Go to dashboard', onClick: () => navigate('dashboard') }
+                current !== homePage && canView(homePage)
+                  ? {
+                      label: homePage === 'dashboard' ? 'Go to dashboard' : 'Go to My Space',
+                      onClick: () => navigate(homePage),
+                    }
                   : undefined
               }
             />
           )}
           <footer className="px-6 py-4 text-center text-[10px] text-muted border-t border-base">
             {footerLabel} · Powered by{' '}
-            <span className="font-semibold text-accent-600">Nexus HR</span>
+            <span className="font-semibold text-accent-600">CMSN-HR</span>
           </footer>
         </main>
       </div>

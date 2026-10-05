@@ -13,8 +13,9 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { ORG_LOOKUP_READERS } from '../rbac/lookup-permissions';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { CompanyScopeService } from './company-scope.service';
 import { OrgChartService } from './org-chart.service';
 import {
@@ -39,13 +40,22 @@ export class OrganizationController {
     private readonly organizationService: OrganizationService,
     private readonly companyScope: CompanyScopeService,
     private readonly orgChartService: OrgChartService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
+  @SelfService()
   @Get('companies')
   @RequirePermission('settings', 'view', { orAnyOf: ORG_LOOKUP_READERS })
-  @ApiOperation({ summary: 'List companies for the authenticated tenant' })
-  async listCompanies() {
-    return { data: await this.companyScope.listCompanies() };
+  @ApiOperation({
+    summary: 'List companies for the authenticated tenant (own-scoped roles see only their own)',
+  })
+  async listCompanies(@CurrentUser() user: AuthenticatedUser) {
+    const ownOnly = await this.dataScope.isOwnOnly(user);
+    return {
+      data: await this.companyScope.listCompanies(
+        ownOnly ? { onlyEmployeeId: user.employeeId ?? null } : {},
+      ),
+    };
   }
 
   @Get('companies/:companyId/org-chart')

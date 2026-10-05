@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@hrm/i18n": "*",
     "@hrm/portal-ui": "*",
     "@hrm/shared-types": "*",
     "@supabase/supabase-js": "^2.57.4",

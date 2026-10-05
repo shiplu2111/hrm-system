@@ -2,10 +2,8 @@ import {
   AuthProvider,
   ForcedPasswordChangePage,
   PortalLoginPage,
-  isAdminPortalUser,
   useAuth,
 } from '@hrm/portal-ui';
-import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { CompanyProvider } from '@/context/CompanyContext';
@@ -13,6 +11,13 @@ import { TenantProvider } from '@/context/TenantContext';
 import { NavProvider } from '@/context/NavContext';
 import { AppShell } from '@/components/layout/AppShell';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { MyDashboardPage } from '@/pages/my/MyDashboardPage';
+import { MyProfilePage } from '@/pages/my/MyProfilePage';
+import { MyAttendancePage } from '@/pages/my/MyAttendancePage';
+import { MyLeavePage } from '@/pages/my/MyLeavePage';
+import { MyRosterPage } from '@/pages/my/MyRosterPage';
+import { MyPayslipsPage } from '@/pages/my/MyPayslipsPage';
+import { MyHelpPage } from '@/pages/my/MyHelpPage';
 import { CompanyProfilePage } from '@/pages/org/CompanyProfilePage';
 import { DepartmentsPage } from '@/pages/org/DepartmentsPage';
 import { DesignationsPage } from '@/pages/org/DesignationsPage';
@@ -103,6 +108,14 @@ function PageRoutes() {
   return (
     <Routes>
       <Route path="/" element={<DashboardPage />} />
+
+      <Route path="/my" element={<MyDashboardPage />} />
+      <Route path="/my/profile" element={<MyProfilePage />} />
+      <Route path="/my/attendance" element={<MyAttendancePage />} />
+      <Route path="/my/leave" element={<MyLeavePage />} />
+      <Route path="/my/roster" element={<MyRosterPage />} />
+      <Route path="/my/payslips" element={<MyPayslipsPage />} />
+      <Route path="/my/help" element={<MyHelpPage />} />
 
       <Route path="/employees/directory" element={<EmployeeDirectoryPage />} />
       <Route path="/employees/lifecycle" element={<LifecycleEventsPage />} />
@@ -218,12 +231,6 @@ function PageRoutes() {
 
 function AdminApp() {
   const { isAuthenticated, login, logout, user, changePassword } = useAuth();
-
-  useEffect(() => {
-    if (isAuthenticated && user && !isAdminPortalUser(user)) {
-      logout();
-    }
-  }, [isAuthenticated, user, logout]);
 
   if (!isAuthenticated) {
     return <PortalLoginPage portal="admin" onLogin={login} />;

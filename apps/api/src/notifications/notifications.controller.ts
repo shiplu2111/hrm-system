@@ -14,7 +14,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   RegisterPushTokenDto,
   UnregisterPushTokenDto,
@@ -24,6 +24,7 @@ import { PushDeviceTokensService } from './push-device-tokens.service';
 
 @ApiTags('notifications')
 @ApiBearerAuth('access-token')
+@SelfService()
 @Controller('notifications')
 export class NotificationsController {
   constructor(

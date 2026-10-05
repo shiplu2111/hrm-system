@@ -350,6 +350,11 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Payslip and tax document access
 - Roster viewing, shift swap requests, overtime requests
 
+**Implementation notes:**
+- There is one web panel. ESS lives in the admin panel as the **My Space** menu group (`/my`, `/my/profile`, `/my/attendance`, `/my/leave`, `/my/roster`, `/my/payslips`, `/my/help`), in English or Bengali via `@hrm/i18n`. The former employee portal was removed; `apps/web` is now the public marketing website (Next.js), whose "Sign in" links point to the admin panel.
+- Every user with an employee record gets My Space; users whose role has `data_scope = own` (the default Employee role) see only My Space and land on it. The API enforces this with `@SelfService()` endpoints and `403 OWN_SCOPE_FORBIDDEN` elsewhere (ROLES_PERMISSIONS.md §5).
+- My Space covers: dashboard (today's shift, clock in/out and breaks, leave balances, upcoming leave, latest payslip, notifications, company news, surveys, kudos), profile, attendance, leave application with live balance preview and cancellation, the next 14 days of roster, payslip downloads, and help articles and support tickets.
+
 ## 25. Performance Management
 
 **Phase:** Phase 3

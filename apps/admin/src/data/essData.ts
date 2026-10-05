@@ -153,7 +153,7 @@ export const essMonthlyHeatmap: DayAttendance[] = [
 export const essTimesheetEntries: TimesheetDayRow[] = [
   {
     id: 'ts-1',
-    project: 'Nexus HR Platform v2.0',
+    project: 'CMSN-HR Platform v2.0',
     task: 'Architecture Review & ESS Refactor',
     billable: true,
     hours: { mon: 8, tue: 8, wed: 8, thu: 7.5, fri: 8, sat: 0, sun: 0 },
