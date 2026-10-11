@@ -10,6 +10,7 @@ describe('CertificationExpiryAlertsService', () => {
     unscoped: {
       employeeCertification: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
       },
     },
@@ -23,6 +24,7 @@ describe('CertificationExpiryAlertsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.unscoped.employeeCertification.findFirst.mockResolvedValue(null);
     service = new CertificationExpiryAlertsService(
       prisma as never,
       notificationEngine as never,
@@ -62,6 +64,25 @@ describe('CertificationExpiryAlertsService', () => {
       where: { id: 'cert-1' },
       data: { expiryAlertSentAt: expect.any(Date) },
     });
+  });
+
+  it('skips a certificate that has already been renewed', async () => {
+    prisma.unscoped.employeeCertification.findMany.mockResolvedValue([
+      {
+        id: 'cert-old',
+        employeeId: 'emp-1',
+        name: 'First Aid at Work',
+        expiryDate: new Date('2026-09-20T00:00:00.000Z'),
+        employee: { id: 'emp-1', firstName: 'Jordan', lastName: 'Lee', companyId: 'c', tenantId: 't' },
+      },
+    ]);
+    prisma.unscoped.employeeCertification.findFirst.mockResolvedValue({ id: 'cert-new' });
+
+    const sent = await service.processExpiringCertifications(new Date('2026-09-07T12:00:00.000Z'));
+
+    expect(sent).toBe(0);
+    expect(notificationEngine.emit).not.toHaveBeenCalled();
+    expect(prisma.unscoped.employeeCertification.update).not.toHaveBeenCalled();
   });
 
   it('skips when no certifications are in the warning window', async () => {

@@ -44,6 +44,7 @@ export class CertificationExpiryAlertsService {
         status: 'active',
         expiryDate: { gte: today, lte: windowEnd },
         expiryAlertSentAt: null,
+        employee: { deletedAt: null, employmentStatus: { not: 'terminated' } },
       },
       include: {
         employee: {
@@ -61,6 +62,18 @@ export class CertificationExpiryAlertsService {
     let sent = 0;
     for (const certification of certifications) {
       if (!certification.expiryDate) continue;
+
+      const renewal = await this.prisma.unscoped.employeeCertification.findFirst({
+        where: {
+          id: { not: certification.id },
+          employeeId: certification.employeeId,
+          name: { equals: certification.name, mode: 'insensitive' },
+          status: { not: 'revoked' },
+          OR: [{ expiryDate: null }, { expiryDate: { gt: certification.expiryDate } }],
+        },
+        select: { id: true },
+      });
+      if (renewal) continue;
 
       const employeeName =
         `${certification.employee.firstName} ${certification.employee.lastName}`.trim();

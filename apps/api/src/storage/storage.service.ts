@@ -39,6 +39,14 @@ export class StorageService {
     return buildStorageKey(tenantId, 'expenses', claimId, originalFilename);
   }
 
+  buildCertificationFileKey(
+    tenantId: string,
+    certificationId: string,
+    originalFilename: string,
+  ): string {
+    return buildStorageKey(tenantId, 'certifications', certificationId, originalFilename);
+  }
+
   buildApplicationResumeKey(
     tenantId: string,
     applicationId: string,

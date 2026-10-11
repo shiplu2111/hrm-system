@@ -167,7 +167,8 @@ export const adminNavItems: AdminNavItem[] = [
     children: [
       { label: 'Course catalog', labelKey: 'shell.nav.trainingCatalog', page: 'training-catalog' },
       { label: 'Attendance & costs', labelKey: 'shell.nav.trainingSessions', page: 'training-sessions' },
-      { label: 'Certifications & skills', labelKey: 'shell.nav.trainingCertifications', page: 'training' },
+      { label: 'Certification tracker', labelKey: 'shell.nav.trainingCertifications', page: 'training-certifications' },
+      { label: 'Skill matrix', labelKey: 'shell.nav.trainingSkills', page: 'training-skills' },
     ],
   },
   {

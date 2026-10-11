@@ -153,6 +153,23 @@ export type SkillProficiencyLevel =
 
 export type EmployeeCertificationStatus = 'active' | 'expired' | 'revoked';
 
+/** Days before expiry when a certificate shows as expiring and the alert is sent. */
+export const CERTIFICATION_EXPIRY_WARNING_DAYS = 30;
+
+/**
+ * Display state derived from the expiry date: valid, no expiry, expiring within
+ * `CERTIFICATION_EXPIRY_WARNING_DAYS`, expired (from the day after expiry), or revoked.
+ */
+export type CertificationExpiryState = 'valid' | 'no_expiry' | 'expiring_soon' | 'expired' | 'revoked';
+
+export const SKILL_PROFICIENCY_LEVELS: SkillProficiencyLevel[] = [
+  'none',
+  'beginner',
+  'intermediate',
+  'advanced',
+  'expert',
+];
+
 export interface SkillRecord {
   id: string;
   companyId: string;
@@ -160,6 +177,8 @@ export interface SkillRecord {
   category: string | null;
   description: string | null;
   assignmentCount: number;
+  /** Designations with a target level for this skill. */
+  targetCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -195,9 +214,88 @@ export interface EmployeeCertificationRecord {
   certificateNumber: string | null;
   issuedAt: string | null;
   expiryDate: string | null;
+  /** `expired` once the expiry date has passed, whatever was stored. */
   status: EmployeeCertificationStatus;
+  expiryState: CertificationExpiryState;
+  /** Days left until expiry; negative once expired; null without an expiry date. */
   daysUntilExpiry: number | null;
+  /** Set when a newer certificate with the same name replaces this one (a renewal). */
+  supersededById: string | null;
   notes: string | null;
+  /** The uploaded certificate (PDF, JPG or PNG), if any. */
+  file: CertificationFileInfo | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CertificationFileInfo {
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+}
+
+/** Levels a designation can be expected to reach (`none` is not a target). */
+export const SKILL_TARGET_LEVELS: SkillProficiencyLevel[] = ['beginner', 'intermediate', 'advanced', 'expert'];
+
+export interface DesignationSkillTargetRecord {
+  id: string;
+  companyId: string;
+  designationId: string;
+  designationName: string;
+  skillId: string;
+  skillName: string;
+  skillCategory: string | null;
+  targetLevel: SkillProficiencyLevel;
+  updatedAt: string;
+}
+
+export type SkillGapStatus = 'met' | 'below' | 'not_assessed';
+
+export interface SkillGapItem {
+  skillId: string;
+  skillName: string;
+  skillCategory: string | null;
+  targetLevel: SkillProficiencyLevel;
+  currentLevel: SkillProficiencyLevel | null;
+  assessedAt: string | null;
+  status: SkillGapStatus;
+  /** Levels short of the target; 0 when met. Not assessed counts from `none`. */
+  gap: number;
+}
+
+export interface EmployeeSkillGapRow {
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  departmentName: string | null;
+  designationId: string;
+  designationName: string;
+  targetCount: number;
+  metCount: number;
+  /** Sum of `gap` over the employee's targets. */
+  totalGap: number;
+  items: SkillGapItem[];
+}
+
+export interface SkillGapBySkill {
+  skillId: string;
+  skillName: string;
+  skillCategory: string | null;
+  targetedEmployees: number;
+  belowCount: number;
+  notAssessedCount: number;
+}
+
+export interface SkillGapReport {
+  employees: EmployeeSkillGapRow[];
+  skills: SkillGapBySkill[];
+  summary: {
+    employeesWithTargets: number;
+    employeesMeetingAll: number;
+    openGaps: number;
+    designationsWithTargets: number;
+    /** Current employees whose designation has no targets, or who have no designation. */
+    employeesWithoutTargets: number;
+  };
 }

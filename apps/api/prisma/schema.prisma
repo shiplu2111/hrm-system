@@ -118,6 +118,7 @@ model Tenant {
   skills                      Skill[]
   employeeSkills              EmployeeSkill[]
   employeeCertifications      EmployeeCertification[]
+  designationSkillTargets     DesignationSkillTarget[]
   hrCases                     HrCase[]
   hrCaseNotes                 HrCaseNote[]
   hrCaseParties               HrCaseParty[]
@@ -329,6 +330,7 @@ model Company {
   skills                        Skill[]
   employeeSkills                EmployeeSkill[]
   employeeCertifications        EmployeeCertification[]
+  designationSkillTargets       DesignationSkillTarget[]
   hrCases                       HrCase[]
   hrCaseDisciplinaryActions     HrCaseDisciplinaryAction[]
   companyAnnouncements          CompanyAnnouncement[]
@@ -437,6 +439,7 @@ model Designation {
   jobRequisitions JobRequisition[]
   offerLetters    OfferLetter[]
   performanceReviewRecommendations EmployeePerformanceReview[]
+  skillTargets                     DesignationSkillTarget[]
 
   @@index([companyId])
   @@index([departmentId])
@@ -3999,6 +4002,7 @@ model Skill {
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employeeSkills EmployeeSkill[]
+  designationTargets DesignationSkillTarget[]
 
   @@unique([companyId, name])
   @@index([tenantId])
@@ -4034,6 +4038,29 @@ model EmployeeSkill {
   @@map("employee_skills")
 }
 
+/// Level a designation is expected to reach in a skill; drives the skill-gap report.
+model DesignationSkillTarget {
+  id            String                @id @default(uuid()) @db.Uuid
+  tenantId      String                @map("tenant_id") @db.Uuid
+  companyId     String                @map("company_id") @db.Uuid
+  designationId String                @map("designation_id") @db.Uuid
+  skillId       String                @map("skill_id") @db.Uuid
+  targetLevel   SkillProficiencyLevel @map("target_level")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  designation Designation @relation(fields: [designationId], references: [id], onDelete: Cascade)
+  skill       Skill       @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([designationId, skillId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([skillId])
+  @@map("designation_skill_targets")
+}
+
 /// Employee-held certification with optional expiry tracking.
 model EmployeeCertification {
   id                String                      @id @default(uuid()) @db.Uuid
@@ -4049,6 +4076,11 @@ model EmployeeCertification {
   status            EmployeeCertificationStatus @default(active)
   expiryAlertSentAt DateTime?                   @map("expiry_alert_sent_at")
   notes             String?
+  fileKey           String?                     @map("file_key")
+  fileName          String?                     @map("file_name")
+  fileContentType   String?                     @map("file_content_type")
+  fileSizeBytes     Int?                        @map("file_size_bytes")
+  fileUploadedAt    DateTime?                   @map("file_uploaded_at")
   createdAt         DateTime                    @default(now()) @map("created_at")
   updatedAt         DateTime                    @updatedAt @map("updated_at")
 

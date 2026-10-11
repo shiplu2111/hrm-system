@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,12 +8,19 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { DOCUMENT_FILE_POLICY } from '../storage/document-file.policy';
 import {
   CreateTrainingCourseDto,
   CreateTrainingSessionCostDto,
@@ -35,12 +43,14 @@ import {
   ListCertificationsQueryDto,
   CreateEmployeeCertificationDto,
   UpdateEmployeeCertificationDto,
+  ListSkillTargetsQueryDto,
+  SetSkillTargetDto,
 } from './dto/training.dto';
 import { TrainingSessionsService } from './training-sessions.service';
 import { TrainingService } from './training.service';
 import { TrainingCertificationsService } from './training-certifications.service';
+import { TrainingSkillTargetsService } from './training-skill-targets.service';
 import { TrainingSkillsService } from './training-skills.service';
-import { CertificationExpiryAlertsService } from './certification-expiry-alerts.service';
 
 @ApiTags('training')
 @ApiBearerAuth('access-token')
@@ -51,6 +61,7 @@ export class TrainingController {
     private readonly trainingSessionsService: TrainingSessionsService,
     private readonly trainingCertificationsService: TrainingCertificationsService,
     private readonly trainingSkillsService: TrainingSkillsService,
+    private readonly trainingSkillTargetsService: TrainingSkillTargetsService,
   ) {}
 
   @Get('companies/:companyId/training/summary')
@@ -266,6 +277,16 @@ export class TrainingController {
     return { data: await this.trainingSkillsService.updateSkill(skillId, dto, user) };
   }
 
+  @Delete('training/skills/:skillId')
+  @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Remove a skill from the catalog along with its ratings and targets' })
+  async deleteSkill(
+    @Param('skillId', ParseUUIDPipe) skillId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingSkillsService.deleteSkill(skillId, user) };
+  }
+
   @Get('companies/:companyId/training/employee-skills')
   @RequirePermission('training', 'view')
   async listEmployeeSkills(
@@ -280,6 +301,7 @@ export class TrainingController {
 
   @Post('companies/:companyId/training/employee-skills')
   @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Set an employee’s level for a skill (creates or updates the matrix cell)' })
   async upsertEmployeeSkill(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Body() dto: UpsertEmployeeSkillDto,
@@ -360,5 +382,90 @@ export class TrainingController {
   ) {
     await this.trainingCertificationsService.deleteCertification(certificationId, user);
     return { data: { deleted: true } };
+  }
+
+  @Post('training/certifications/:certificationId/file')
+  @RequirePermission('training', 'edit')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Attach the certificate file (PDF, JPG or PNG, up to 10 MB), replacing any earlier one' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: DOCUMENT_FILE_POLICY.maxBytes } }))
+  async uploadCertificationFile(
+    @Param('certificationId', ParseUUIDPipe) certificationId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (!file) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Certificate file is required' });
+    }
+    return { data: await this.trainingCertificationsService.uploadFile(certificationId, file, user) };
+  }
+
+  @Get('training/certifications/:certificationId/file')
+  @RequirePermission('training', 'view')
+  @ApiOperation({ summary: 'Stream the certificate file for viewing or download' })
+  async downloadCertificationFile(
+    @Param('certificationId', ParseUUIDPipe) certificationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+    @Query('disposition') disposition?: string,
+  ): Promise<void> {
+    const { buffer, contentType, filename } = await this.trainingCertificationsService.readFile(certificationId, user);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const asciiName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '');
+    res.setHeader(
+      'Content-Disposition',
+      `${disposition === 'attachment' ? 'attachment' : 'inline'}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.send(buffer);
+  }
+
+  @Delete('training/certifications/:certificationId/file')
+  @RequirePermission('training', 'edit')
+  async removeCertificationFile(
+    @Param('certificationId', ParseUUIDPipe) certificationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingCertificationsService.removeFile(certificationId, user) };
+  }
+
+  @Get('companies/:companyId/training/skill-targets')
+  @RequirePermission('training', 'view')
+  async listSkillTargets(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListSkillTargetsQueryDto,
+  ) {
+    return { data: await this.trainingSkillTargetsService.listTargets(companyId, query) };
+  }
+
+  @Put('companies/:companyId/training/skill-targets')
+  @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Set the level a designation should reach in a skill' })
+  async setSkillTarget(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: SetSkillTargetDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingSkillTargetsService.setTarget(companyId, dto, user) };
+  }
+
+  @Delete('training/skill-targets/:targetId')
+  @RequirePermission('training', 'edit')
+  async deleteSkillTarget(
+    @Param('targetId', ParseUUIDPipe) targetId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.trainingSkillTargetsService.deleteTarget(targetId, user);
+    return { data: { deleted: true } };
+  }
+
+  @Get('companies/:companyId/training/skill-gaps')
+  @RequirePermission('training', 'view')
+  @ApiOperation({ summary: 'Current employees against their designation’s skill targets' })
+  async getSkillGapReport(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingSkillTargetsService.getGapReport(companyId, user) };
   }
 }

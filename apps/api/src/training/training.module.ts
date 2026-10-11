@@ -4,21 +4,24 @@ import { CurrencyModule } from '../currency/currency.module';
 import { PrismaModule } from '../database/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationModule } from '../organization/organization.module';
+import { StorageModule } from '../storage/storage.module';
 import { CertificationExpiryAlertsService } from './certification-expiry-alerts.service';
 import { TrainingCertificationsService } from './training-certifications.service';
 import { TrainingController } from './training.controller';
 import { TrainingSessionsService } from './training-sessions.service';
+import { TrainingSkillTargetsService } from './training-skill-targets.service';
 import { TrainingSkillsService } from './training-skills.service';
 import { TrainingService } from './training.service';
 
 @Module({
-  imports: [PrismaModule, OrganizationModule, AuditModule, NotificationsModule, CurrencyModule],
+  imports: [PrismaModule, OrganizationModule, AuditModule, NotificationsModule, CurrencyModule, StorageModule],
   controllers: [TrainingController],
   providers: [
     TrainingService,
     TrainingSessionsService,
     TrainingCertificationsService,
     TrainingSkillsService,
+    TrainingSkillTargetsService,
     CertificationExpiryAlertsService,
   ],
   exports: [
@@ -26,6 +29,7 @@ import { TrainingService } from './training.service';
     TrainingSessionsService,
     TrainingCertificationsService,
     TrainingSkillsService,
+    TrainingSkillTargetsService,
     CertificationExpiryAlertsService,
   ],
 })

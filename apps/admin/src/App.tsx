@@ -98,7 +98,8 @@ import { Feedback360Page } from '@/pages/talent/Feedback360Page';
 import { KpiGoalsPage } from '@/pages/talent/KpiGoalsPage';
 import { ReviewCyclesPage } from '@/pages/talent/ReviewCyclesPage';
 import { PerformanceAssessmentsPage } from '@/pages/talent/PerformanceAssessmentsPage';
-import { TrainingCertificationPage } from '@/pages/talent/TrainingCertificationPage';
+import { TrainingCertificationsPage } from '@/pages/talent/TrainingCertificationsPage';
+import { TrainingSkillMatrixPage } from '@/pages/talent/TrainingSkillMatrixPage';
 import { TrainingCatalogPage } from '@/pages/talent/TrainingCatalogPage';
 import { TrainingAttendancePage } from '@/pages/talent/TrainingAttendancePage';
 import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
@@ -217,9 +218,11 @@ function PageRoutes() {
       <Route path="/talent/performance/goals" element={<KpiGoalsPage />} />
       <Route path="/talent/performance/cycles" element={<ReviewCyclesPage />} />
       <Route path="/talent/performance/assessments" element={<PerformanceAssessmentsPage />} />
-      <Route path="/talent/training" element={<TrainingCertificationPage />} />
+      <Route path="/talent/training" element={<Navigate to="/talent/training/catalog" replace />} />
       <Route path="/talent/training/catalog" element={<TrainingCatalogPage />} />
       <Route path="/talent/training/sessions" element={<TrainingAttendancePage />} />
+      <Route path="/talent/training/certifications" element={<TrainingCertificationsPage />} />
+      <Route path="/talent/training/skills" element={<TrainingSkillMatrixPage />} />
       <Route path="/talent/employee-relations" element={<EmployeeRelationsPage />} />
       <Route path="/talent/engagement" element={<EmployeeEngagementPage />} />
       <Route path="/talent/health-safety" element={<HealthSafetyPage />} />

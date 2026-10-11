@@ -1,7 +1,10 @@
 import type {
+  CertificationExpiryState,
+  DesignationSkillTargetRecord,
   EmployeeCertificationRecord,
   EmployeeCertificationStatus,
   EmployeeSkillRecord,
+  SkillGapReport,
   SkillProficiencyLevel,
   SkillRecord,
   TrainingAttendanceMarkStatus,
@@ -16,7 +19,8 @@ import type {
   TrainingSessionStatus,
   TrainingSummary,
 } from '@hrm/shared-types';
-import { tenantApiRequest } from './tenant-api-client';
+import { fetchTenantFile, type DownloadedFile } from './download';
+import { ApiError, getTenantAccessToken, tenantApiRequest } from './tenant-api-client';
 
 export const DELIVERY_MODE_LABELS: Record<TrainingCourseDeliveryMode, string> = {
   self_paced: 'Self-paced',
@@ -66,6 +70,14 @@ export const SKILL_LEVEL_LABELS: Record<SkillProficiencyLevel, string> = {
 
 export const CERTIFICATION_STATUS_LABELS: Record<EmployeeCertificationStatus, string> = {
   active: 'Active',
+  expired: 'Expired',
+  revoked: 'Revoked',
+};
+
+export const CERTIFICATION_EXPIRY_STATE_LABELS: Record<CertificationExpiryState, string> = {
+  valid: 'Valid',
+  no_expiry: 'No expiry',
+  expiring_soon: 'Expiring soon',
   expired: 'Expired',
   revoked: 'Revoked',
 };
@@ -294,6 +306,49 @@ export function createSkill(
   });
 }
 
+export function updateSkill(
+  skillId: string,
+  input: { name?: string; category?: string | null; description?: string | null },
+): Promise<SkillRecord> {
+  return tenantApiRequest<SkillRecord>(`/training/skills/${skillId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Removes the skill with all of its ratings and designation targets. */
+export function deleteSkill(skillId: string): Promise<{ removedRatings: number; removedTargets: number }> {
+  return tenantApiRequest<{ removedRatings: number; removedTargets: number }>(`/training/skills/${skillId}`, {
+    method: 'DELETE',
+  });
+}
+
+export function listSkillTargets(
+  companyId: string,
+  params?: { designationId?: string },
+): Promise<DesignationSkillTargetRecord[]> {
+  const query = params?.designationId ? `?designationId=${encodeURIComponent(params.designationId)}` : '';
+  return tenantApiRequest<DesignationSkillTargetRecord[]>(`/companies/${companyId}/training/skill-targets${query}`);
+}
+
+export function setSkillTarget(
+  companyId: string,
+  input: { designationId: string; skillId: string; targetLevel: SkillProficiencyLevel },
+): Promise<DesignationSkillTargetRecord> {
+  return tenantApiRequest<DesignationSkillTargetRecord>(`/companies/${companyId}/training/skill-targets`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteSkillTarget(targetId: string): Promise<{ deleted: boolean }> {
+  return tenantApiRequest<{ deleted: boolean }>(`/training/skill-targets/${targetId}`, { method: 'DELETE' });
+}
+
+export function getSkillGapReport(companyId: string): Promise<SkillGapReport> {
+  return tenantApiRequest<SkillGapReport>(`/companies/${companyId}/training/skill-gaps`);
+}
+
 export function listEmployeeSkills(
   companyId: string,
   params?: { employeeId?: string; skillId?: string; level?: SkillProficiencyLevel },
@@ -308,6 +363,7 @@ export function listEmployeeSkills(
   );
 }
 
+/** Sets a matrix cell; the assessed date defaults to today. */
 export function upsertEmployeeSkill(
   companyId: string,
   input: {
@@ -315,7 +371,7 @@ export function upsertEmployeeSkill(
     skillId: string;
     level: SkillProficiencyLevel;
     assessedAt?: string;
-    notes?: string;
+    notes?: string | null;
   },
 ): Promise<EmployeeSkillRecord> {
   return tenantApiRequest<EmployeeSkillRecord>(`/companies/${companyId}/training/employee-skills`, {
@@ -324,36 +380,61 @@ export function upsertEmployeeSkill(
   });
 }
 
+export function deleteEmployeeSkill(assignmentId: string): Promise<{ deleted: boolean }> {
+  return tenantApiRequest<{ deleted: boolean }>(`/training/employee-skills/${assignmentId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function listCertifications(
   companyId: string,
   params?: {
     employeeId?: string;
     status?: EmployeeCertificationStatus;
+    expiryState?: CertificationExpiryState;
     expiringOnly?: boolean;
+    currentOnly?: boolean;
   },
 ): Promise<EmployeeCertificationRecord[]> {
   const search = new URLSearchParams();
   if (params?.employeeId) search.set('employeeId', params.employeeId);
   if (params?.status) search.set('status', params.status);
+  if (params?.expiryState) search.set('expiryState', params.expiryState);
   if (params?.expiringOnly) search.set('expiringOnly', 'true');
+  if (params?.currentOnly) search.set('currentOnly', 'true');
   const query = search.toString();
   return tenantApiRequest<EmployeeCertificationRecord[]>(
     `/companies/${companyId}/training/certifications${query ? `?${query}` : ''}`,
   );
 }
 
+export interface CreateCertificationInput {
+  employeeId: string;
+  name: string;
+  courseId?: string;
+  issuer?: string;
+  certificateNumber?: string;
+  issuedAt?: string;
+  expiryDate?: string;
+  notes?: string;
+}
+
+export interface UpdateCertificationInput {
+  name?: string;
+  courseId?: string | null;
+  issuer?: string | null;
+  certificateNumber?: string | null;
+  issuedAt?: string | null;
+  expiryDate?: string | null;
+  notes?: string | null;
+  status?: 'active' | 'revoked';
+  /** Required when revoking. */
+  revocationReason?: string;
+}
+
 export function createCertification(
   companyId: string,
-  input: {
-    employeeId: string;
-    name: string;
-    courseId?: string;
-    issuer?: string;
-    certificateNumber?: string;
-    issuedAt?: string;
-    expiryDate?: string;
-    notes?: string;
-  },
+  input: CreateCertificationInput,
 ): Promise<EmployeeCertificationRecord> {
   return tenantApiRequest<EmployeeCertificationRecord>(
     `/companies/${companyId}/training/certifications`,
@@ -362,4 +443,59 @@ export function createCertification(
       body: JSON.stringify(input),
     },
   );
+}
+
+export function updateCertification(
+  certificationId: string,
+  input: UpdateCertificationInput,
+): Promise<EmployeeCertificationRecord> {
+  return tenantApiRequest<EmployeeCertificationRecord>(`/training/certifications/${certificationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCertification(certificationId: string): Promise<{ deleted: boolean }> {
+  return tenantApiRequest<{ deleted: boolean }>(`/training/certifications/${certificationId}`, {
+    method: 'DELETE',
+  });
+}
+
+export const CERTIFICATE_FILE_ACCEPT = '.pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg';
+export const CERTIFICATE_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Attaches the certificate file, replacing any earlier one. */
+export async function uploadCertificationFile(
+  certificationId: string,
+  file: File,
+): Promise<EmployeeCertificationRecord> {
+  const token = getTenantAccessToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL ?? '/api/v1'}/training/certifications/${certificationId}/file`,
+    { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData },
+  );
+  const payload = (await response.json().catch(() => ({}))) as {
+    data?: EmployeeCertificationRecord;
+    error?: { message?: string; code?: string };
+  };
+  if (!response.ok || !payload.data) {
+    throw new ApiError(payload.error?.message ?? `Upload failed (${response.status})`, response.status, payload.error?.code);
+  }
+  return payload.data;
+}
+
+/** Certificate bytes (behind the bearer token, so they're fetched rather than linked). */
+export function fetchCertificationFile(certification: Pick<EmployeeCertificationRecord, 'id' | 'file'>): Promise<DownloadedFile> {
+  return fetchTenantFile(`/training/certifications/${certification.id}/file`, {
+    filename: certification.file?.name ?? 'certificate',
+    errorMessage: (status) => `Couldn’t load the certificate file (${status})`,
+  });
+}
+
+export function removeCertificationFile(certificationId: string): Promise<EmployeeCertificationRecord> {
+  return tenantApiRequest<EmployeeCertificationRecord>(`/training/certifications/${certificationId}/file`, {
+    method: 'DELETE',
+  });
 }

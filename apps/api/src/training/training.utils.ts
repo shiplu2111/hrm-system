@@ -1,7 +1,7 @@
 import { Decimal } from '@prisma/client/runtime/library';
-import type { EmployeeCertificationStatus } from '@hrm/shared-types';
+import { CERTIFICATION_EXPIRY_WARNING_DAYS, type EmployeeCertificationStatus } from '@hrm/shared-types';
 
-export const CERTIFICATION_EXPIRY_WARNING_DAYS = 30;
+export { CERTIFICATION_EXPIRY_WARNING_DAYS };
 
 export function decimalToNumber(value: Decimal | null | undefined): number | null {
   if (value == null) return null;

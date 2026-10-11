@@ -12,6 +12,7 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -336,6 +337,12 @@ export class BulkAssignTrainingBodyDto {
 
 const SKILL_LEVELS = ['none', 'beginner', 'intermediate', 'advanced', 'expert'] as const;
 const CERTIFICATION_STATUSES = ['active', 'expired', 'revoked'] as const;
+/** `expired` follows from the expiry date, so only these can be set. */
+const SETTABLE_CERTIFICATION_STATUSES = ['active', 'revoked'] as const;
+const CERTIFICATION_STATES = ['valid', 'no_expiry', 'expiring_soon', 'expired', 'revoked'] as const;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_ONLY_MESSAGE = { message: '$property must be a date in YYYY-MM-DD format' };
+const notNull = (_: object, value: unknown) => value !== null;
 
 export class ListSkillsQueryDto {
   @IsOptional()
@@ -345,31 +352,37 @@ export class ListSkillsQueryDto {
 
 export class CreateSkillDto {
   @IsString()
-  @MinLength(1)
+  @Length(1, 80)
   name!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(60)
   category?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   description?: string;
 }
 
 export class UpdateSkillDto {
   @IsOptional()
   @IsString()
-  @MinLength(1)
+  @Length(1, 80)
   name?: string;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  category?: string;
+  @MaxLength(60)
+  category?: string | null;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  description?: string;
+  @MaxLength(500)
+  description?: string | null;
 }
 
 export class ListEmployeeSkillsQueryDto {
@@ -396,13 +409,35 @@ export class UpsertEmployeeSkillDto {
   @IsIn([...SKILL_LEVELS])
   level!: (typeof SKILL_LEVELS)[number];
 
+  /** Defaults to today. */
   @IsOptional()
-  @IsDateString()
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   assessedAt?: string;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  notes?: string;
+  @MaxLength(1000)
+  notes?: string | null;
+}
+
+const SKILL_TARGET_LEVELS = ['beginner', 'intermediate', 'advanced', 'expert'] as const;
+
+export class ListSkillTargetsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
+}
+
+export class SetSkillTargetDto {
+  @IsUUID()
+  designationId!: string;
+
+  @IsUUID()
+  skillId!: string;
+
+  @IsIn([...SKILL_TARGET_LEVELS], { message: 'targetLevel must be beginner, intermediate, advanced or expert' })
+  targetLevel!: (typeof SKILL_TARGET_LEVELS)[number];
 }
 
 export class UpdateEmployeeSkillDto {
@@ -411,12 +446,15 @@ export class UpdateEmployeeSkillDto {
   level?: (typeof SKILL_LEVELS)[number];
 
   @IsOptional()
-  @IsDateString()
+  @ValidateIf(notNull)
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   assessedAt?: string | null;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  notes?: string;
+  @MaxLength(1000)
+  notes?: string | null;
 }
 
 export class ListCertificationsQueryDto {
@@ -424,14 +462,26 @@ export class ListCertificationsQueryDto {
   @IsUUID()
   employeeId?: string;
 
+  /** Matches the derived status, so `expired` includes certificates past their expiry date. */
   @IsOptional()
   @IsIn([...CERTIFICATION_STATUSES])
   status?: (typeof CERTIFICATION_STATUSES)[number];
 
   @IsOptional()
+  @IsIn([...CERTIFICATION_STATES])
+  expiryState?: (typeof CERTIFICATION_STATES)[number];
+
+  /** Current certificates expiring within the warning window. */
+  @IsOptional()
   @Transform(toBoolean)
   @IsBoolean()
   expiringOnly?: boolean;
+
+  /** Leave out certificates replaced by a renewal. */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  currentOnly?: boolean;
 }
 
 export class CreateEmployeeCertificationDto {
@@ -439,7 +489,7 @@ export class CreateEmployeeCertificationDto {
   employeeId!: string;
 
   @IsString()
-  @MinLength(1)
+  @Length(1, 150)
   name!: string;
 
   @IsOptional()
@@ -448,60 +498,75 @@ export class CreateEmployeeCertificationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(150)
   issuer?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   certificateNumber?: string;
 
   @IsOptional()
-  @IsDateString()
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   issuedAt?: string;
 
   @IsOptional()
-  @IsDateString()
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   expiryDate?: string;
 
   @IsOptional()
-  @IsIn([...CERTIFICATION_STATUSES])
-  status?: (typeof CERTIFICATION_STATUSES)[number];
-
-  @IsOptional()
   @IsString()
+  @MaxLength(2000)
   notes?: string;
 }
 
 export class UpdateEmployeeCertificationDto {
   @IsOptional()
   @IsString()
-  @MinLength(1)
+  @Length(1, 150)
   name?: string;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsUUID()
   courseId?: string | null;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  issuer?: string;
+  @MaxLength(150)
+  issuer?: string | null;
 
   @IsOptional()
+  @ValidateIf(notNull)
   @IsString()
-  certificateNumber?: string;
+  @MaxLength(100)
+  certificateNumber?: string | null;
 
   @IsOptional()
-  @IsDateString()
+  @ValidateIf(notNull)
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   issuedAt?: string | null;
 
   @IsOptional()
-  @IsDateString()
+  @ValidateIf(notNull)
+  @Matches(DATE_ONLY, DATE_ONLY_MESSAGE)
   expiryDate?: string | null;
 
+  /** Revoke, or reinstate with `active`. */
   @IsOptional()
-  @IsIn([...CERTIFICATION_STATUSES])
-  status?: (typeof CERTIFICATION_STATUSES)[number];
+  @IsIn([...SETTABLE_CERTIFICATION_STATUSES])
+  status?: (typeof SETTABLE_CERTIFICATION_STATUSES)[number];
 
+  /** Required when revoking; added to the notes. */
   @IsOptional()
   @IsString()
-  notes?: string;
+  @Length(1, 500)
+  revocationReason?: string;
+
+  @IsOptional()
+  @ValidateIf(notNull)
+  @IsString()
+  @MaxLength(2000)
+  notes?: string | null;
 }
