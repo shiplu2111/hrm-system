@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantApiKeyStatus } from '@prisma/client';
+import { TenantApiKeyStatus, type TenantApiKey } from '@prisma/client';
 import type {
   ApiAccessScope,
   CreateTenantApiKeyResult,
@@ -18,6 +18,7 @@ import {
   hashApiSecret,
 } from './api-access.utils';
 import {
+  assertScopesWithinPermissions,
   assertValidScopes,
   isValidApiAccessScope,
   maskApiKeySecret,
@@ -31,12 +32,16 @@ export class TenantApiKeyService {
     private readonly planFeatures: PlanFeaturesService,
   ) {}
 
+  /** Not plan-gated: after a downgrade the tenant must still see and revoke old keys. */
   async listKeys(tenantId: string): Promise<TenantApiKeyRecord[]> {
     const rows = await this.prisma.unscoped.tenantApiKey.findMany({
       where: { tenantId },
       orderBy: [{ createdAt: 'desc' }],
     });
-    return rows.map((row) => this.toRecord(row));
+    const names = await this.userNames(
+      rows.flatMap((row) => [row.createdByUserId, row.revokedByUserId]),
+    );
+    return rows.map((row) => this.toRecord(row, names));
   }
 
   async createKey(
@@ -51,6 +56,16 @@ export class TenantApiKeyService {
     await this.planFeatures.assertFeature(tenantId, 'api_access');
 
     const scopes = assertValidScopes(input.scopes);
+    assertScopesWithinPermissions(scopes, user.permissions);
+
+    const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Expiry date must be in the future',
+      });
+    }
+
     const { prefix, fullKey } = generateApiKeyMaterial();
 
     const row = await this.prisma.unscoped.tenantApiKey.create({
@@ -61,7 +76,7 @@ export class TenantApiKeyService {
         keyHash: hashApiSecret(fullKey),
         scopes,
         status: TenantApiKeyStatus.active,
-        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+        expiresAt,
         createdByUserId: user.id,
       },
     });
@@ -72,22 +87,26 @@ export class TenantApiKeyService {
       action: 'create',
       module: 'api_access',
       recordId: row.id,
-      newValue: { name: row.name, prefix: row.prefix, scopes },
+      newValue: {
+        name: row.name,
+        prefix: row.prefix,
+        scopes,
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+      },
     });
 
     return {
-      key: this.toRecord(row),
+      key: this.toRecord(row, await this.userNames([row.createdByUserId])),
       secret: fullKey,
     };
   }
 
+  /** Not plan-gated, so a downgraded tenant can still clean up. Revoking twice is a no-op. */
   async revokeKey(
     tenantId: string,
     keyId: string,
     user: AuthenticatedUser,
   ): Promise<TenantApiKeyRecord> {
-    await this.planFeatures.assertFeature(tenantId, 'api_access');
-
     const existing = await this.prisma.unscoped.tenantApiKey.findFirst({
       where: { id: keyId, tenantId },
     });
@@ -97,44 +116,59 @@ export class TenantApiKeyService {
         message: 'API key not found',
       });
     }
-    if (existing.status === TenantApiKeyStatus.revoked) {
-      return this.toRecord(existing);
+
+    const row =
+      existing.status === TenantApiKeyStatus.revoked
+        ? existing
+        : await this.prisma.unscoped.tenantApiKey.update({
+            where: { id: keyId },
+            data: {
+              status: TenantApiKeyStatus.revoked,
+              revokedAt: new Date(),
+              revokedByUserId: user.id,
+            },
+          });
+
+    if (row !== existing) {
+      await this.auditService.log({
+        tenantId,
+        userId: user.id,
+        action: 'delete',
+        module: 'api_access',
+        recordId: keyId,
+        oldValue: { name: existing.name, prefix: existing.prefix, status: existing.status },
+        newValue: { status: row.status },
+      });
     }
 
-    const row = await this.prisma.unscoped.tenantApiKey.update({
-      where: { id: keyId },
-      data: {
-        status: TenantApiKeyStatus.revoked,
-        revokedAt: new Date(),
-        revokedByUserId: user.id,
-      },
-    });
-
-    await this.auditService.log({
-      tenantId,
-      userId: user.id,
-      action: 'delete',
-      module: 'api_access',
-      recordId: keyId,
-      oldValue: { status: existing.status },
-      newValue: { status: row.status },
-    });
-
-    return this.toRecord(row);
+    return this.toRecord(
+      row,
+      await this.userNames([row.createdByUserId, row.revokedByUserId]),
+    );
   }
 
-  private toRecord(row: {
-    id: string;
-    tenantId: string;
-    name: string;
-    prefix: string;
-    scopes: string[];
-    status: TenantApiKeyStatus;
-    expiresAt: Date | null;
-    lastUsedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): TenantApiKeyRecord {
+  private async userNames(userIds: Array<string | null>): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.unscoped.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        email: true,
+        employee: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.employee
+          ? `${user.employee.firstName} ${user.employee.lastName}`.trim()
+          : user.email,
+      ]),
+    );
+  }
+
+  private toRecord(row: TenantApiKey, names: Map<string, string>): TenantApiKeyRecord {
     const scopes = row.scopes.filter(isValidApiAccessScope) as ApiAccessScope[];
     return {
       id: row.id,
@@ -146,6 +180,9 @@ export class TenantApiKeyService {
       status: row.status,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+      createdByName: names.get(row.createdByUserId) ?? null,
+      revokedAt: row.revokedAt?.toISOString() ?? null,
+      revokedByName: row.revokedByUserId ? (names.get(row.revokedByUserId) ?? null) : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

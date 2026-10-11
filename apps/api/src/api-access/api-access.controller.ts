@@ -47,7 +47,6 @@ export class ApiAccessController {
 
   @Get('tenant/api-keys')
   @RequirePermission('settings', 'view')
-  @RequireEnterpriseFeature('api_access')
   async listKeys(@CurrentUser() user: AuthenticatedUser) {
     return {
       data: await this.apiKeyService.listKeys(user.tenantId!),
@@ -68,7 +67,6 @@ export class ApiAccessController {
 
   @Delete('tenant/api-keys/:keyId')
   @RequirePermission('settings', 'edit')
-  @RequireEnterpriseFeature('api_access')
   async revokeKey(
     @CurrentUser() user: AuthenticatedUser,
     @Param('keyId', ParseUUIDPipe) keyId: string,

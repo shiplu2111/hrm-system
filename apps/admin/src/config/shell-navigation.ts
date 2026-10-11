@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   UserCircle,
+  LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
@@ -19,11 +20,15 @@ import type { PagePermission } from '@/config/page-permissions';
 
 export interface AdminNavChild {
   label: string;
+  /** i18n key; falls back to label when missing. */
+  labelKey?: string;
   page: PageKey;
 }
 
 export interface AdminNavItem {
   label: string;
+  /** i18n key; falls back to label when missing. */
+  labelKey?: string;
   /** Landing page when clicking the parent row */
   page: PageKey;
   icon: LucideIcon;
@@ -37,27 +42,30 @@ export interface AdminNavItem {
 export const adminNavItems: AdminNavItem[] = [
   {
     label: 'Dashboard',
+    labelKey: 'shell.nav.dashboard',
     page: 'dashboard',
     icon: LayoutDashboard,
     permission: { module: 'employee', action: 'view' },
   },
   {
     label: 'My Space',
+    labelKey: 'shell.nav.mySpace',
     page: 'my-dashboard',
     icon: UserCircle,
     permission: { module: 'employee', action: 'view' },
     children: [
-      { label: 'Home', page: 'my-dashboard' },
-      { label: 'My Profile', page: 'my-profile' },
-      { label: 'My Attendance', page: 'my-attendance' },
-      { label: 'My Leave', page: 'my-leave' },
-      { label: 'My Roster', page: 'my-roster' },
-      { label: 'My Payslips', page: 'my-payslips' },
-      { label: 'Help & Support', page: 'my-help' },
+      { label: 'Home', labelKey: 'shell.nav.myHome', page: 'my-dashboard' },
+      { label: 'My Profile', labelKey: 'shell.nav.myProfile', page: 'my-profile' },
+      { label: 'My Attendance', labelKey: 'shell.nav.myAttendance', page: 'my-attendance' },
+      { label: 'My Leave', labelKey: 'shell.nav.myLeave', page: 'my-leave' },
+      { label: 'My Roster', labelKey: 'shell.nav.myRoster', page: 'my-roster' },
+      { label: 'My Payslips', labelKey: 'shell.nav.myPayslips', page: 'my-payslips' },
+      { label: 'Help & Support', labelKey: 'shell.nav.myHelp', page: 'my-help' },
     ],
   },
   {
     label: 'Employees',
+    labelKey: 'shell.nav.employees',
     page: 'emp-directory',
     icon: Users,
     permission: { module: 'employee', action: 'view' },
@@ -87,6 +95,7 @@ export const adminNavItems: AdminNavItem[] = [
   },
   {
     label: 'Organization',
+    labelKey: 'shell.nav.organization',
     page: 'org-departments',
     icon: Building2,
     permission: { module: 'settings', action: 'view' },
@@ -101,6 +110,7 @@ export const adminNavItems: AdminNavItem[] = [
   },
   {
     label: 'Attendance',
+    labelKey: 'shell.nav.attendance',
     page: 'attendance',
     icon: Clock,
     permission: { module: 'attendance', action: 'view' },
@@ -114,6 +124,7 @@ export const adminNavItems: AdminNavItem[] = [
   },
   {
     label: 'Roster',
+    labelKey: 'shell.nav.roster',
     page: 'roster',
     icon: CalendarDays,
     permission: { module: 'attendance', action: 'view' },
@@ -121,6 +132,7 @@ export const adminNavItems: AdminNavItem[] = [
   },
   {
     label: 'Leave',
+    labelKey: 'shell.nav.leave',
     page: 'leave-requests',
     icon: Palmtree,
     permission: { module: 'leave', action: 'view' },
@@ -132,6 +144,7 @@ export const adminNavItems: AdminNavItem[] = [
   },
   {
     label: 'Payroll',
+    labelKey: 'shell.nav.payroll',
     page: 'payroll-runs',
     icon: Wallet,
     permission: { module: 'payroll', action: 'view' },
@@ -154,11 +167,13 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Expense Categories', page: 'expense-categories' },
       { label: 'Chart of Accounts', page: 'accounting-mapping' },
       { label: 'GL Export & Sync', page: 'accounting-exports' },
-      { label: 'Accounting Integration', page: 'accounting' },
+      { label: 'Accounting Connections', page: 'accounting-connections' },
+      { label: 'Payroll Journal', page: 'accounting' },
     ],
   },
   {
     label: 'Reports',
+    labelKey: 'shell.nav.reports',
     page: 'reports-hub',
     icon: BarChart3,
     permission: { module: 'employee', action: 'view' },
@@ -170,7 +185,20 @@ export const adminNavItems: AdminNavItem[] = [
     ],
   },
   {
+    label: 'Support',
+    labelKey: 'shell.nav.support',
+    page: 'support-tickets',
+    icon: LifeBuoy,
+    permission: { module: 'support', action: 'edit' },
+    children: [
+      { label: 'Support Tickets', page: 'support-tickets' },
+      { label: 'Knowledge Base', page: 'support-kb-admin' },
+      { label: 'Help Center', page: 'help-center' },
+    ],
+  },
+  {
     label: 'Settings',
+    labelKey: 'shell.nav.settings',
     page: 'settings-hub',
     icon: Settings,
     permission: { module: 'settings', action: 'view' },
@@ -182,6 +210,10 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Workflows', page: 'settings-workflows' },
       { label: 'Notifications', page: 'settings-notifications' },
       { label: 'Integrations', page: 'settings-integrations' },
+      { label: 'API Keys', page: 'settings-api-keys' },
+      { label: 'Webhooks', page: 'settings-webhooks' },
+      { label: 'Currency & Exchange Rates', page: 'settings-currency' },
+      { label: 'Localization', page: 'settings-localization' },
       { label: 'Security', page: 'settings-security' },
       { label: 'Audit Log', page: 'audit-log' },
       { label: 'Plan & Usage', page: 'billing' },

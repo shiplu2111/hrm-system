@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -6,6 +7,7 @@ import {
 import type {
   KbArticleListItem,
   KbArticleRecord,
+  KbArticleStatusFilter,
   KbCategoryRecord,
 } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -30,15 +32,17 @@ export class KbService {
     tenantId: string,
     user: AuthenticatedUser,
   ): Promise<KbCategoryRecord[]> {
+    const manage = this.canManage(user);
     const rows = await this.prisma.unscoped.kbCategory.findMany({
       where: { tenantId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
-        _count: { select: { articles: true } },
+        _count: {
+          select: { articles: manage ? true : { where: { published: true } } },
+        },
       },
     });
 
-    const manage = this.canManage(user);
     const filtered = manage
       ? rows
       : rows.filter((row) => row._count.articles > 0);
@@ -59,16 +63,23 @@ export class KbService {
   async listArticles(
     tenantId: string,
     user: AuthenticatedUser,
-    query: { search?: string; categoryId?: string },
+    query: { search?: string; categoryId?: string; status?: KbArticleStatusFilter },
   ): Promise<KbArticleListItem[]> {
     const manage = this.canManage(user);
     const search = query.search?.trim();
+    const published = !manage
+      ? true
+      : query.status === 'published'
+        ? true
+        : query.status === 'draft'
+          ? false
+          : undefined;
 
     const rows = await this.prisma.unscoped.kbArticle.findMany({
       where: {
         tenantId,
         ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-        ...(manage ? {} : { published: true }),
+        ...(published !== undefined ? { published } : {}),
         ...(search
           ? {
               OR: [
@@ -83,6 +94,10 @@ export class KbService {
       include: { category: { select: { name: true } } },
     });
 
+    const names = manage
+      ? await this.userNames(rows.map((row) => row.updatedByUserId ?? row.createdByUserId))
+      : new Map<string, string>();
+
     return rows.map((row) => ({
       id: row.id,
       categoryId: row.categoryId,
@@ -93,13 +108,18 @@ export class KbService {
       published: row.published,
       viewCount: row.viewCount,
       updatedAt: row.updatedAt.toISOString(),
+      ...(manage
+        ? { updatedByName: names.get(row.updatedByUserId ?? row.createdByUserId) ?? null }
+        : {}),
     }));
   }
 
+  /** Editors opening an article with `preview` do not count as a view. */
   async getArticle(
     tenantId: string,
     articleId: string,
     user: AuthenticatedUser,
+    options: { preview?: boolean } = {},
   ): Promise<KbArticleRecord> {
     const row = await this.prisma.unscoped.kbArticle.findFirst({
       where: { id: articleId, tenantId },
@@ -108,14 +128,18 @@ export class KbService {
     if (!row) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Article not found' });
     }
-    if (!row.published && !this.canManage(user)) {
+    const manage = this.canManage(user);
+    if (!row.published && !manage) {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Article not published' });
     }
 
-    await this.prisma.unscoped.kbArticle.update({
-      where: { id: row.id },
-      data: { viewCount: { increment: 1 } },
-    });
+    const countView = !(options.preview && manage);
+    if (countView) {
+      await this.prisma.unscoped.kbArticle.update({
+        where: { id: row.id },
+        data: { viewCount: { increment: 1 } },
+      });
+    }
 
     return {
       id: row.id,
@@ -127,7 +151,7 @@ export class KbService {
       summary: row.summary,
       body: row.body,
       published: row.published,
-      viewCount: row.viewCount + 1,
+      viewCount: row.viewCount + (countView ? 1 : 0),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -187,7 +211,6 @@ export class KbService {
     categoryId: string,
     input: {
       name?: string;
-      slug?: string;
       description?: string;
       sortOrder?: number;
     },
@@ -200,22 +223,10 @@ export class KbService {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Category not found' });
     }
 
-    let slug = existing.slug;
-    if (input.slug || input.name) {
-      slug = await uniqueSlug(input.slug ?? input.name ?? existing.name, async (candidate) => {
-        if (candidate === existing.slug) return false;
-        const row = await this.prisma.unscoped.kbCategory.findFirst({
-          where: { tenantId, slug: candidate },
-        });
-        return row != null;
-      });
-    }
-
     const row = await this.prisma.unscoped.kbCategory.update({
       where: { id: categoryId },
       data: {
         name: input.name?.trim() ?? undefined,
-        slug,
         description:
           input.description !== undefined
             ? input.description.trim() || null
@@ -231,7 +242,8 @@ export class KbService {
       action: 'update',
       module: 'support',
       recordId: row.id,
-      newValue: { name: row.name, slug: row.slug },
+      oldValue: { name: existing.name, sortOrder: existing.sortOrder },
+      newValue: { name: row.name, sortOrder: row.sortOrder },
     });
 
     return {
@@ -341,9 +353,10 @@ export class KbService {
       }
     }
 
+    // Slugs stay stable on title edits so shared links keep working.
     let slug = existing.slug;
-    if (input.slug || input.title) {
-      slug = await uniqueSlug(input.slug ?? input.title ?? existing.title, async (candidate) => {
+    if (input.slug?.trim()) {
+      slug = await uniqueSlug(input.slug, async (candidate) => {
         if (candidate === existing.slug) return false;
         const row = await this.prisma.unscoped.kbArticle.findFirst({
           where: { tenantId, slug: candidate },
@@ -372,6 +385,7 @@ export class KbService {
       action: 'update',
       module: 'support',
       recordId: row.id,
+      oldValue: { title: existing.title, published: existing.published },
       newValue: { title: row.title, published: row.published },
     });
 
@@ -413,5 +427,57 @@ export class KbService {
       recordId: articleId,
       oldValue: { title: existing.title },
     });
+  }
+
+  async deleteCategory(
+    tenantId: string,
+    categoryId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const existing = await this.prisma.unscoped.kbCategory.findFirst({
+      where: { id: categoryId, tenantId },
+      include: { _count: { select: { articles: true } } },
+    });
+    if (!existing) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Category not found' });
+    }
+    if (existing._count.articles > 0) {
+      throw new ConflictException({
+        code: 'CATEGORY_NOT_EMPTY',
+        message: `Move or delete the ${existing._count.articles} article(s) in "${existing.name}" first`,
+      });
+    }
+
+    await this.prisma.unscoped.kbCategory.delete({ where: { id: categoryId } });
+
+    await this.auditService.log({
+      tenantId,
+      userId: user.id,
+      action: 'delete',
+      module: 'support',
+      recordId: categoryId,
+      oldValue: { name: existing.name },
+    });
+  }
+
+  private async userNames(userIds: Array<string | null>): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.unscoped.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        email: true,
+        employee: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.employee
+          ? `${user.employee.firstName} ${user.employee.lastName}`.trim()
+          : user.email,
+      ]),
+    );
   }
 }

@@ -7,14 +7,14 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock3,
-  Cloud,
   FileSpreadsheet,
   History,
-  Link2,
   Loader2,
+  PlugZap,
   Unplug,
 } from 'lucide-react';
 import { usePermissions } from '@hrm/portal-ui';
+import { ConnectionStatusPill } from '@/components/accounting/ConnectionStatusPill';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Form';
@@ -24,66 +24,23 @@ import {
   downloadCsv,
   exportPayrollJournal,
   listAccountingConnections,
-  listAccountingSyncJobs,
   listJournalExports,
   listPayrollPeriods,
   previewPayrollJournal,
-  beginXeroConnect,
-  disconnectXero,
 } from '@/lib/accounting-api';
+import { needsReconnect } from '@/lib/accounting-display';
 import { ApiError } from '@/lib/tenant-api-client';
 import type {
   AccountingConnectionRecord,
-  AccountingSyncJobRecord,
   PayrollJournalPreview,
   PayrollPeriodRecord,
 } from '@hrm/shared-types';
-
-type Tab = 'connections' | 'journal';
-
-const PLANNED_PROVIDERS = [
-  {
-    provider: 'QuickBooks' as const,
-    key: 'quickbooks' as const,
-    description: 'Accounting and financial reporting — OAuth coming soon',
-    color: 'bg-emerald-500',
-  },
-  {
-    provider: 'Tally' as const,
-    key: 'tally' as const,
-    description: 'ERP and statutory accounting — file-based export supported',
-    color: 'bg-indigo-500',
-  },
-];
-
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return 'Never';
-  return new Date(iso).toLocaleString();
-}
-
-function connectionStatusTone(
-  status: AccountingConnectionRecord['status'],
-): 'success' | 'warning' | 'error' | 'neutral' {
-  switch (status) {
-    case 'connected':
-      return 'success';
-    case 'error':
-    case 'token_expired':
-      return 'error';
-    case 'disconnected':
-      return 'neutral';
-    default:
-      return 'warning';
-  }
-}
 
 export function AccountingIntegrationPage() {
   const navigate = useNavigate();
   const { companyId, loading: companyLoading, error: companyError } = useCompany();
   const { can } = usePermissions();
-  const canEdit = can('payroll', 'edit');
   const canExport = can('payroll', 'create');
-  const [tab, setTab] = useState<Tab>('connections');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,10 +52,6 @@ export function AccountingIntegrationPage() {
   const [lastExportStatus, setLastExportStatus] = useState<string | null>(null);
 
   const [connections, setConnections] = useState<AccountingConnectionRecord[]>([]);
-  const [syncJobs, setSyncJobs] = useState<AccountingSyncJobRecord[]>([]);
-  const [connectMessage, setConnectMessage] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
 
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(false);
@@ -108,14 +61,12 @@ export function AccountingIntegrationPage() {
     setLoading(true);
     setError(null);
     try {
-      const [periodRows, connectionRows, syncJobRows] = await Promise.all([
+      const [periodRows, connectionRows] = await Promise.all([
         listPayrollPeriods(companyId),
         listAccountingConnections(companyId),
-        listAccountingSyncJobs(companyId),
       ]);
       setPeriods(periodRows);
       setConnections(connectionRows);
-      setSyncJobs(syncJobRows);
       if (periodRows.length > 0) {
         setSelectedPeriodId((current) => current || periodRows[0].id);
       }
@@ -129,36 +80,6 @@ export function AccountingIntegrationPage() {
   useEffect(() => {
     void loadBase();
   }, [loadBase]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const xeroResult = params.get('xero');
-    if (!xeroResult) return;
-
-    if (xeroResult === 'connected') {
-      const org = params.get('org');
-      setConnectMessage(
-        org ? `Connected to Xero organization “${org}”.` : 'Xero connected successfully.',
-      );
-      setTab('connections');
-    } else if (xeroResult === 'error') {
-      setConnectMessage(
-        params.get('message') ?? 'Failed to connect Xero. Please try again.',
-      );
-      setTab('connections');
-    }
-
-    params.delete('xero');
-    params.delete('org');
-    params.delete('message');
-    params.delete('companyId');
-    params.delete('tab');
-    const remaining = params.toString();
-    const nextUrl = remaining
-      ? `${window.location.pathname}?${remaining}`
-      : window.location.pathname;
-    window.history.replaceState({}, '', nextUrl);
-  }, []);
 
   const loadJournal = useCallback(async () => {
     if (!companyId || !selectedPeriodId) return;
@@ -180,10 +101,10 @@ export function AccountingIntegrationPage() {
   }, [companyId, selectedPeriodId]);
 
   useEffect(() => {
-    if (tab === 'journal' && selectedPeriodId) {
+    if (selectedPeriodId) {
       void loadJournal();
     }
-  }, [tab, selectedPeriodId, loadJournal]);
+  }, [selectedPeriodId, loadJournal]);
 
   const currency = (value: string | number) => {
     const amount = typeof value === 'string' ? Number(value) : value;
@@ -193,39 +114,6 @@ export function AccountingIntegrationPage() {
   };
 
   const xeroConnection = connections.find((row) => row.provider === 'xero');
-  const failedSyncCount = syncJobs.filter((job) => job.status === 'failed').length;
-
-  const handleConnectXero = async () => {
-    if (!companyId) return;
-    setConnecting(true);
-    setConnectMessage(null);
-    try {
-      const { authorizeUrl } = await beginXeroConnect(companyId);
-      window.location.href = authorizeUrl;
-    } catch (err) {
-      setConnectMessage(
-        err instanceof ApiError ? err.message : 'Failed to start Xero connection',
-      );
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const handleDisconnectXero = async () => {
-    if (!companyId) return;
-    setDisconnecting(true);
-    try {
-      await disconnectXero(companyId);
-      await loadBase();
-      setConnectMessage('Xero disconnected.');
-    } catch (err) {
-      setConnectMessage(
-        err instanceof ApiError ? err.message : 'Failed to disconnect Xero',
-      );
-    } finally {
-      setDisconnecting(false);
-    }
-  };
 
   const handleExportJournal = async () => {
     if (!companyId || !selectedPeriodId || !journal) return;
@@ -253,7 +141,7 @@ export function AccountingIntegrationPage() {
     return (
       <div className="flex items-center justify-center p-12 text-secondary">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        Loading accounting integration…
+        Loading payroll journal…
       </div>
     );
   }
@@ -283,17 +171,17 @@ export function AccountingIntegrationPage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-400">
               <BookOpen className="h-4 w-4" />
             </div>
-            <h1 className="text-xl font-bold text-primary">Accounting Integration</h1>
+            <h1 className="text-xl font-bold text-primary">Payroll Journal</h1>
           </div>
           <p className="text-sm text-secondary">
-            Connect accounting software, preview payroll journals, and export them as CSV. Xero syncs automatically when
-            payroll is finalized.
+            Preview the journal entry for a payroll period and export it as CSV. When Xero is connected, it syncs
+            automatically after payroll is finalized.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:flex-nowrap">
-          <Badge tone={xeroConnection?.status === 'connected' ? 'success' : 'accent'} dot>
-            {xeroConnection?.status === 'connected' ? 'Xero connected' : 'CSV + Xero sync'}
-          </Badge>
+          <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-connections'))}>
+            <PlugZap className="h-4 w-4" /> Accounting connections
+          </Button>
           <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-mapping'))}>
             <BookOpen className="h-4 w-4" /> Account mapping
           </Button>
@@ -309,152 +197,30 @@ export function AccountingIntegrationPage() {
         </div>
       )}
 
-      <div className="surface flex gap-1 overflow-x-auto rounded-xl border border-base p-1 shadow-card">
-        {([
-          ['connections', 'Connected software', Cloud],
-          ['journal', 'Journal preview', FileSpreadsheet],
-        ] as const).map(([id, label, Icon]) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`inline-flex min-w-fit flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${tab === id ? 'bg-accent-600 text-white shadow-sm' : 'text-secondary hover:bg-[rgb(var(--bg-hover))] hover:text-primary'}`}
+      {xeroConnection ? (
+        <div className="surface flex flex-col gap-3 rounded-xl border border-base px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium text-primary">Xero</span>
+            <ConnectionStatusPill status={xeroConnection.status} />
+            <span className="text-secondary">
+              {xeroConnection.status === 'connected'
+                ? `Finalized payroll posts to ${xeroConnection.externalOrgName ?? 'Xero'} automatically.`
+                : needsReconnect(xeroConnection.status)
+                  ? 'Automatic sync is paused until Xero is reconnected.'
+                  : 'Not syncing. Export the journal as CSV below.'}
+            </span>
+          </div>
+          <Button
+            variant={needsReconnect(xeroConnection.status) ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => navigate(pathForPage('accounting-connections'))}
           >
-            <Icon className="h-4 w-4" /> {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'connections' && (
-        <div className="space-y-5">
-          {connectMessage && (
-            <div
-              className={`rounded-xl border p-4 text-sm ${connectMessage.includes('Failed') || connectMessage.includes('disconnect') ? 'border-error-200 bg-error-50 text-error-700 dark:border-error-800 dark:bg-error-950/30 dark:text-error-300' : 'border-success-200 bg-success-50/70 text-success-800 dark:border-success-800 dark:bg-success-950/30 dark:text-success-300'}`}
-            >
-              {connectMessage}
-            </div>
-          )}
-
-          <div className="rounded-xl border border-base bg-[rgb(var(--bg-muted))] p-4 text-sm text-secondary">
-            When payroll runs are finalized, journal entries push to Xero asynchronously via the job queue.
-            Sync failures appear below — payroll finalization is never blocked.
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <section className="surface rounded-xl border border-base p-5 shadow-card lg:col-span-1">
-              <div className="flex items-start justify-between">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-500 text-lg font-bold text-white">
-                  X
-                </div>
-                <Badge
-                  tone={connectionStatusTone(xeroConnection?.status ?? 'disconnected')}
-                  dot
-                >
-                  {xeroConnection?.status ?? 'disconnected'}
-                </Badge>
-              </div>
-              <h2 className="mt-4 text-base font-bold text-primary">Xero</h2>
-              <p className="mt-1 text-xs text-secondary">
-                OAuth connection per company — pushes manual journals on payroll finalization.
-              </p>
-              <div className="mt-5 space-y-3 border-y border-base py-4 text-xs">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-muted">
-                    <Link2 className="h-3.5 w-3.5" /> Organization
-                  </span>
-                  <span className="font-medium text-primary">
-                    {xeroConnection?.externalOrgName ?? '—'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-1.5 text-muted">
-                    <Clock3 className="h-3.5 w-3.5" /> Last sync
-                  </span>
-                  <span className="font-medium text-primary">
-                    {formatWhen(xeroConnection?.lastSyncAt)}
-                  </span>
-                </div>
-              </div>
-              {xeroConnection?.lastSyncError && (
-                <div className="mt-3 rounded-lg border border-error-200 bg-error-50 p-3 text-xs text-error-700 dark:border-error-800 dark:bg-error-950/30 dark:text-error-300">
-                  {xeroConnection.lastSyncError}
-                </div>
-              )}
-              {!canEdit ? null : xeroConnection?.status === 'connected' ? (
-                <Button
-                  className="mt-4 w-full"
-                  variant="secondary"
-                  onClick={() => void handleDisconnectXero()}
-                  disabled={disconnecting}
-                >
-                  {disconnecting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Unplug className="h-4 w-4" />
-                  )}
-                  {disconnecting ? 'Disconnecting…' : 'Disconnect Xero'}
-                </Button>
-              ) : (
-                <Button
-                  className="mt-4 w-full"
-                  onClick={() => void handleConnectXero()}
-                  disabled={connecting || xeroConnection?.oauthConfigured === false}
-                >
-                  {connecting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Link2 className="h-4 w-4" />
-                  )}
-                  {connecting
-                    ? 'Redirecting…'
-                    : xeroConnection?.oauthConfigured === false
-                      ? 'OAuth not configured on server'
-                      : 'Connect Xero'}
-                </Button>
-              )}
-            </section>
-
-            {PLANNED_PROVIDERS.map((provider) => (
-              <section
-                key={provider.key}
-                className="surface rounded-xl border border-base p-5 shadow-card"
-              >
-                <div className="flex items-start justify-between">
-                  <div
-                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-lg font-bold text-white ${provider.color}`}
-                  >
-                    {provider.provider.charAt(0)}
-                  </div>
-                  <Badge tone="neutral" dot>Coming soon</Badge>
-                </div>
-                <h2 className="mt-4 text-base font-bold text-primary">{provider.provider}</h2>
-                <p className="mt-1 text-xs text-secondary">{provider.description}</p>
-                <Button className="mt-8 w-full" variant="secondary" disabled>
-                  <Unplug className="h-4 w-4" /> Not available
-                </Button>
-              </section>
-            ))}
-          </div>
-
-          <section className="surface flex flex-col gap-3 rounded-xl border border-base p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-primary">Sync history</h2>
-              <p className="mt-1 text-xs text-secondary">
-                {syncJobs.length === 0
-                  ? 'No syncs yet. Connect Xero and finalize payroll to push a journal automatically.'
-                  : failedSyncCount > 0
-                    ? `${failedSyncCount} of the last ${syncJobs.length} syncs failed. See why and retry them on the status screen.`
-                    : `The last ${syncJobs.length} sync${syncJobs.length === 1 ? '' : 's'} had no failures.`}
-              </p>
-            </div>
-            <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-exports'))}>
-              <History className="h-4 w-4" /> View export &amp; sync status
-            </Button>
-          </section>
+            {needsReconnect(xeroConnection.status) ? 'Reconnect Xero' : 'Manage connection'}
+          </Button>
         </div>
-      )}
+      ) : null}
 
-      {tab === 'journal' && (
-        <div className="space-y-5">
+      <div className="space-y-5">
           <div className="surface flex flex-col gap-3 rounded-xl border border-base p-4 shadow-card sm:flex-row sm:items-end">
             <div className="flex-1">
               <label className="mb-1 block text-xs font-medium text-secondary">Payroll period</label>
@@ -613,8 +379,7 @@ export function AccountingIntegrationPage() {
               </div>
             </>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

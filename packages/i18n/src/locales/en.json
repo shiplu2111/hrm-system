@@ -414,5 +414,49 @@
       "high": "High",
       "critical": "Critical"
     }
+  },
+  "shell": {
+    "searchPlaceholder": "Search employees, departments, reports…",
+    "toggleTheme": "Toggle theme",
+    "openNavigation": "Open navigation menu",
+    "collapse": "Collapse",
+    "expandMenu": "Expand {{label}} menu",
+    "collapseMenu": "Collapse {{label}} menu",
+    "profile": "Profile",
+    "logout": "Logout",
+    "language": {
+      "title": "Language",
+      "followOrganization": "Organization default",
+      "followOrganizationHint": "{{language}}, from {{source}}",
+      "sources": {
+        "company": "company settings",
+        "branch": "your branch",
+        "country": "the country default"
+      },
+      "formats": "Dates {{date}} · Numbers {{number}}",
+      "timezone": "Time zone {{timezone}}",
+      "partial": "Some admin screens are still English only.",
+      "saveFailed": "Couldn't save your choice to your account. It applies on this device only."
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "mySpace": "My Space",
+      "employees": "Employees",
+      "organization": "Organization",
+      "attendance": "Attendance",
+      "roster": "Roster",
+      "leave": "Leave",
+      "payroll": "Payroll",
+      "reports": "Reports",
+      "support": "Support",
+      "settings": "Settings",
+      "myHome": "Home",
+      "myProfile": "My Profile",
+      "myAttendance": "My Attendance",
+      "myLeave": "My Leave",
+      "myRoster": "My Roster",
+      "myPayslips": "My Payslips",
+      "myHelp": "Help & Support"
+    }
   }
 }

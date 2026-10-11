@@ -9,12 +9,21 @@ import type {
 
 const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
+const XERO_REVOCATION_URL = 'https://identity.xero.com/connect/revocation';
 const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
 const XERO_MANUAL_JOURNALS_URL =
   'https://api.xero.com/api.xro/2.0/ManualJournals';
 
-const DEFAULT_SCOPES =
-  'openid profile email accounting.transactions accounting.settings offline_access';
+/**
+ * Xero apps created on or after 2 March 2026 only accept granular scopes, so the
+ * broad `accounting.transactions` is rejected with `invalid_scope`. Manual
+ * journals are the only accounting endpoint used. Override with XERO_SCOPES.
+ */
+const DEFAULT_SCOPES = 'openid profile email accounting.manualjournals offline_access';
+
+function requestedScopes(): string {
+  return process.env.XERO_SCOPES?.trim() || DEFAULT_SCOPES;
+}
 
 interface XeroTokenResponse {
   access_token: string;
@@ -52,7 +61,7 @@ export class XeroGlProvider implements AccountingGlProvider {
       response_type: 'code',
       client_id: process.env.XERO_CLIENT_ID!,
       redirect_uri: process.env.XERO_REDIRECT_URI!,
-      scope: DEFAULT_SCOPES,
+      scope: requestedScopes(),
       state,
     });
     return `${XERO_AUTHORIZE_URL}?${params.toString()}`;
@@ -73,6 +82,26 @@ export class XeroGlProvider implements AccountingGlProvider {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
+  }
+
+  async revokeRefreshToken(refreshToken: string): Promise<void> {
+    this.assertConfigured();
+    const response = await fetch(XERO_REVOCATION_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${this.basicCredentials()}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ token: refreshToken }).toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new BadRequestException({
+        code: 'XERO_API_ERROR',
+        message: `Xero did not revoke the token (${response.status}): ${body}`,
+      });
+    }
   }
 
   async listOrganizations(accessToken: string): Promise<AccountingOrgConnection[]> {
@@ -137,6 +166,19 @@ export class XeroGlProvider implements AccountingGlProvider {
     if (!response.ok) {
       const body = await response.text();
       this.logger.warn(`Xero manual journal push failed: ${response.status} ${body}`);
+      if (response.status === 401) {
+        throw new BadRequestException({
+          code: 'XERO_UNAUTHORIZED',
+          message: 'Xero no longer accepts this connection — reconnect Xero',
+        });
+      }
+      if (response.status === 403) {
+        throw new BadRequestException({
+          code: 'XERO_FORBIDDEN',
+          message:
+            'Xero refused access to the connected organisation — check the app is still connected in Xero, then reconnect',
+        });
+      }
       throw new BadRequestException({
         code: 'XERO_API_ERROR',
         message: `Xero rejected the journal entry (${response.status})`,
@@ -172,14 +214,10 @@ export class XeroGlProvider implements AccountingGlProvider {
     body: Record<string, string>,
   ): Promise<AccountingOAuthTokens> {
     this.assertConfigured();
-    const credentials = Buffer.from(
-      `${process.env.XERO_CLIENT_ID}:${process.env.XERO_CLIENT_SECRET}`,
-    ).toString('base64');
-
     const response = await fetch(XERO_TOKEN_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Basic ${credentials}`,
+        Authorization: `Basic ${this.basicCredentials()}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams(body).toString(),
@@ -188,6 +226,15 @@ export class XeroGlProvider implements AccountingGlProvider {
     if (!response.ok) {
       const text = await response.text();
       this.logger.warn(`Xero token exchange failed: ${response.status} ${text}`);
+      if (
+        body.grant_type === 'refresh_token' &&
+        (response.status === 400 || response.status === 401)
+      ) {
+        throw new BadRequestException({
+          code: 'XERO_INVALID_GRANT',
+          message: 'Xero rejected the saved refresh token — reconnect Xero',
+        });
+      }
       throw new BadRequestException({
         code: 'XERO_OAUTH_ERROR',
         message: 'Failed to exchange Xero authorization code',
@@ -199,8 +246,14 @@ export class XeroGlProvider implements AccountingGlProvider {
       accessToken: json.access_token,
       refreshToken: json.refresh_token,
       expiresAt: new Date(Date.now() + json.expires_in * 1000),
-      scopes: json.scope ?? DEFAULT_SCOPES,
+      scopes: json.scope ?? requestedScopes(),
     };
+  }
+
+  private basicCredentials(): string {
+    return Buffer.from(
+      `${process.env.XERO_CLIENT_ID}:${process.env.XERO_CLIENT_SECRET}`,
+    ).toString('base64');
   }
 }
 

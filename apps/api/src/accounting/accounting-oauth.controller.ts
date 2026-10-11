@@ -5,6 +5,9 @@ import type { Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
 import { AccountingConnectionService } from './accounting-connection.service';
 
+/** Must match the admin route for the `accounting-connections` page. */
+const CONNECTIONS_PAGE_PATH = '/operations/accounting/connections';
+
 @ApiTags('integrations')
 @ApiExcludeController(false)
 @Controller('integrations')
@@ -21,19 +24,25 @@ export class AccountingOAuthController {
     @Query('error') error: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const adminBase =
-      process.env.ADMIN_APP_URL?.replace(/\/$/, '') ??
-      process.env.APP_URL?.replace(/\/$/, '') ??
-      '';
+    // APP_URL is the API's own address, so it can't stand in for the admin app.
+    const adminBase = (
+      process.env.ADMIN_APP_URL ??
+      (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5174')
+    ).replace(/\/$/, '');
 
     const redirectWith = (params: Record<string, string>) => {
-      const qs = new URLSearchParams({ ...params, tab: 'connections' }).toString();
-      const target = adminBase ? `${adminBase}?${qs}` : `/?${qs}`;
-      res.redirect(302, target);
+      const qs = new URLSearchParams(params).toString();
+      res.redirect(302, `${adminBase}${CONNECTIONS_PAGE_PATH}?${qs}`);
     };
 
     if (error) {
-      redirectWith({ xero: 'error', message: error });
+      redirectWith({
+        xero: 'error',
+        message:
+          error === 'access_denied'
+            ? 'Access was not granted in Xero, so nothing was connected.'
+            : `Xero returned an error: ${error}`,
+      });
       return;
     }
 

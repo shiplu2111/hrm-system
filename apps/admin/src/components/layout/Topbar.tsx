@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/Dropdown';
 import { Avatar } from '@/components/ui/Toggle';
 import { NotificationBell } from '@/components/layout/NotificationBell';
+import { LanguageMenu } from '@/components/layout/LanguageMenu';
+import { useAppTranslation } from '@hrm/i18n';
 import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher';
 import { PermissionGate } from '@hrm/portal-ui';
 import type { InAppNotificationRecord } from '@hrm/shared-types';
@@ -42,6 +44,7 @@ export function Topbar({
   onLogout: () => void;
 }) {
   const { theme, toggleTheme } = useTheme();
+  const { t } = useAppTranslation();
   const { user } = useAuth();
   const { navigate } = useNav();
   const { tenantKey } = useTenant();
@@ -65,7 +68,7 @@ export function Topbar({
         type="button"
         onClick={onOpenMobile}
         className="lg:hidden text-secondary hover:text-primary p-1.5 rounded-lg hover:bg-[rgb(var(--bg-hover))]"
-        aria-label="Open navigation menu"
+        aria-label={t('shell.openNavigation')}
       >
         <Menu className="h-5 w-5" />
       </button>
@@ -75,7 +78,7 @@ export function Topbar({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
           <input
             type="search"
-            placeholder="Search employees, departments, reports…"
+            placeholder={t('shell.searchPlaceholder')}
             className="w-full h-9 pl-9 pr-16 rounded-lg border border-base surface text-sm text-primary placeholder:text-muted focus:outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 transition-colors"
           />
           <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted border border-base rounded px-1.5 py-0.5 surface">
@@ -84,12 +87,16 @@ export function Topbar({
         </div>
       </div>
 
+      <div className="ml-auto">
+        <LanguageMenu />
+      </div>
+
       <button
         type="button"
         onClick={toggleTheme}
-        className="ml-auto text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors"
-        title="Toggle theme"
-        aria-label="Toggle theme"
+        className="text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors"
+        title={t('shell.toggleTheme')}
+        aria-label={t('shell.toggleTheme')}
       >
         {theme === 'light' ? (
           <Moon className="h-[18px] w-[18px]" />
@@ -144,12 +151,12 @@ export function Topbar({
             icon={<User className="h-4 w-4" />}
             onClick={() => navigate('settings-general')}
           >
-            Profile
+            {t('shell.profile')}
           </DropdownItem>
         </PermissionGate>
         <DropdownDivider />
         <DropdownItem icon={<LogOut className="h-4 w-4" />} onClick={onLogout}>
-          Logout
+          {t('shell.logout')}
         </DropdownItem>
       </Dropdown>
     </header>

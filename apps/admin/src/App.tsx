@@ -7,6 +7,7 @@ import {
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { CompanyProvider } from '@/context/CompanyContext';
+import { LocalizationProvider } from '@/context/LocalizationContext';
 import { TenantProvider } from '@/context/TenantContext';
 import { NavProvider } from '@/context/NavContext';
 import { AppShell } from '@/components/layout/AppShell';
@@ -84,13 +85,14 @@ import { ExpenseCategoriesPage } from '@/pages/payroll/ExpenseCategoriesPage';
 import { BillingPage } from '@/pages/billing/BillingPage';
 import { AssetManagementPage } from '@/pages/operations/AssetManagementPage';
 import { AccountingIntegrationPage } from '@/pages/operations/AccountingIntegrationPage';
+import { AccountingConnectionsPage } from '@/pages/operations/AccountingConnectionsPage';
 import { ChartOfAccountsMappingPage } from '@/pages/operations/ChartOfAccountsMappingPage';
 import { GlExportStatusPage } from '@/pages/operations/GlExportStatusPage';
 import { HelpCenterPage } from '@/pages/support/HelpCenterPage';
 import {
   KnowledgeBaseAdminPage,
-  SupportTicketsAdminPage,
-} from '@/pages/support/SupportPages';
+} from '@/pages/support/KnowledgeBaseAdminPage';
+import { SupportTicketsPage } from '@/pages/support/SupportTicketsPage';
 import { PerformanceManagementPage } from '@/pages/talent/PerformanceManagementPage';
 import { TrainingCertificationPage } from '@/pages/talent/TrainingCertificationPage';
 import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
@@ -102,6 +104,10 @@ import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { WorkflowBuilderPage } from '@/pages/settings/WorkflowBuilderPage';
 import { WorkflowDefinitionsPage } from '@/pages/settings/WorkflowDefinitionsPage';
 import { SettingsHubPage } from '@/pages/settings/SettingsHubPage';
+import { ApiKeysPage } from '@/pages/settings/ApiKeysPage';
+import { WebhooksPage } from '@/pages/settings/WebhooksPage';
+import { CurrencySettingsPage } from '@/pages/settings/CurrencySettingsPage';
+import { LocalizationSettingsPage } from '@/pages/settings/LocalizationSettingsPage';
 import { AuditLogPage } from '@/pages/settings/AuditLogPage';
 
 function PageRoutes() {
@@ -193,11 +199,12 @@ function PageRoutes() {
       <Route path="/billing" element={<BillingPage />} />
       <Route path="/operations/assets" element={<AssetManagementPage />} />
       <Route path="/operations/accounting" element={<AccountingIntegrationPage />} />
+      <Route path="/operations/accounting/connections" element={<AccountingConnectionsPage />} />
       <Route path="/operations/accounting/mapping" element={<ChartOfAccountsMappingPage />} />
       <Route path="/operations/accounting/exports" element={<GlExportStatusPage />} />
       <Route path="/support/help" element={<HelpCenterPage />} />
       <Route path="/support/knowledge-base" element={<KnowledgeBaseAdminPage />} />
-      <Route path="/support/tickets" element={<SupportTicketsAdminPage />} />
+      <Route path="/support/tickets" element={<SupportTicketsPage />} />
 
       <Route path="/talent/performance" element={<PerformanceManagementPage />} />
       <Route path="/talent/training" element={<TrainingCertificationPage />} />
@@ -219,6 +226,10 @@ function PageRoutes() {
       <Route path="/settings/security" element={<SettingsHubPage />} />
       <Route path="/settings/audit-log" element={<AuditLogPage />} />
       <Route path="/settings/integrations" element={<SettingsHubPage />} />
+      <Route path="/settings/api-keys" element={<ApiKeysPage />} />
+      <Route path="/settings/webhooks" element={<WebhooksPage />} />
+      <Route path="/settings/currency" element={<CurrencySettingsPage />} />
+      <Route path="/settings/localization" element={<LocalizationSettingsPage />} />
       <Route path="/settings/backup" element={<SettingsHubPage />} />
       <Route path="/settings/general" element={<SettingsHubPage />} />
       <Route path="/settings/roles" element={<RolesPage />} />
@@ -249,13 +260,15 @@ function AdminApp() {
   return (
     <TenantProvider>
       <CompanyProvider>
-        <BrowserRouter>
-          <NavProvider>
-            <AppShell onLogout={logout}>
-              <PageRoutes />
-            </AppShell>
-          </NavProvider>
-        </BrowserRouter>
+        <LocalizationProvider>
+          <BrowserRouter>
+            <NavProvider>
+              <AppShell onLogout={logout}>
+                <PageRoutes />
+              </AppShell>
+            </NavProvider>
+          </BrowserRouter>
+        </LocalizationProvider>
       </CompanyProvider>
     </TenantProvider>
   );

@@ -1,12 +1,29 @@
 import type {
+  CompanyPayrollCurrencyView,
   CreateExchangeRateInput,
+  CurrencySettingsOverview,
+  DeleteExchangeRateResult,
   ExchangeRateRecord,
+  ResolvedExchangeRate,
   UpdateExchangeRateInput,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
 export function listExchangeRates(): Promise<ExchangeRateRecord[]> {
   return tenantApiRequest<ExchangeRateRecord[]>('/tenant/exchange-rates');
+}
+
+export function getCurrencyOverview(): Promise<CurrencySettingsOverview> {
+  return tenantApiRequest<CurrencySettingsOverview>('/tenant/exchange-rates/overview');
+}
+
+export function resolveExchangeRate(
+  baseCurrency: string,
+  quoteCurrency: string,
+  date: string,
+): Promise<ResolvedExchangeRate> {
+  const query = new URLSearchParams({ base: baseCurrency, quote: quoteCurrency, date });
+  return tenantApiRequest<ResolvedExchangeRate>(`/tenant/exchange-rates/resolve?${query.toString()}`);
 }
 
 export function createExchangeRate(
@@ -28,6 +45,12 @@ export function updateExchangeRate(
   );
 }
 
+export function deleteExchangeRate(rateId: string): Promise<DeleteExchangeRateResult> {
+  return tenantApiRequest<DeleteExchangeRateResult>(`/tenant/exchange-rates/${rateId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function getCompanyPayrollCurrency(companyId: string): Promise<{
   companyId: string;
   payrollBaseCurrency: string;
@@ -37,11 +60,12 @@ export function getCompanyPayrollCurrency(companyId: string): Promise<{
   );
 }
 
+/** `null` reverts to the company's country currency. */
 export function updateCompanyPayrollCurrency(
   companyId: string,
   payrollBaseCurrency: string | null,
-): Promise<{ companyId: string; payrollBaseCurrency: string; tenantId: string }> {
-  return tenantApiRequest<{ companyId: string; payrollBaseCurrency: string; tenantId: string }>(
+): Promise<CompanyPayrollCurrencyView> {
+  return tenantApiRequest<CompanyPayrollCurrencyView>(
     `/organization/companies/${companyId}/payroll-currency`,
     {
       method: 'PATCH',

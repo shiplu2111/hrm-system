@@ -258,6 +258,10 @@ model Company {
   financialYearStart Int     @map("financial_year_start") @db.SmallInt
   payrollBaseCurrency String? @map("payroll_base_currency") @db.VarChar(3)
   timezone          String?
+  /// Localization overrides (MODULES.md §46); null inherits from the country.
+  defaultLanguage   String?  @map("default_language") @db.VarChar(8)
+  dateFormat        String?  @map("date_format") @db.VarChar(20)
+  numberFormat      String?  @map("number_format") @db.VarChar(20)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -352,6 +356,10 @@ model Location {
   name             String
   address          String?
   timezone         String?
+  /// Branch localization overrides (MODULES.md §46); null inherits from the company.
+  defaultLanguage  String?  @map("default_language") @db.VarChar(8)
+  dateFormat       String?  @map("date_format") @db.VarChar(20)
+  numberFormat     String?  @map("number_format") @db.VarChar(20)
   lat              Decimal? @db.Decimal(10, 7)
   lng              Decimal? @db.Decimal(10, 7)
   geofenceRadiusM  Int?     @map("geofence_radius_m")
@@ -3369,6 +3377,7 @@ model TenantWebhook {
   status          TenantWebhookStatus @default(active)
   description     String?
   createdByUserId String              @map("created_by_user_id") @db.Uuid
+  secretRotatedAt DateTime?           @map("secret_rotated_at")
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
 
@@ -3393,6 +3402,8 @@ model WebhookDelivery {
   errorMessage  String?               @map("error_message")
   bullJobId     String?               @map("bull_job_id")
   queuedAt      DateTime              @default(now()) @map("queued_at")
+  lastAttemptAt DateTime?             @map("last_attempt_at")
+  nextAttemptAt DateTime?             @map("next_attempt_at")
   deliveredAt   DateTime?             @map("delivered_at")
   failedAt      DateTime?             @map("failed_at")
   createdAt     DateTime              @default(now()) @map("created_at")
@@ -5078,6 +5089,8 @@ model User {
   lockedUntil         DateTime? @map("locked_until")
   lastLoginAt         DateTime? @map("last_login_at")
   mustChangePassword  Boolean   @default(false) @map("must_change_password")
+  /// UI language chosen by the user; null follows the branch/company default.
+  preferredLanguage   String?   @map("preferred_language") @db.VarChar(8)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 

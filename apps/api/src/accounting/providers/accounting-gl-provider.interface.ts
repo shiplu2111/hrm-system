@@ -29,6 +29,9 @@ export interface AccountingGlProvider {
 
   refreshAccessToken(refreshToken: string): Promise<AccountingOAuthTokens>;
 
+  /** Invalidates the grant at the provider so a disconnected app can't keep posting. */
+  revokeRefreshToken(refreshToken: string): Promise<void>;
+
   listOrganizations(accessToken: string): Promise<AccountingOrgConnection[]>;
 
   pushManualJournal(input: {

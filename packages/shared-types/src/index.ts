@@ -35,6 +35,7 @@ export * from './webhooks';
 export * from './support';
 export * from './currency';
 export * from './locale';
+export * from './localization';
 export * from './performance';
 export * from './training';
 export * from './employee-relations';

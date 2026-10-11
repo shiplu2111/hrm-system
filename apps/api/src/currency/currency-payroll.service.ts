@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { EmploymentContractStatus } from '@prisma/client';
-import type { PayrollCurrencySnapshot } from '@hrm/shared-types';
+import type { CompanyPayrollCurrencyView, PayrollCurrencySnapshot } from '@hrm/shared-types';
 import { Decimal } from '@prisma/client/runtime/library';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { ExchangeRatesService } from './exchange-rates.service';
 import { convertQuoteToBase } from './exchange-rate.utils';
@@ -11,7 +13,51 @@ export class CurrencyPayrollService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly exchangeRates: ExchangeRatesService,
+    private readonly auditService: AuditService,
   ) {}
+
+  /** `null` falls back to the company's country currency. Finalized runs keep the base they stored. */
+  async setCompanyBaseCurrency(
+    tenantId: string,
+    companyId: string,
+    currency: string | null,
+    user: AuthenticatedUser,
+  ): Promise<CompanyPayrollCurrencyView> {
+    const before = await this.prisma.unscoped.company.findFirstOrThrow({
+      where: { id: companyId, tenantId },
+      select: { payrollBaseCurrency: true },
+    });
+    const row = await this.prisma.unscoped.company.update({
+      where: { id: companyId },
+      data: { payrollBaseCurrency: currency?.trim().toUpperCase() || null },
+      select: {
+        id: true,
+        name: true,
+        payrollBaseCurrency: true,
+        country: { select: { currency: true } },
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'settings',
+      recordId: companyId,
+      oldValue: { payrollBaseCurrency: before.payrollBaseCurrency },
+      newValue: { payrollBaseCurrency: row.payrollBaseCurrency },
+    });
+
+    const countryCurrency = row.country.currency.toUpperCase();
+    const base = row.payrollBaseCurrency?.toUpperCase() ?? countryCurrency;
+    return {
+      companyId: row.id,
+      companyName: row.name,
+      countryCurrency,
+      payrollBaseCurrency: base,
+      overridden: base !== countryCurrency,
+    };
+  }
 
   async resolveCompanyBaseCurrency(companyId: string): Promise<string> {
     const company = await this.prisma.unscoped.company.findUnique({

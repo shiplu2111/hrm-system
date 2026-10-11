@@ -18,6 +18,8 @@ import {
   CreateKbCategoryDto,
   CreateSupportTicketDto,
   CreateSupportTicketMessageDto,
+  ListKbArticlesQueryDto,
+  SupportQueueQueryDto,
   UpdateKbArticleDto,
   UpdateKbCategoryDto,
   UpdateSupportTicketDto,
@@ -73,19 +75,26 @@ export class SupportController {
     };
   }
 
+  @Delete('kb/categories/:categoryId')
+  @RequirePermission('support', 'edit')
+  @ApiOperation({ summary: 'Delete an empty knowledge base category' })
+  async deleteCategory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('categoryId', ParseUUIDPipe) categoryId: string,
+  ) {
+    await this.kbService.deleteCategory(user.tenantId!, categoryId, user);
+    return { data: { deleted: true, categoryId } };
+  }
+
   @SelfService()
   @Get('kb/articles')
   @RequirePermission('support', 'view')
   async listArticles(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('search') search?: string,
-    @Query('categoryId') categoryId?: string,
+    @Query() query: ListKbArticlesQueryDto,
   ) {
     return {
-      data: await this.kbService.listArticles(user.tenantId!, user, {
-        search,
-        categoryId,
-      }),
+      data: await this.kbService.listArticles(user.tenantId!, user, query),
     };
   }
 
@@ -95,9 +104,12 @@ export class SupportController {
   async getArticle(
     @CurrentUser() user: AuthenticatedUser,
     @Param('articleId', ParseUUIDPipe) articleId: string,
+    @Query('preview') preview?: string,
   ) {
     return {
-      data: await this.kbService.getArticle(user.tenantId!, articleId, user),
+      data: await this.kbService.getArticle(user.tenantId!, articleId, user, {
+        preview: preview === 'true',
+      }),
     };
   }
 
@@ -141,6 +153,25 @@ export class SupportController {
   }
 
   // ---- Support tickets ----
+
+  @Get('queue')
+  @RequirePermission('support', 'edit')
+  @ApiOperation({ summary: 'Agent ticket queue with filters, status counts and paging' })
+  async listQueue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: SupportQueueQueryDto,
+  ) {
+    return {
+      data: await this.ticketsService.listQueue(user.tenantId!, user, query),
+    };
+  }
+
+  @Get('agents')
+  @RequirePermission('support', 'edit')
+  @ApiOperation({ summary: 'Users who can be assigned support tickets' })
+  async listAgents(@CurrentUser() user: AuthenticatedUser) {
+    return { data: await this.ticketsService.listAgents(user.tenantId!) };
+  }
 
   @SelfService()
   @Get('tickets')

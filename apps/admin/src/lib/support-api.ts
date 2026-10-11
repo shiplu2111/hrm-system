@@ -5,7 +5,11 @@ import type {
   CreateSupportTicketMessageInput,
   KbArticleListItem,
   KbArticleRecord,
+  KbArticleStatusFilter,
   KbCategoryRecord,
+  SupportAgent,
+  SupportQueueList,
+  SupportQueueQuery,
   SupportTicketDetail,
   SupportTicketRecord,
   UpdateKbArticleInput,
@@ -37,22 +41,35 @@ export function updateKbCategory(
   );
 }
 
+export function deleteKbCategory(categoryId: string): Promise<{ deleted: boolean }> {
+  return tenantApiRequest<{ deleted: boolean }>(
+    `/tenant/support/kb/categories/${categoryId}`,
+    { method: 'DELETE' },
+  );
+}
+
 export function listKbArticles(params?: {
   search?: string;
   categoryId?: string;
+  status?: KbArticleStatusFilter;
 }): Promise<KbArticleListItem[]> {
   const query = new URLSearchParams();
   if (params?.search) query.set('search', params.search);
   if (params?.categoryId) query.set('categoryId', params.categoryId);
+  if (params?.status && params.status !== 'all') query.set('status', params.status);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<KbArticleListItem[]>(
     `/tenant/support/kb/articles${suffix}`,
   );
 }
 
-export function getKbArticle(articleId: string): Promise<KbArticleRecord> {
+/** `preview` lets editors open an article without counting a view. */
+export function getKbArticle(
+  articleId: string,
+  options: { preview?: boolean } = {},
+): Promise<KbArticleRecord> {
   return tenantApiRequest<KbArticleRecord>(
-    `/tenant/support/kb/articles/${articleId}`,
+    `/tenant/support/kb/articles/${articleId}${options.preview ? '?preview=true' : ''}`,
   );
 }
 
@@ -86,6 +103,22 @@ export function listSupportTickets(): Promise<SupportTicketRecord[]> {
   return tenantApiRequest<SupportTicketRecord[]>('/tenant/support/tickets');
 }
 
+export function listSupportQueue(params: SupportQueueQuery): Promise<SupportQueueList> {
+  const query = new URLSearchParams();
+  if (params.status && params.status !== 'all') query.set('status', params.status);
+  if (params.priority) query.set('priority', params.priority);
+  if (params.assignee && params.assignee !== 'all') query.set('assignee', params.assignee);
+  if (params.search?.trim()) query.set('search', params.search.trim());
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return tenantApiRequest<SupportQueueList>(`/tenant/support/queue${suffix}`);
+}
+
+export function listSupportAgents(): Promise<SupportAgent[]> {
+  return tenantApiRequest<SupportAgent[]>('/tenant/support/agents');
+}
+
 export function getSupportTicket(ticketId: string): Promise<SupportTicketDetail> {
   return tenantApiRequest<SupportTicketDetail>(
     `/tenant/support/tickets/${ticketId}`,
@@ -104,8 +137,8 @@ export function createSupportTicket(
 export function updateSupportTicket(
   ticketId: string,
   input: UpdateSupportTicketInput,
-): Promise<SupportTicketRecord> {
-  return tenantApiRequest<SupportTicketRecord>(
+): Promise<SupportTicketDetail> {
+  return tenantApiRequest<SupportTicketDetail>(
     `/tenant/support/tickets/${ticketId}`,
     { method: 'PATCH', body: JSON.stringify(input) },
   );

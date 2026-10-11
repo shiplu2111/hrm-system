@@ -1,3 +1,30 @@
+import { BadRequestException } from '@nestjs/common';
+import {
+  supportNextStatuses,
+  type SupportTicketStatus,
+  type SupportWorkflowStatus,
+} from '@hrm/shared-types';
+
+export function assertSupportTransition(
+  from: SupportTicketStatus,
+  to: SupportWorkflowStatus,
+): void {
+  if (from === to) return;
+  if (!supportNextStatuses(from).includes(to)) {
+    throw new BadRequestException({
+      code: 'INVALID_STATUS_TRANSITION',
+      message: `A ticket that is ${from.replace('_', ' ')} cannot move to ${to.replace('_', ' ')}`,
+    });
+  }
+}
+
+/** Statuses stored in the database for each workflow bucket. */
+export function supportStatusesFor(status: SupportWorkflowStatus): SupportTicketStatus[] {
+  if (status === 'in_progress') return ['in_progress', 'waiting'];
+  if (status === 'resolved') return ['resolved', 'closed'];
+  return ['open'];
+}
+
 export function slugify(value: string): string {
   return value
     .toLowerCase()

@@ -1,5 +1,7 @@
 /** Locale / timezone context for branch-aware display (MODULES.md §46) */
 
+import { applyDatePattern, formatNumberWithPattern, type UiLanguage } from './localization';
+
 export interface LocaleContext {
   timezone: string;
   dateFormat: string;
@@ -7,6 +9,8 @@ export interface LocaleContext {
   currency: string;
   /** BCP 47 tag for Intl formatters */
   locale: string;
+  /** Organization UI language (branch → company → country); used for month names. */
+  language?: UiLanguage;
 }
 
 export interface AttendanceDisplayFields {
@@ -146,18 +150,7 @@ export function formatLocalDate(instant: Date, locale: LocaleContext): string {
   const month = parts.find((p) => p.type === 'month')?.value ?? '';
   const day = parts.find((p) => p.type === 'day')?.value ?? '';
 
-  return applyDateFormatPattern(locale.dateFormat, { year, month, day });
-}
-
-function applyDateFormatPattern(
-  pattern: string,
-  parts: { year: string; month: string; day: string },
-): string {
-  return pattern
-    .replace(/YYYY/g, parts.year)
-    .replace(/YY/g, parts.year.slice(-2))
-    .replace(/MM/g, parts.month)
-    .replace(/DD/g, parts.day);
+  return applyDatePattern(locale.dateFormat, { year, month, day }, locale.language);
 }
 
 export function formatCurrencyAmount(
@@ -170,12 +163,13 @@ export function formatCurrencyAmount(
   }).format(amount);
 }
 
+/** Uses the branch/company number format pattern (grouping and decimal separators). */
 export function formatLocalizedNumber(
   value: number,
   locale: LocaleContext,
-  options?: Intl.NumberFormatOptions,
+  fractionDigits?: { min?: number; max?: number },
 ): string {
-  return new Intl.NumberFormat(locale.locale, options).format(value);
+  return formatNumberWithPattern(value, locale.numberFormat, fractionDigits);
 }
 
 export function buildAttendanceDisplay(input: {

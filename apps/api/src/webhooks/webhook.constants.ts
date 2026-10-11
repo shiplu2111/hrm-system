@@ -1,19 +1,23 @@
 import { randomUUID } from 'crypto';
-import type { WebhookEventType, WebhookPayloadEnvelope } from '@hrm/shared-types';
-import { WEBHOOK_SCHEMA_VERSION } from '@hrm/shared-types';
+import type {
+  WebhookDeliveryEventType,
+  WebhookEventType,
+  WebhookPayloadEnvelope,
+} from '@hrm/shared-types';
+import { ALL_WEBHOOK_EVENT_TYPES, WEBHOOK_SCHEMA_VERSION } from '@hrm/shared-types';
 
-export const SUPPORTED_WEBHOOK_EVENTS = new Set<WebhookEventType>([
-  'employee.created',
-  'leave.approved',
-  'payroll.finalized',
-]);
+export const SUPPORTED_WEBHOOK_EVENTS = new Set<WebhookEventType>(
+  ALL_WEBHOOK_EVENT_TYPES,
+);
+
+export const MAX_WEBHOOKS_PER_TENANT = 20;
 
 export function isWebhookEventType(value: string): value is WebhookEventType {
   return SUPPORTED_WEBHOOK_EVENTS.has(value as WebhookEventType);
 }
 
 export function buildWebhookEnvelope(input: {
-  eventType: WebhookEventType;
+  eventType: WebhookDeliveryEventType;
   tenantId: string;
   companyId: string;
   data: Record<string, unknown>;

@@ -116,6 +116,8 @@ export interface AccountingConnectionRecord {
   lastSyncStatus: AccountingSyncJobStatus | null;
   lastSyncError: string | null;
   connectedAt: string | null;
+  /** Employee name of the user who authorised the connection, or their email */
+  connectedByName: string | null;
   disconnectedAt: string | null;
   oauthConfigured: boolean;
   createdAt: string;

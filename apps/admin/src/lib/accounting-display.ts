@@ -1,4 +1,6 @@
 import type {
+  AccountingConnectionRecord,
+  AccountingConnectionStatus,
   GlAccountRecord,
   GlAccountType,
   GlExportDestination,
@@ -103,6 +105,35 @@ export function exportedByText(row: GlExportStatusRecord): string {
       : 'Automatic, after payroll finalization';
   }
   return row.exportedByName ? `By ${row.exportedByName}` : 'By a user';
+}
+
+export const CONNECTION_STATUS_DISPLAY: Record<
+  AccountingConnectionStatus,
+  { tone: StatusPillTone; label: string }
+> = {
+  connected: { tone: 'success', label: 'Connected' },
+  disconnected: { tone: 'neutral', label: 'Not connected' },
+  token_expired: { tone: 'warning', label: 'Reconnect required' },
+  error: { tone: 'error', label: 'Connection error' },
+};
+
+/** Statuses where a connection exists but Xero no longer accepts it. */
+export function needsReconnect(status: AccountingConnectionStatus): boolean {
+  return status === 'token_expired' || status === 'error';
+}
+
+export function connectionStatusExplanation(connection: AccountingConnectionRecord): string {
+  const org = connection.externalOrgName ? `“${connection.externalOrgName}”` : 'Xero';
+  switch (connection.status) {
+    case 'connected':
+      return `Payroll journals post to ${org} automatically after payroll is finalized.`;
+    case 'token_expired':
+      return `Xero no longer accepts the saved sign-in for ${org} — it expired or was revoked. Payroll journals won't sync until someone reconnects.`;
+    case 'error':
+      return `Xero refused access to ${org}, usually because the app was disconnected from inside Xero. Reconnect to resume syncing.`;
+    default:
+      return 'Payroll journals are not sent to Xero. You can still export them as a CSV file.';
+  }
 }
 
 export function formatDateTime(value: string | null | undefined): string {

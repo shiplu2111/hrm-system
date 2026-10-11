@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
-import { LanguageSwitcher } from './LanguageSwitcher';
-
 interface MyPageLayoutProps {
   title: string;
   subtitle?: string;
@@ -19,10 +17,7 @@ export function MyPageLayout({ title, subtitle, actions, loading, error, childre
           <h1 className="text-xl font-semibold text-primary">{title}</h1>
           {subtitle ? <p className="mt-0.5 text-sm text-secondary">{subtitle}</p> : null}
         </div>
-        <div className="flex items-center gap-3">
-          {actions}
-          <LanguageSwitcher />
-        </div>
+        {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
       </header>
 
       {error ? (

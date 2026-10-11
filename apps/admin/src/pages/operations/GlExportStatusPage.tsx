@@ -234,8 +234,8 @@ function ExportsContent({ companyId }: { companyId: string }) {
           <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-mapping'))}>
             <BookOpen className="h-4 w-4" /> Account mapping
           </Button>
-          <Button variant="secondary" onClick={() => navigate(pathForPage('accounting'))}>
-            <Settings2 className="h-4 w-4" /> Journal preview &amp; connections
+          <Button variant="secondary" onClick={() => navigate(pathForPage('accounting-connections'))}>
+            <Settings2 className="h-4 w-4" /> Accounting connections
           </Button>
         </div>
       </div>

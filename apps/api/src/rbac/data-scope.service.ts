@@ -87,6 +87,10 @@ export class DataScopeService {
   }
 
   private async load(user: AuthenticatedUser): Promise<EmployeeScope> {
+    // API keys and OAuth clients have no role row (their roleId isn't a UUID); scopes bound them instead.
+    if (user.authMethod === 'api_key' || user.authMethod === 'oauth') {
+      return { kind: 'all' };
+    }
     const role = await this.prisma.unscoped.role.findUnique({
       where: { id: user.roleId },
       select: { dataScope: true },

@@ -45,6 +45,7 @@ import { BillingModule } from './billing/billing.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SupportModule } from './support/support.module';
 import { CurrencyModule } from './currency/currency.module';
+import { LocaleModule } from './locale/locale.module';
 import { PerformanceModule } from './performance/performance.module';
 import { TrainingModule } from './training/training.module';
 import { EmployeeRelationsModule } from './employee-relations/employee-relations.module';
@@ -103,6 +104,7 @@ import { ContractorsModule } from './contractors/contractors.module';
     WebhooksModule,
     SupportModule,
     CurrencyModule,
+    LocaleModule,
     PerformanceModule,
     TrainingModule,
     EmployeeRelationsModule,

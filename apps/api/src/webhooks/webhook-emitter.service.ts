@@ -1,10 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { WebhookEventType } from '@hrm/shared-types';
-import {
-  buildWebhookEnvelope,
-  deriveWebhookEventId,
-  isWebhookEventType,
-} from './webhook.constants';
+import { deriveWebhookEventId, isWebhookEventType } from './webhook.constants';
 import { WebhookDeliveryQueueService } from './webhook-delivery-queue.service';
 
 export interface WebhookEmitInput {
@@ -44,21 +39,5 @@ export class WebhookEmitterService {
         error instanceof Error ? error.stack : String(error),
       );
     }
-  }
-
-  buildEnvelope(
-    eventType: WebhookEventType,
-    tenantId: string,
-    companyId: string,
-    data: Record<string, unknown>,
-    deliveryId: string,
-  ) {
-    return buildWebhookEnvelope({
-      eventType,
-      tenantId,
-      companyId,
-      data,
-      deliveryId,
-    });
   }
 }

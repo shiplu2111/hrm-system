@@ -27,6 +27,7 @@ import {
   Layers,
   HardDrive,
   RefreshCw,
+  Coins,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -36,14 +37,11 @@ import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
 import { NotificationSettingsScreen } from '@/components/settings/notifications/NotificationSettingsScreen';
 import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
-import { WebhookSettingsPanel } from '@/components/settings/WebhookSettingsPanel';
-import { ExchangeRatesPanel } from '@/components/settings/ExchangeRatesPanel';
 import {
   loginHistory,
   apiKeys,
   integrationConnectors,
   backupRecords,
-  languagesList,
   type ApiKeyItem,
   type IntegrationConnector,
   type BackupRecord,
@@ -109,7 +107,6 @@ export function SettingsHubPage() {
 
   // ---------------- MODULE 46 & 47: BACKUP & MULTI-CURRENCY STATE ----------------
   const [backups, setBackups] = useState<BackupRecord[]>(backupRecords);
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [backupRunning, setBackupRunning] = useState(false);
 
   const handleGenerateKey = () => {
@@ -376,8 +373,6 @@ export function SettingsHubPage() {
             <div className="space-y-6">
               <ApiAccessSettingsPanel />
 
-              <WebhookSettingsPanel />
-
               {/* Third-Party Connectors Grid */}
               <div>
                 <h3 className="text-sm font-bold text-primary mb-3">Enterprise Connectors & Ecosystem</h3>
@@ -451,36 +446,38 @@ export function SettingsHubPage() {
 
               {/* Multi-Currency & Language i18n */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <ExchangeRatesPanel />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Coins className="h-4 w-4 text-accent-500" /> Currency &amp; Exchange Rates
+                    </CardTitle>
+                  </CardHeader>
+                  <CardBody className="space-y-3">
+                    <p className="text-xs text-secondary">
+                      Payroll base currency per company and effective-dated exchange rates. Rates used by finalized
+                      payroll are locked so payslips always match the rate history.
+                    </p>
+                    <Button variant="secondary" size="sm" onClick={() => navigate('settings-currency')}>
+                      Manage currencies &amp; rates
+                    </Button>
+                  </CardBody>
+                </Card>
 
                 {/* Language i18n */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-success-500" /> Supported UI Languages (i18n)
+                      <Globe className="h-4 w-4 text-success-500" /> Localization
                     </CardTitle>
                   </CardHeader>
-                  <CardBody className="space-y-2">
-                    {languagesList.map((l) => (
-                      <div
-                        key={l.code}
-                        onClick={() => setSelectedLanguage(l.code)}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                          selectedLanguage === l.code
-                            ? 'border-accent-500 bg-accent-50/40 dark:bg-accent-950/30'
-                            : 'border-base hover:bg-[rgb(var(--bg-hover))]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-lg">{l.flag}</span>
-                          <div>
-                            <div className="text-xs font-bold text-primary">{l.nativeName} ({l.name})</div>
-                            <div className="text-[10px] text-muted">{l.progressPct}% Translated</div>
-                          </div>
-                        </div>
-                        {selectedLanguage === l.code && <Badge tone="success">Selected</Badge>}
-                      </div>
-                    ))}
+                  <CardBody className="space-y-3">
+                    <p className="text-xs text-secondary">
+                      Default language (English or বাংলা), time zone, and date and number formats per company and
+                      branch. Each user can still switch their own language from the top bar.
+                    </p>
+                    <Button variant="secondary" size="sm" onClick={() => navigate('settings-localization')}>
+                      Manage localization
+                    </Button>
                   </CardBody>
                 </Card>
               </div>

@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   AccountingConnectionStatus,
   AccountingProvider,
@@ -13,10 +9,12 @@ import type {
   AccountingConnectionRecord,
   AccountingProvider as SharedAccountingProvider,
 } from '@hrm/shared-types';
+import { AuditService } from '../audit/audit.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { SensitiveFieldService } from '../crypto/sensitive-field.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { errorCode } from './accounting-connection.rules';
 import { AccountingGlProviderFactory } from './providers/accounting-gl-provider.factory';
 import { XeroGlProvider } from './providers/xero-gl.provider';
 
@@ -24,12 +22,15 @@ const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class AccountingConnectionService {
+  private readonly logger = new Logger(AccountingConnectionService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly sensitiveField: SensitiveFieldService,
     private readonly providerFactory: AccountingGlProviderFactory,
     private readonly xeroProvider: XeroGlProvider,
+    private readonly auditService: AuditService,
   ) {}
 
   async listConnections(companyId: string): Promise<AccountingConnectionRecord[]> {
@@ -40,12 +41,13 @@ export class AccountingConnectionService {
     });
 
     const byProvider = new Map(rows.map((row) => [row.provider, row]));
+    const names = await this.userNames(rows.map((row) => row.connectedByUserId));
     const providers: AccountingProvider[] = [AccountingProvider.xero];
 
     return providers.map((provider) => {
       const row = byProvider.get(provider);
       if (row) {
-        return this.toRecord(row);
+        return this.toRecord(row, names);
       }
       return this.virtualConnection(companyId, provider);
     });
@@ -65,6 +67,7 @@ export class AccountingConnectionService {
       lastSyncStatus: null,
       lastSyncError: null,
       connectedAt: null,
+      connectedByName: null,
       disconnectedAt: null,
       oauthConfigured: provider === 'xero' ? this.xeroProvider.isConfigured() : false,
       createdAt: new Date(0).toISOString(),
@@ -80,7 +83,8 @@ export class AccountingConnectionService {
     const row = await this.prisma.unscoped.accountingConnection.findUnique({
       where: { companyId_provider: { companyId, provider } },
     });
-    return row ? this.toRecord(row) : null;
+    if (!row) return null;
+    return this.toRecord(row, await this.userNames([row.connectedByUserId]));
   }
 
   async beginXeroConnect(
@@ -152,8 +156,14 @@ export class AccountingConnectionService {
       });
     }
 
-    await this.prisma.unscoped.$transaction(async (tx) => {
-      await tx.accountingConnection.upsert({
+    const previous = await this.prisma.unscoped.accountingConnection.findUnique({
+      where: {
+        companyId_provider: { companyId: oauthState.companyId, provider },
+      },
+    });
+
+    const connection = await this.prisma.unscoped.$transaction(async (tx) => {
+      const row = await tx.accountingConnection.upsert({
         where: {
           companyId_provider: {
             companyId: oauthState.companyId,
@@ -192,6 +202,24 @@ export class AccountingConnectionService {
       });
 
       await tx.accountingOAuthState.delete({ where: { id: oauthState.id } });
+      return row;
+    });
+
+    await this.auditService.log({
+      tenantId: oauthState.tenantId,
+      userId: oauthState.userId,
+      action: previous ? 'update' : 'create',
+      module: 'accounting',
+      recordId: connection.id,
+      oldValue: previous
+        ? { provider, status: previous.status, externalOrgName: previous.externalOrgName }
+        : undefined,
+      newValue: {
+        provider,
+        status: connection.status,
+        externalOrgName: connection.externalOrgName,
+        event: 'connected',
+      },
     });
 
     return {
@@ -203,18 +231,20 @@ export class AccountingConnectionService {
   async disconnect(
     companyId: string,
     provider: SharedAccountingProvider,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
   ): Promise<AccountingConnectionRecord> {
-    await this.companyScope.assertCompanyInTenant(companyId);
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
     const existing = await this.prisma.unscoped.accountingConnection.findUnique({
       where: { companyId_provider: { companyId, provider } },
     });
     if (!existing) {
-      throw new NotFoundException({
-        code: 'NOT_FOUND',
-        message: 'Accounting connection not found',
-      });
+      return this.virtualConnection(companyId, provider);
     }
+    if (existing.status === AccountingConnectionStatus.disconnected) {
+      return this.toRecord(existing, await this.userNames([existing.connectedByUserId]));
+    }
+
+    const tokenRevoked = await this.revokeQuietly(existing);
 
     const row = await this.prisma.unscoped.accountingConnection.update({
       where: { id: existing.id },
@@ -227,7 +257,42 @@ export class AccountingConnectionService {
       },
     });
 
-    return this.toRecord(row);
+    await this.auditService.log({
+      tenantId: company.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'accounting',
+      recordId: row.id,
+      oldValue: {
+        provider,
+        status: existing.status,
+        externalOrgName: existing.externalOrgName,
+      },
+      newValue: { provider, status: row.status, event: 'disconnected', tokenRevoked },
+    });
+
+    return this.toRecord(row, await this.userNames([row.connectedByUserId]));
+  }
+
+  /** Revocation is best effort: a Xero outage must not stop a tenant from disconnecting. */
+  private async revokeQuietly(connection: AccountingConnection): Promise<boolean> {
+    const refreshToken = connection.refreshTokenEncrypted
+      ? this.sensitiveField.reveal(connection.refreshTokenEncrypted)
+      : null;
+    if (!refreshToken) return false;
+    try {
+      await this.providerFactory
+        .resolve(connection.provider)
+        .revokeRefreshToken(refreshToken);
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Could not revoke ${connection.provider} token for connection ${connection.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
+    }
   }
 
   async resolveAccessToken(
@@ -263,7 +328,17 @@ export class AccountingConnectionService {
       connection.refreshTokenEncrypted,
     )!;
 
-    const tokens = await glProvider.refreshAccessToken(refreshToken);
+    let tokens;
+    try {
+      tokens = await glProvider.refreshAccessToken(refreshToken);
+    } catch (error) {
+      if (errorCode(error) !== 'XERO_INVALID_GRANT') throw error;
+      await this.markTokenExpired(connection.id);
+      throw new BadRequestException({
+        code: 'ACCOUNTING_TOKEN_EXPIRED',
+        message: 'Xero rejected the saved sign-in — reconnect Xero',
+      });
+    }
 
     await this.prisma.unscoped.accountingConnection.update({
       where: { id: connection.id },
@@ -286,7 +361,31 @@ export class AccountingConnectionService {
     });
   }
 
-  private toRecord(row: AccountingConnection): AccountingConnectionRecord {
+  private async userNames(userIds: Array<string | null>): Promise<Map<string, string>> {
+    const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.unscoped.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        email: true,
+        employee: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.employee
+          ? `${user.employee.firstName} ${user.employee.lastName}`.trim()
+          : user.email,
+      ]),
+    );
+  }
+
+  private toRecord(
+    row: AccountingConnection,
+    names: Map<string, string>,
+  ): AccountingConnectionRecord {
     return {
       id: row.id,
       companyId: row.companyId,
@@ -297,6 +396,9 @@ export class AccountingConnectionService {
       lastSyncStatus: row.lastSyncStatus,
       lastSyncError: row.lastSyncError,
       connectedAt: row.connectedAt?.toISOString() ?? null,
+      connectedByName: row.connectedByUserId
+        ? (names.get(row.connectedByUserId) ?? null)
+        : null,
       disconnectedAt: row.disconnectedAt?.toISOString() ?? null,
       oauthConfigured: row.provider === 'xero' ? this.xeroProvider.isConfigured() : false,
       createdAt: row.createdAt.toISOString(),

@@ -414,5 +414,49 @@
       "high": "উচ্চ",
       "critical": "গুরুতর"
     }
+  },
+  "shell": {
+    "searchPlaceholder": "কর্মী, বিভাগ, রিপোর্ট খুঁজুন…",
+    "toggleTheme": "থিম পরিবর্তন",
+    "openNavigation": "নেভিগেশন মেনু খুলুন",
+    "collapse": "ছোট করুন",
+    "expandMenu": "{{label}} মেনু খুলুন",
+    "collapseMenu": "{{label}} মেনু বন্ধ করুন",
+    "profile": "প্রোফাইল",
+    "logout": "লগ আউট",
+    "language": {
+      "title": "ভাষা",
+      "followOrganization": "প্রতিষ্ঠানের ডিফল্ট",
+      "followOrganizationHint": "{{language}}, {{source}} অনুযায়ী",
+      "sources": {
+        "company": "কোম্পানি সেটিংস",
+        "branch": "আপনার শাখা",
+        "country": "দেশের ডিফল্ট"
+      },
+      "formats": "তারিখ {{date}} · সংখ্যা {{number}}",
+      "timezone": "সময় অঞ্চল {{timezone}}",
+      "partial": "কিছু অ্যাডমিন স্ক্রিন এখনও শুধু ইংরেজিতে।",
+      "saveFailed": "আপনার অ্যাকাউন্টে সংরক্ষণ করা যায়নি। শুধু এই ডিভাইসে প্রযোজ্য।"
+    },
+    "nav": {
+      "dashboard": "ড্যাশবোর্ড",
+      "mySpace": "আমার স্পেস",
+      "employees": "কর্মী",
+      "organization": "প্রতিষ্ঠান",
+      "attendance": "উপস্থিতি",
+      "roster": "রোস্টার",
+      "leave": "ছুটি",
+      "payroll": "বেতন",
+      "reports": "রিপোর্ট",
+      "support": "সাপোর্ট",
+      "settings": "সেটিংস",
+      "myHome": "হোম",
+      "myProfile": "আমার প্রোফাইল",
+      "myAttendance": "আমার উপস্থিতি",
+      "myLeave": "আমার ছুটি",
+      "myRoster": "আমার রোস্টার",
+      "myPayslips": "আমার পে-স্লিপ",
+      "myHelp": "সাহায্য ও সাপোর্ট"
+    }
   }
 }

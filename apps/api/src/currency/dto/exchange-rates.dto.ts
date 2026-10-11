@@ -5,6 +5,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateExchangeRateDto {
@@ -26,7 +27,7 @@ export class CreateExchangeRateDto {
   @IsDateString()
   effectiveFrom!: string;
 
-  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsDateString()
   effectiveTo?: string | null;
 }
@@ -40,13 +41,26 @@ export class UpdateExchangeRateDto {
   @IsDateString()
   effectiveFrom?: string;
 
-  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsDateString()
   effectiveTo?: string | null;
 }
 
+export class ResolveExchangeRateQueryDto {
+  @IsString()
+  @Matches(/^[A-Z]{3}$/i)
+  base!: string;
+
+  @IsString()
+  @Matches(/^[A-Z]{3}$/i)
+  quote!: string;
+
+  @IsDateString()
+  date!: string;
+}
+
 export class UpdateCompanyPayrollCurrencyDto {
-  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()
   @MinLength(3)
   @MaxLength(3)

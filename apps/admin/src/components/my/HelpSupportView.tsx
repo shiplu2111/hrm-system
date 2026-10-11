@@ -13,6 +13,7 @@ import type {
   SupportTicketStatus,
 } from '@hrm/shared-types';
 import { useAppTranslation } from '@hrm/i18n';
+import { KbMarkdown } from '@/components/support/KbMarkdown';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -184,11 +185,12 @@ export function HelpSupportView() {
         open={Boolean(selectedArticle)}
         onClose={() => setSelectedArticle(null)}
         title={selectedArticle?.title ?? t('support.articleFallback')}
+        size="lg"
       >
         {selectedArticle && (
-          <div className="space-y-2 text-sm whitespace-pre-wrap text-primary">
+          <div className="space-y-3 text-sm">
             <p className="text-secondary">{selectedArticle.summary}</p>
-            {selectedArticle.body}
+            <KbMarkdown source={selectedArticle.body} />
           </div>
         )}
       </Modal>

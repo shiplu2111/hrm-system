@@ -24,6 +24,18 @@ export class NotificationEngineService {
 
   /** Event → rule → channel → recipient (NOTIFICATION_LOGIC.md §1). */
   async emit(input: NotificationEmitInput): Promise<void> {
+    const payload = input.payload ?? {};
+
+    // Webhooks are an integration contract, independent of notification rules.
+    if (isWebhookEventType(input.eventType)) {
+      void this.webhookEmitter.emit({
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        eventType: input.eventType,
+        data: payload,
+      });
+    }
+
     try {
       const rule = await this.rulesService.getRuleForEvent(
         input.companyId,
@@ -38,16 +50,6 @@ export class NotificationEngineService {
         templates.emailSubject,
         input.variables,
       );
-      const payload = input.payload ?? {};
-
-      if (isWebhookEventType(input.eventType)) {
-        void this.webhookEmitter.emit({
-          tenantId: input.tenantId,
-          companyId: input.companyId,
-          eventType: input.eventType,
-          data: payload,
-        });
-      }
 
       const recipients =
         input.directUserIds?.length

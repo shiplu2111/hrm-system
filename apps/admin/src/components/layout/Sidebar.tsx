@@ -1,4 +1,5 @@
 import { X, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { useAppTranslation } from '@hrm/i18n';
 import { adminNavItems } from '@/config/shell-navigation';
 import { useNav, type PageKey } from '@/context/NavContext';
 import { useCompany } from '@/context/CompanyContext';
@@ -15,6 +16,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
   const { current, navigate } = useNav();
+  const { t } = useAppTranslation();
   const { company } = useCompany();
   const { current: currentTenant } = useTenant();
   const { selfServiceOnly } = usePageAccess();
@@ -66,7 +68,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
           className="w-full flex items-center gap-2.5 h-9 px-2.5 rounded-lg text-sm text-secondary hover:text-primary hover:bg-[rgb(var(--bg-hover))] transition-colors"
         >
           {collapsed ? <PanelLeft className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
-          {!collapsed && <span>Collapse</span>}
+          {!collapsed && <span>{t('shell.collapse')}</span>}
         </button>
       </div>
     </>

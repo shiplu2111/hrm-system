@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePermission } from '@hrm/portal-ui';
+import { useAppTranslation } from '@hrm/i18n';
 import type { PageKey } from '@/context/NavContext';
 import { pathForPage } from '@/config/routes';
 import { usePageAccess } from '@/hooks/usePageAccess';
@@ -22,6 +23,8 @@ export function AdminNavGroup({
   onNavigate,
 }: AdminNavGroupProps) {
   const routerNavigate = useNavigate();
+  const { t } = useAppTranslation();
+  const label = item.labelKey ? t(item.labelKey, { defaultValue: item.label }) : item.label;
   const hasParentPermission = usePermission(item.permission.module, item.permission.action);
   const { canView } = usePageAccess();
   const parentAllowed = hasParentPermission && canView(item.page);
@@ -52,7 +55,7 @@ export function AdminNavGroup({
   if (!hasChildren) {
     return (
       <NavButton
-        label={item.label}
+        label={label}
         icon={Icon}
         active={isActive}
         collapsed={collapsed}
@@ -64,7 +67,7 @@ export function AdminNavGroup({
   if (collapsed) {
     return (
       <NavButton
-        label={item.label}
+        label={label}
         icon={Icon}
         active={isActive}
         collapsed={collapsed}
@@ -90,13 +93,13 @@ export function AdminNavGroup({
           }`}
         >
           <Icon className="h-[18px] w-[18px] shrink-0" />
-          <span className="flex-1 text-left truncate">{item.label}</span>
+          <span className="flex-1 text-left truncate">{label}</span>
         </button>
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.label} menu`}
+          aria-label={t(expanded ? 'shell.collapseMenu' : 'shell.expandMenu', { label })}
           className={`h-9 w-8 shrink-0 flex items-center justify-center rounded-lg text-muted hover:text-primary hover:bg-[rgb(var(--bg-hover))] transition-colors ${
             isActive ? 'text-accent-600' : ''
           }`}
@@ -121,7 +124,7 @@ export function AdminNavGroup({
                     : 'text-secondary hover:text-primary hover:bg-[rgb(var(--bg-hover))]'
                 }`}
               >
-                {child.label}
+                {child.labelKey ? t(child.labelKey, { defaultValue: child.label }) : child.label}
               </button>
             );
           })}

@@ -8,7 +8,8 @@ import {
   Search,
 } from 'lucide-react';
 import type { KbArticleListItem, KbArticleRecord, KbCategoryRecord } from '@hrm/shared-types';
-import { PermissionGate } from '@hrm/portal-ui';
+import { PermissionGate, usePermission } from '@hrm/portal-ui';
+import { KbMarkdown } from '@/components/support/KbMarkdown';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -25,6 +26,7 @@ import { ApiError } from '@/lib/tenant-api-client';
 
 export function HelpCenterPage() {
   const { navigate } = useNav();
+  const canManageTickets = usePermission('support', 'edit');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -141,16 +143,16 @@ export function HelpCenterPage() {
               >
                 Manage articles
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="bg-white/15 text-white border-white/20 hover:bg-white/25"
+                onClick={() => navigate('support-tickets')}
+              >
+                Support queue
+              </Button>
             </PermissionGate>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="bg-white/15 text-white border-white/20 hover:bg-white/25"
-              onClick={() => navigate('support-tickets')}
-            >
-              Support queue
-            </Button>
           </div>
         </div>
       </section>
@@ -255,12 +257,13 @@ export function HelpCenterPage() {
         open={Boolean(selectedArticle)}
         onClose={() => setSelectedArticle(null)}
         title={selectedArticle?.title ?? 'Article'}
+        size="lg"
       >
         {selectedArticle && (
           <div className="space-y-3 text-sm">
             <Badge tone="accent">{selectedArticle.categoryName}</Badge>
             <p className="text-secondary">{selectedArticle.summary}</p>
-            <div className="whitespace-pre-wrap text-primary">{selectedArticle.body}</div>
+            <KbMarkdown source={selectedArticle.body} />
           </div>
         )}
       </Modal>
@@ -270,7 +273,7 @@ export function HelpCenterPage() {
           <div className="flex flex-col items-center gap-3 py-6 text-center">
             <CheckCircle2 className="h-10 w-10 text-success-600" />
             <p className="text-sm font-semibold text-primary">Ticket submitted</p>
-            <Button variant="secondary" size="sm" onClick={() => { setSent(false); setContactOpen(false); navigate('support-tickets'); }}>
+            <Button variant="secondary" size="sm" onClick={() => { setSent(false); setContactOpen(false); navigate(canManageTickets ? 'support-tickets' : 'my-help'); }}>
               View tickets
             </Button>
           </div>

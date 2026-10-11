@@ -1,38 +1,11 @@
-import { BadRequestException } from '@nestjs/common';
-import type { PermissionAction } from '@hrm/shared-types';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  ALL_API_ACCESS_SCOPES,
+  API_ACCESS_SCOPE_LABELS,
+  API_ACCESS_SCOPE_PERMISSIONS,
+  type ApiAccessScope,
+} from '@hrm/shared-types';
 import type { PermissionClaim } from '../auth/auth.types';
-import { ALL_API_ACCESS_SCOPES, type ApiAccessScope } from '@hrm/shared-types';
-
-const SCOPE_PERMISSION_MAP: Record<
-  ApiAccessScope,
-  Array<{ module: string; action: PermissionAction }>
-> = {
-  'read:employees': [{ module: 'employees', action: 'view' }],
-  'write:employees': [
-    { module: 'employees', action: 'view' },
-    { module: 'employees', action: 'create' },
-    { module: 'employees', action: 'edit' },
-  ],
-  'read:attendance': [{ module: 'attendance', action: 'view' }],
-  'write:attendance': [
-    { module: 'attendance', action: 'view' },
-    { module: 'attendance', action: 'create' },
-    { module: 'attendance', action: 'edit' },
-  ],
-  'read:leave': [{ module: 'leave', action: 'view' }],
-  'write:leave': [
-    { module: 'leave', action: 'view' },
-    { module: 'leave', action: 'create' },
-    { module: 'leave', action: 'edit' },
-  ],
-  'read:payroll': [{ module: 'payroll', action: 'view' }],
-  'write:payroll': [
-    { module: 'payroll', action: 'view' },
-    { module: 'payroll', action: 'create' },
-    { module: 'payroll', action: 'edit' },
-  ],
-  'read:reports': [{ module: 'reports', action: 'view' }],
-};
 
 export function isValidApiAccessScope(scope: string): scope is ApiAccessScope {
   return ALL_API_ACCESS_SCOPES.includes(scope as ApiAccessScope);
@@ -52,15 +25,42 @@ export function assertValidScopes(scopes: string[]): ApiAccessScope[] {
       message: 'At least one scope is required',
     });
   }
-  return scopes as ApiAccessScope[];
+  return [...new Set(scopes)] as ApiAccessScope[];
+}
+
+/** Scopes the holder of `permissions` may not grant, because they lack a permission the scope carries. */
+export function scopesBeyondPermissions(
+  scopes: ApiAccessScope[],
+  permissions: PermissionClaim[],
+): ApiAccessScope[] {
+  const held = new Set(permissions.map((p) => `${p.module}:${p.action}`));
+  return scopes.filter((scope) =>
+    API_ACCESS_SCOPE_PERMISSIONS[scope].some((p) => !held.has(`${p.module}:${p.action}`)),
+  );
+}
+
+/** Stops a settings admin from minting credentials stronger than their own role. */
+export function assertScopesWithinPermissions(
+  scopes: ApiAccessScope[],
+  permissions: PermissionClaim[],
+): void {
+  const beyond = scopesBeyondPermissions(scopes, permissions);
+  if (beyond.length > 0) {
+    throw new ForbiddenException({
+      code: 'SCOPE_EXCEEDS_PERMISSIONS',
+      message: `You can't grant access you don't have yourself: ${beyond
+        .map((scope) => API_ACCESS_SCOPE_LABELS[scope])
+        .join(', ')}`,
+    });
+  }
 }
 
 export function scopesToPermissionClaims(scopes: string[]): PermissionClaim[] {
   const claims = new Map<string, PermissionClaim>();
   for (const scope of scopes) {
     if (!isValidApiAccessScope(scope)) continue;
-    for (const permission of SCOPE_PERMISSION_MAP[scope]) {
-      claims.set(`${permission.module}:${permission.action}`, permission);
+    for (const permission of API_ACCESS_SCOPE_PERMISSIONS[scope]) {
+      claims.set(`${permission.module}:${permission.action}`, { ...permission });
     }
   }
   return [...claims.values()];

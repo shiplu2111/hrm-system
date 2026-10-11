@@ -42,6 +42,16 @@ describe('DataScopeService', () => {
     expect(prisma.unscoped.$queryRaw).not.toHaveBeenCalled();
   });
 
+  it('treats API keys and OAuth clients as tenant-wide without looking up a role', async () => {
+    const { prisma, service } = setup(RoleDataScope.own);
+    for (const authMethod of ['api_key', 'oauth'] as const) {
+      const u = user({ roleId: authMethod, employeeId: null, authMethod });
+      expect(await service.isOrgWide(u)).toBe(true);
+      expect(await service.employeeIdFilter(u)).toBeUndefined();
+    }
+    expect(prisma.unscoped.role.findUnique).not.toHaveBeenCalled();
+  });
+
   it('limits team-scoped roles to self plus the reporting tree', async () => {
     const { service } = setup(RoleDataScope.team);
     const u = user();

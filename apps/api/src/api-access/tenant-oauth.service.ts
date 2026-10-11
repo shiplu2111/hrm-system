@@ -21,7 +21,11 @@ import {
   generateOAuthClientSecret,
   hashApiSecret,
 } from './api-access.utils';
-import { assertValidScopes, isValidApiAccessScope } from './scope-permissions.util';
+import {
+  assertScopesWithinPermissions,
+  assertValidScopes,
+  isValidApiAccessScope,
+} from './scope-permissions.util';
 
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -55,6 +59,7 @@ export class TenantOAuthService {
     await this.planFeatures.assertFeature(tenantId, 'api_access');
     this.assertRedirectUris(input.redirectUris);
     const scopes = assertValidScopes(input.scopes);
+    assertScopesWithinPermissions(scopes, user.permissions);
     const clientSecret = generateOAuthClientSecret();
 
     const row = await this.prisma.unscoped.tenantOAuthClient.create({

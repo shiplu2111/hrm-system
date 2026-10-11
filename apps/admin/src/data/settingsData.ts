@@ -88,14 +88,6 @@ export interface CurrencyItem {
   status: 'Active' | 'Inactive';
 }
 
-export interface LanguageItem {
-  code: string;
-  name: string;
-  nativeName: string;
-  flag: string;
-  progressPct: number;
-}
-
 // ---------------- MOCK DATA CONSTANTS ----------------
 
 export const notificationRules: NotificationRule[] = [
@@ -448,14 +440,5 @@ export const currenciesList: CurrencyItem[] = [
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', exchangeRate: 1.48, isBase: false, status: 'Active' },
   { code: 'INR', name: 'Indian Rupee', symbol: '₹', exchangeRate: 83.85, isBase: false, status: 'Active' },
   { code: 'BDT', name: 'Bangladeshi Taka', symbol: '৳', exchangeRate: 119.5, isBase: false, status: 'Active' },
-];
-
-export const languagesList: LanguageItem[] = [
-  { code: 'en', name: 'English (US)', nativeName: 'English (US)', flag: '🇺🇸', progressPct: 100 },
-  { code: 'bn', name: 'Bengali', nativeName: 'বাংলা', flag: '🇧🇩', progressPct: 98 },
-  { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸', progressPct: 95 },
-  { code: 'de', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪', progressPct: 92 },
-  { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷', progressPct: 90 },
-  { code: 'ar', name: 'Arabic', nativeName: 'العربية', flag: '🇦🇪', progressPct: 85 },
 ];
 

@@ -483,7 +483,15 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 
 **Accounting rules** (enforced by the API):
 
-- Account mapping lives at `/operations/accounting/mapping`. The export and sync history is at `/operations/accounting/exports`, and connections and the journal preview stay at `/operations/accounting`. Viewing needs `payroll:view`. Adding accounts needs `payroll:create`. Changing mappings or accounts, and retrying a sync, need `payroll:edit`. Every change is audit-logged under `accounting`.
+- Account mapping lives at `/operations/accounting/mapping`. The export and sync history is at `/operations/accounting/exports`, accounting software connections are at `/operations/accounting/connections`, and the payroll journal preview is at `/operations/accounting`. Viewing needs `payroll:view`. Adding accounts needs `payroll:create`. Changing mappings or accounts, connecting or disconnecting Xero, and retrying a sync need `payroll:edit`. Every change, including connect and disconnect, is audit-logged under `accounting`.
+- Each company connects to Xero separately through OAuth. The Xero callback returns to the connections screen with the result. If the user authorises several Xero organisations, the first one is used. Disconnecting revokes the token at Xero when it can; if Xero can't be reached, the connection is still disconnected locally and the stored tokens are deleted. Journals already in Xero and the export history are kept.
+- The connection status only reflects whether Xero accepts the connection:
+  - `connected`: journals sync after payroll is finalized;
+  - `token_expired` ("Reconnect required"): Xero rejected the access token (401) or the saved refresh token;
+  - `error` ("Connection error"): Xero refused access to the organisation (403);
+  - `disconnected`: no automatic sync; CSV export still works.
+
+  A sync that fails for any other reason, such as unmapped accounts, an unbalanced journal, a Xero validation error or a network problem, is recorded on the sync job and as the last sync error, and the connection stays `connected`. Authorisation failures aren't retried automatically. If payroll is finalized while the connection needs a reconnect, a failed sync is recorded so it shows on the export and sync screen and can be retried after reconnecting.
 - Account codes are unique per company (`409 CONFLICT`). Each pay component or system line maps to one active account in the same company. An account can't be deactivated while any mapping uses it.
 - Cost centres can override the account for employee-cost lines only, meaning earnings and employer superannuation expense. Deductions, tax, net pay and super payable always use the company-wide mapping. Overrides must point at active expense accounts, so an account used by an override can't be changed to another type. Only earning components can be overridden.
 - For each employee-cost line, the account is chosen in this order:
@@ -562,6 +570,29 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Attendance device API
 - Email/SMS provider integration, Firebase, SSO, calendar integration
 
+**API key rules** (enforced by the API):
+
+- Keys are managed at `/settings/api-keys`. Viewing needs `settings:view`; generating and revoking need `settings:edit`. Generating a key needs the Enterprise plan (`api_access`), otherwise `403 PLAN_FEATURE_UNAVAILABLE`. Listing and revoking work on any plan, so a tenant that downgrades can still see and revoke its old keys; those keys stop authenticating until the tenant is back on Enterprise.
+- A key is sent as `Authorization: Bearer hrm_live_…`. The full key is shown once, when it's created; only its SHA-256 hash is stored. It can have an expiry date, which must be in the future.
+- Scopes are `read:` or `write:` for `employees`, `attendance`, `leave` and `payroll`. Read grants the module's `view` permission; write adds `create` and `edit`, never `delete`, `approve` or `finalize`. Report endpoints are reachable with the matching read scope. Keys never get `settings`, roles, audit or billing access, so a key can't manage keys.
+- A user can only grant scopes their own role holds (`403 SCOPE_EXCEEDS_PERMISSIONS`); the same rule applies to OAuth clients. A key reaches every employee in the tenant, because it has no reporting line; scopes are the only limit.
+- Revoking is immediate and can't be undone; revoking an already revoked key does nothing. Creating and revoking are audit-logged under `api_access`.
+
+**Webhook rules** (enforced by the API):
+
+- Endpoints are managed at `/settings/webhooks`. Viewing endpoints and the delivery log needs `settings:view`; everything else needs `settings:edit`. Adding, editing, enabling, rotating the secret, sending a test and retrying need the Enterprise plan (`api_access`). Disabling and deleting work on any plan. After a downgrade, no events are sent; endpoints stay listed so they can be switched off.
+- Events are `employee.created`, `leave.approved` and `payroll.finalized`. Each endpoint subscribes to one or more of them, for all companies or for one company. `webhook.test` is sent only by "Send test". Webhooks don't depend on notification rules: turning off a notification doesn't stop its webhook.
+- An endpoint URL must be a public `https://` address. Plain `http://` is allowed outside production only. The API rejects URLs with credentials or a fragment, and hosts like `localhost`, single-label names, `.local`/`.internal`, and loopback, private, link-local or CGNAT IPs. It resolves the host again before each delivery and doesn't follow redirects. `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` lifts these limits for self-hosted installs; never set it on shared hosting. There's a limit of 20 endpoints per tenant.
+- Every request is a JSON POST with these headers:
+  - `X-HRM-Signature: t=<unix>,v1=<hex>`, an HMAC-SHA256 of `"<t>.<raw body>"` computed with the endpoint's secret;
+  - `X-HRM-Event-Type`;
+  - `X-HRM-Delivery-Id`, which stays the same across retries so the receiver can drop duplicates;
+  - `X-HRM-Schema-Version`.
+
+  The secret (`whsec_…`) is shown once, when the endpoint is created or the secret is rotated, and is stored encrypted, so `FIELD_ENCRYPTION_KEY` must be set. Rotating takes effect immediately.
+- Any 2xx response within 15 seconds counts as delivered. Anything else, including timeouts and redirects, is retried up to 6 attempts in total, after 1 min, 5 min, 30 min, 2 h and 6 h. The delivery log shows each delivery as Queued, Sending, Retrying (with the attempt number and the next try time), Delivered or Failed, with the last HTTP status and error. A failed delivery can be retried by hand when its endpoint is active; this starts a new set of 6 attempts. Disabling an endpoint fails its pending retries.
+- Creating, editing, rotating, deleting and manual retries are audit-logged under `webhooks`. Deleting an endpoint also deletes its delivery log.
+
 ## 44. Subscription & Billing
 
 **Phase:** MVP — Phase 1
@@ -577,6 +608,24 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Knowledge base
 - Live chat / support ticket for both super-admin side and employee side
 
+**Knowledge base rules**
+
+- Admin screen: Support → Knowledge Base (`/support/knowledge-base`, `support:edit`). Articles belong to a category; categories can be renamed and reordered, and deleted only when empty.
+- Articles are saved as drafts or published. Only published articles appear in the Help Center, My Space → Help & Support, the help widget and mobile; employees never see categories that contain only drafts.
+- The body is Markdown (headings, lists, bold/italic, links, code, quotes), rendered as React elements without raw HTML. Links may only be `http(s)`, `mailto` or app-relative.
+- The slug is set when the article is created and stays stable on rename so shared links keep working.
+- Opening an article in the editor (`?preview=true`) does not count as a view.
+
+**Support ticket rules**
+
+- Agent queue: Support → Support Tickets (`/support/tickets`, `support:edit`), with status counts, priority, assignee (me/unassigned) and search filters. Requesters use My Space → Help & Support.
+- Status flow is Open → In progress → Resolved. Allowed moves: Open → In progress or Resolved; In progress → Open or Resolved; Resolved → In progress (reopen). Legacy `waiting`/`closed` tickets are shown as In progress/Resolved.
+- The first public staff reply moves an Open ticket to In progress and assigns it to that agent if nobody is assigned. Starting work on an unassigned ticket does the same.
+- Resolving accepts an optional note, posted as a reply the requester can see. A requester reply on a resolved ticket reopens it (In progress if assigned, otherwise Open).
+- Internal notes are visible to agents only and never change the status.
+- Tickets can only be assigned to active users with `support:edit`.
+- In-app notifications: the requester on staff replies and resolution; the assignee on assignment and on requester replies.
+
 ## 46. Multi-Currency, Multi-Timezone, Multi-Language
 
 **Phase:** Phase 2
@@ -585,6 +634,25 @@ Full functional module list for the HRMS/HCM SaaS platform. This is the single s
 - Multi-timezone support across branches/locations
 - Multi-language / i18n UI
 - Local date, number, and currency formatting per country
+
+**Exchange rate rules**
+
+- Admin screen: Settings → Currency & Exchange Rates (`/settings/currency`; view with `settings:view`, change with `settings:edit`). It shows each company's payroll base currency, every currency pair needed by active contracts, and the rate history for each pair.
+- A company's payroll base currency is its country's currency unless overridden. A rate is stored as "base units per 1 pay-currency unit" (e.g. 1 USD = 1.48 AUD) with up to 8 decimal places. The form lets admins enter it in either direction.
+- Rates are versioned by `effective_from`/`effective_to` (inclusive dates; an empty end means open-ended). Versions of a pair never overlap. Adding a version after an open-ended one ends the previous version the day before. A version added before an existing one ends the day before that one starts.
+- A payroll run uses the rate in force on its period end date and copies the value onto the run (`exchangeRate`, `exchangeRateDate`, `exchangeRateId`).
+- Historical rate lock: for each pair, the latest period end of a finalized/paid/locked run is the locked-through date. Versions starting on or before it are frozen (rate and start date can't change, and they can't be deleted). A frozen open-ended version may still be given an end date on or after the locked-through date. New versions must start after it. A version referenced by a locked run can never be deleted.
+- Changing or deleting a rate doesn't touch draft runs that already copied it. They keep the old value until payroll is recalculated, and the screen warns about this.
+- Missing rates (an employee paid in a currency with no rate today) and rates ending within 31 days are flagged at the top of the screen. Every create, change, delete and base-currency change is recorded in the audit log.
+
+**Localization rules**
+
+- Admin screen: Settings → Localization (`/settings/localization`; view with `settings:view`, change with `settings:edit`). It covers four settings per company and per branch (location): default language, time zone, date format and number format.
+- Inheritance: branch → company → country. An empty value (`null`) inherits from the level above, so a branch on "Same as company" follows later company changes. Countries don't store a language: Bangladesh defaults to Bengali, every other country to English.
+- Languages: English (`en`) and Bengali (`bn`). Time zones are IANA names (e.g. `Asia/Dhaka`). Date formats: `DD/MM/YYYY`, `MM/DD/YYYY`, `YYYY-MM-DD`, `DD-MM-YYYY`, `DD.MM.YYYY`, `DD MMM YYYY`, `MMM DD, YYYY` (month names follow the language). Number formats: `1,234.56`, `1.234,56`, `1 234,56`, `1'234.56`, `12,34,567.89` (lakh/crore grouping). Digits stay Latin in every language.
+- An employee's settings come from their work location's branch, or from their company if they have none. Attendance, roster and dashboard dates use the resolved time zone and date format. A changed time zone applies to new clock-ins, leave and shifts; saved records keep their dates.
+- Language switcher: the top bar of the app shell shows a language menu for every signed-in user (`GET/PATCH /me/localization`). A personal choice is saved on the user account and overrides the organization default on every device. "Organization default" clears it. The sidebar groups, My Space items and top-bar labels are translated; the rest of the admin screens are still English only, and the menu says so.
+- Company and branch changes are recorded in the audit log. A user's own language choice is a personal preference and is not audited.
 
 ## 47. System Settings & Backup
 

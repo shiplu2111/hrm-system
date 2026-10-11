@@ -48,6 +48,7 @@ Final pricing numbers are a business decision outside this document's scope — 
 ## 7. Downgrade/Suspension Handling
 
 - Downgrading a plan that removes access to a feature currently in use (e.g. tenant on Business using Roster, downgrades to Starter) must be handled explicitly: either block the downgrade, or clearly warn what data/access will become read-only/hidden.
+  - API keys after a downgrade from Enterprise: existing keys stop authenticating, no new keys can be generated, and the API Keys screen still lists them as paused so the tenant can revoke them (MODULES.md §43).
 - Non-payment leads to a grace period, then read-only/suspended access (never immediate data deletion) — see SECURITY.md §9 for data retention during suspension.
 
 ## 8. Super Admin Visibility

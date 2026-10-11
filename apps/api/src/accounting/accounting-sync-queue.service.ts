@@ -12,9 +12,14 @@ import {
   PayrollJournalExportStatus,
 } from '@prisma/client';
 import type { PayrollJournalPreview } from '@hrm/shared-types';
-import { Queue, Worker, type Job } from 'bullmq';
+import { Queue, UnrecoverableError, Worker, type Job } from 'bullmq';
 import { PrismaService } from '../database/prisma.service';
 import { getRedisConnection, isRedisConfigured } from '../queue/redis.connection';
+import {
+  connectionStatusAfterSyncError,
+  errorCode,
+  syncBlockedMessage,
+} from './accounting-connection.rules';
 import { AccountingConnectionService } from './accounting-connection.service';
 import { AccountingService } from './accounting.service';
 import { AccountingGlProviderFactory } from './providers/accounting-gl-provider.factory';
@@ -93,14 +98,15 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
       }
 
       const connection = await this.prisma.unscoped.accountingConnection.findFirst({
-        where: {
-          companyId: input.companyId,
-          provider: AccountingProvider.xero,
-          status: AccountingConnectionStatus.connected,
-        },
+        where: { companyId: input.companyId, provider: AccountingProvider.xero },
       });
 
-      if (!connection) {
+      if (!connection || connection.status === AccountingConnectionStatus.disconnected) {
+        return;
+      }
+
+      if (connection.status !== AccountingConnectionStatus.connected) {
+        await this.recordBlockedSync(input, connection.id, connection.status);
         return;
       }
 
@@ -115,7 +121,8 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
         },
       });
 
-      const bullJobId = `accounting-sync:${input.companyId}:${input.payrollPeriodId}:xero`;
+      // BullMQ rejects custom ids containing ':' (unless exactly three segments).
+      const bullJobId = `accounting-sync-${input.companyId}-${input.payrollPeriodId}-xero`;
       const job = await this.queue.add(
         'sync-period-journal',
         {
@@ -139,6 +146,38 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /** Keeps the missed sync visible on GL Export & Sync so it can be retried after reconnecting. */
+  private async recordBlockedSync(
+    input: { companyId: string; tenantId: string; payrollPeriodId: string },
+    connectionId: string,
+    status: AccountingConnectionStatus,
+  ): Promise<void> {
+    const message = syncBlockedMessage(status);
+    const now = new Date();
+    await this.prisma.unscoped.$transaction(async (tx) => {
+      await tx.accountingSyncJob.create({
+        data: {
+          tenantId: input.tenantId,
+          companyId: input.companyId,
+          payrollPeriodId: input.payrollPeriodId,
+          provider: AccountingProvider.xero,
+          accountingConnectionId: connectionId,
+          status: AccountingSyncJobStatus.failed,
+          errorMessage: message,
+          failedAt: now,
+        },
+      });
+      await tx.accountingConnection.update({
+        where: { id: connectionId },
+        data: {
+          lastSyncAt: now,
+          lastSyncStatus: AccountingSyncJobStatus.failed,
+          lastSyncError: message,
+        },
+      });
+    });
   }
 
   isAvailable(): boolean {
@@ -168,7 +207,7 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
         provider: syncJob.provider,
       },
       {
-        jobId: `accounting-sync-retry:${syncJobId}:${Date.now()}`,
+        jobId: `accounting-sync-retry-${syncJobId}-${Date.now()}`,
       },
     );
 
@@ -197,17 +236,23 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
     });
 
     const connection = await this.prisma.unscoped.accountingConnection.findFirst({
-      where: {
-        companyId,
-        provider,
-        status: AccountingConnectionStatus.connected,
-      },
+      where: { companyId, provider },
     });
 
-    if (!connection?.externalTenantId) {
-      await this.failJob(syncJobId, connection?.id ?? null, 'Xero is not connected');
+    if (
+      !connection ||
+      connection.status !== AccountingConnectionStatus.connected ||
+      !connection.externalTenantId
+    ) {
+      const status = connection?.status ?? null;
+      await this.failJob(
+        syncJobId,
+        status && status !== AccountingConnectionStatus.disconnected ? connection!.id : null,
+        syncBlockedMessage(status),
+      );
       return;
     }
+    const externalTenantId = connection.externalTenantId;
 
     try {
       let exportId: string | undefined;
@@ -237,7 +282,7 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
       const glProvider = this.providerFactory.resolve(provider);
       const pushResult = await glProvider.pushManualJournal({
         accessToken,
-        externalTenantId: connection.externalTenantId,
+        externalTenantId,
         journal,
         referenceNumber: exportResult.referenceNumber,
       });
@@ -294,7 +339,11 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
         });
       }
 
-      await this.failJob(syncJobId, connection.id, message);
+      const connectionStatus = connectionStatusAfterSyncError(errorCode(error));
+      await this.failJob(syncJobId, connection.id, message, undefined, connectionStatus);
+      if (connectionStatus) {
+        throw new UnrecoverableError(message);
+      }
       throw error;
     }
   }
@@ -317,6 +366,7 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
     connectionId: string | null,
     message: string,
     exportId?: string,
+    connectionStatus?: AccountingConnectionStatus | null,
   ): Promise<void> {
     await this.prisma.unscoped.$transaction(async (tx) => {
       await tx.accountingSyncJob.update({
@@ -336,7 +386,7 @@ export class AccountingSyncQueueService implements OnModuleInit, OnModuleDestroy
             lastSyncAt: new Date(),
             lastSyncStatus: AccountingSyncJobStatus.failed,
             lastSyncError: message,
-            status: AccountingConnectionStatus.error,
+            ...(connectionStatus ? { status: connectionStatus } : {}),
           },
         });
       }

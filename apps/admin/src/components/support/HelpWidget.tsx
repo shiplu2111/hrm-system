@@ -20,6 +20,7 @@ import {
   SUPPORT_TICKET_PRIORITY_LABELS,
   SUPPORT_TICKET_STATUS_LABELS,
 } from '@/lib/support-labels';
+import { KbMarkdown } from '@/components/support/KbMarkdown';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Label, Select, Textarea } from '@/components/ui/Form';
@@ -192,7 +193,7 @@ export function HelpWidget() {
                     <Button variant="ghost" size="sm" onClick={() => setSelectedBody(null)}>
                       ← Back
                     </Button>
-                    <p className="whitespace-pre-wrap text-sm text-primary">{selectedBody}</p>
+                    <KbMarkdown source={selectedBody} />
                   </div>
                 ) : (
                   <>
