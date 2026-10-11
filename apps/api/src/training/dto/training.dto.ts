@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -10,11 +11,20 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Max,
+  MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { MAX_ENROLMENTS_PER_REQUEST } from '../training.rules';
+
+/** Query strings arrive as text; `?activeOnly=true` must become a boolean before validation. */
+const toBoolean = ({ value }: { value: unknown }) =>
+  value === 'true' ? true : value === 'false' ? false : value;
+const MARK_STATUSES = ['registered', 'attended', 'completed', 'no_show'] as const;
 
 const DELIVERY_MODES = ['self_paced', 'instructor_led', 'virtual', 'blended'] as const;
 const COURSE_STATUSES = ['draft', 'active', 'archived'] as const;
@@ -46,6 +56,7 @@ export class ListTrainingCoursesQueryDto {
   status?: (typeof COURSE_STATUSES)[number];
 
   @IsOptional()
+  @Transform(toBoolean)
   @IsBoolean()
   activeOnly?: boolean;
 }
@@ -53,14 +64,17 @@ export class ListTrainingCoursesQueryDto {
 export class CreateTrainingCourseDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(150)
   title!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(60)
   category?: string;
 
   @IsOptional()
@@ -70,6 +84,7 @@ export class CreateTrainingCourseDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(100_000)
   durationMinutes?: number;
 
   @IsOptional()
@@ -85,24 +100,31 @@ export class UpdateTrainingCourseDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(150)
   title?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  description?: string;
+  @MaxLength(2000)
+  description?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  category?: string;
+  @MaxLength(60)
+  category?: string | null;
 
   @IsOptional()
   @IsIn([...DELIVERY_MODES])
   deliveryMode?: (typeof DELIVERY_MODES)[number];
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(1)
-  durationMinutes?: number;
+  @Max(100_000)
+  durationMinutes?: number | null;
 
   @IsOptional()
   @IsBoolean()
@@ -129,6 +151,7 @@ export class CreateTrainingSessionDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(150)
   title?: string;
 
   @IsDateString()
@@ -140,45 +163,57 @@ export class CreateTrainingSessionDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   location?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   instructor?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   notes?: string;
 }
 
 export class UpdateTrainingSessionDto {
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  title?: string;
+  @MaxLength(150)
+  title?: string | null;
 
   @IsOptional()
   @IsDateString()
   scheduledStart?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsDateString()
-  scheduledEnd?: string;
+  scheduledEnd?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  location?: string;
+  @MaxLength(200)
+  location?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  instructor?: string;
+  @MaxLength(120)
+  instructor?: string | null;
 
   @IsOptional()
   @IsIn([...SESSION_STATUSES])
   status?: (typeof SESSION_STATUSES)[number];
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  notes?: string;
+  @MaxLength(2000)
+  notes?: string | null;
 }
 
 export class CreateTrainingSessionCostDto {
@@ -187,15 +222,18 @@ export class CreateTrainingSessionCostDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   description?: string;
 
-  @IsNumber()
-  @Min(0)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(1_000_000_000)
   amount!: number;
 
+  /** Must match the company currency when given. */
   @IsOptional()
   @IsString()
-  @MinLength(3)
+  @Length(3, 3)
   currency?: string;
 }
 
@@ -205,18 +243,16 @@ export class UpdateTrainingSessionCostDto {
   category?: (typeof COST_CATEGORIES)[number];
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  description?: string;
+  @MaxLength(200)
+  description?: string | null;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(1_000_000_000)
   amount?: number;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(3)
-  currency?: string;
 }
 
 export class ListTrainingAttendanceQueryDto {
@@ -240,24 +276,39 @@ export class ListTrainingAttendanceQueryDto {
 export class RegisterTrainingAttendanceDto {
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_ENROLMENTS_PER_REQUEST)
   @IsUUID('4', { each: true })
   employeeIds!: string[];
 }
 
 export class UpdateTrainingAttendanceDto {
   @IsOptional()
-  @IsIn([...ATTENDANCE_STATUSES])
-  status?: (typeof ATTENDANCE_STATUSES)[number];
+  @IsIn([...MARK_STATUSES])
+  status?: (typeof MARK_STATUSES)[number];
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(0)
   @Max(100)
-  score?: number;
+  score?: number | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  notes?: string;
+  @MaxLength(1000)
+  notes?: string | null;
+}
+
+export class MarkTrainingAttendanceDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true })
+  attendanceIds!: string[];
+
+  @IsIn([...MARK_STATUSES])
+  status!: (typeof MARK_STATUSES)[number];
 }
 
 export class BulkAssignTrainingDto {
@@ -378,6 +429,7 @@ export class ListCertificationsQueryDto {
   status?: (typeof CERTIFICATION_STATUSES)[number];
 
   @IsOptional()
+  @Transform(toBoolean)
   @IsBoolean()
   expiringOnly?: boolean;
 }

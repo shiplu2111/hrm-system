@@ -4,12 +4,14 @@ import type {
   EmployeeSkillRecord,
   SkillProficiencyLevel,
   SkillRecord,
+  TrainingAttendanceMarkStatus,
   TrainingAttendanceRecord,
   TrainingAttendanceStatus,
   TrainingCostCategory,
   TrainingCourseDeliveryMode,
   TrainingCourseRecord,
   TrainingCourseStatus,
+  TrainingEnrollmentResult,
   TrainingSessionRecord,
   TrainingSessionStatus,
   TrainingSummary,
@@ -36,12 +38,12 @@ export const SESSION_STATUS_LABELS: Record<TrainingSessionStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-export const ATTENDANCE_STATUS_LABELS: Record<TrainingAttendanceStatus, string> = {
+export const   ATTENDANCE_STATUS_LABELS: Record<TrainingAttendanceStatus, string> = {
   registered: 'Registered',
   attended: 'Attended',
   completed: 'Completed',
   no_show: 'No show',
-  cancelled: 'Cancelled',
+  cancelled: 'Withdrawn',
 };
 
 export const COST_CATEGORY_LABELS: Record<TrainingCostCategory, string> = {
@@ -115,6 +117,26 @@ export function createTrainingCourse(
   });
 }
 
+export interface UpdateTrainingCourseInput {
+  title?: string;
+  description?: string | null;
+  category?: string | null;
+  deliveryMode?: TrainingCourseDeliveryMode;
+  durationMinutes?: number | null;
+  isMandatory?: boolean;
+  status?: TrainingCourseStatus;
+}
+
+export function updateTrainingCourse(
+  courseId: string,
+  input: UpdateTrainingCourseInput,
+): Promise<TrainingCourseRecord> {
+  return tenantApiRequest<TrainingCourseRecord>(`/training/courses/${courseId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function listTrainingSessions(
   companyId: string,
   params?: { courseId?: string; status?: TrainingSessionStatus },
@@ -148,13 +170,54 @@ export function createTrainingSession(
   });
 }
 
+export function getTrainingSession(sessionId: string): Promise<TrainingSessionRecord> {
+  return tenantApiRequest<TrainingSessionRecord>(`/training/sessions/${sessionId}`);
+}
+
+export interface UpdateTrainingSessionInput {
+  title?: string | null;
+  scheduledStart?: string;
+  scheduledEnd?: string | null;
+  location?: string | null;
+  instructor?: string | null;
+  notes?: string | null;
+  status?: TrainingSessionStatus;
+}
+
+export function updateTrainingSession(
+  sessionId: string,
+  input: UpdateTrainingSessionInput,
+): Promise<TrainingSessionRecord> {
+  return tenantApiRequest<TrainingSessionRecord>(`/training/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Cost lines are recorded in the company currency; each call returns the refreshed session. */
 export function addSessionCost(
   sessionId: string,
-  input: { category: TrainingCostCategory; description?: string; amount: number; currency?: string },
-): Promise<TrainingSessionRecord['costs'][number]> {
-  return tenantApiRequest(`/training/sessions/${sessionId}/costs`, {
+  input: { category: TrainingCostCategory; description?: string; amount: number },
+): Promise<TrainingSessionRecord> {
+  return tenantApiRequest<TrainingSessionRecord>(`/training/sessions/${sessionId}/costs`, {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+export function updateSessionCost(
+  costId: string,
+  input: { category?: TrainingCostCategory; description?: string | null; amount?: number },
+): Promise<TrainingSessionRecord> {
+  return tenantApiRequest<TrainingSessionRecord>(`/training/session-costs/${costId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteSessionCost(costId: string): Promise<TrainingSessionRecord> {
+  return tenantApiRequest<TrainingSessionRecord>(`/training/session-costs/${costId}`, {
+    method: 'DELETE',
   });
 }
 
@@ -173,19 +236,38 @@ export function listTrainingAttendance(
   );
 }
 
+export const MAX_ENROLMENTS_PER_REQUEST = 200;
+
 export function registerTrainingAttendance(
   sessionId: string,
   employeeIds: string[],
-): Promise<TrainingAttendanceRecord[]> {
-  return tenantApiRequest<TrainingAttendanceRecord[]>(`/training/sessions/${sessionId}/attendance`, {
+): Promise<TrainingEnrollmentResult> {
+  return tenantApiRequest<TrainingEnrollmentResult>(`/training/sessions/${sessionId}/attendance`, {
     method: 'POST',
     body: JSON.stringify({ employeeIds }),
   });
 }
 
+export function markTrainingAttendance(
+  sessionId: string,
+  attendanceIds: string[],
+  status: TrainingAttendanceMarkStatus,
+): Promise<TrainingAttendanceRecord[]> {
+  return tenantApiRequest<TrainingAttendanceRecord[]>(
+    `/training/sessions/${sessionId}/attendance/mark`,
+    { method: 'POST', body: JSON.stringify({ attendanceIds, status }) },
+  );
+}
+
+export function withdrawTrainingAttendance(attendanceId: string): Promise<TrainingAttendanceRecord> {
+  return tenantApiRequest<TrainingAttendanceRecord>(`/training/attendance/${attendanceId}/withdraw`, {
+    method: 'POST',
+  });
+}
+
 export function updateTrainingAttendance(
   attendanceId: string,
-  input: { status?: TrainingAttendanceStatus; score?: number; notes?: string },
+  input: { status?: TrainingAttendanceMarkStatus; score?: number | null; notes?: string | null },
 ): Promise<TrainingAttendanceRecord> {
   return tenantApiRequest<TrainingAttendanceRecord>(`/training/attendance/${attendanceId}`, {
     method: 'PATCH',

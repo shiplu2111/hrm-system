@@ -20,6 +20,7 @@ import {
   ListTrainingAttendanceQueryDto,
   ListTrainingCoursesQueryDto,
   ListTrainingSessionsQueryDto,
+  MarkTrainingAttendanceDto,
   RegisterTrainingAttendanceDto,
   UpdateTrainingAttendanceDto,
   UpdateTrainingCourseDto,
@@ -118,8 +119,18 @@ export class TrainingController {
     };
   }
 
+  @Get('training/sessions/:sessionId')
+  @RequirePermission('training', 'view')
+  async getSession(
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.trainingSessionsService.getSession(sessionId, user) };
+  }
+
   @Patch('training/sessions/:sessionId')
   @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Edit a session or change its status (start, complete, cancel)' })
   async updateSession(
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: UpdateTrainingSessionDto,
@@ -160,8 +171,7 @@ export class TrainingController {
     @Param('costId', ParseUUIDPipe) costId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    await this.trainingSessionsService.deleteSessionCost(costId, user);
-    return { data: { deleted: true } };
+    return { data: await this.trainingSessionsService.deleteSessionCost(costId, user) };
   }
 
   @Get('companies/:companyId/training/attendance')
@@ -178,6 +188,7 @@ export class TrainingController {
 
   @Post('training/sessions/:sessionId/attendance')
   @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Enrol employees in a session' })
   async registerAttendance(
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: RegisterTrainingAttendanceDto,
@@ -185,6 +196,30 @@ export class TrainingController {
   ) {
     return {
       data: await this.trainingSessionsService.registerAttendance(sessionId, dto, user),
+    };
+  }
+
+  @Post('training/sessions/:sessionId/attendance/mark')
+  @RequirePermission('training', 'edit')
+  @ApiOperation({ summary: 'Mark attendance for several enrolments at once' })
+  async markAttendance(
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Body() dto: MarkTrainingAttendanceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.trainingSessionsService.markAttendance(sessionId, dto, user),
+    };
+  }
+
+  @Post('training/attendance/:attendanceId/withdraw')
+  @RequirePermission('training', 'edit')
+  async withdrawAttendance(
+    @Param('attendanceId', ParseUUIDPipe) attendanceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.trainingSessionsService.withdrawAttendance(attendanceId, user),
     };
   }
 

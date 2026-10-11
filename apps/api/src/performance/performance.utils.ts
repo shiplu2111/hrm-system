@@ -37,7 +37,14 @@ export function computeKpiProgressPercent(
   currentValue: number | null | undefined,
   direction: KpiDirection,
 ): number | null {
-  if (currentValue == null || targetValue <= 0) {
+  if (currentValue == null) {
+    return null;
+  }
+
+  if (targetValue <= 0) {
+    if (direction === 'lower_is_better') {
+      return currentValue <= 0 ? 100 : 0;
+    }
     return null;
   }
 

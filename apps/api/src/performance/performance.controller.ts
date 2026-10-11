@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -22,11 +24,12 @@ import {
   ListEmployeeKpiAssignmentsQueryDto,
   ListEmployeePerformanceReviewsQueryDto,
   ListKpiDefinitionsQueryDto,
+  Save360FeedbackDto,
   SaveManagerAssessmentDto,
+  SavePromotionRecommendationDto,
   SaveReviewOutcomeDto,
   SaveSelfAssessmentDto,
   SetReviewCycleParticipantsDto,
-  Submit360FeedbackDto,
   UpdateEmployeeKpiAssignmentDto,
   UpdateKpiDefinitionDto,
   UpdatePerformanceReviewCycleDto,
@@ -343,11 +346,12 @@ export class PerformanceController {
 
   @Get('performance/reviews/:reviewId/360-feedback')
   @RequirePermission('performance', 'view')
-  async list360Feedback(
+  @ApiOperation({ summary: '360° reviewers for a review and whether each has responded (no answers)' })
+  async list360Requests(
     @Param('reviewId', ParseUUIDPipe) reviewId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.performance360Service.listFeedback(reviewId, user) };
+    return { data: await this.performance360Service.listRequests(reviewId, user) };
   }
 
   @Get('performance/reviews/:reviewId/360-summary')
@@ -371,20 +375,59 @@ export class PerformanceController {
     };
   }
 
-  @Patch('performance/360-feedback/:feedbackId')
+  @Delete('performance/360-feedback/:feedbackId')
   @RequirePermission('performance', 'edit')
-  async submit360Feedback(
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Withdraw a 360° request that has not been answered' })
+  async remove360Request(
     @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
-    @Body() dto: Submit360FeedbackDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return {
-      data: await this.performance360Service.submitFeedback(feedbackId, dto, user),
-    };
+    await this.performance360Service.removeRequest(feedbackId, user);
+  }
+
+  @Get('performance/360-feedback/mine')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: '360° feedback requests addressed to the signed-in employee' })
+  async listMy360Requests(@CurrentUser() user: AuthenticatedUser) {
+    return { data: await this.performance360Service.listMine(user) };
+  }
+
+  @Get('performance/360-feedback/:feedbackId')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'A 360° feedback form (the reviewer, or HR for a request not yet answered)' })
+  async get360Feedback(
+    @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performance360Service.getFeedback(feedbackId, user) };
+  }
+
+  @Patch('performance/360-feedback/:feedbackId')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'Save a 360° feedback draft' })
+  async save360Feedback(
+    @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
+    @Body() dto: Save360FeedbackDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performance360Service.saveFeedback(feedbackId, dto, user) };
+  }
+
+  @Post('performance/360-feedback/:feedbackId/submit')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'Submit 360° feedback; every competency must be rated' })
+  async submit360Feedback(
+    @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
+    @Body() dto: Save360FeedbackDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.performance360Service.submitFeedback(feedbackId, dto, user) };
   }
 
   @Patch('performance/reviews/:reviewId/outcome')
-  @RequirePermission('performance', 'edit')
+  @RequirePermission('performance', 'approve')
+  @ApiOperation({ summary: 'Calibrate the overall rating (null returns to the calculated rating)' })
   async saveReviewOutcome(
     @Param('reviewId', ParseUUIDPipe) reviewId: string,
     @Body() dto: SaveReviewOutcomeDto,
@@ -392,6 +435,19 @@ export class PerformanceController {
   ) {
     return {
       data: await this.performanceReviewsService.saveReviewOutcome(reviewId, dto, user),
+    };
+  }
+
+  @Patch('performance/reviews/:reviewId/promotion-recommendation')
+  @RequirePermission('performance', 'edit')
+  @ApiOperation({ summary: 'Save the manager’s promotion recommendation as a draft' })
+  async savePromotionRecommendation(
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Body() dto: SavePromotionRecommendationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.performanceReviewsService.savePromotionRecommendation(reviewId, dto, user),
     };
   }
 

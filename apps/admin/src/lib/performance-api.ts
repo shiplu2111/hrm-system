@@ -1,13 +1,19 @@
 import type {
+  BulkAssignKpiResult,
   EmployeeKpiAssignmentRecord,
+  EmployeeKpiAssignmentStatus,
   EmployeePerformanceReviewRecord,
+  EmployeePerformanceReviewStatus,
   KpiDefinitionRecord,
   KpiDirection,
   KpiMeasurementPeriod,
   KpiUnit,
   Performance360FeedbackRecord,
   Performance360Relationship,
+  Performance360RequestRecord,
   Performance360Summary,
+  PerformanceAssessmentPayload,
+  PerformanceAssessmentSide,
   PerformanceGoalsSummary,
   PerformanceHistoryPoint,
   PerformanceOverallRatingLabel,
@@ -90,10 +96,33 @@ export interface BulkAssignKpiInput {
   kpiDefinitionId: string;
   employeeIds: string[];
   targetValue?: number;
+  measurementPeriod?: KpiMeasurementPeriod;
+  everyWindow?: boolean;
   measurementPeriodStart?: string;
   measurementPeriodEnd?: string;
   weightPercent?: number;
+  notes?: string;
 }
+
+export interface UpdateKpiAssignmentInput {
+  title?: string;
+  description?: string;
+  targetValue?: number;
+  currentValue?: number;
+  measurementPeriod?: KpiMeasurementPeriod;
+  measurementPeriodStart?: string;
+  measurementPeriodEnd?: string;
+  weightPercent?: number | null;
+  notes?: string;
+  status?: EmployeeKpiAssignmentStatus;
+}
+
+export const KPI_ASSIGNMENT_STATUS_LABELS: Record<EmployeeKpiAssignmentStatus, string> = {
+  draft: 'Draft',
+  active: 'Active',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
 
 export function getPerformanceSummary(
   companyId: string,
@@ -121,9 +150,20 @@ export function createReviewCycle(
   );
 }
 
+export interface UpdateReviewCycleInput {
+  name?: string;
+  description?: string | null;
+  periodStart?: string;
+  periodEnd?: string;
+  measurementPeriod?: KpiMeasurementPeriod;
+  reviewDueDate?: string;
+  status?: PerformanceReviewCycleStatus;
+  requiresWorkflowApproval?: boolean;
+}
+
 export function updateReviewCycle(
   cycleId: string,
-  input: Partial<CreateReviewCycleInput>,
+  input: UpdateReviewCycleInput,
 ): Promise<PerformanceReviewCycleRecord> {
   return tenantApiRequest<PerformanceReviewCycleRecord>(
     `/performance/review-cycles/${cycleId}`,
@@ -153,7 +193,12 @@ export function createKpiDefinition(
 
 export function updateKpiDefinition(
   definitionId: string,
-  input: Partial<CreateKpiDefinitionInput & { isActive: boolean }>,
+  input: Partial<
+    Omit<CreateKpiDefinitionInput, 'defaultTargetValue'> & {
+      defaultTargetValue: number | null;
+      isActive: boolean;
+    }
+  >,
 ): Promise<KpiDefinitionRecord> {
   return tenantApiRequest<KpiDefinitionRecord>(
     `/performance/kpi-definitions/${definitionId}`,
@@ -194,8 +239,8 @@ export function createKpiAssignment(
 export function bulkAssignKpi(
   companyId: string,
   input: BulkAssignKpiInput,
-): Promise<EmployeeKpiAssignmentRecord[]> {
-  return tenantApiRequest<EmployeeKpiAssignmentRecord[]>(
+): Promise<BulkAssignKpiResult> {
+  return tenantApiRequest<BulkAssignKpiResult>(
     `/companies/${companyId}/performance/kpi-assignments/bulk`,
     { method: 'POST', body: JSON.stringify(input) },
   );
@@ -203,12 +248,7 @@ export function bulkAssignKpi(
 
 export function updateKpiAssignment(
   assignmentId: string,
-  input: {
-    currentValue?: number;
-    targetValue?: number;
-    status?: string;
-    notes?: string;
-  },
+  input: UpdateKpiAssignmentInput,
 ): Promise<EmployeeKpiAssignmentRecord> {
   return tenantApiRequest<EmployeeKpiAssignmentRecord>(
     `/performance/kpi-assignments/${assignmentId}`,
@@ -216,14 +256,14 @@ export function updateKpiAssignment(
   );
 }
 
-export const REVIEW_STATUS_LABELS: Record<string, string> = {
+export const REVIEW_STATUS_LABELS: Record<EmployeePerformanceReviewStatus, string> = {
   not_started: 'Not started',
-  self_assessment_draft: 'Self assessment draft',
-  self_submitted: 'Self submitted',
-  manager_review: 'Manager review',
+  self_assessment_draft: 'Self-assessment in progress',
+  self_submitted: 'Awaiting manager',
+  manager_review: 'Manager assessment in progress',
   pending_approval: 'Pending approval',
   approved: 'Approved',
-  returned: 'Returned',
+  returned: 'Returned to manager',
   cancelled: 'Cancelled',
 };
 
@@ -247,11 +287,17 @@ export function setReviewParticipants(
   );
 }
 
+export interface LaunchReviewCycleResult {
+  participantCount: number;
+  reviewCount: number;
+  createdCount: number;
+}
+
 export function launchReviewCycle(
   companyId: string,
   cycleId: string,
-): Promise<{ participantCount: number; reviewCount: number }> {
-  return tenantApiRequest<{ participantCount: number; reviewCount: number }>(
+): Promise<LaunchReviewCycleResult> {
+  return tenantApiRequest<LaunchReviewCycleResult>(
     `/companies/${companyId}/performance/review-cycles/${cycleId}/launch`,
     { method: 'POST', body: JSON.stringify({}) },
   );
@@ -275,13 +321,33 @@ export function getPerformanceReview(reviewId: string): Promise<EmployeePerforma
   return tenantApiRequest<EmployeePerformanceReviewRecord>(`/performance/reviews/${reviewId}`);
 }
 
+/** Only one side's ratings and comments are sent; the API merges them by item key. */
+function assessmentBody(payload: PerformanceAssessmentPayload, side: PerformanceAssessmentSide) {
+  const self = side === 'self';
+  return {
+    competencies: payload.competencies.map((item) => ({
+      key: item.key,
+      rating: (self ? item.selfRating : item.managerRating) ?? null,
+      comment: (self ? item.selfComment : item.managerComment) ?? null,
+    })),
+    kpiAssessments: payload.kpiAssessments.map((item) => ({
+      kpiAssignmentId: item.kpiAssignmentId,
+      rating: (self ? item.selfRating : item.managerRating) ?? null,
+      comment: (self ? item.selfComment : item.managerComment) ?? null,
+    })),
+    ...(self
+      ? { overallSelfComment: payload.overallSelfComment ?? null }
+      : { overallManagerComment: payload.overallManagerComment ?? null }),
+  };
+}
+
 export function saveSelfAssessment(
   reviewId: string,
-  payload: Partial<EmployeePerformanceReviewRecord['selfAssessment']>,
+  payload: PerformanceAssessmentPayload,
 ): Promise<EmployeePerformanceReviewRecord> {
   return tenantApiRequest<EmployeePerformanceReviewRecord>(
     `/performance/reviews/${reviewId}/self-assessment`,
-    { method: 'PATCH', body: JSON.stringify(payload) },
+    { method: 'PATCH', body: JSON.stringify(assessmentBody(payload, 'self')) },
   );
 }
 
@@ -294,11 +360,11 @@ export function submitSelfAssessment(reviewId: string): Promise<EmployeePerforma
 
 export function saveManagerAssessment(
   reviewId: string,
-  payload: Partial<EmployeePerformanceReviewRecord['managerAssessment']>,
+  payload: PerformanceAssessmentPayload,
 ): Promise<EmployeePerformanceReviewRecord> {
   return tenantApiRequest<EmployeePerformanceReviewRecord>(
     `/performance/reviews/${reviewId}/manager-assessment`,
-    { method: 'PATCH', body: JSON.stringify(payload) },
+    { method: 'PATCH', body: JSON.stringify(assessmentBody(payload, 'manager')) },
   );
 }
 
@@ -353,8 +419,14 @@ export const FEEDBACK_360_RELATIONSHIP_LABELS: Record<Performance360Relationship
   cross_functional: 'Cross-functional',
 };
 
-export function list360Feedback(reviewId: string): Promise<Performance360FeedbackRecord[]> {
-  return tenantApiRequest<Performance360FeedbackRecord[]>(
+export const FEEDBACK_360_RELATIONSHIP_HINTS: Record<Performance360Relationship, string> = {
+  peer: 'Works alongside them at a similar level',
+  direct_report: 'Reports to them',
+  cross_functional: 'Works with them from another team',
+};
+
+export function list360Requests(reviewId: string): Promise<Performance360RequestRecord[]> {
+  return tenantApiRequest<Performance360RequestRecord[]>(
     `/performance/reviews/${reviewId}/360-feedback`,
   );
 }
@@ -366,36 +438,73 @@ export function get360Summary(reviewId: string): Promise<Performance360Summary> 
 export function invite360Reviewers(
   reviewId: string,
   reviewers: Array<{ employeeId: string; relationship: Performance360Relationship }>,
-): Promise<Performance360FeedbackRecord[]> {
-  return tenantApiRequest<Performance360FeedbackRecord[]>(
+): Promise<Performance360RequestRecord[]> {
+  return tenantApiRequest<Performance360RequestRecord[]>(
     `/performance/reviews/${reviewId}/360-feedback/invite`,
     { method: 'POST', body: JSON.stringify({ reviewers }) },
   );
 }
 
-export function submit360Feedback(
+export function remove360Request(feedbackId: string): Promise<void> {
+  return tenantApiRequest<void>(`/performance/360-feedback/${feedbackId}`, { method: 'DELETE' });
+}
+
+export function listMy360Feedback(): Promise<Performance360FeedbackRecord[]> {
+  return tenantApiRequest<Performance360FeedbackRecord[]>('/performance/360-feedback/mine');
+}
+
+export function get360Feedback(feedbackId: string): Promise<Performance360FeedbackRecord> {
+  return tenantApiRequest<Performance360FeedbackRecord>(`/performance/360-feedback/${feedbackId}`);
+}
+
+export interface Save360FeedbackInput {
+  competencyRatings: Array<{ key: string; rating: number | null }>;
+  comment: string | null;
+}
+
+export function save360Feedback(
   feedbackId: string,
-  payload: { competencyRatings: Array<{ key: string; rating: number }>; comment?: string },
+  input: Save360FeedbackInput,
 ): Promise<Performance360FeedbackRecord> {
   return tenantApiRequest<Performance360FeedbackRecord>(`/performance/360-feedback/${feedbackId}`, {
     method: 'PATCH',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(input),
   });
 }
 
-export function saveReviewOutcome(
+export function submit360Feedback(
+  feedbackId: string,
+  input: Save360FeedbackInput,
+): Promise<Performance360FeedbackRecord> {
+  return tenantApiRequest<Performance360FeedbackRecord>(
+    `/performance/360-feedback/${feedbackId}/submit`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+/** Sets a calibrated overall rating; null goes back to the calculated rating. */
+export function calibrateReviewRating(
   reviewId: string,
-  payload: {
-    overallRating?: number;
-    overallRatingLabel?: PerformanceOverallRatingLabel;
-    promotionRecommended?: boolean;
+  overallRating: number | null,
+  reason?: string,
+): Promise<EmployeePerformanceReviewRecord> {
+  return tenantApiRequest<EmployeePerformanceReviewRecord>(
+    `/performance/reviews/${reviewId}/outcome`,
+    { method: 'PATCH', body: JSON.stringify({ overallRating, reason: reason?.trim() || null }) },
+  );
+}
+
+export function savePromotionRecommendation(
+  reviewId: string,
+  input: {
+    promotionRecommended: boolean;
     recommendedDesignationId?: string | null;
     promotionRecommendationNote?: string | null;
   },
 ): Promise<EmployeePerformanceReviewRecord> {
   return tenantApiRequest<EmployeePerformanceReviewRecord>(
-    `/performance/reviews/${reviewId}/outcome`,
-    { method: 'PATCH', body: JSON.stringify(payload) },
+    `/performance/reviews/${reviewId}/promotion-recommendation`,
+    { method: 'PATCH', body: JSON.stringify(input) },
   );
 }
 
@@ -419,7 +528,7 @@ export function approvePromotionRecommendation(
 
 export function rejectPromotionRecommendation(
   reviewId: string,
-  comment?: string,
+  comment: string,
 ): Promise<EmployeePerformanceReviewRecord> {
   return tenantApiRequest<EmployeePerformanceReviewRecord>(
     `/performance/reviews/${reviewId}/reject-promotion`,
@@ -427,9 +536,17 @@ export function rejectPromotionRecommendation(
   );
 }
 
+export interface ConvertPromotionInput {
+  effectiveDate: string;
+  newDesignationId?: string;
+  newDepartmentId?: string;
+  newManagerId?: string;
+  notes?: string;
+}
+
 export function executePromotionFromReview(
   reviewId: string,
-  payload: { effectiveDate: string; newDepartmentId?: string },
+  payload: ConvertPromotionInput,
 ): Promise<EmployeePerformanceReviewRecord> {
   return tenantApiRequest<EmployeePerformanceReviewRecord>(
     `/performance/reviews/${reviewId}/execute-promotion`,
@@ -444,6 +561,15 @@ export function listPerformanceHistory(
   return tenantApiRequest<PerformanceHistoryPoint[]>(
     `/companies/${companyId}/performance/employees/${employeeId}/history`,
   );
+}
+
+export function formatKpiValue(value: number | null | undefined, unit: KpiUnit): string {
+  if (value == null) return '—';
+  const text = value.toLocaleString('en-GB', { maximumFractionDigits: 2 });
+  if (unit === 'percentage') return `${text}%`;
+  if (unit === 'hours') return `${text}h`;
+  if (unit === 'days') return `${text}d`;
+  return text;
 }
 
 export function formatKpiMetric(

@@ -90,7 +90,7 @@ export class TrainingCertificationsService {
     await this.dataScope.assertEmployeeInScope(user, dto.employeeId);
 
     if (dto.courseId) {
-      const course = await this.trainingService.getCourseOrThrow(dto.courseId);
+      const course = await this.trainingService.getCourseOrThrow(dto.courseId, company.tenantId);
       if (course.companyId !== companyId) {
         throw new NotFoundException('Training course not found');
       }
@@ -142,7 +142,7 @@ export class TrainingCertificationsService {
     await this.dataScope.assertEmployeeInScope(user, existing.employeeId);
 
     if (dto.courseId) {
-      const course = await this.trainingService.getCourseOrThrow(dto.courseId);
+      const course = await this.trainingService.getCourseOrThrow(dto.courseId, existing.tenantId);
       if (course.companyId !== existing.companyId) {
         throw new NotFoundException('Training course not found');
       }

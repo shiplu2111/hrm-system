@@ -1,12 +1,15 @@
+import { BadRequestException } from '@nestjs/common';
 import type {
+  EmployeeKpiAssignmentStatus,
+  KpiDirection,
   KpiUnit,
   PerformanceAssessmentPayload,
+  PerformanceAssessmentSide,
   PerformanceCompetencyAssessment,
   PerformanceKpiAssessmentItem,
 } from '@hrm/shared-types';
 import { Decimal } from '@prisma/client/runtime/library';
-import { computeKpiProgressPercent, decimalToNumber } from './performance.utils';
-import type { KpiDirection } from '@hrm/shared-types';
+import { computeKpiProgressPercent, decimalToNumber, formatDateOnly } from './performance.utils';
 
 export const DEFAULT_PERFORMANCE_COMPETENCIES: PerformanceCompetencyAssessment[] = [
   {
@@ -27,6 +30,33 @@ export const DEFAULT_PERFORMANCE_COMPETENCIES: PerformanceCompetencyAssessment[]
   },
 ];
 
+/** KPI goal statuses a review rates; draft goals aren't agreed yet and cancelled ones no longer count. */
+export const RATED_KPI_STATUSES: EmployeeKpiAssignmentStatus[] = ['active', 'completed'];
+
+export interface ReviewKpiGoal {
+  id: string;
+  title: string;
+  unit: KpiUnit;
+  direction: KpiDirection;
+  targetValue: Decimal;
+  currentValue: Decimal | null;
+  weightPercent: Decimal | null;
+  measurementPeriodStart: Date;
+  measurementPeriodEnd: Date;
+  status: EmployeeKpiAssignmentStatus;
+}
+
+interface RatingInput {
+  rating?: number | null;
+  comment?: string | null;
+}
+
+export interface AssessmentPatch {
+  competencies?: Array<RatingInput & { key: string }>;
+  kpiAssessments?: Array<RatingInput & { kpiAssignmentId: string }>;
+  overallComment?: string | null;
+}
+
 export function emptyAssessmentPayload(): PerformanceAssessmentPayload {
   return {
     competencies: DEFAULT_PERFORMANCE_COMPETENCIES.map((item) => ({ ...item })),
@@ -36,31 +66,48 @@ export function emptyAssessmentPayload(): PerformanceAssessmentPayload {
   };
 }
 
-export function buildKpiAssessmentItems(
-  assignments: Array<{
-    id: string;
-    title: string;
-    unit: KpiUnit;
-    targetValue: Decimal;
-    currentValue: Decimal | null;
-    direction: KpiDirection;
-  }>,
-): PerformanceKpiAssessmentItem[] {
-  return assignments.map((assignment) => {
-    const targetValue = decimalToNumber(assignment.targetValue) ?? 0;
-    const currentValue = decimalToNumber(assignment.currentValue);
+export function buildKpiAssessmentItems(goals: ReviewKpiGoal[]): PerformanceKpiAssessmentItem[] {
+  return goals.map((goal) => {
+    const targetValue = decimalToNumber(goal.targetValue) ?? 0;
+    const currentValue = decimalToNumber(goal.currentValue);
     return {
-      kpiAssignmentId: assignment.id,
-      title: assignment.title,
-      unit: assignment.unit,
+      kpiAssignmentId: goal.id,
+      title: goal.title,
+      unit: goal.unit,
       targetValue,
       currentValue,
-      progressPercent: computeKpiProgressPercent(
-        targetValue,
-        currentValue,
-        assignment.direction,
-      ),
+      progressPercent: computeKpiProgressPercent(targetValue, currentValue, goal.direction),
+      direction: goal.direction,
+      weightPercent: decimalToNumber(goal.weightPercent),
+      measurementPeriodStart: formatDateOnly(goal.measurementPeriodStart),
+      measurementPeriodEnd: formatDateOnly(goal.measurementPeriodEnd),
+      goalStatus: goal.status,
     };
+  });
+}
+
+/**
+ * Rebuilds KPI items from the employee's current rated goals, keeping existing ratings and
+ * comments by goal id. Goals cancelled since launch drop out; goals activated since launch join.
+ */
+export function syncKpiItems(
+  items: PerformanceKpiAssessmentItem[],
+  goals: ReviewKpiGoal[],
+): PerformanceKpiAssessmentItem[] {
+  const previous = new Map(items.map((item) => [item.kpiAssignmentId, item]));
+  return buildKpiAssessmentItems(
+    goals.filter((goal) => RATED_KPI_STATUSES.includes(goal.status)),
+  ).map((item) => {
+    const prior = previous.get(item.kpiAssignmentId);
+    return prior
+      ? {
+          ...item,
+          selfRating: prior.selfRating ?? null,
+          selfComment: prior.selfComment ?? null,
+          managerRating: prior.managerRating ?? null,
+          managerComment: prior.managerComment ?? null,
+        }
+      : item;
   });
 }
 
@@ -83,68 +130,94 @@ export function parseAssessmentPayload(value: unknown): PerformanceAssessmentPay
   };
 }
 
-export function mergeSelfAssessment(
-  existing: PerformanceAssessmentPayload,
-  patch: Partial<PerformanceAssessmentPayload>,
+/**
+ * The manager form: items and self fields come from the self assessment, manager fields from
+ * the stored manager assessment, so a manager save can never alter what the employee wrote.
+ */
+export function managerAssessmentView(
+  self: PerformanceAssessmentPayload,
+  manager: PerformanceAssessmentPayload,
 ): PerformanceAssessmentPayload {
+  const competencyByKey = new Map(manager.competencies.map((item) => [item.key, item]));
+  const kpiById = new Map(manager.kpiAssessments.map((item) => [item.kpiAssignmentId, item]));
   return {
-    competencies: patch.competencies ?? existing.competencies,
-    kpiAssessments: patch.kpiAssessments ?? existing.kpiAssessments,
-    overallSelfComment:
-      patch.overallSelfComment !== undefined
-        ? patch.overallSelfComment
-        : existing.overallSelfComment,
-    overallManagerComment: existing.overallManagerComment,
+    competencies: self.competencies.map((item) => ({
+      ...item,
+      managerRating: competencyByKey.get(item.key)?.managerRating ?? null,
+      managerComment: competencyByKey.get(item.key)?.managerComment ?? null,
+    })),
+    kpiAssessments: self.kpiAssessments.map((item) => ({
+      ...item,
+      managerRating: kpiById.get(item.kpiAssignmentId)?.managerRating ?? null,
+      managerComment: kpiById.get(item.kpiAssignmentId)?.managerComment ?? null,
+    })),
+    overallSelfComment: self.overallSelfComment ?? null,
+    overallManagerComment: manager.overallManagerComment ?? null,
   };
 }
 
-export function mergeManagerAssessment(
-  existing: PerformanceAssessmentPayload,
-  selfAssessment: PerformanceAssessmentPayload,
-  patch: Partial<PerformanceAssessmentPayload>,
-): PerformanceAssessmentPayload {
-  const base = {
-    competencies: selfAssessment.competencies.map((item) => ({
+function cleanComment(value: string | null | undefined): string | null {
+  return value?.trim() || null;
+}
+
+function applyRating<T extends PerformanceCompetencyAssessment | PerformanceKpiAssessmentItem>(
+  item: T,
+  side: PerformanceAssessmentSide,
+  input: RatingInput | undefined,
+): T {
+  if (!input) return item;
+  if (side === 'self') {
+    return {
       ...item,
-      managerRating:
-        existing.competencies.find((row) => row.key === item.key)?.managerRating ??
-        item.managerRating ??
-        null,
-      managerComment:
-        existing.competencies.find((row) => row.key === item.key)?.managerComment ??
-        item.managerComment ??
-        null,
-    })),
-    kpiAssessments: selfAssessment.kpiAssessments.map((item) => ({
-      ...item,
-      managerRating:
-        existing.kpiAssessments.find((row) => row.kpiAssignmentId === item.kpiAssignmentId)
-          ?.managerRating ?? item.managerRating ?? null,
-      managerComment:
-        existing.kpiAssessments.find((row) => row.kpiAssignmentId === item.kpiAssignmentId)
-          ?.managerComment ?? item.managerComment ?? null,
-    })),
-    overallSelfComment: selfAssessment.overallSelfComment ?? null,
-    overallManagerComment:
-      patch.overallManagerComment !== undefined
-        ? patch.overallManagerComment
-        : existing.overallManagerComment,
+      selfRating: input.rating !== undefined ? input.rating : (item.selfRating ?? null),
+      selfComment: input.comment !== undefined ? cleanComment(input.comment) : (item.selfComment ?? null),
+    };
+  }
+  return {
+    ...item,
+    managerRating: input.rating !== undefined ? input.rating : (item.managerRating ?? null),
+    managerComment:
+      input.comment !== undefined ? cleanComment(input.comment) : (item.managerComment ?? null),
   };
+}
 
-  if (patch.competencies) {
-    base.competencies = patch.competencies.map((item) => ({
-      ...item,
-      managerRating: item.managerRating ?? null,
-      managerComment: item.managerComment ?? null,
-    }));
+/** Applies one side's ratings and comments by item key; other fields are left untouched. */
+export function applyAssessmentPatch(
+  payload: PerformanceAssessmentPayload,
+  side: PerformanceAssessmentSide,
+  patch: AssessmentPatch,
+): PerformanceAssessmentPayload {
+  const competencyInputs = new Map((patch.competencies ?? []).map((item) => [item.key, item]));
+  const kpiInputs = new Map((patch.kpiAssessments ?? []).map((item) => [item.kpiAssignmentId, item]));
+
+  const knownCompetencies = new Set(payload.competencies.map((item) => item.key));
+  const unknownCompetency = [...competencyInputs.keys()].find((key) => !knownCompetencies.has(key));
+  if (unknownCompetency) {
+    throw new BadRequestException({
+      code: 'UNKNOWN_ASSESSMENT_ITEM',
+      message: `"${unknownCompetency}" is not a competency on this review`,
+    });
   }
-  if (patch.kpiAssessments) {
-    base.kpiAssessments = patch.kpiAssessments.map((item) => ({
-      ...item,
-      managerRating: item.managerRating ?? null,
-      managerComment: item.managerComment ?? null,
-    }));
+  const knownKpis = new Set(payload.kpiAssessments.map((item) => item.kpiAssignmentId));
+  if ([...kpiInputs.keys()].some((id) => !knownKpis.has(id))) {
+    throw new BadRequestException({
+      code: 'UNKNOWN_ASSESSMENT_ITEM',
+      message: 'A KPI goal in this form is no longer part of the review; reload it and try again',
+    });
   }
 
-  return base;
+  const next: PerformanceAssessmentPayload = {
+    ...payload,
+    competencies: payload.competencies.map((item) =>
+      applyRating(item, side, competencyInputs.get(item.key)),
+    ),
+    kpiAssessments: payload.kpiAssessments.map((item) =>
+      applyRating(item, side, kpiInputs.get(item.kpiAssignmentId)),
+    ),
+  };
+  if (patch.overallComment !== undefined) {
+    if (side === 'self') next.overallSelfComment = cleanComment(patch.overallComment);
+    else next.overallManagerComment = cleanComment(patch.overallComment);
+  }
+  return next;
 }

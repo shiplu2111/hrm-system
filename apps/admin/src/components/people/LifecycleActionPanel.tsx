@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { AlertCircle, AlertTriangle, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 import type {
   CostCentreRecord,
+  CreateLifecycleEventInput,
   EmployeeRecord,
   LifecycleEventRecord,
 } from '@hrm/shared-types';
@@ -33,7 +34,14 @@ interface LifecycleActionPanelProps {
   employee: EmployeeRecord;
   companyId: string;
   onClose: () => void;
-  onRecorded: (event: LifecycleEventRecord) => void;
+  onRecorded?: (event: LifecycleEventRecord) => void;
+  /** Prefills the form each time the panel opens. */
+  initialValues?: Partial<LifecycleFormState>;
+  /** Shown above the form, e.g. where a prefilled action came from. */
+  context?: ReactNode;
+  /** Records the event some other way (e.g. through the performance review) instead of directly. */
+  onSubmitRequest?: (request: CreateLifecycleEventInput) => Promise<void>;
+  submitLabel?: string;
 }
 
 interface Option {
@@ -80,6 +88,10 @@ export function LifecycleActionPanel({
   companyId,
   onClose,
   onRecorded,
+  initialValues,
+  context,
+  onSubmitRequest,
+  submitLabel,
 }: LifecycleActionPanelProps) {
   const { user } = useAuth();
   const action = kind ? getLifecycleAction(kind) : null;
@@ -148,7 +160,9 @@ export function LifecycleActionPanel({
   useEffect(() => {
     if (!open || !kind) return;
     const defaultExit = EXIT_OPTIONS.find((o) => exitDecisions[o.value].allowed)?.value ?? '';
-    setForm(initialLifecycleForm(kind === 'exit' ? { exitType: defaultExit } : {}));
+    setForm(
+      initialLifecycleForm({ ...(kind === 'exit' ? { exitType: defaultExit } : {}), ...initialValues }),
+    );
     setTouched({});
     setStep('form');
     setError(null);
@@ -188,8 +202,12 @@ export function LifecycleActionPanel({
     setSubmitting(true);
     setError(null);
     try {
-      const event = await createLifecycleEvent(employee.id, buildLifecycleRequest(kind, form));
-      onRecorded(event);
+      const request = buildLifecycleRequest(kind, form);
+      if (onSubmitRequest) {
+        await onSubmitRequest(request);
+      } else {
+        onRecorded?.(await createLifecycleEvent(employee.id, request));
+      }
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not record the event');
@@ -218,7 +236,7 @@ export function LifecycleActionPanel({
       ? `Confirm ${eventType === 'termination' ? 'termination' : eventType === 'resignation' ? 'resignation' : 'suspension'}`
       : action.requiresReview
         ? 'Review'
-        : `Record ${action.label.toLowerCase()}`;
+        : (submitLabel ?? `Record ${action.label.toLowerCase()}`);
 
   const summaryRows = buildSummary(kind, form, employee);
 
@@ -267,6 +285,8 @@ export function LifecycleActionPanel({
       }
     >
       <div className="space-y-5">
+        {context}
+
         {decision && !decision.allowed ? (
           <Notice tone="warning" icon={<ShieldAlert className="h-4 w-4" />}>
             {decision.message}

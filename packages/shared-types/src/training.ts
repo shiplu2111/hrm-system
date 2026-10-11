@@ -41,7 +41,12 @@ export interface TrainingCourseRecord {
   isMandatory: boolean;
   status: TrainingCourseStatus;
   sessionCount: number;
+  /** Scheduled or in-progress sessions that haven't been cancelled. */
+  upcomingSessionCount: number;
+  nextSessionStart: string | null;
+  /** Enrolments across all sessions, excluding withdrawn ones. */
   enrolledCount: number;
+  completedCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +68,8 @@ export interface TrainingSessionRecord {
   courseId: string;
   courseTitle: string;
   courseCategory: string | null;
+  courseDeliveryMode: TrainingCourseDeliveryMode;
+  courseStatus: TrainingCourseStatus;
   title: string | null;
   displayTitle: string;
   scheduledStart: string;
@@ -71,14 +78,39 @@ export interface TrainingSessionRecord {
   instructor: string | null;
   status: TrainingSessionStatus;
   notes: string | null;
+  /** Enrolments excluding withdrawn ones (same as `enrolledCount`). */
   attendeeCount: number;
+  enrolledCount: number;
+  /** Attended or completed. */
+  attendedCount: number;
   completedCount: number;
+  noShowCount: number;
+  /** Still `registered`, i.e. attendance not marked yet. */
+  unmarkedCount: number;
+  /** Sum of cost lines in the company currency. */
   totalCost: number;
   currency: string;
+  /** Total cost ÷ people who attended; null until someone attends. */
+  costPerAttendee: number | null;
+  /** Total cost ÷ people enrolled; null with no enrolments. */
+  costPerEnrolled: number | null;
+  /** Older cost lines recorded in another currency; not included in the totals. */
+  otherCurrencyCosts: Array<{ currency: string; amount: number }>;
   costs: TrainingSessionCostRecord[];
   createdAt: string;
   updatedAt: string;
 }
+
+export interface TrainingEnrollmentResult {
+  attendance: TrainingAttendanceRecord[];
+  enrolledCount: number;
+  /** Previously withdrawn enrolments that were restored. */
+  restoredCount: number;
+  skipped: Array<{ employeeId: string; employeeName: string; reason: string }>;
+}
+
+/** Statuses an admin can set when marking attendance; withdrawing uses its own action. */
+export type TrainingAttendanceMarkStatus = Exclude<TrainingAttendanceStatus, 'cancelled'>;
 
 export interface TrainingAttendanceRecord {
   id: string;

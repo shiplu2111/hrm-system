@@ -13,6 +13,8 @@ import {
   Settings,
   UserCircle,
   LifeBuoy,
+  Target,
+  GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
@@ -140,6 +142,32 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'Leave Requests', page: 'leave-requests' },
       { label: 'Leave Types & Policies', page: 'leave-types' },
       { label: 'Leave Balances', page: 'leave-balance' },
+    ],
+  },
+  {
+    label: 'Performance',
+    labelKey: 'shell.nav.performance',
+    page: 'performance-goals',
+    icon: Target,
+    permission: { module: 'performance', action: 'view' },
+    children: [
+      { label: 'KPIs & Goals', labelKey: 'shell.nav.kpiGoals', page: 'performance-goals' },
+      { label: 'Review cycles', labelKey: 'shell.nav.reviewCycles', page: 'performance-cycles' },
+      { label: 'Assessments', labelKey: 'shell.nav.assessments', page: 'performance-assessments' },
+      { label: '360° feedback', labelKey: 'shell.nav.feedback360', page: 'performance-feedback' },
+      { label: 'Results', labelKey: 'shell.nav.performanceReviews', page: 'performance' },
+    ],
+  },
+  {
+    label: 'Training',
+    labelKey: 'shell.nav.training',
+    page: 'training-catalog',
+    icon: GraduationCap,
+    permission: { module: 'training', action: 'view' },
+    children: [
+      { label: 'Course catalog', labelKey: 'shell.nav.trainingCatalog', page: 'training-catalog' },
+      { label: 'Attendance & costs', labelKey: 'shell.nav.trainingSessions', page: 'training-sessions' },
+      { label: 'Certifications & skills', labelKey: 'shell.nav.trainingCertifications', page: 'training' },
     ],
   },
   {
