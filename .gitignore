@@ -39,3 +39,7 @@ apps/mobile/ios/
 
 # Storage (local dev uploads — root folder only, not apps/api/src/storage)
 /storage/
+*.pem
+.env.production
+
+

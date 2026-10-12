@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hrm-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hrm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hrm_secret_pwd_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-hrms}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-hrm} -d ${POSTGRES_DB:-hrms}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hrm-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: hrm-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hrm-network
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: hrm-api
+    restart: always
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    networks:
+      - hrm-network
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      args:
+        VITE_API_URL: http://13.212.251.195:3000
+    container_name: hrm-admin
+    restart: always
+    ports:
+      - '80:80'
+    depends_on:
+      - api
+    networks:
+      - hrm-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  hrm-network:
+    driver: bridge

@@ -1,0 +1,44 @@
+name: Deploy to EC2 Production
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & Deploy to EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "==== 1. Pulling latest code ===="
+            cd ~/hrm-system
+            git fetch --all
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
+
+            echo "==== 2. Rebuilding and Starting Containers ===="
+            docker compose -f docker-compose.prod.yml up -d --build
+
+            echo "==== 3. Running Prisma Database Migrations ===="
+            # Run migration inside API container or via npx
+            docker compose -f docker-compose.prod.yml exec -T api npx prisma migrate deploy || true
+
+            echo "==== 4. Deployment Complete! ===="
+            docker compose -f docker-compose.prod.yml ps
