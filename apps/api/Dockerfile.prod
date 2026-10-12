@@ -5,15 +5,17 @@ ENV NODE_ENV=production
 
 RUN addgroup -S hrm && adduser -S hrm -G hrm
 
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/
-COPY packages/shared-types/package.json packages/shared-types/
-
 # Install build tools for native modules (bcrypt)
 RUN apk add --no-cache python3 make g++
 
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY packages/shared-types packages/shared-types/
+
 # Install only production dependencies
-RUN npm ci --workspace=@hrm/api --workspace=@hrm/shared-types --include-workspace-root --omit=dev
+RUN npm ci --workspace=@hrm/api --workspace=@hrm/shared-types --include-workspace-root --ignore-scripts --omit=dev
+RUN npm rebuild bcrypt --build-from-source
+
 
 
 COPY apps/api/dist ./apps/api/dist
