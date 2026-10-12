@@ -9,8 +9,12 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY packages/shared-types/package.json packages/shared-types/
 
+# Install build tools for native modules (bcrypt)
+RUN apk add --no-cache python3 make g++
+
 # Install only production dependencies
-RUN npm ci --workspace=@hrm/api --workspace=@hrm/shared-types --include-workspace-root --ignore-scripts --omit=dev
+RUN npm ci --workspace=@hrm/api --workspace=@hrm/shared-types --include-workspace-root --omit=dev
+
 
 COPY apps/api/dist ./apps/api/dist
 COPY apps/api/prisma ./apps/api/prisma
