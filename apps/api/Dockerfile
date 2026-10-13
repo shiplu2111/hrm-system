@@ -13,7 +13,7 @@ ENV NODE_OPTIONS="--max-old-space-size=1536"
 COPY package.json package-lock.json ./
 COPY apps/api ./apps/api
 COPY packages/shared-types ./packages/shared-types
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app ./
 RUN npm run build -w @hrm/shared-types
 WORKDIR /app/apps/api
 RUN npx prisma generate
@@ -21,12 +21,10 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production
 RUN addgroup -S hrm && adduser -S hrm -G hrm
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/
-COPY packages/shared-types/package.json packages/shared-types/
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app ./
+COPY apps/api ./apps/api
+COPY packages/shared-types ./packages/shared-types
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build /app/packages/shared-types/dist ./packages/shared-types/dist
