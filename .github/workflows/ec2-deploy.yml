@@ -57,12 +57,13 @@ jobs:
             echo "==== 3. Cleaning dangling builder cache ===="
             docker builder prune -f --keep-storage 2GB 2>/dev/null || true
 
-            # 4. Rebuild containers
+            # 4. Rebuild containers (sequentially to save memory on 1GB VPS)
             echo "==== 4. Rebuilding and Starting Containers ===="
             export DOCKER_BUILDKIT=1
-            export NODE_OPTIONS="--max-old-space-size=512"
             docker compose -f docker-compose.prod.yml down --remove-orphans || true
-            docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml build api
+            docker compose -f docker-compose.prod.yml build admin
+            docker compose -f docker-compose.prod.yml up -d
 
             # 5. Run Prisma Migrations
             echo "==== 5. Running Prisma Database Migrations ===="

@@ -18,7 +18,7 @@ COPY apps/admin apps/admin
 # Build dependencies and admin
 RUN npm run build -w @hrm/shared-types || true
 RUN npm run build -w @hrm/i18n || true
-RUN npm run build -w @hrm/portal-ui || true
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 WORKDIR /app/apps/admin
 
 # Provide default env for build

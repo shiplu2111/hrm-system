@@ -9,6 +9,7 @@ COPY packages/shared-types/package.json packages/shared-types/
 RUN npm ci --workspace=@hrm/api --workspace=@hrm/shared-types --include-workspace-root --ignore-scripts
 
 FROM base AS build
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 COPY package.json package-lock.json ./
 COPY apps/api ./apps/api
 COPY packages/shared-types ./packages/shared-types
