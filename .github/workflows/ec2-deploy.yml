@@ -25,8 +25,8 @@ jobs:
           host: 13.212.251.195
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          timeout: 30m
-          command_timeout: 30m
+          timeout: 45m
+          command_timeout: 45m
           script: |
             set -e
             # 1. Swap memory guard (t2.micro / t3.micro)
@@ -55,12 +55,8 @@ jobs:
             git checkout ${{ github.ref_name }}
             git reset --hard origin/${{ github.ref_name }}
 
-            # 3. Clean builder cache
-            echo "==== 3. Cleaning dangling builder cache ===="
-            docker builder prune -f --keep-storage 2GB 2>/dev/null || true
-
-            # 4. Rebuild containers (sequentially to save memory on 1GB VPS)
-            echo "==== 4. Rebuilding and Starting Containers ===="
+            # 3. Rebuild containers (sequentially to save memory on 1GB VPS)
+            echo "==== 3. Rebuilding and Starting Containers ===="
             export DOCKER_BUILDKIT=1
             docker compose -f docker-compose.prod.yml down --remove-orphans || true
             docker compose -f docker-compose.prod.yml build api

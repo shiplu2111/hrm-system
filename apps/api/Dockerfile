@@ -16,7 +16,6 @@ COPY packages/shared-types ./packages/shared-types
 COPY --from=deps /app ./
 RUN npm run build -w @hrm/shared-types
 WORKDIR /app/apps/api
-RUN npx prisma generate
 RUN npm run build
 
 FROM node:22-alpine AS runner
