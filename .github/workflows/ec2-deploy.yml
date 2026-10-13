@@ -65,12 +65,14 @@ jobs:
 
             # 5. Run Prisma Migrations
             echo "==== 5. Running Prisma Database Migrations ===="
-            sleep 8
+            sleep 15
             docker compose -f docker-compose.prod.yml exec -T api npx prisma migrate deploy || true
 
             # 6. Check status and print container logs
             echo "==== 6. Deployment Complete! ===="
             docker compose -f docker-compose.prod.yml ps
-            echo "==== 7. API Container Logs (Last 40 lines) ===="
-            docker compose -f docker-compose.prod.yml logs --tail 40 api
+            echo "==== 7. API Container Logs (Last 60 lines) ===="
+            docker compose -f docker-compose.prod.yml logs --tail 60 api
+            echo "==== 8. Admin Container Logs (Last 20 lines) ===="
+            docker compose -f docker-compose.prod.yml logs --tail 20 admin
 
