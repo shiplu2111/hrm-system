@@ -13,6 +13,8 @@ interface AdminNavGroupProps {
   item: AdminNavItem;
   current: PageKey;
   collapsed: boolean;
+  openMenu?: string | null;
+  onToggleMenu?: (menuKey: string) => void;
   onNavigate: (page: PageKey) => void;
 }
 
@@ -20,6 +22,8 @@ export function AdminNavGroup({
   item,
   current,
   collapsed,
+  openMenu,
+  onToggleMenu,
   onNavigate,
 }: AdminNavGroupProps) {
   const routerNavigate = useNavigate();
@@ -40,16 +44,32 @@ export function AdminNavGroup({
   );
 
   const isActive = navItemContainsPage(item, current);
-  const [expanded, setExpanded] = useState(isActive);
+  
+  // Accordion controlled state if passed, else fallback to internal state
+  const isControlled = onToggleMenu !== undefined;
+  const [internalExpanded, setInternalExpanded] = useState(isActive);
 
   useEffect(() => {
-    if (isActive) setExpanded(true);
+    if (isActive && isControlled && onToggleMenu && openMenu === null) {
+      onToggleMenu(item.page);
+    } else if (isActive && !isControlled) {
+      setInternalExpanded(true);
+    }
   }, [isActive]);
+
+  const expanded = isControlled ? openMenu === item.page : internalExpanded;
+
+  const handleToggle = () => {
+    if (isControlled && onToggleMenu) {
+      onToggleMenu(item.page);
+    } else {
+      setInternalExpanded((prev) => !prev);
+    }
+  };
 
   if (!parentAllowed && visibleChildren.length === 0) return null;
 
   const hasChildren = visibleChildren.length > 0;
-  const landingPage = parentAllowed ? item.page : visibleChildren[0]!.page;
   const Icon = item.icon;
 
   if (!hasChildren) {
@@ -71,7 +91,10 @@ export function AdminNavGroup({
         icon={Icon}
         active={isActive}
         collapsed={collapsed}
-        onClick={() => goToPage(landingPage)}
+        onClick={() => {
+          handleToggle();
+          goToPage(parentAllowed ? item.page : visibleChildren[0]!.page);
+        }}
       />
     );
   }
@@ -87,25 +110,18 @@ export function AdminNavGroup({
       >
         <button
           type="button"
-          onClick={() => goToPage(landingPage)}
-          className={`flex flex-1 items-center gap-2.5 h-9 px-2.5 text-sm font-medium min-w-0 ${
+          onClick={handleToggle}
+          aria-expanded={expanded}
+          className={`flex flex-1 items-center gap-2.5 h-9 px-2.5 text-sm font-medium min-w-0 cursor-pointer ${
             isActive ? 'text-accent-700 dark:text-accent-300' : 'text-secondary hover:text-primary'
           }`}
         >
           <Icon className="h-[18px] w-[18px] shrink-0" />
           <span className="flex-1 text-left truncate">{label}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-label={t(expanded ? 'shell.collapseMenu' : 'shell.expandMenu', { label })}
-          className={`h-9 w-8 shrink-0 flex items-center justify-center rounded-lg text-muted hover:text-primary hover:bg-[rgb(var(--bg-hover))] transition-colors ${
-            isActive ? 'text-accent-600' : ''
-          }`}
-        >
           <ChevronDown
-            className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            className={`h-4 w-4 shrink-0 transition-transform duration-200 text-muted ${
+              expanded ? 'rotate-180' : ''
+            } ${isActive ? 'text-accent-600' : ''}`}
           />
         </button>
       </div>
@@ -118,7 +134,7 @@ export function AdminNavGroup({
                 key={child.page}
                 type="button"
                 onClick={() => goToPage(child.page)}
-                className={`w-full text-left h-8 px-2.5 rounded-md text-sm transition-colors truncate ${
+                className={`w-full text-left h-8 px-2.5 rounded-md text-sm transition-colors truncate cursor-pointer ${
                   childActive
                     ? 'bg-accent-50 text-accent-700 font-medium dark:bg-accent-950/40 dark:text-accent-300'
                     : 'text-secondary hover:text-primary hover:bg-[rgb(var(--bg-hover))]'

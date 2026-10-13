@@ -607,4 +607,40 @@ export class OrganizationService {
       throw error;
     }
   }
+
+  // --- Organization / Company / Tenant Updates ---
+
+  async updateCompany(companyId: string, data: { name?: string; timezone?: string; dateFormat?: string; numberFormat?: string }) {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    return this.prisma.unscoped.company.update({
+      where: { id: companyId },
+      data: {
+        ...(data.name?.trim() ? { name: data.name.trim() } : {}),
+        ...(data.timezone ? { timezone: data.timezone } : {}),
+        ...(data.dateFormat ? { dateFormat: data.dateFormat } : {}),
+        ...(data.numberFormat ? { numberFormat: data.numberFormat } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        dateFormat: true,
+        numberFormat: true,
+      },
+    });
+  }
+
+  async updateCurrentTenant(tenantId: string, data: { name?: string }) {
+    return this.prisma.unscoped.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(data.name?.trim() ? { name: data.name.trim() } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        subdomain: true,
+      },
+    });
+  }
 }

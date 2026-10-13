@@ -13,6 +13,7 @@ import {
   runAttendanceAction,
   type AttendanceAction,
 } from '@/lib/my-api';
+import { CheckoutConfirmationModal } from '@/components/attendance/CheckoutConfirmationModal';
 import { ApiError } from '@/lib/tenant-api-client';
 
 function displayClock(
@@ -35,6 +36,7 @@ export function MyAttendancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!employeeId) {
@@ -114,7 +116,7 @@ export function MyAttendancePage() {
               <Button
                 variant="secondary"
                 disabled={actionLoading || phase === 'not_started' || phase === 'completed'}
-                onClick={() => void runAction('clock-out')}
+                onClick={() => setCheckoutModalOpen(true)}
               >
                 <LogOut className="h-4 w-4" /> {t('dashboard.clockOutAction')}
               </Button>
@@ -136,6 +138,17 @@ export function MyAttendancePage() {
           </CardBody>
         </Card>
       ) : null}
+
+      <CheckoutConfirmationModal
+        open={checkoutModalOpen}
+        onClose={() => setCheckoutModalOpen(false)}
+        onConfirm={async () => {
+          await runAction('clock-out');
+          setCheckoutModalOpen(false);
+        }}
+        record={attendance}
+        loading={actionLoading}
+      />
     </MyPageLayout>
   );
 }

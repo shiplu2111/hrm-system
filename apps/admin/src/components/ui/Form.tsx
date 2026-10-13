@@ -17,9 +17,17 @@ export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSe
   );
 }
 
-export function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+export function Label({
+  children,
+  htmlFor,
+  className = '',
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+  className?: string;
+}) {
   return (
-    <label htmlFor={htmlFor} className="block text-xs font-medium text-secondary mb-1.5">
+    <label htmlFor={htmlFor} className={`block text-xs font-medium text-secondary mb-1.5 ${className}`}>
       {children}
     </label>
   );

@@ -180,7 +180,30 @@
     "faceVerifyHint": "Optional — falls back if camera denied",
     "todayQueue": "Today (local queue)",
     "noPunches": "No punches yet",
-    "shiftFallback": "Shift"
+    "shiftFallback": "Shift",
+    "checkoutModal": {
+      "title": "Confirm Clock Out",
+      "earlyLeaveTitle": "Early Leave Warning",
+      "earlyLeaveBadge": "Early Departure",
+      "onTimeBadge": "Shift Completed",
+      "overtimeBadge": "Overtime",
+      "earlyLeaveNotice": "You are clocking out before your scheduled shift end time.",
+      "onTimeNotice": "Great job! You have completed your scheduled shift hours.",
+      "scheduledShift": "Scheduled Shift",
+      "checkoutTime": "Checkout Time",
+      "earlyBy": "Early Departure",
+      "workedToday": "Worked Today",
+      "breaksTaken": "Breaks Taken",
+      "halfDayWarning": "Warning: Net working time is below the standard half-day threshold. This day may be recorded as a Half Day.",
+      "selectReason": "Reason for early departure (optional)",
+      "selectReasonPlaceholder": "Select a reason...",
+      "optionalNotes": "Additional remarks or notes (optional)",
+      "notesPlaceholder": "Add any notes for HR / Manager...",
+      "confirmQuestion": "Are you sure you want to clock out now?",
+      "confirmButton": "Confirm Clock Out",
+      "confirmEarlyButton": "Confirm Early Checkout",
+      "cancelButton": "Cancel / Keep Working"
+    }
   },
   "leave": {
     "balances": "Leave balances",

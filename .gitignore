@@ -39,7 +39,10 @@ apps/mobile/ios/
 
 # Storage (local dev uploads — root folder only, not apps/api/src/storage)
 /storage/
+
+# Archive & Key files
+*.tar.gz
+*.zip
 *.pem
-.env.production
 
 

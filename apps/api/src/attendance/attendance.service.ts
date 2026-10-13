@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AttendanceCorrectionKind,
+  AttendanceCorrectionStatus,
   AttendanceRecordStatus,
   AttendanceSource,
   Prisma,
@@ -15,6 +17,7 @@ import {
   startOfLocalCalendarDay,
 } from '@hrm/shared-types';
 import type { LocaleContext } from '@hrm/shared-types';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
 import { LocaleContextService } from '../locale/locale-context.service';
 import { NotificationEngineService } from '../notifications/notification-engine.service';
@@ -27,7 +30,7 @@ import {
   computeAttendanceMetrics,
   resolveAttendanceStatus,
 } from './attendance.utils';
-import type { AttendanceCaptureDto } from './dto/attendance.dto';
+import type { AttendanceCaptureDto, CorrectAttendanceDto } from './dto/attendance.dto';
 
 type AttendanceWithBreaks = Prisma.AttendanceRecordGetPayload<{
   include: { breaks: true };
@@ -247,6 +250,204 @@ export class AttendanceService {
     return this.toResponse(updated, shift, workDate, locale, at);
   }
 
+  async correctAttendance(
+    employeeId: string,
+    dto: CorrectAttendanceDto,
+    adminUser: AuthenticatedUser,
+  ) {
+    const employee = await this.assertEmployee(employeeId);
+    const workDate = this.parseDate(dto.date);
+    const locale = await this.localeContext.forEmployee(employeeId);
+    const shift = await this.resolveShiftForDay(employeeId, workDate);
+
+    const clockInAt = dto.clockInAt ? new Date(dto.clockInAt) : null;
+    const clockOutAt = dto.clockOutAt ? new Date(dto.clockOutAt) : null;
+
+    if (clockInAt && clockOutAt && clockOutAt < clockInAt) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Clock out time cannot be earlier than clock in time',
+      });
+    }
+
+    const existing = await this.prisma.unscoped.attendanceRecord.findFirst({
+      where: { employeeId, date: workDate },
+      include: { breaks: { orderBy: { startAt: 'asc' } } },
+    });
+
+    const originalValues = existing
+      ? {
+          clockInAt: existing.clockInAt?.toISOString() ?? null,
+          clockOutAt: existing.clockOutAt?.toISOString() ?? null,
+          status: existing.status,
+          source: existing.source,
+          breaks: existing.breaks.map((b) => ({
+            id: b.id,
+            startAt: b.startAt.toISOString(),
+            endAt: b.endAt?.toISOString() ?? null,
+          })),
+        }
+      : {
+          clockInAt: null,
+          clockOutAt: null,
+          status: null,
+          source: null,
+          breaks: [],
+        };
+
+    const newBreaks = (dto.breaks ?? []).map((b) => ({
+      startAt: new Date(b.startAt),
+      endAt: b.endAt ? new Date(b.endAt) : null,
+    }));
+
+    let finalStatus: AttendanceRecordStatus;
+    if (dto.status) {
+      finalStatus = dto.status;
+    } else if (clockInAt) {
+      const metrics = computeAttendanceMetrics({
+        clockInAt,
+        clockOutAt,
+        breaks: newBreaks,
+        shift,
+        workDate,
+        now: clockOutAt ?? clockInAt,
+      });
+      finalStatus = resolveAttendanceStatus(metrics, clockInAt);
+    } else {
+      finalStatus = AttendanceRecordStatus.absent;
+    }
+
+    const result = await this.prisma.unscoped.$transaction(async (tx) => {
+      let record: AttendanceWithBreaks;
+
+      if (existing) {
+        if (dto.breaks !== undefined) {
+          await tx.break.deleteMany({
+            where: { attendanceRecordId: existing.id },
+          });
+        }
+
+        record = await tx.attendanceRecord.update({
+          where: { id: existing.id },
+          data: {
+            clockInAt,
+            clockOutAt,
+            status: finalStatus,
+            source: AttendanceSource.manual,
+            ...(dto.breaks !== undefined && newBreaks.length > 0
+              ? {
+                  breaks: {
+                    create: newBreaks.map((b) => ({
+                      startAt: b.startAt,
+                      endAt: b.endAt,
+                    })),
+                  },
+                }
+              : {}),
+          },
+          include: { breaks: { orderBy: { startAt: 'asc' } } },
+        });
+      } else {
+        record = await tx.attendanceRecord.create({
+          data: {
+            employeeId,
+            date: workDate,
+            clockInAt,
+            clockOutAt,
+            status: finalStatus,
+            source: AttendanceSource.manual,
+            ...(newBreaks.length > 0
+              ? {
+                  breaks: {
+                    create: newBreaks.map((b) => ({
+                      startAt: b.startAt,
+                      endAt: b.endAt,
+                    })),
+                  },
+                }
+              : {}),
+          },
+          include: { breaks: { orderBy: { startAt: 'asc' } } },
+        });
+      }
+
+      const correction = await tx.attendanceCorrection.create({
+        data: {
+          tenantId: employee.tenantId,
+          companyId: employee.companyId,
+          employeeId,
+          attendanceRecordId: record.id,
+          date: workDate,
+          kind: AttendanceCorrectionKind.regularization,
+          status: AttendanceCorrectionStatus.approved,
+          reason: dto.reason.trim(),
+          originalValues: originalValues as Prisma.InputJsonValue,
+          requestedClockInAt: clockInAt,
+          requestedClockOutAt: clockOutAt,
+          requestedStatus: finalStatus,
+          requestedByUserId: adminUser.id,
+          reviewedByUserId: adminUser.id,
+          reviewedAt: new Date(),
+          reviewComment: 'Direct manual correction by administrator',
+        },
+      });
+
+      return { record, correction };
+    });
+
+    return {
+      attendance: this.toResponse(result.record, shift, workDate, locale),
+      correction: result.correction,
+    };
+  }
+
+  async getCorrections(employeeId: string, dateInput?: string) {
+    await this.assertEmployee(employeeId);
+    const workDate = dateInput ? this.parseDate(dateInput) : undefined;
+
+    const corrections = await this.prisma.unscoped.attendanceCorrection.findMany({
+      where: {
+        employeeId,
+        ...(workDate ? { date: workDate } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const userIds = Array.from(
+      new Set(
+        corrections
+          .flatMap((c) => [c.requestedByUserId, c.reviewedByUserId])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const users = userIds.length
+      ? await this.prisma.unscoped.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, email: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u.email]));
+
+    return corrections.map((c) => ({
+      id: c.id,
+      date: c.date.toISOString().slice(0, 10),
+      reason: c.reason,
+      status: c.status,
+      kind: c.kind,
+      originalValues: c.originalValues,
+      requestedClockInAt: c.requestedClockInAt?.toISOString() ?? null,
+      requestedClockOutAt: c.requestedClockOutAt?.toISOString() ?? null,
+      requestedStatus: c.requestedStatus,
+      requestedBy: userMap.get(c.requestedByUserId) ?? c.requestedByUserId,
+      reviewedBy: c.reviewedByUserId ? (userMap.get(c.reviewedByUserId) ?? c.reviewedByUserId) : null,
+      reviewedAt: c.reviewedAt?.toISOString() ?? null,
+      reviewComment: c.reviewComment,
+      createdAt: c.createdAt.toISOString(),
+    }));
+  }
+
   private async requireActiveRecord(employeeId: string, workDate: Date) {
     const record = await this.prisma.unscoped.attendanceRecord.findFirst({
       where: { employeeId, date: workDate },
@@ -437,6 +638,160 @@ export class AttendanceService {
         },
         locale,
       ),
+    };
+  }
+
+  async getCompanyDailyAttendance(companyId: string, dateInput?: string) {
+    const defaultDate = dateInput
+      ? this.parseDate(dateInput)
+      : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+
+    const employees = await this.prisma.unscoped.employee.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+      },
+      include: {
+        department: { select: { id: true, name: true } },
+        designation: { select: { id: true, name: true } },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+
+    const employeeIds = employees.map((e) => e.id);
+
+    const [records, rosters, leaveRequests] = await Promise.all([
+      this.prisma.unscoped.attendanceRecord.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          date: defaultDate,
+        },
+        include: { breaks: { orderBy: { startAt: 'asc' } } },
+      }),
+      this.prisma.unscoped.roster.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          date: defaultDate,
+        },
+        include: { shift: true, location: true },
+      }),
+      this.prisma.unscoped.leaveRequest.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          status: 'approved',
+          startDate: { lte: defaultDate },
+          endDate: { gte: defaultDate },
+        },
+      }),
+    ]);
+
+    const recordMap = new Map(records.map((r) => [r.employeeId, r]));
+    const rosterMap = new Map(rosters.map((r) => [r.employeeId, r]));
+    const onLeaveSet = new Set(leaveRequests.map((l) => l.employeeId));
+
+    const dateKey = defaultDate.toISOString().slice(0, 10);
+    const now = new Date();
+
+    const rows = employees.map((emp) => {
+      const record = recordMap.get(emp.id) ?? null;
+      const roster = rosterMap.get(emp.id) ?? null;
+      const shift = roster?.shift ?? this.placeholderShift();
+      const isOnLeave = onLeaveSet.has(emp.id);
+
+      const metrics = computeAttendanceMetrics({
+        clockInAt: record?.clockInAt ?? null,
+        clockOutAt: record?.clockOutAt ?? null,
+        breaks: record?.breaks ?? [],
+        shift,
+        workDate: defaultDate,
+        now,
+      });
+
+      let status = record?.status ?? (isOnLeave ? ('leave' as AttendanceRecordStatus) : ('absent' as AttendanceRecordStatus));
+
+      const clockInAt = record?.clockInAt?.toISOString() ?? null;
+      const clockOutAt = record?.clockOutAt?.toISOString() ?? null;
+
+      const shiftInfo = {
+        id: shift.id,
+        name: shift.name,
+        startTime: this.formatTime(shift.startTime),
+        endTime: this.formatTime(shift.endTime),
+        breakMinutes: shift.breakMinutes,
+        graceMinutes: shift.graceMinutes,
+        standardMinutes: metrics.standardMinutes,
+      };
+
+      const breaks = (record?.breaks ?? []).map((b) => ({
+        id: b.id,
+        startAt: b.startAt.toISOString(),
+        endAt: b.endAt?.toISOString() ?? null,
+      }));
+
+      const personalInfo = (emp.personalInfo as Record<string, any>) ?? {};
+      const avatarUrl = (personalInfo.avatarUrl as string) || null;
+
+      return {
+        employee: {
+          id: emp.id,
+          employeeNumber: emp.employeeNumber,
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          avatarUrl,
+          department: emp.department ? { id: emp.department.id, name: emp.department.name } : null,
+          designation: emp.designation ? { id: emp.designation.id, title: emp.designation.name } : null,
+          employmentStatus: emp.employmentStatus,
+        },
+        attendance: {
+          id: record?.id ?? null,
+          employeeId: emp.id,
+          date: dateKey,
+          clockInAt,
+          clockOutAt,
+          status,
+          source: record?.source ?? null,
+          shift: shiftInfo,
+          breaks,
+          metrics,
+        },
+      };
+    });
+
+    let present = 0;
+    let late = 0;
+    let earlyLeave = 0;
+    let onBreak = 0;
+    let absent = 0;
+    let onLeave = 0;
+
+    for (const row of rows) {
+      const { attendance } = row;
+      if (attendance.status === 'leave') {
+        onLeave += 1;
+      } else if (attendance.metrics.phase === 'on_break') {
+        onBreak += 1;
+        present += 1;
+      } else if (attendance.clockInAt) {
+        present += 1;
+        if (attendance.metrics.isLate) late += 1;
+        if (attendance.metrics.isEarlyLeave) earlyLeave += 1;
+      } else {
+        absent += 1;
+      }
+    }
+
+    return {
+      date: dateKey,
+      kpis: {
+        totalStaff: employees.length,
+        present,
+        late,
+        earlyLeave,
+        onBreak,
+        absent,
+        onLeave,
+      },
+      rows,
     };
   }
 }

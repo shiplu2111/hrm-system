@@ -24,11 +24,13 @@ import {
   CreateDesignationDto,
   CreateJobLevelDto,
   CreateNamedEntityDto,
+  UpdateCompanyDto,
   UpdateCostCentreDto,
   UpdateDepartmentDto,
   UpdateDesignationDto,
   UpdateJobLevelDto,
   UpdateNamedEntityDto,
+  UpdateTenantDto,
 } from './dto/organization.dto';
 import { OrganizationService } from './organization.service';
 
@@ -55,6 +57,30 @@ export class OrganizationController {
       data: await this.companyScope.listCompanies(
         ownOnly ? { onlyEmployeeId: user.employeeId ?? null } : {},
       ),
+    };
+  }
+
+  @Patch('companies/:companyId')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({ summary: 'Update company settings and name' })
+  async updateCompany(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: UpdateCompanyDto,
+  ) {
+    return {
+      data: await this.organizationService.updateCompany(companyId, dto),
+    };
+  }
+
+  @Patch('tenant')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({ summary: 'Update current tenant name / system identity' })
+  async updateCurrentTenant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateTenantDto,
+  ) {
+    return {
+      data: await this.organizationService.updateCurrentTenant(user.tenantId!, dto),
     };
   }
 

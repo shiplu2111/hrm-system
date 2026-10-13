@@ -61,6 +61,37 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
+function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard
+      .writeText(text)
+      .then(() => true)
+      .catch(() => fallbackCopy(text));
+  }
+  return fallbackCopy(text);
+}
+
+function fallbackCopy(text: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      textArea.setAttribute('readonly', '');
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      resolve(successful);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 function CopyButton({
   value,
   label,
@@ -72,18 +103,23 @@ function CopyButton({
 }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
+    const ok = await copyToClipboard(value);
+    if (ok) {
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
+      window.setTimeout(() => setCopied(false), 2000);
     }
   };
   return (
-    <Button variant="secondary" size="sm" onClick={() => void copy()} aria-label={label}>
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      {copied ? 'Copied' : text}
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      onClick={() => void copy()}
+      aria-label={label}
+      className={copied ? 'text-emerald-600 dark:text-emerald-400 border-emerald-300' : ''}
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? 'Copied!' : text}
     </Button>
   );
 }

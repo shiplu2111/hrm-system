@@ -16,9 +16,7 @@ COPY --from=deps /app/node_modules ./node_modules
 RUN npm run build -w @hrm/shared-types
 WORKDIR /app/apps/api
 RUN npx prisma generate
-ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN npm run build
-
 
 FROM node:22-alpine AS runner
 WORKDIR /app

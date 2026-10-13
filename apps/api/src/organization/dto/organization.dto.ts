@@ -257,3 +257,29 @@ export class UpdateEmployeeDto {
   @IsUUID()
   costCentreId?: string | null;
 }
+
+export class UpdateCompanyDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  dateFormat?: string;
+
+  @IsOptional()
+  @IsString()
+  numberFormat?: string;
+}
+
+export class UpdateTenantDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+}

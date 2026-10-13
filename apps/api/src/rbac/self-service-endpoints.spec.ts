@@ -78,6 +78,7 @@ describe('Self-service endpoint allow-list', () => {
     [AccountingController, 'listGlAccounts'],
     [HealthSafetyController, 'updateIncident'],
     [SupportController, 'updateTicket'],
+    [AttendanceController, 'correctAttendance'],
   ];
   it.each(closed.map(([controller, handler]) => [controller.name, handler, controller] as const))(
     '%s.%s stays closed to own-scoped roles',

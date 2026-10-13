@@ -1,13 +1,15 @@
-import { AttendanceSource } from '@prisma/client';
+import { AttendanceRecordStatus, AttendanceSource } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class AttendanceCaptureDto {
@@ -43,4 +45,40 @@ export class AttendanceDateQueryDto {
   @IsOptional()
   @IsString()
   date?: string;
+}
+
+export class BreakCorrectionItemDto {
+  @IsString()
+  startAt: string;
+
+  @IsOptional()
+  @IsString()
+  endAt?: string | null;
+}
+
+export class CorrectAttendanceDto {
+  @IsString()
+  date: string;
+
+  @IsOptional()
+  @IsString()
+  clockInAt?: string | null;
+
+  @IsOptional()
+  @IsString()
+  clockOutAt?: string | null;
+
+  @IsOptional()
+  @IsEnum(AttendanceRecordStatus)
+  status?: AttendanceRecordStatus;
+
+  @IsNotEmpty()
+  @IsString()
+  reason: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BreakCorrectionItemDto)
+  breaks?: BreakCorrectionItemDto[];
 }

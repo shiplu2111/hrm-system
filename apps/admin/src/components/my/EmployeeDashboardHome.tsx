@@ -26,6 +26,7 @@ import {
   listColleagues,
   submitEngagementSurveyResponse,
 } from '@/lib/my-api';
+import { CheckoutConfirmationModal } from '@/components/attendance/CheckoutConfirmationModal';
 import { LeaveStatusPill } from './leave/LeaveStatusPill';
 
 function formatTime(iso: string | null, emDash: string): string {
@@ -89,6 +90,7 @@ export function EmployeeDashboardHome({
     dashboard;
   const phase = attendance.metrics.phase;
   const [payslipDownloading, setPayslipDownloading] = useState(false);
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [surveyModalOpen, setSurveyModalOpen] = useState(false);
   const [activeSurvey, setActiveSurvey] = useState<EngagementSurveyRecord | null>(null);
   const [surveyAnswers, setSurveyAnswers] = useState<Record<string, string>>({});
@@ -251,7 +253,7 @@ export function EmployeeDashboardHome({
                 variant="secondary"
                 size="sm"
                 disabled={actionLoading || phase === 'not_started' || phase === 'completed'}
-                onClick={onClockOut}
+                onClick={() => setCheckoutModalOpen(true)}
               >
                 {t('dashboard.clockOutAction')}
               </Button>
@@ -640,6 +642,17 @@ export function EmployeeDashboardHome({
           </div>
         </div>
       </Modal>
+
+      <CheckoutConfirmationModal
+        open={checkoutModalOpen}
+        onClose={() => setCheckoutModalOpen(false)}
+        onConfirm={async () => {
+          await onClockOut();
+          setCheckoutModalOpen(false);
+        }}
+        record={attendance}
+        loading={actionLoading}
+      />
     </div>
   );
 }

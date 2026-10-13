@@ -49,6 +49,9 @@ import {
 import { usePermissions } from '@hrm/portal-ui';
 import { canViewPage } from '@/config/page-permissions';
 import { useNav, type PageKey } from '@/context/NavContext';
+import { useCompany } from '@/context/CompanyContext';
+import { useTenant } from '@/context/TenantContext';
+import { updateCompany, updateCurrentTenant } from '@/lib/organization-api';
 
 type SettingsGroup =
   | 'general'
@@ -88,6 +91,21 @@ export function SettingsHubPage() {
     const group = groupForPage(current);
     if (group) setActiveGroup(group);
   }, [current]);
+
+  const { companyId, company, refresh: refreshCompany } = useCompany();
+  const { current: currentTenant, refreshMemberships } = useTenant();
+
+  const currentOrgName = currentTenant?.tenantName ?? company?.name ?? '';
+  const [orgNameInput, setOrgNameInput] = useState(currentOrgName);
+  const [generalSaving, setGeneralSaving] = useState(false);
+  const [generalSuccess, setGeneralSuccess] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentOrgName) {
+      setOrgNameInput(currentOrgName);
+    }
+  }, [currentOrgName]);
 
   // ---------------- MODULE 41 & 42: SECURITY & AUDIT STATE ----------------
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
@@ -491,10 +509,31 @@ export function SettingsHubPage() {
                 <CardTitle>System Identity & Global Formatting</CardTitle>
               </CardHeader>
               <CardBody className="space-y-4">
+                {generalSuccess && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 p-3.5 text-sm text-emerald-800 dark:text-emerald-200 flex items-center gap-2.5">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>{generalSuccess}</span>
+                  </div>
+                )}
+                {generalError && (
+                  <div className="rounded-xl border border-error-200 bg-error-50 dark:bg-error-950/40 p-3.5 text-sm text-error-800 dark:text-error-200 flex items-center gap-2.5">
+                    <AlertTriangle className="h-5 w-5 text-error-600 dark:text-error-400 shrink-0" />
+                    <span>{generalError}</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label>Organization / System Name</Label>
-                    <Input defaultValue="CMSN-HR" />
+                    <Label htmlFor="system-identity-name">Organization / System Name</Label>
+                    <Input
+                      id="system-identity-name"
+                      value={orgNameInput}
+                      onChange={(e) => setOrgNameInput(e.target.value)}
+                      placeholder="e.g. My Organization"
+                    />
+                    <p className="text-[11px] text-secondary mt-1">
+                      Updates the organization & company brand displayed in sidebar, topbar, and reports.
+                    </p>
                   </div>
                   <div>
                     <Label>Default System Timezone</Label>
@@ -534,8 +573,31 @@ export function SettingsHubPage() {
                 </div>
 
                 <div className="pt-4 border-t border-base flex justify-end">
-                  <Button variant="primary">
-                    <Check className="h-4 w-4" /> Save System Preferences
+                  <Button
+                    variant="primary"
+                    disabled={generalSaving || !orgNameInput.trim()}
+                    onClick={async () => {
+                      setGeneralSaving(true);
+                      setGeneralError(null);
+                      setGeneralSuccess(null);
+                      try {
+                        await updateCurrentTenant({ name: orgNameInput.trim() });
+                        if (companyId) {
+                          await updateCompany(companyId, { name: orgNameInput.trim() });
+                        }
+                        await refreshMemberships();
+                        await refreshCompany();
+                        setGeneralSuccess('Organization and System Name updated successfully everywhere!');
+                        setTimeout(() => setGeneralSuccess(null), 5000);
+                      } catch (err: any) {
+                        setGeneralError(err?.message || 'Failed to update system identity');
+                      } finally {
+                        setGeneralSaving(false);
+                      }
+                    }}
+                  >
+                    <Check className="h-4 w-4" />
+                    {generalSaving ? 'Saving…' : 'Save System Preferences'}
                   </Button>
                 </div>
               </CardBody>

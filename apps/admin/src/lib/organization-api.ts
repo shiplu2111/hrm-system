@@ -255,3 +255,22 @@ export function deleteCostCentre(companyId: string, id: string): Promise<void> {
     { method: 'DELETE' },
   );
 }
+
+export function updateCompany(
+  companyId: string,
+  input: { name?: string; timezone?: string; dateFormat?: string; numberFormat?: string },
+): Promise<{ id: string; name: string }> {
+  return tenantApiRequest<{ id: string; name: string }>(
+    `/organization/companies/${companyId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function updateCurrentTenant(
+  input: { name?: string },
+): Promise<{ id: string; name: string }> {
+  return tenantApiRequest<{ id: string; name: string }>(
+    '/organization/tenant',
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}

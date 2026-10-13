@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { X, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { useAppTranslation } from '@hrm/i18n';
 import { adminNavItems } from '@/config/shell-navigation';
@@ -23,9 +24,15 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
   const companyName =
     currentTenant?.tenantName ?? company?.name ?? 'Company Admin';
 
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
   const handleNavigate = (page: PageKey) => {
     navigate(page);
     onCloseMobile();
+  };
+
+  const handleToggleMenu = (menuKey: string) => {
+    setOpenMenu((prev) => (prev === menuKey ? null : menuKey));
   };
 
   const sidebarContent = (
@@ -56,6 +63,8 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
             item={item}
             current={current}
             collapsed={collapsed}
+            openMenu={openMenu}
+            onToggleMenu={handleToggleMenu}
             onNavigate={handleNavigate}
           />
         ))}

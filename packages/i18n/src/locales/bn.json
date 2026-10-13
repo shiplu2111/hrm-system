@@ -180,7 +180,30 @@
     "faceVerifyHint": "ঐচ্ছিক — ক্যামেরা প্রত্যাখ্যান হলে বিকল্প",
     "todayQueue": "আজ (স্থানীয় সারি)",
     "noPunches": "এখনও কোনো পাঞ্চ নেই",
-    "shiftFallback": "শিফট"
+    "shiftFallback": "শিফট",
+    "checkoutModal": {
+      "title": "ক্লক আউট নিশ্চিতকরণ",
+      "earlyLeaveTitle": "আর্লি লিভ সতর্কবার্তা",
+      "earlyLeaveBadge": "পূর্বে প্রস্থান",
+      "onTimeBadge": "শিফট সম্পন্ন",
+      "overtimeBadge": "ওভারটাইম",
+      "earlyLeaveNotice": "আপনি নির্ধারিত শিফট শেষ হওয়ার পূর্বে ক্লক আউট করছেন।",
+      "onTimeNotice": "চমৎকার! আপনি আজকের নির্ধারিত শিফটের সময় সম্পন্ন করেছেন।",
+      "scheduledShift": "নির্ধারিত শিফট",
+      "checkoutTime": "চেকআউট সময়",
+      "earlyBy": "পূর্বে প্রস্থান",
+      "workedToday": "আজ কাজের সময়",
+      "breaksTaken": "মোট ব্রেক",
+      "halfDayWarning": "সতর্কতা: কাজের মোট সময় হাফ-ডে থ্রেশহোল্ডের চেয়ে কম। আজকের দিনটি Half Day হিসেবে গণ্য হতে পারে।",
+      "selectReason": "আগে বের হওয়ার কারণ (ঐচ্ছিক)",
+      "selectReasonPlaceholder": "কারণ সিলেক্ট করুন...",
+      "optionalNotes": "অতিরিক্ত মন্তব্য বা নোট (ঐচ্ছিক)",
+      "notesPlaceholder": "এইচআর বা ম্যানেজারের জন্য কোনো নোট লিখুন...",
+      "confirmQuestion": "আপনি কি নিশ্চিত যে এখনই ক্লক আউট করবেন?",
+      "confirmButton": "ক্লক আউট নিশ্চিত করুন",
+      "confirmEarlyButton": "আর্লি ক্লক-আউট নিশ্চিত করুন",
+      "cancelButton": "বাতিল / কাজ চালিয়ে যান"
+    }
   },
   "leave": {
     "balances": "ছুটির ব্যালেন্স",
