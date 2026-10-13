@@ -54,7 +54,8 @@ services:
       context: .
       dockerfile: apps/admin/Dockerfile
       args:
-        VITE_API_URL: http://13.212.251.195:3000
+        VITE_API_BASE_URL: /api/v1
+        VITE_API_URL: /api/v1
     container_name: hrm-admin
     restart: always
     ports:

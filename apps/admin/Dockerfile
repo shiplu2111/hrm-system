@@ -22,7 +22,9 @@ ENV NODE_OPTIONS="--max-old-space-size=1536"
 WORKDIR /app/apps/admin
 
 # Provide default env for build
-ARG VITE_API_URL=""
+ARG VITE_API_BASE_URL="/api/v1"
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ARG VITE_API_URL="/api/v1"
 ENV VITE_API_URL=${VITE_API_URL}
 
 RUN npm run build
