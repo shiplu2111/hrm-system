@@ -100,7 +100,7 @@ describe('RBAC (ROLES_PERMISSIONS.md)', () => {
   it('denies role deletion without settings:delete permission', async () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/roles/${customRoleId}`)
-      .set('Authorization', `Bearer ${hrAdminToken}`)
+      .set('Authorization', `Bearer ${employeeToken}`)
       .expect(403);
   });
 
