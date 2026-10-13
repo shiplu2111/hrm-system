@@ -25,6 +25,8 @@ jobs:
           host: 13.212.251.195
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          timeout: 30m
+          command_timeout: 30m
           script: |
             set -e
             # 1. Swap memory guard (t2.micro / t3.micro)
