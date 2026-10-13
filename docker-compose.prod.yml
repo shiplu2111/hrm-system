@@ -34,7 +34,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile.prod
+      dockerfile: apps/api/Dockerfile
     container_name: hrm-api
     restart: always
     ports:
