@@ -72,7 +72,9 @@ jobs:
             sleep 8
             docker compose -f docker-compose.prod.yml exec -T api npx prisma migrate deploy || true
 
-            # 6. Check status
+            # 6. Check status and print container logs
             echo "==== 6. Deployment Complete! ===="
             docker compose -f docker-compose.prod.yml ps
+            echo "==== 7. API Container Logs (Last 40 lines) ===="
+            docker compose -f docker-compose.prod.yml logs --tail 40 api
 
