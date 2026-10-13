@@ -27,18 +27,41 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            echo "==== 1. Pulling latest code ===="
+            echo "==== 1. Free VPS Memory Guard (Create 2GB Swap if missing) ===="
+            if [ ! -f /swapfile ]; then
+              echo "Creating 2GB swap space for AWS Free Tier..."
+              sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+              echo "Swap activated successfully."
+            else
+              echo "Swap file already exists."
+            fi
+            free -m
+
+            echo "==== 2. Pulling latest code ===="
             cd ~/hrm-system
             git fetch --all
             git checkout ${{ github.ref_name }}
             git pull origin ${{ github.ref_name }}
 
-            echo "==== 2. Rebuilding and Starting Containers ===="
-            docker compose -f docker-compose.prod.yml up -d --build
+            echo "==== 3. Cleaning dangling builder cache to save disk ===="
+            docker builder prune -f --keep-storage 2GB || true
 
-            echo "==== 3. Running Prisma Database Migrations ===="
-            # Run migration inside API container or via npx
+            echo "==== 4. Rebuilding and Starting Containers ===="
+            # Use BuildKit and build sequentially or with limited concurrency so 1GB RAM doesn't freeze
+            export DOCKER_BUILDKIT=1
+            export NODE_OPTIONS="--max-old-space-size=512"
+            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+            echo "==== 5. Running Prisma Database Migrations ===="
+            # Run migration inside API container
+            sleep 5
             docker compose -f docker-compose.prod.yml exec -T api npx prisma migrate deploy || true
 
-            echo "==== 4. Deployment Complete! ===="
+            echo "==== 6. Deployment Complete! ===="
             docker compose -f docker-compose.prod.yml ps
+            docker system df
+

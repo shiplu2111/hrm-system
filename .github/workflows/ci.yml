@@ -63,6 +63,7 @@ jobs:
   integration-test:
     name: Integration tests (E2E)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build]
     services:
       postgres:
@@ -109,4 +110,4 @@ jobs:
       - run: touch .env
       - run: npm run migrate:deploy
       - run: npm run seed
-      - run: npm run test:e2e
+      - run: npx dotenv -e .env -- jest --config apps/api/test/jest-e2e.json --runInBand --forceExit --detectOpenHandles --testTimeout=15000

@@ -59,8 +59,8 @@ export function PortalLoginPage({
   const Icon = meta.icon;
   const { theme, toggleTheme } = useTheme();
 
-  const [email, setEmail] = useState(meta.defaultEmail);
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [tenant, setTenant] = useState(meta.defaultTenant);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,9 +183,55 @@ export function PortalLoginPage({
             )}
           </Button>
 
-          <p className={`text-[11px] text-center ${meta.dark ? 'text-slate-500' : 'text-muted'}`}>
-            Demo password: <span className="font-mono">password</span>
-          </p>
+          {/* Quick Demo Fill Buttons */}
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className={`text-xs font-medium ${meta.dark ? 'text-slate-400' : 'text-secondary'}`}>
+                Quick Fill Credentials:
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail(meta.defaultEmail);
+                  setPassword('password');
+                  if (meta.tenantRequired && !tenant) {
+                    setTenant(meta.defaultTenant);
+                  }
+                  setError(null);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  meta.dark
+                    ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20'
+                    : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/80'
+                }`}
+              >
+                ⚡ {portal === 'platform' ? 'Super Admin' : 'Admin'}
+              </button>
+
+              {portal === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('employee@cmsnbd.com');
+                    setPassword('password');
+                    if (meta.tenantRequired && !tenant) {
+                      setTenant('demo');
+                    }
+                    setError(null);
+                  }}
+                  className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                    meta.dark
+                      ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20'
+                      : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-primary hover:bg-slate-100 dark:hover:bg-slate-700/80'
+                  }`}
+                >
+                  ⚡ Employee
+                </button>
+              )}
+            </div>
+          </div>
         </form>
       </div>
     </div>
