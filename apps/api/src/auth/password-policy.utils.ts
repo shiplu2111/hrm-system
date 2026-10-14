@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { AUTH_CONSTANTS } from './auth.constants';
 
 export const PASSWORD_POLICY = {

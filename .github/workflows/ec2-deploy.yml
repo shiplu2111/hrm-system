@@ -63,16 +63,17 @@ jobs:
             docker compose -f docker-compose.prod.yml build admin
             docker compose -f docker-compose.prod.yml up -d
 
-            # 5. Run Prisma Migrations
-            echo "==== 5. Running Prisma Database Migrations ===="
-            sleep 15
+            # 4. Run Prisma Migrations and Seed
+            echo "==== 4. Running Prisma Database Migrations and Seed ===="
+            sleep 10
             docker compose -f docker-compose.prod.yml exec -T api npx prisma migrate deploy || true
+            docker compose -f docker-compose.prod.yml exec -T -w /app/apps/api api npx tsx prisma/seed.ts || true
 
-            # 6. Check status and print container logs
-            echo "==== 6. Deployment Complete! ===="
+            # 5. Check status and print container logs
+            echo "==== 5. Deployment Complete! ===="
             docker compose -f docker-compose.prod.yml ps
-            echo "==== 7. API Container Logs (Last 60 lines) ===="
-            docker compose -f docker-compose.prod.yml logs --tail 60 api
-            echo "==== 8. Admin Container Logs (Last 20 lines) ===="
+            echo "==== 6. API Container Logs (Last 40 lines) ===="
+            docker compose -f docker-compose.prod.yml logs --tail 40 api
+            echo "==== 7. Admin Container Logs (Last 20 lines) ===="
             docker compose -f docker-compose.prod.yml logs --tail 20 admin
 

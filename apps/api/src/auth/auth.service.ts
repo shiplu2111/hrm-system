@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import type { Permission, RoleDataScope, User } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AUTH_CONSTANTS, AUTH_ERROR_CODES, lockoutDurationMs } from './auth.constants';

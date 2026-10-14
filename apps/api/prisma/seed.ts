@@ -11,7 +11,7 @@ import {
   RoleDataScope,
 } from '@prisma/client';
 import { PAY_FORMULA_LOAN_INSTALLMENT } from '@hrm/shared-types';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
