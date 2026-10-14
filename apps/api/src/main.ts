@@ -8,6 +8,12 @@ import { createGlobalValidationPipe } from './common/pipes/validation.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'x-request-id', 'x-tenant-id'],
+  });
   app.useWebSocketAdapter(new IoAdapter(app));
   app.setGlobalPrefix('api/v1', {
     exclude: ['', 'health'],
