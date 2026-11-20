@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -20,7 +21,9 @@ import type {
   TaxBracketRecord,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
-import { RequirePermission } from '../../rbac/require-permission.decorator';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
+import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
+import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import { CountriesService } from './countries.service';
 import {
   CreateCountryDto,
@@ -32,21 +35,22 @@ import {
 
 /** Super Admin country rule configuration — NAVIGATION.md §4, ARCHITECTURE.md §3 */
 @ApiTags('platform-countries')
-@ApiBearerAuth('access-token')
+@ApiBearerAuth('platform-access-token')
 @SkipTenantScope()
+@UseGuards(PlatformAuthGuard, PlatformPermissionsGuard)
 @Controller('platform/countries')
 export class CountriesController {
   constructor(private readonly countriesService: CountriesService) {}
 
   @Get()
-  @RequirePermission('platform', 'view')
+  @RequirePlatformPermission('country', 'view')
   @ApiOperation({ summary: 'List countries and configuration metadata' })
   async listCountries(): Promise<ApiEnvelope<CountrySummary[]>> {
     return { data: await this.countriesService.listCountries() };
   }
 
   @Post()
-  @RequirePermission('platform', 'create')
+  @RequirePlatformPermission('country', 'create')
   @ApiOperation({ summary: 'Add a supported country' })
   async createCountry(
     @Body() dto: CreateCountryDto,
@@ -55,7 +59,7 @@ export class CountriesController {
   }
 
   @Get(':countryId/configuration')
-  @RequirePermission('platform', 'view')
+  @RequirePlatformPermission('country', 'view')
   @ApiOperation({
     summary: 'Get effective-dated tax brackets and country rules for a country',
   })
@@ -66,7 +70,7 @@ export class CountriesController {
   }
 
   @Patch(':countryId')
-  @RequirePermission('platform', 'edit')
+  @RequirePlatformPermission('country', 'edit')
   @ApiOperation({ summary: 'Update country metadata' })
   async updateCountry(
     @Param('countryId', ParseUUIDPipe) countryId: string,
@@ -76,7 +80,7 @@ export class CountriesController {
   }
 
   @Post(':countryId/tax-brackets')
-  @RequirePermission('platform', 'edit')
+  @RequirePlatformPermission('country', 'edit')
   @ApiOperation({ summary: 'Create a tax bracket version (effective-dated)' })
   async createTaxBracket(
     @Param('countryId', ParseUUIDPipe) countryId: string,
@@ -88,7 +92,7 @@ export class CountriesController {
   }
 
   @Patch(':countryId/tax-brackets/:bracketId')
-  @RequirePermission('platform', 'edit')
+  @RequirePlatformPermission('country', 'edit')
   @ApiOperation({ summary: 'Update a tax bracket version' })
   async updateTaxBracket(
     @Param('countryId', ParseUUIDPipe) countryId: string,
@@ -105,7 +109,7 @@ export class CountriesController {
   }
 
   @Post(':countryId/rules')
-  @RequirePermission('platform', 'edit')
+  @RequirePlatformPermission('country', 'edit')
   @ApiOperation({
     summary: 'Create leave / OT / social security / public holiday rule version',
   })
@@ -119,7 +123,7 @@ export class CountriesController {
   }
 
   @Patch(':countryId/rules/:ruleId')
-  @RequirePermission('platform', 'edit')
+  @RequirePlatformPermission('country', 'edit')
   @ApiOperation({ summary: 'Update a country rule version' })
   async updateCountryRule(
     @Param('countryId', ParseUUIDPipe) countryId: string,
@@ -135,3 +139,4 @@ export class CountriesController {
     };
   }
 }
+

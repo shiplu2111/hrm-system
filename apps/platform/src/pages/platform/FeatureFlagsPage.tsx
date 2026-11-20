@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar, Toggle } from '@/components/ui/Toggle';
+import { PermissionGate } from '@/components/rbac';
+import { usePermission } from '@/hooks/usePermission';
 
 type RolloutScope = 'All Tenants' | 'Specific Tenants' | 'Percentage Rollout';
 type OverrideValue = 'Inherit' | 'Enabled' | 'Disabled';
@@ -63,6 +65,7 @@ function moduleTone(module: string) {
 }
 
 export function FeatureFlagsPage() {
+  const canEdit = usePermission('platform', 'edit');
   const [flags, setFlags] = useState(initialFlags);
   const [addOpen, setAddOpen] = useState(false);
   const [flagSearch, setFlagSearch] = useState('');
@@ -126,7 +129,9 @@ export function FeatureFlagsPage() {
           <h1 className="text-2xl font-extrabold lg:text-3xl">Feature Flags</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Safely release capabilities globally, by tenant, or as a gradual rollout.</p>
         </div>
-        <button onClick={() => setAddOpen(true)} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-lg shadow-indigo-900/15 hover:bg-indigo-500"><Plus className="h-4 w-4" /> Add Feature Flag</button>
+        <PermissionGate module="platform" action="edit">
+          <button onClick={() => setAddOpen(true)} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-lg shadow-indigo-900/15 hover:bg-indigo-500"><Plus className="h-4 w-4" /> Add Feature Flag</button>
+        </PermissionGate>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -155,13 +160,41 @@ export function FeatureFlagsPage() {
                 <tr key={flag.id} className="align-top hover:bg-slate-50/60 dark:hover:bg-slate-800/20">
                   <td className="px-5 py-4"><div className="text-sm font-extrabold">{flag.name}</div><div className="mt-1 max-w-sm text-[11px] leading-4 text-slate-500">{flag.description}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{flag.id}</div></td>
                   <td className="px-4 py-4"><span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${moduleTone(flag.module)}`}>{flag.module}</span></td>
-                  <td className="px-4 py-4 text-center"><Toggle checked={flag.enabled} onChange={(enabled) => updateFlag(flag.id, { enabled })} /></td>
-                  <td className="px-4 py-4"><select aria-label={`Rollout scope for ${flag.name}`} value={flag.scope} onChange={(event) => updateFlag(flag.id, { scope: event.target.value as RolloutScope })} className="h-9 w-48 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950">{scopeOptions.map((scope) => <option key={scope}>{scope}</option>)}</select></td>
+                  <td className="px-4 py-4 text-center">
+                    <Toggle
+                      checked={flag.enabled}
+                      disabled={!canEdit}
+                      onChange={(enabled) => updateFlag(flag.id, { enabled })}
+                    />
+                  </td>
+                  <td className="px-4 py-4">
+                    <select
+                      aria-label={`Rollout scope for ${flag.name}`}
+                      value={flag.scope}
+                      disabled={!canEdit}
+                      onChange={(event) => updateFlag(flag.id, { scope: event.target.value as RolloutScope })}
+                      className="h-9 w-48 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-indigo-400 disabled:opacity-60 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      {scopeOptions.map((scope) => <option key={scope}>{scope}</option>)}
+                    </select>
+                  </td>
                   <td className="px-4 py-4">
                     {flag.scope === 'Percentage Rollout' && (
                       <div className="w-56">
-                        <div className="mb-2 flex justify-between text-[10px] font-bold text-slate-500"><span>Tenant cohort</span><span className="text-indigo-600 dark:text-indigo-300">{flag.percentage}%</span></div>
-                        <input aria-label={`${flag.name} rollout percentage`} type="range" min="0" max="100" value={flag.percentage} onChange={(event) => updateFlag(flag.id, { percentage: Number(event.target.value) })} className="h-1.5 w-full cursor-pointer accent-indigo-600" />
+                        <div className="mb-2 flex justify-between text-[10px] font-bold text-slate-500">
+                          <span>Tenant cohort</span>
+                          <span className="text-indigo-600 dark:text-indigo-300">{flag.percentage}%</span>
+                        </div>
+                        <input
+                          aria-label={`${flag.name} rollout percentage`}
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={flag.percentage}
+                          disabled={!canEdit}
+                          onChange={(event) => updateFlag(flag.id, { percentage: Number(event.target.value) })}
+                          className="h-1.5 w-full cursor-pointer accent-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
                       </div>
                     )}
                     {flag.scope === 'All Tenants' && <div className="flex items-center gap-2 text-xs text-slate-500"><Users className="h-4 w-4 text-indigo-500" /> Available to all 128 tenants</div>}
@@ -169,7 +202,20 @@ export function FeatureFlagsPage() {
                       <div className="flex max-w-xs flex-wrap gap-1.5">
                         {tenants.slice(0, 4).map((tenant) => {
                           const active = flag.tenants.includes(tenant.name);
-                          return <button key={tenant.id} onClick={() => toggleSpecificTenant(flag.id, tenant.name)} className={`rounded-md border px-2 py-1 text-[9px] font-bold ${active ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' : 'border-slate-200 text-slate-400 dark:border-slate-700'}`}>{tenant.name.split(' ')[0]}</button>;
+                          return (
+                            <button
+                              key={tenant.id}
+                              disabled={!canEdit}
+                              onClick={() => toggleSpecificTenant(flag.id, tenant.name)}
+                              className={`rounded-md border px-2 py-1 text-[9px] font-bold disabled:cursor-not-allowed disabled:opacity-70 ${
+                                active
+                                  ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300'
+                                  : 'border-slate-200 text-slate-400 dark:border-slate-700'
+                              }`}
+                            >
+                              {tenant.name.split(' ')[0]}
+                            </button>
+                          );
                         })}
                       </div>
                     )}
@@ -208,7 +254,18 @@ export function FeatureFlagsPage() {
                 {flags.map((flag) => <tr key={flag.id}><td className="px-4 py-3"><div className="text-xs font-bold">{flag.name}</div><div className="mt-0.5 text-[9px] text-slate-500">{flag.enabled ? 'Global on' : 'Global off'} · {flag.scope}</div></td>{selectedTenantIds.map((tenantId) => {
                   const value = overrides[tenantId]?.[flag.id] ?? 'Inherit';
                   const tone = value === 'Enabled' ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' : value === 'Disabled' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800';
-                  return <td key={tenantId} className="px-3 py-3 text-center"><button onClick={() => cycleOverride(tenantId, flag.id)} className={`min-w-20 rounded-lg border px-2 py-1.5 text-[9px] font-bold ${tone}`}>{value}</button></td>;
+                  return (
+                    <td key={tenantId} className="px-3 py-3 text-center">
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => cycleOverride(tenantId, flag.id)}
+                        className={`min-w-20 rounded-lg border px-2 py-1.5 text-[9px] font-bold disabled:cursor-not-allowed disabled:opacity-70 ${tone}`}
+                      >
+                        {value}
+                      </button>
+                    </td>
+                  );
                 })}</tr>)}
               </tbody>
             </table>

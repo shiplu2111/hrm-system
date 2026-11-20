@@ -23,18 +23,30 @@ export type PlanFeatureKey =
   | 'advanced_reports'
   | EnterpriseFeature;
 
-export type PlanLimitKey = 'employees';
+export type PlanLimitKey =
+  | 'employees'
+  | 'storage_gb'
+  | 'api_calls'
+  | 'companies'
+  | (string & {});
 
 /** `approaching` starts at `TenantSubscriptionView.approachingRatio` of the limit. */
 export type PlanUsageLevel = 'ok' | 'approaching' | 'reached' | 'exceeded';
 
-export type TenantSubscriptionStatus = 'active' | 'suspended' | 'cancelled';
+export type TenantSubscriptionStatus =
+  | 'trial'
+  | 'active'
+  | 'past_due'
+  | 'suspended'
+  | 'cancelled'
+  | 'pending_deletion'
+  | 'deleted';
 
 export interface PlanDefinition {
   planId: SubscriptionPlanTier;
   features: PlanFeatureKey[];
   /** `null` means unlimited. */
-  limits: Record<PlanLimitKey, number | null>;
+  limits: Partial<Record<PlanLimitKey, number | null>>;
 }
 
 export interface PlanUsageMetric {

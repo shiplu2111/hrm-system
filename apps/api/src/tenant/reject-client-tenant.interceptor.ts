@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
+import { SKIP_TENANT_SCOPE_KEY } from '../common/decorators/skip-tenant-scope.decorator';
 import { CLIENT_TENANT_FIELD_NAMES } from './tenant.constants';
 
 /**
@@ -24,7 +25,12 @@ export class RejectClientTenantInterceptor implements NestInterceptor {
       context.getClass(),
     ]);
 
-    if (isPublic) {
+    const skipScope = this.reflector.getAllAndOverride<boolean>(
+      SKIP_TENANT_SCOPE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (isPublic || skipScope) {
       return next.handle();
     }
 

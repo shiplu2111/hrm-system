@@ -83,3 +83,28 @@ export function describeLimits(
 export function isPreviewableImage(contentType: string): boolean {
   return contentType === 'image/png' || contentType === 'image/jpeg';
 }
+
+const COUNTED_MONTH_STATUSES = new Set<ExpenseClaimStatus>([
+  'pending_approval',
+  'approved',
+  'reimbursed',
+]);
+
+/** Total claimed by an employee in a category during `YYYY-MM` across counted statuses. */
+export function monthlyClaimedForCategory(
+  claims: ReadonlyArray<Pick<ExpenseClaimRecord, 'categoryId' | 'expenseDate' | 'status' | 'amount'>>,
+  categoryId: string,
+  monthPrefix: string,
+): number {
+  let total = 0;
+  for (const claim of claims) {
+    if (
+      claim.categoryId === categoryId &&
+      COUNTED_MONTH_STATUSES.has(claim.status) &&
+      claim.expenseDate.slice(0, 7) === monthPrefix
+    ) {
+      total += claim.amount;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}

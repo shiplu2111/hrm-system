@@ -17,6 +17,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import {
   AccrueLeaveQueryDto,
   CreateLeavePolicyDto,
@@ -36,6 +37,7 @@ import { LeaveTypesService } from './leave-types.service';
 
 @ApiTags('leave-types')
 @ApiBearerAuth('access-token')
+@RequireFeature('leave')
 @Controller('companies/:companyId/leave-types')
 export class LeaveTypesController {
   constructor(private readonly leaveTypesService: LeaveTypesService) {}
@@ -79,6 +81,7 @@ export class LeaveTypesController {
 
 @ApiTags('leave-policies')
 @ApiBearerAuth('access-token')
+@RequireFeature('leave')
 @Controller('companies/:companyId/leave-policies')
 export class LeavePoliciesController {
   constructor(private readonly leavePoliciesService: LeavePoliciesService) {}
@@ -114,6 +117,7 @@ export class LeavePoliciesController {
 
 @ApiTags('leave-balances')
 @ApiBearerAuth('access-token')
+@RequireFeature('leave')
 @Controller()
 export class LeaveBalancesController {
   constructor(
@@ -163,6 +167,7 @@ export class LeaveBalancesController {
 
 @ApiTags('leave-requests')
 @ApiBearerAuth('access-token')
+@RequireFeature('leave')
 @Controller()
 export class LeaveRequestsController {
   constructor(

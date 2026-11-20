@@ -27,9 +27,14 @@ import {
   UpdateEmployeeDto,
 } from '../organization/dto/organization.dto';
 import { BulkUpdateEmployeeStatusDto } from './dto/bulk-update-employee-status.dto';
+import {
+  CreateProfileUpdateRequestDto,
+  UpdateSelfProfileDto,
+} from './dto/self-profile.dto';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { EmployeesService } from './employees.service';
+import { ProfileUpdateRequestsService } from './profile-update-requests.service';
 
 @ApiTags('employees')
 @ApiBearerAuth('access-token')
@@ -37,6 +42,7 @@ import { EmployeesService } from './employees.service';
 export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
+    private readonly profileUpdateRequestsService: ProfileUpdateRequestsService,
     private readonly dataScope: DataScopeService,
   ) {}
 
@@ -108,6 +114,58 @@ export class EmployeesController {
   ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['updateEmployee']>>>> {
     await this.dataScope.assertEmployeeInScope(user, id);
     return { data: await this.employeesService.updateEmployee(id, dto) };
+  }
+
+  @SelfService()
+  @Patch(':id/self-profile')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Direct-edit own contact, emergency contact, and address fields' })
+  async updateSelfProfile(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSelfProfileDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<EmployeesService['getEmployee']>>>> {
+    if (!user.employeeId || user.employeeId !== id) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You can only update your own contact profile directly',
+      });
+    }
+    return {
+      data: await this.profileUpdateRequestsService.updateSelfProfile(id, dto, user),
+    };
+  }
+
+  @SelfService()
+  @Get(':id/profile-update-requests')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({ summary: 'List profile update requests for an employee' })
+  async listProfileUpdateRequests(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.dataScope.assertEmployeeInScope(user, id);
+    return { data: await this.profileUpdateRequestsService.listForEmployee(id) };
+  }
+
+  @SelfService()
+  @Post(':id/profile-update-requests')
+  @RequirePermission('employee', 'edit')
+  @ApiOperation({ summary: 'Submit an HR-approval-required profile update request' })
+  async createProfileUpdateRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateProfileUpdateRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (!user.employeeId || user.employeeId !== id) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You can only submit profile update requests for your own record',
+      });
+    }
+    return {
+      data: await this.profileUpdateRequestsService.createRequest(id, dto, user),
+    };
   }
 
   @Delete(':id')

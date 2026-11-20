@@ -96,12 +96,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const message = this.extractMessage(body);
     const details = this.extractDetails(body);
     const code = this.extractCode(body, status);
+    const upgradeHint =
+      typeof body.upgradeHint === 'string'
+        ? body.upgradeHint
+        : typeof body.upgrade_hint === 'string'
+          ? body.upgrade_hint
+          : undefined;
 
     return {
       error: {
         code,
         message,
         ...(details?.length ? { details } : {}),
+        ...(upgradeHint ? { upgradeHint } : {}),
         requestId,
       },
     };

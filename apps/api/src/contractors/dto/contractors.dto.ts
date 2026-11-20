@@ -5,10 +5,13 @@ import {
   IsDateString,
   IsEmail,
   IsIn,
+  IsInt,
   IsNumberString,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -43,6 +46,10 @@ export class ListContractorsQueryDto {
   @IsOptional()
   @IsIn([...CONTRACTOR_STATUSES])
   status?: (typeof CONTRACTOR_STATUSES)[number];
+
+  @IsOptional()
+  @IsIn([...CONTRACTOR_KINDS])
+  contractorKind?: (typeof CONTRACTOR_KINDS)[number];
 
   @IsOptional()
   @IsString()
@@ -177,6 +184,91 @@ export class CreateContractorContractDto {
   status?: (typeof CONTRACT_STATUSES)[number];
 }
 
+export class ListContractorContractsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  contractorId?: string;
+
+  @IsOptional()
+  @IsIn([...PAYMENT_STRUCTURES])
+  paymentStructure?: (typeof PAYMENT_STRUCTURES)[number];
+
+  @IsOptional()
+  @IsIn([...PAYMENT_TERMS])
+  paymentTerms?: (typeof PAYMENT_TERMS)[number];
+}
+
+export class UpdateContractorMilestoneDto {
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsNumberString()
+  amount!: string;
+
+  @IsOptional()
+  @IsDateString()
+  targetDate?: string;
+
+  @IsOptional()
+  sortOrder?: number;
+}
+
+export class UpdateContractorPaymentTermsDto {
+  @IsIn([...PAYMENT_STRUCTURES])
+  paymentStructure!: (typeof PAYMENT_STRUCTURES)[number];
+
+  @IsIn([...PAYMENT_TERMS])
+  paymentTerms!: (typeof PAYMENT_TERMS)[number];
+
+  @IsOptional()
+  @IsIn([...BILLING_FREQUENCIES])
+  billingFrequency?: (typeof BILLING_FREQUENCIES)[number];
+
+  @IsOptional()
+  @IsNumberString()
+  fixedFeeAmount?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  annualValue?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  hourlyRate?: string;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  autoRenewal?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  noticePeriodDays?: number;
+
+  @IsOptional()
+  @IsString()
+  scopeDescription?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateContractorMilestoneDto)
+  milestones?: UpdateContractorMilestoneDto[];
+}
+
 export class ContractorInvoiceLineItemDto {
   @IsString()
   description!: string;
@@ -255,6 +347,14 @@ export class ListContractorInvoicesQueryDto {
   contractorId?: string;
 
   @IsOptional()
+  @IsUUID()
+  contractId?: string;
+
+  @IsOptional()
   @IsIn([...INVOICE_STATUSES])
   status?: (typeof INVOICE_STATUSES)[number];
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

@@ -2,11 +2,13 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/commo
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope, OvertimeRuleRecord } from '@hrm/shared-types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import { CreateOtRuleDto } from './dto/ot-rules.dto';
 import { OtRulesService } from './ot-rules.service';
 
 @ApiTags('shifts')
 @ApiBearerAuth('access-token')
+@RequireFeature('roster')
 @Controller('companies/:companyId/ot-rules')
 export class OtRulesController {
   constructor(private readonly otRulesService: OtRulesService) {}

@@ -14,6 +14,7 @@ import type {
   ListContractorsQueryDto,
 } from './dto/contractors.dto';
 import { generateContractorNumber } from './contractor.utils';
+import { maskSensitiveValue } from '../crypto/sensitive-field.utils';
 import { formatMoney } from '../payroll/payroll.utils';
 
 type ContractorWithOwner = Contractor & {
@@ -94,6 +95,7 @@ export class ContractorsService {
       where: {
         companyId,
         status: query.status,
+        contractorKind: query.contractorKind,
         ...(search
           ? {
               OR: [
@@ -212,7 +214,7 @@ export class ContractorsService {
       email: row.email,
       phone: row.phone,
       location: row.location,
-      taxId: row.taxId,
+      taxId: maskSensitiveValue(row.taxId),
       status: row.status,
       ownerEmployeeId: row.ownerEmployeeId,
       ownerEmployeeName: row.owner

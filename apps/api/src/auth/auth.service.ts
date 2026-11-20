@@ -59,7 +59,11 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {
-    this.accessSecret = this.requireEnv('JWT_ACCESS_SECRET');
+    this.accessSecret =
+      process.env.JWT_ACCESS_SECRET ||
+      (process.env.NODE_ENV !== 'production'
+        ? 'hrm_secret_jwt_access_super_secure_2026'
+        : this.requireEnv('JWT_ACCESS_SECRET'));
     this.accessExpiry = process.env.JWT_ACCESS_EXPIRY ?? '15m';
     this.refreshExpiryMs = parseDurationToMs(
       process.env.JWT_REFRESH_EXPIRY ?? '30d',
@@ -103,7 +107,7 @@ export class AuthService {
           message: 'Tenant not found',
         });
       }
-      this.assertTenantActive(userTenant.status);
+      this.assertTenantActive(userTenant.status, userTenant.suspensionMode);
     }
 
     await this.prisma.unscoped.user.update({
@@ -177,7 +181,7 @@ export class AuthService {
           message: 'Tenant not found',
         });
       }
-      this.assertTenantActive(tenant.status);
+      this.assertTenantActive(tenant.status, tenant.suspensionMode);
     }
 
     await this.revokeRefreshToken(storedToken.id);
@@ -471,7 +475,7 @@ export class AuthService {
         dto.tenantSubdomain,
         dto.tenantId,
       );
-      this.assertTenantActive(tenant.status);
+      this.assertTenantActive(tenant.status, tenant.suspensionMode);
 
       const user = await this.prisma.unscoped.user.findFirst({
         where: {
@@ -578,11 +582,25 @@ export class AuthService {
     });
   }
 
-  private assertTenantActive(status: string): void {
-    if (status !== 'active') {
+  private assertTenantActive(
+    status: string,
+    suspensionMode?: string | null,
+  ): void {
+    if (status === 'suspended' && suspensionMode === 'fully_blocked') {
       throw new UnauthorizedException({
         code: AUTH_ERROR_CODES.TENANT_SUSPENDED,
-        message: 'Tenant is not active',
+        message: 'Tenant workspace is fully suspended. Access is blocked.',
+      });
+    }
+
+    if (
+      status === 'cancelled' ||
+      status === 'pending_deletion' ||
+      status === 'deleted'
+    ) {
+      throw new UnauthorizedException({
+        code: 'TENANT_INACTIVE',
+        message: 'Tenant workspace is cancelled or inactive',
       });
     }
   }

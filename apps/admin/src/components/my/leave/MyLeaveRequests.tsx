@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import type { LeaveRequestRecord } from '@hrm/shared-types';
+import { Loader2, Plus } from 'lucide-react';
+import type { LeaveRequestRecord, LeaveRequestStatus } from '@hrm/shared-types';
 import { Button } from '@/components/ui/Button';
 import { cancelLeaveRequest } from '@/lib/my-api';
 import { ApiError } from '@/lib/tenant-api-client';
@@ -10,21 +10,72 @@ import { approverLabel, useLeaveFormat } from './leave-i18n';
 interface MyLeaveRequestsProps {
   requests: LeaveRequestRecord[];
   onCancelled: (updated: LeaveRequestRecord) => void;
+  onApply?: () => void;
 }
 
-export function MyLeaveRequests({ requests, onCancelled }: MyLeaveRequestsProps) {
-  const { t } = useLeaveFormat();
+type StatusFilter = 'all' | Extract<LeaveRequestStatus, 'pending' | 'approved' | 'rejected' | 'cancelled'>;
+
+const FILTERS: StatusFilter[] = ['all', 'pending', 'approved', 'rejected', 'cancelled'];
+
+export function MyLeaveRequests({ requests, onCancelled, onApply }: MyLeaveRequestsProps) {
+  const { t, number } = useLeaveFormat();
+  const [filter, setFilter] = useState<StatusFilter>('all');
 
   if (requests.length === 0) {
-    return <p className="py-2 text-sm text-muted">{t('leave.noRequests')}</p>;
+    return (
+      <div className="flex flex-col items-start gap-3 py-2">
+        <p className="text-sm text-muted">{t('leave.noRequests')}</p>
+        {onApply && (
+          <Button variant="secondary" size="sm" onClick={onApply}>
+            <Plus className="h-4 w-4" /> {t('leave.requestLeave')}
+          </Button>
+        )}
+      </div>
+    );
   }
 
+  const filtered =
+    filter === 'all' ? requests : requests.filter((request) => request.status === filter);
+
   return (
-    <ul className="divide-y divide-[rgb(var(--border-base))]">
-      {requests.map((request) => (
-        <MyLeaveRequestRow key={request.id} request={request} onCancelled={onCancelled} />
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t('leave.myRequests')}>
+        {FILTERS.map((status) => {
+          const count =
+            status === 'all'
+              ? requests.length
+              : requests.filter((request) => request.status === status).length;
+          if (status !== 'all' && count === 0) return null;
+          const active = filter === status;
+          return (
+            <button
+              key={status}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setFilter(status)}
+              className={`min-h-[36px] rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? 'border-accent-500 bg-accent-50 text-accent-700 dark:border-accent-700 dark:bg-accent-950/50 dark:text-accent-300'
+                  : 'border-base text-secondary hover:bg-[rgb(var(--bg-muted))]'
+              }`}
+            >
+              {t(`leave.status.${status}`)} ({number(count)})
+            </button>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="py-3 text-sm text-muted">{t('leave.noFilteredRequests')}</p>
+      ) : (
+        <ul className="divide-y divide-[rgb(var(--border-base))]">
+          {filtered.map((request) => (
+            <MyLeaveRequestRow key={request.id} request={request} onCancelled={onCancelled} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

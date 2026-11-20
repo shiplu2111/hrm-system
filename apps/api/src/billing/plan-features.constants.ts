@@ -43,6 +43,27 @@ export const PLAN_EMPLOYEE_LIMITS: Record<SubscriptionPlanTier, number | null> =
   enterprise: null,
 };
 
+export const PLAN_STORAGE_LIMITS: Record<SubscriptionPlanTier, number | null> = {
+  free: 1,
+  starter: 10,
+  business: 50,
+  enterprise: null,
+};
+
+export const PLAN_API_CALL_LIMITS: Record<SubscriptionPlanTier, number | null> = {
+  free: 0,
+  starter: 0,
+  business: 1000,
+  enterprise: null,
+};
+
+export const PLAN_COMPANY_LIMITS: Record<SubscriptionPlanTier, number | null> = {
+  free: 1,
+  starter: 1,
+  business: 3,
+  enterprise: null,
+};
+
 /** Share of a limit at which the admin starts seeing the upgrade prompt. */
 export const PLAN_LIMIT_APPROACHING_RATIO = 0.8;
 
@@ -52,7 +73,12 @@ export const PLAN_CATALOG: readonly PlanDefinition[] = PLAN_ORDER.map(
     features: PLAN_ORDER.slice(0, index + 1).flatMap(
       (tier) => PLAN_FEATURE_ADDITIONS[tier],
     ),
-    limits: { employees: PLAN_EMPLOYEE_LIMITS[planId] },
+    limits: {
+      employees: PLAN_EMPLOYEE_LIMITS[planId],
+      storage_gb: PLAN_STORAGE_LIMITS[planId],
+      api_calls: PLAN_API_CALL_LIMITS[planId],
+      companies: PLAN_COMPANY_LIMITS[planId],
+    },
   }),
 );
 

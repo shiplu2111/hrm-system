@@ -4,11 +4,12 @@ export interface PaginationMeta {
   page: number;
   total: number;
   pageSize?: number;
+  [key: string]: unknown;
 }
 
-export interface ApiResponse<T> {
+export interface ApiResponse<T, M = PaginationMeta> {
   data: T;
-  meta?: PaginationMeta;
+  meta?: M;
 }
 
 export interface ApiErrorDetail {
@@ -22,6 +23,7 @@ export interface ApiError {
     message: string;
     details?: ApiErrorDetail[];
     requestId: string;
+    upgradeHint?: string;
   };
 }
 

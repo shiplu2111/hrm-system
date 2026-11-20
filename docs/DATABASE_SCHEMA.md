@@ -242,4 +242,44 @@ platform_settings
 - Every write to these tables is audit-logged (see AUDIT_LOG.md) — settings changes are security/compliance-relevant, not routine data edits.
 - Encrypted `value` fields (SMTP password, integration API keys) follow the field-level encryption rule in SECURITY.md §1 and are never returned in plaintext by the settings-read API — only a masked placeholder, with a separate "reveal"/"test connection" action gated by permission.
 
+## 12. Employee Engagement & Kudos Moderation (MODULES.md §29)
+
+```
+company_announcements
+  id, tenant_id, company_id, title, body, status (draft|published|archived),
+  is_pinned, published_at, expires_at, created_by_user_id, created_at, updated_at
+
+engagement_surveys / engagement_survey_questions / engagement_survey_responses / engagement_survey_answers
+  -- employee_id is null on engagement_survey_responses when is_anonymous = true;
+  -- deduplicated via one-way sha256 response_fingerprint
+
+employee_kudos
+  id, tenant_id, company_id, from_employee_id, to_employee_id,
+  kudos_type (peer|manager), message,
+  moderation_status (active|removed, default active),
+  removed_at, removed_by_user_id (→ users), removal_reason,
+  created_by_user_id, created_at, updated_at
+  -- Public employee feeds and monthly counters strictly filter moderation_status = 'active'.
+  -- Admin moderation view (engagement:edit) inspects active/removed posts and audit logs.
+```
+
+## 13. Health & Safety (MODULES.md §30)
+
+```
+workplace_incidents
+  id, tenant_id, company_id, incident_number, incident_type, severity, status,
+  location, occurred_at, description, reported_by_employee_id, gps_lat, gps_lng,
+  regulator_report_required, regulator_report_due_at, regulator_report_submitted_at,
+  regulator_report_submitted_by_user_id (→ users), regulator_reference_number,
+  regulator_name, country_specific_data(json), resolved_rule_snapshot(json),
+  investigation_notes, resolved_at, created_by_user_id, created_at, updated_at
+  UNIQUE (company_id, incident_number)
+  -- country_specific_data stores field values defined by health_safety rules resolved via
+  -- Global → Country → State → Company → Employee Contract (never hard-coded per country).
+
+workplace_incident_parties / injury_log_entries / safety_compliance_records / safety_inspections
+  -- Linked parties (involved/witness/injured), injury logs (bodyPart rules from health_safety),
+  -- compliance checklists, and safety inspection records scoped by tenant_id & company_id.
+```
+
 See MIGRATIONS.md for how schema changes are rolled out.

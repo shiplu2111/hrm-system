@@ -385,6 +385,14 @@ export interface PayslipRecord {
   downloadUrl?: string;
   generatedAt: string;
   createdAt: string;
+  periodStartDate?: string;
+  periodEndDate?: string;
+  paymentDate?: string;
+  payCurrency?: string;
+  grossPay?: string;
+  totalDeductions?: string;
+  netPay?: string;
+  runStatus?: PayrollRunStatus;
 }
 
 /** A finalized or paid run and its payslip, if one has been generated. */

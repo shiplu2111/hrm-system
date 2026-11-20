@@ -6,9 +6,11 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -47,6 +49,16 @@ const COMPLIANCE_TYPES = [
 
 const INSPECTION_STATUSES = ['draft', 'completed'] as const;
 
+export class GetHealthSafetyRequirementsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  asOf?: string;
+}
+
 export class ListIncidentsQueryDto {
   @IsOptional()
   @IsIn([...INCIDENT_STATUSES])
@@ -57,10 +69,19 @@ export class ListIncidentsQueryDto {
   severity?: (typeof INCIDENT_SEVERITIES)[number];
 
   @IsOptional()
+  @IsIn([...INCIDENT_TYPES])
+  incidentType?: (typeof INCIDENT_TYPES)[number];
+
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  regulatorRequiredOnly?: 'true' | 'false';
+
+  @IsOptional()
   @IsString()
   search?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   limit?: number;
@@ -95,10 +116,12 @@ export class CreateWorkplaceIncidentDto {
   reportedByEmployeeId?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   gpsLat?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   gpsLng?: number;
 
@@ -107,6 +130,10 @@ export class CreateWorkplaceIncidentDto {
   @ValidateNested({ each: true })
   @Type(() => IncidentPartyDto)
   parties?: IncidentPartyDto[];
+
+  @IsOptional()
+  @IsObject()
+  countrySpecificData?: Record<string, unknown>;
 }
 
 export class CreateEmployeeIncidentDto {
@@ -126,10 +153,12 @@ export class CreateEmployeeIncidentDto {
   description!: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   gpsLat?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   gpsLng?: number;
 
@@ -138,6 +167,10 @@ export class CreateEmployeeIncidentDto {
   @ValidateNested({ each: true })
   @Type(() => IncidentPartyDto)
   parties?: IncidentPartyDto[];
+
+  @IsOptional()
+  @IsObject()
+  countrySpecificData?: Record<string, unknown>;
 }
 
 export class UpdateWorkplaceIncidentDto {
@@ -152,6 +185,21 @@ export class UpdateWorkplaceIncidentDto {
   @IsOptional()
   @IsBoolean()
   regulatorReportSubmitted?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  regulatorReferenceNumber?: string;
+
+  @IsOptional()
+  @IsObject()
+  countrySpecificData?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IncidentPartyDto)
+  parties?: IncidentPartyDto[];
 }
 
 export class ListInjuryLogQueryDto {
@@ -164,6 +212,7 @@ export class ListInjuryLogQueryDto {
   incidentId?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   limit?: number;

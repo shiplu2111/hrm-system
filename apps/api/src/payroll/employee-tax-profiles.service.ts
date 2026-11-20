@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -37,6 +38,14 @@ export class EmployeeTaxProfilesService {
     user: AuthenticatedUser,
     meta?: { ipAddress?: string; device?: string },
   ): Promise<RevealedSensitiveField> {
+    if (user.isSupportAccess && field === 'bankAccountNumber') {
+      throw new ForbiddenException({
+        code: 'SUPPORT_ACCESS_RESTRICTED',
+        message:
+          'Security Policy: Support engineers are strictly prohibited from revealing bank credentials.',
+      });
+    }
+
     const row = await this.findProfileOrThrow(employeeId);
     const stored =
       field === 'taxIdNumber' ? row.taxIdNumber : row.bankAccountNumber;

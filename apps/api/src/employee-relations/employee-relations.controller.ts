@@ -13,7 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
-import type {
+import {
   CreateDisciplinaryActionDto,
   CreateHrCaseDto,
   CreateHrCaseNoteDto,
@@ -62,6 +62,13 @@ export class EmployeeRelationsController {
   @RequirePermission('employee_relations', 'view')
   async getCase(@Param('caseId', ParseUUIDPipe) caseId: string) {
     return { data: await this.hrCasesService.getCaseDetail(caseId) };
+  }
+
+  @Get('employee-relations/cases/:caseId/audit-logs')
+  @RequirePermission('employee_relations', 'view')
+  @ApiOperation({ summary: 'Audit trail for an HR case and its records per AUDIT_LOG.md' })
+  async getCaseAuditLogs(@Param('caseId', ParseUUIDPipe) caseId: string) {
+    return { data: await this.hrCasesService.getCaseAuditLogs(caseId) };
   }
 
   @Patch('employee-relations/cases/:caseId')

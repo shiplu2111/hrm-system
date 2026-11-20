@@ -6,6 +6,7 @@ import {
   type GlAccount,
 } from '@prisma/client';
 import type {
+  ContractorCompletedGlSyncResult,
   ContractorJournalExportRecord,
   ContractorJournalPreview,
   GlContractorMappingRecord,
@@ -13,6 +14,7 @@ import type {
 } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import { generateContractorPaymentBatchReference } from '../contractors/contractor.utils';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import { formatDateOnly, parseMoney } from '../payroll/payroll.utils';
@@ -225,6 +227,188 @@ export class ContractorAccountingService {
           : null,
       );
     });
+  }
+
+  async exportDirectPaidInvoice(
+    invoiceId: string,
+    user: AuthenticatedUser,
+  ): Promise<ContractorJournalExportRecord | null> {
+    const invoice = await this.prisma.unscoped.contractorInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { paymentBatchItem: { select: { paymentBatchId: true } } },
+    });
+    if (!invoice || invoice.status !== 'paid') return null;
+
+    if (invoice.paymentBatchItem) {
+      return this.exportJournalForBatch(invoice.paymentBatchItem.paymentBatchId, user);
+    }
+
+    const batchId = await this.createPaidBatchForStandaloneInvoices(
+      invoice.companyId,
+      invoice.tenantId,
+      [
+        {
+          id: invoice.id,
+          contractorId: invoice.contractorId,
+          amount: invoice.amount,
+          currency: invoice.currency,
+          paidAt: invoice.paidAt,
+          paymentReference: invoice.paymentReference,
+        },
+      ],
+      user,
+    );
+
+    return this.exportJournalForBatch(batchId, user);
+  }
+
+  async exportCompletedUnexportedPayments(
+    companyId: string,
+    user: AuthenticatedUser,
+  ): Promise<ContractorCompletedGlSyncResult> {
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
+
+    const standalonePaid = await this.prisma.unscoped.contractorInvoice.findMany({
+      where: {
+        companyId,
+        status: 'paid',
+        paymentBatchItem: null,
+      },
+      orderBy: { paidAt: 'asc' },
+    });
+
+    if (standalonePaid.length > 0) {
+      await this.createPaidBatchForStandaloneInvoices(
+        companyId,
+        company.tenantId,
+        standalonePaid.map((row) => ({
+          id: row.id,
+          contractorId: row.contractorId,
+          amount: row.amount,
+          currency: row.currency,
+          paidAt: row.paidAt,
+          paymentReference: row.paymentReference,
+        })),
+        user,
+      );
+    }
+
+    const unexportedBatches = await this.prisma.unscoped.contractorPaymentBatch.findMany({
+      where: {
+        companyId,
+        status: 'paid',
+        OR: [
+          { journalExport: null },
+          { journalExport: { is: { status: PayrollJournalExportStatus.failed } } },
+        ],
+      },
+      include: { _count: { select: { items: true } } },
+      orderBy: { paidAt: 'asc' },
+    });
+
+    let exportedBatches = 0;
+    let exportedInvoices = 0;
+    let failedExports = 0;
+    const exportIds: string[] = [];
+
+    for (const batch of unexportedBatches) {
+      const record = await this.exportJournalForBatch(batch.id, user);
+      exportIds.push(record.id);
+      if (record.status === PayrollJournalExportStatus.completed) {
+        exportedBatches += 1;
+        exportedInvoices += batch._count.items;
+      } else {
+        failedExports += 1;
+      }
+    }
+
+    return {
+      exportedBatches,
+      exportedInvoices,
+      failedExports,
+      exportIds,
+    };
+  }
+
+  private async createPaidBatchForStandaloneInvoices(
+    companyId: string,
+    tenantId: string,
+    invoices: Array<{
+      id: string;
+      contractorId: string;
+      amount: Prisma.Decimal;
+      currency: string;
+      paidAt: Date | null;
+      paymentReference: string | null;
+    }>,
+    user: AuthenticatedUser,
+  ): Promise<string> {
+    const now = new Date();
+    const paidAt = invoices[invoices.length - 1]?.paidAt ?? now;
+    const totalAmount = invoices.reduce(
+      (sum, inv) => sum.plus(inv.amount),
+      parseMoney('0'),
+    );
+    const currency = invoices[0]?.currency ?? 'AUD';
+    const year = paidAt.getUTCFullYear();
+    const count = await this.prisma.unscoped.contractorPaymentBatch.count({
+      where: {
+        companyId,
+        createdAt: {
+          gte: new Date(Date.UTC(year, 0, 1)),
+          lt: new Date(Date.UTC(year + 1, 0, 1)),
+        },
+      },
+    });
+
+    const batch = await this.prisma.unscoped.$transaction(async (tx) => {
+      const created = await tx.contractorPaymentBatch.create({
+        data: {
+          tenantId,
+          companyId,
+          referenceNumber: generateContractorPaymentBatchReference(count, year),
+          status: 'paid',
+          totalAmount,
+          currency,
+          itemCount: invoices.length,
+          transactionReference:
+            invoices.find((i) => i.paymentReference)?.paymentReference ?? null,
+          submittedAt: paidAt,
+          paidAt,
+          createdByUserId: user.id,
+        },
+      });
+
+      await tx.contractorPaymentBatchItem.createMany({
+        data: invoices.map((invoice) => ({
+          tenantId,
+          paymentBatchId: created.id,
+          contractorInvoiceId: invoice.id,
+          contractorId: invoice.contractorId,
+          amount: invoice.amount,
+          status: 'paid' as const,
+          transactionReference: invoice.paymentReference,
+        })),
+      });
+
+      return created;
+    });
+
+    await this.auditService.log({
+      tenantId,
+      userId: user.id,
+      action: 'finalize',
+      module: 'contractors',
+      recordId: batch.id,
+      newValue: {
+        referenceNumber: batch.referenceNumber,
+        itemCount: batch.itemCount,
+        totalAmount: batch.totalAmount.toFixed(2),
+        directSettlementLinkedToGl: true,
+      },
+    });
+
+    return batch.id;
   }
 
   private async buildPreview(batch: Awaited<ReturnType<typeof this.loadPaidBatchOrThrow>>) {

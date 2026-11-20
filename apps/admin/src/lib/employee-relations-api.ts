@@ -1,4 +1,5 @@
 import type {
+  AuditLogEntry,
   DisciplinaryActionType,
   HrCaseDetailRecord,
   HrCaseInvestigationRecordView,
@@ -193,5 +194,11 @@ export function addInvestigationRecord(
   return tenantApiRequest<HrCaseInvestigationRecordView>(
     `/employee-relations/cases/${caseId}/investigation-records`,
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function getHrCaseAuditLogs(caseId: string): Promise<AuditLogEntry[]> {
+  return tenantApiRequest<AuditLogEntry[]>(
+    `/employee-relations/cases/${caseId}/audit-logs`,
   );
 }

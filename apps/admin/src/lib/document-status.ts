@@ -13,7 +13,9 @@ export function employeeDocumentStatusBadge(
     case 'pending':
       return { label: 'Pending review', tone: 'warning' };
     case 'expiring_soon':
-      return { label: 'Expiring soon', tone: 'error' };
+      return { label: 'Expiring soon', tone: 'warning' };
+    case 'expired':
+      return { label: 'Expired', tone: 'error' };
     default:
       return { label: status, tone: 'neutral' };
   }

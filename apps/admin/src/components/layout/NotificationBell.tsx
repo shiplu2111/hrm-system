@@ -1,7 +1,9 @@
-import { Bell, Loader2 } from 'lucide-react';
+import { Bell, ListFilter, Loader2 } from 'lucide-react';
 import type { InAppNotificationRecord } from '@hrm/shared-types';
-import { useNav } from '@/context/NavContext';
+import { useAppTranslation } from '@hrm/i18n';
 import { PermissionGate } from '@hrm/portal-ui';
+import { useNav } from '@/context/NavContext';
+import { usePageAccess } from '@/hooks/usePageAccess';
 import {
   Dropdown,
   DropdownDivider,
@@ -9,36 +11,10 @@ import {
   DropdownItem,
 } from '@/components/ui/Dropdown';
 import { formatRelativeTime } from '@/lib/dashboard-api';
-
-type NotificationTone = 'accent' | 'success' | 'warning' | 'error' | 'neutral';
-
-function toneForEvent(eventType: string): NotificationTone {
-  if (
-    eventType.includes('approved') ||
-    eventType.includes('finalized') ||
-    eventType === 'onboarding.welcome'
-  ) {
-    return 'success';
-  }
-  if (eventType.includes('rejected')) return 'error';
-  if (
-    eventType.includes('pending') ||
-    eventType.includes('expiring') ||
-    eventType.includes('late')
-  ) {
-    return 'warning';
-  }
-  if (eventType.includes('incident')) return 'error';
-  return 'accent';
-}
-
-const toneDot: Record<NotificationTone, string> = {
-  accent: 'bg-accent-500',
-  success: 'bg-success-500',
-  warning: 'bg-warning-500',
-  error: 'bg-error-500',
-  neutral: 'bg-secondary-400',
-};
+import {
+  NOTIFICATION_TONE_DOT,
+  notificationToneForEvent,
+} from '@/lib/notification-links';
 
 export function NotificationBell({
   items,
@@ -58,6 +34,9 @@ export function NotificationBell({
   onMarkAllRead: () => void;
 }) {
   const { navigate } = useNav();
+  const { canView } = usePageAccess();
+  const { t } = useAppTranslation();
+  const canOpenNotificationsPage = canView('my-notifications');
 
   return (
     <Dropdown
@@ -67,8 +46,12 @@ export function NotificationBell({
       }}
       trigger={
         <div
-          className="relative text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors cursor-pointer"
-          aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+          className="relative text-secondary hover:text-primary p-2 rounded-lg hover:bg-[rgb(var(--bg-hover))] transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+          aria-label={
+            unreadCount > 0
+              ? `${t('shell.notifications')}, ${t('notificationsPage.unreadLabel', { count: unreadCount })}`
+              : t('shell.notifications')
+          }
         >
           <Bell className="h-[18px] w-[18px]" />
           {unreadCount > 0 && (
@@ -81,7 +64,9 @@ export function NotificationBell({
     >
       <DropdownHeader>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold text-primary">Notifications</span>
+          <span className="text-sm font-semibold text-primary">
+            {t('shell.notifications')}
+          </span>
           {unreadCount > 0 && (
             <button
               type="button"
@@ -91,7 +76,7 @@ export function NotificationBell({
               }}
               className="text-xs text-accent-600 font-medium hover:text-accent-700"
             >
-              Mark all read
+              {t('notificationsPage.markAllRead')}
             </button>
           )}
         </div>
@@ -109,11 +94,13 @@ export function NotificationBell({
       )}
 
       {!loading && !error && items.length === 0 && (
-        <div className="px-3 py-8 text-center text-sm text-muted">No notifications yet</div>
+        <div className="px-3 py-8 text-center text-sm text-muted">
+          {t('notificationsPage.emptyAll')}
+        </div>
       )}
 
       {items.map((n) => {
-        const tone = toneForEvent(n.eventType);
+        const tone = notificationToneForEvent(n.eventType);
         return (
           <button
             key={n.id}
@@ -124,7 +111,7 @@ export function NotificationBell({
             }`}
           >
             <span
-              className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${toneDot[tone]}`}
+              className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${NOTIFICATION_TONE_DOT[tone]}`}
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-primary leading-snug font-medium">
@@ -146,9 +133,17 @@ export function NotificationBell({
         );
       })}
 
-      {items.length > 0 && (
+      {(canOpenNotificationsPage || items.length > 0) && (
         <>
           <DropdownDivider />
+          {canOpenNotificationsPage && (
+            <DropdownItem
+              icon={<ListFilter className="h-4 w-4" />}
+              onClick={() => navigate('my-notifications')}
+            >
+              {t('shell.viewAllNotifications')}
+            </DropdownItem>
+          )}
           <PermissionGate module="settings" action="view">
             <DropdownItem
               icon={<Bell className="h-4 w-4" />}

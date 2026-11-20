@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowDownToLine,
   BookOpen,
+  Briefcase,
   CheckCircle2,
   Clock3,
   Eye,
   FileSpreadsheet,
   Info,
+  Landmark,
   Loader2,
   RefreshCw,
   RotateCw,
   Settings2,
+  SlidersHorizontal,
   XCircle,
 } from 'lucide-react';
 import { usePermissions } from '@hrm/portal-ui';
@@ -35,6 +38,8 @@ import { SummaryTile } from '@/components/ui/SummaryTile';
 import { pathForPage } from '@/config/routes';
 import {
   downloadCsv,
+  exportCompletedContractorPaymentsToGl,
+  exportContractorJournal,
   exportPayrollJournal,
   getGlExport,
   listGlExports,
@@ -67,17 +72,26 @@ const OUTCOME_TABS: Array<{ id: GlExportOutcomeFilter | 'all'; label: string }> 
 
 function ExportsContent({ companyId }: { companyId: string }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { can } = usePermissions();
   const canRetry = can('payroll', 'edit');
   const canExport = can('payroll', 'create');
+  const canViewContractors = can('contractors', 'view');
+
+  const initialKindParam = searchParams.get('kind');
+  const initialKind: GlExportKind | 'all' =
+    initialKindParam === 'contractor' || initialKindParam === 'payroll'
+      ? initialKindParam
+      : 'all';
 
   const [data, setData] = useState<GlExportStatusList | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncingContractors, setSyncingContractors] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<GlExportOutcomeFilter | 'all'>('all');
-  const [kind, setKind] = useState<GlExportKind | 'all'>('all');
+  const [kind, setKind] = useState<GlExportKind | 'all'>(initialKind);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
@@ -175,6 +189,33 @@ function ExportsContent({ companyId }: { companyId: string }) {
   };
 
   const exportAgain = async (row: GlExportStatusRecord) => {
+    if (row.kind === 'contractor') {
+      if (!row.contractorPaymentBatchId) return;
+      setBusyRowId(row.id);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await exportContractorJournal(row.contractorPaymentBatchId);
+        if (result.status === 'completed' && result.csvContent) {
+          downloadCsv(`${result.referenceNumber}.csv`, result.csvContent);
+          setNotice(
+            `${result.referenceNumber} (${row.subjectLabel}) exported under contractor_expense and downloaded.`,
+          );
+        } else {
+          setError(
+            `Contractor export for ${row.subjectLabel} failed: ${result.errorMessage ?? 'unknown problem'}`,
+          );
+        }
+        setPage(1);
+        await load();
+      } catch (err) {
+        setError(errorText(err, 'Could not export the contractor journal'));
+      } finally {
+        setBusyRowId(null);
+      }
+      return;
+    }
+
     if (!row.payrollPeriodId) return;
     setBusyRowId(row.id);
     setError(null);
@@ -198,6 +239,33 @@ function ExportsContent({ companyId }: { companyId: string }) {
     }
   };
 
+  const handleLinkCompletedContractors = async () => {
+    setSyncingContractors(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await exportCompletedContractorPaymentsToGl(companyId);
+      if (res.exportIds.length === 0) {
+        setNotice('All completed contractor payments are already linked to GL exports.');
+      } else {
+        setNotice(
+          `Linked ${res.exportedBatches} batch(es) (${res.exportedInvoices} invoice(s)) into GL Exports under the contractor_expense category${
+            res.failedExports > 0
+              ? ` · ${res.failedExports} export(s) failed due to unmapped accounts`
+              : ''
+          }.`,
+        );
+        setKind('contractor');
+        setPage(1);
+      }
+      await load();
+    } catch (err) {
+      setError(errorText(err, 'Could not export completed contractor payments to GL'));
+    } finally {
+      setSyncingContractors(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12 text-secondary">
@@ -208,7 +276,11 @@ function ExportsContent({ companyId }: { companyId: string }) {
   }
 
   const summary = data?.summary;
+  const contractorExpense = data?.contractorExpense;
   const rows = data?.items ?? [];
+  const pendingContractorCount =
+    (contractorExpense?.unexportedPaidBatchCount ?? 0) +
+    (contractorExpense?.unexportedPaidInvoiceCount ?? 0);
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-[1400px] mx-auto">
@@ -216,11 +288,19 @@ function ExportsContent({ companyId }: { companyId: string }) {
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-primary">GL Export &amp; Sync Status</h1>
           <p className="text-sm text-secondary mt-0.5">
-            Every journal export and accounting sync, and whether it worked. Payroll stays finalized when an export
-            fails; fix the cause, then export again or retry the sync.
+            Every journal export and accounting sync across Employee Payroll and Non-Employee Contractor Expense
+            categories. Fix unmapped GL accounts, then export again or retry.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 xl:shrink-0 xl:flex-nowrap">
+          {canViewContractors && (
+            <Button
+              variant="secondary"
+              onClick={() => navigate(pathForPage('contractor-payment-terms'))}
+            >
+              <SlidersHorizontal className="h-4 w-4" /> Contractor payment terms
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={() => {
@@ -321,7 +401,87 @@ function ExportsContent({ companyId }: { companyId: string }) {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      {contractorExpense ? (
+        <div className="rounded-xl border border-teal-300/80 dark:border-teal-800/70 border-l-4 border-l-teal-600 bg-gradient-to-r from-teal-50/80 via-white to-amber-50/50 dark:from-teal-950/35 dark:via-slate-900 dark:to-amber-950/20 p-4 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
+                  <Briefcase className="h-4 w-4 text-teal-700 dark:text-teal-300" />
+                  Contractor Expense Category
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100/90 px-2.5 py-0.5 text-[11px] font-mono font-semibold text-amber-900 dark:border-amber-700/70 dark:bg-amber-950/60 dark:text-amber-200">
+                  <Landmark className="h-3 w-3" />
+                  contractor_expense
+                </span>
+                {contractorExpense.mappedExpenseAccount ? (
+                  <Badge tone="success">GL: {contractorExpense.mappedExpenseAccount}</Badge>
+                ) : (
+                  <Badge tone="warning">Unmapped: contractor_expense</Badge>
+                )}
+              </div>
+              <p className="text-xs text-secondary">
+                Exported non-employee payables:{' '}
+                <strong className="font-mono text-primary">
+                  {formatMoney(contractorExpense.totalExportedAmount)}
+                </strong>{' '}
+                ({contractorExpense.succeededCount} succeeded
+                {contractorExpense.failedCount > 0 ? `, ${contractorExpense.failedCount} failed` : ''}
+                ).{' '}
+                {pendingContractorCount > 0 ? (
+                  <span className="font-medium text-amber-800 dark:text-amber-300">
+                    {contractorExpense.unexportedPaidBatchCount} paid batch(es) and{' '}
+                    {contractorExpense.unexportedPaidInvoiceCount} direct paid invoice(s) totaling{' '}
+                    <span className="font-mono">
+                      {formatMoney(contractorExpense.unexportedPaidAmount)}
+                    </span>{' '}
+                    ready to link to GL.
+                  </span>
+                ) : (
+                  <span>All completed contractor payments are linked to GL exports.</span>
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(`${pathForPage('accounting-mapping')}?tab=contractor`)}
+              >
+                Map contractor GL
+              </Button>
+              {canViewContractors && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigate(pathForPage('contractor-invoices'))}
+                >
+                  Contractor invoices
+                </Button>
+              )}
+              {canExport && (
+                <Button
+                  size="sm"
+                  onClick={() => void handleLinkCompletedContractors()}
+                  disabled={syncingContractors}
+                  className="bg-teal-700 hover:bg-teal-800 active:bg-teal-900 text-white"
+                >
+                  {syncingContractors ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                  )}
+                  {pendingContractorCount > 0
+                    ? `Export ${pendingContractorCount} Completed Payment(s)`
+                    : 'Sync Contractor Payments'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center md:justify-between">
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Outcome">
           {OUTCOME_TABS.map((item) => (
             <button
@@ -340,19 +500,48 @@ function ExportsContent({ companyId }: { companyId: string }) {
             </button>
           ))}
         </div>
-        <div className="w-full md:w-52">
-          <Select
-            value={kind}
-            onChange={(event) => {
-              setKind(event.target.value as GlExportKind | 'all');
-              setPage(1);
-            }}
-            aria-label="Journal type"
-          >
-            <option value="all">All journals</option>
-            <option value="payroll">Payroll journals</option>
-            <option value="contractor">Contractor payments</option>
-          </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-base p-0.5 surface" role="group" aria-label="GL Category">
+            {(
+              [
+                { id: 'all', label: 'All Categories' },
+                { id: 'payroll', label: 'Payroll Runs' },
+                { id: 'contractor', label: 'Contractor Expense' },
+              ] as const
+            ).map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => {
+                  setKind(cat.id);
+                  setPage(1);
+                }}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  kind === cat.id
+                    ? cat.id === 'contractor'
+                      ? 'bg-teal-700 text-white'
+                      : 'bg-accent-600 text-white'
+                    : 'text-secondary hover:text-primary'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+          <div className="w-48 hidden">
+            <Select
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value as GlExportKind | 'all');
+                setPage(1);
+              }}
+              aria-label="Journal type"
+            >
+              <option value="all">All journals</option>
+              <option value="payroll">Payroll journals</option>
+              <option value="contractor">Contractor expense</option>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -384,11 +573,12 @@ function ExportsContent({ companyId }: { companyId: string }) {
                     const busy = busyRowId === row.id;
                     const canExportAgain =
                       canExport &&
-                      row.kind === 'payroll' &&
                       row.destination === 'csv' &&
                       row.outcome === 'failed' &&
                       !row.superseded &&
-                      row.payrollPeriodId != null;
+                      (row.kind === 'payroll'
+                        ? row.payrollPeriodId != null
+                        : row.contractorPaymentBatchId != null);
                     return (
                       <tr key={row.id} className={row.superseded ? 'opacity-60' : undefined}>
                         <td className="px-4 py-3 align-top whitespace-nowrap">
@@ -397,19 +587,23 @@ function ExportsContent({ companyId }: { companyId: string }) {
                             <div className="text-xs text-muted mt-1">Replaced by a later export</div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 align-top min-w-[200px]">
-                          <button
-                            type="button"
-                            onClick={() => void openDetail(row)}
-                            className="font-mono text-xs font-medium text-primary hover:text-accent-600"
-                          >
-                            {row.referenceNumber}
-                          </button>
-                          {row.kind === 'contractor' ? (
-                            <Badge tone="neutral" className="ml-2 align-middle">
-                              Contractor
-                            </Badge>
-                          ) : null}
+                        <td className="px-4 py-3 align-top min-w-[230px]">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void openDetail(row)}
+                              className="font-mono text-xs font-medium text-primary hover:text-accent-600"
+                            >
+                              {row.referenceNumber}
+                            </button>
+                            {row.kind === 'contractor' ? (
+                              <span className="inline-flex items-center rounded border border-teal-300 bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-800 dark:border-teal-800 dark:bg-teal-950/60 dark:text-teal-200">
+                                Contractor Expense
+                              </span>
+                            ) : (
+                              <Badge tone="neutral">Payroll</Badge>
+                            )}
+                          </div>
                           <div className="text-xs text-secondary mt-0.5">{row.subjectLabel}</div>
                         </td>
                         <td className="px-4 py-3 align-top whitespace-nowrap">
@@ -568,6 +762,10 @@ function ExportDetailModal({
   const showCostCentre = detail?.lines.some((line) => line.costCentreCode) ?? false;
   const meta: Array<[string, string]> = [
     [row.kind === 'payroll' ? 'Payroll period' : 'Batch', row.subjectLabel],
+    [
+      'GL Category',
+      row.kind === 'contractor' ? 'Contractor Expense (contractor_expense)' : 'Employee Payroll',
+    ],
     ['Destination', GL_DESTINATION_LABELS[row.destination]],
     ['Started', formatDateTime(row.startedAt)],
     ['Finished', row.finishedAt ? formatDateTime(row.finishedAt) : '—'],
@@ -583,7 +781,7 @@ function ExportDetailModal({
       size="xl"
       onClose={onClose}
       title={row.referenceNumber}
-      description={`${row.kind === 'payroll' ? 'Payroll journal' : 'Contractor payment journal'} · ${GL_DESTINATION_LABELS[row.destination]}`}
+      description={`${row.kind === 'payroll' ? 'Payroll journal' : 'Contractor Expense journal (contractor_expense)'} · ${GL_DESTINATION_LABELS[row.destination]}`}
       footer={
         <>
           {row.unmappedCount > 0 ? (

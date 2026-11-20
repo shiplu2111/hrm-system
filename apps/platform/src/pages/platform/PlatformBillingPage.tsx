@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  Building2,
   Check,
   Clock,
   CreditCard,
@@ -10,6 +11,9 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
+import { usePlatformTenant } from '@/context/PlatformTenantContext';
+import { PermissionGate } from '@/components/rbac';
+import { usePermission } from '@/hooks/usePermission';
 
 type TierName = 'Free' | 'Starter' | 'Business' | 'Enterprise';
 type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue' | 'Failed';
@@ -77,6 +81,8 @@ function SectionTitle({ title, detail }: { title: string; detail: string }) {
 }
 
 export function PlatformBillingPage() {
+  const { selectedTenant, setSelectedTenant } = usePlatformTenant();
+  const canEditBilling = usePermission('billing', 'edit');
   const [plans, setPlans] = useState(initialPlans);
   const [moduleAccess, setModuleAccess] = useState(() =>
     Object.fromEntries(moduleGroups.map((group) => [group.name, { ...group.access }])) as Record<string, Record<TierName, boolean>>,
@@ -86,10 +92,19 @@ export function PlatformBillingPage() {
   const [retrying, setRetrying] = useState(false);
   const [failureResolved, setFailureResolved] = useState(false);
 
-  const filteredInvoices = useMemo(() => invoices.filter((invoice) => {
-    const matchesSearch = `${invoice.tenant} ${invoice.invoice}`.toLowerCase().includes(search.toLowerCase());
-    return matchesSearch && (status === 'All' || invoice.status === status);
-  }), [search, status]);
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter((invoice) => {
+      if (
+        selectedTenant &&
+        !invoice.tenant.toLowerCase().includes(selectedTenant.name.toLowerCase()) &&
+        !selectedTenant.name.toLowerCase().includes(invoice.tenant.toLowerCase())
+      ) {
+        return false;
+      }
+      const matchesSearch = `${invoice.tenant} ${invoice.invoice}`.toLowerCase().includes(search.toLowerCase());
+      return matchesSearch && (status === 'All' || invoice.status === status);
+    });
+  }, [search, status, selectedTenant]);
 
   const updatePlan = (planIndex: number, field: 'price' | 'feature', value: string, featureIndex?: number) => {
     setPlans((current) => current.map((plan, index) => {
@@ -149,6 +164,43 @@ export function PlatformBillingPage() {
         </div>
       </div>
 
+      {/* Tenant Context Filter Banner */}
+      {selectedTenant && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400">
+                  Tenant Scope Active:
+                </span>
+                <span className="text-sm font-bold text-white">{selectedTenant.name}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold border bg-purple-500/20 text-purple-300 border-purple-500/30">
+                  Plan: {selectedTenant.plan}
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                  Status: {selectedTenant.status}
+                </span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                <span>Invoices & subscription views filtered to {selectedTenant.subdomain}.cmsnbd.com</span>
+                <span>·</span>
+                <span className="text-amber-300 font-medium">Business payroll data strictly isolated</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedTenant(null)}
+            className="h-8 px-3 rounded-lg border border-slate-700 hover:border-slate-600 text-xs text-slate-300 hover:text-white transition-colors self-start sm:self-center"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
+
       {!failureResolved ? (
         <section className="overflow-hidden rounded-2xl border border-red-200 bg-red-50 shadow-sm dark:border-red-900 dark:bg-red-950/30">
           <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -164,9 +216,11 @@ export function PlatformBillingPage() {
                 <div className="mt-3 h-1.5 max-w-md overflow-hidden rounded-full bg-red-200 dark:bg-red-950"><div className="h-full w-[72%] rounded-full bg-gradient-to-r from-orange-500 to-red-600" /></div>
               </div>
             </div>
-            <button onClick={retryPayment} disabled={retrying} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">
-              <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} /> {retrying ? 'Retrying…' : 'Retry now'}
-            </button>
+            <PermissionGate module="billing" action="edit">
+              <button onClick={retryPayment} disabled={retrying} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">
+                <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} /> {retrying ? 'Retrying…' : 'Retry now'}
+              </button>
+            </PermissionGate>
           </div>
         </section>
       ) : (
@@ -184,19 +238,35 @@ export function PlatformBillingPage() {
               </div>
               <div className="mt-4 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
                 <span className="text-lg font-bold text-slate-400">$</span>
-                <input aria-label={`${plan.name} monthly price`} value={plan.price} onChange={(event) => updatePlan(planIndex, 'price', event.target.value)} className="h-11 min-w-0 flex-1 bg-transparent px-2 text-2xl font-extrabold outline-none" />
+                <input
+                  aria-label={`${plan.name} monthly price`}
+                  value={plan.price}
+                  readOnly={!canEditBilling}
+                  onChange={(event) => updatePlan(planIndex, 'price', event.target.value)}
+                  className={`h-11 min-w-0 flex-1 bg-transparent px-2 text-2xl font-extrabold outline-none ${!canEditBilling ? 'cursor-default' : ''}`}
+                />
                 <span className="text-[10px] text-slate-500">/ month</span>
               </div>
               <div className="mt-4 space-y-2">
                 {plan.features.map((feature, featureIndex) => (
                   <div key={`${plan.name}-${featureIndex}`} className="group flex items-center gap-2">
                     <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                    <input aria-label={`${plan.name} feature ${featureIndex + 1}`} value={feature} onChange={(event) => updatePlan(planIndex, 'feature', event.target.value, featureIndex)} className="h-8 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-xs outline-none hover:border-slate-200 focus:border-indigo-400 dark:hover:border-slate-700" />
-                    <button onClick={() => removeFeature(planIndex, featureIndex)} className="text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500" aria-label={`Remove ${feature}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                    <input
+                      aria-label={`${plan.name} feature ${featureIndex + 1}`}
+                      value={feature}
+                      readOnly={!canEditBilling}
+                      onChange={(event) => updatePlan(planIndex, 'feature', event.target.value, featureIndex)}
+                      className="h-8 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-xs outline-none hover:border-slate-200 focus:border-indigo-400 dark:hover:border-slate-700"
+                    />
+                    {canEditBilling && (
+                      <button onClick={() => removeFeature(planIndex, featureIndex)} className="text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500" aria-label={`Remove ${feature}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                    )}
                   </div>
                 ))}
               </div>
-              <button onClick={() => addFeature(planIndex)} className="mt-3 flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-300"><Plus className="h-3.5 w-3.5" /> Add feature</button>
+              {canEditBilling && (
+                <button onClick={() => addFeature(planIndex)} className="mt-3 flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-300"><Plus className="h-3.5 w-3.5" /> Add feature</button>
+              )}
             </article>
           ))}
         </div>
@@ -215,7 +285,21 @@ export function PlatformBillingPage() {
                   <td className="px-5 py-3"><span className="text-sm font-bold">{group.name}</span><span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">{group.count} modules</span></td>
                   {tiers.map((tier) => (
                     <td key={tier} className="px-4 py-3 text-center">
-                      <input type="checkbox" aria-label={`${group.name} access for ${tier}`} checked={moduleAccess[group.name][tier]} onChange={(event) => setModuleAccess((current) => ({ ...current, [group.name]: { ...current[group.name], [tier]: event.target.checked } }))} className="h-4 w-4 rounded border-slate-300 accent-indigo-600" />
+                      <input
+                        type="checkbox"
+                        aria-label={`${group.name} access for ${tier}`}
+                        checked={moduleAccess[group.name][tier]}
+                        disabled={!canEditBilling}
+                        onChange={(event) =>
+                          setModuleAccess((current) => ({
+                            ...current,
+                            [group.name]: { ...current[group.name], [tier]: event.target.checked },
+                          }))
+                        }
+                        className={`h-4 w-4 rounded border-slate-300 accent-indigo-600 ${
+                          !canEditBilling ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                      />
                     </td>
                   ))}
                 </tr>

@@ -1,6 +1,8 @@
 import type {
   ContractorBillingFrequency,
   ContractorContractRecord,
+  ContractorContractStatus,
+  ContractorInvoiceLineItem,
   ContractorInvoiceRecord,
   ContractorKind,
   ContractorPaymentBatchRecord,
@@ -28,6 +30,15 @@ export const PAYMENT_TERMS_LABELS: Record<ContractorPaymentTerms, string> = {
   net_30: 'Net 30',
   net_45: 'Net 45',
   net_60: 'Net 60',
+};
+
+export const PAYMENT_TERMS_DAYS: Record<ContractorPaymentTerms, number> = {
+  due_on_receipt: 0,
+  net_7: 7,
+  net_14: 14,
+  net_30: 30,
+  net_45: 45,
+  net_60: 60,
 };
 
 export const BILLING_FREQUENCY_LABELS: Record<ContractorBillingFrequency, string> = {
@@ -58,10 +69,11 @@ export function getContractorSummary(companyId: string): Promise<ContractorSumma
 
 export function listContractors(
   companyId: string,
-  params?: { status?: string; search?: string },
+  params?: { status?: string; contractorKind?: ContractorKind; search?: string },
 ): Promise<ContractorRecord[]> {
   const query = new URLSearchParams();
   if (params?.status) query.set('status', params.status);
+  if (params?.contractorKind) query.set('contractorKind', params.contractorKind);
   if (params?.search) query.set('search', params.search);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<ContractorRecord[]>(
@@ -96,9 +108,19 @@ export function createContractor(
 
 export function listContractorContracts(
   companyId: string,
+  params?: {
+    contractorId?: string;
+    paymentStructure?: ContractorPaymentStructure;
+    paymentTerms?: ContractorPaymentTerms;
+  },
 ): Promise<ContractorContractRecord[]> {
+  const query = new URLSearchParams();
+  if (params?.contractorId) query.set('contractorId', params.contractorId);
+  if (params?.paymentStructure) query.set('paymentStructure', params.paymentStructure);
+  if (params?.paymentTerms) query.set('paymentTerms', params.paymentTerms);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<ContractorContractRecord[]>(
-    `/companies/${companyId}/contractor-contracts`,
+    `/companies/${companyId}/contractor-contracts${suffix}`,
   );
 }
 
@@ -134,6 +156,7 @@ export function createContractorContract(
     }>;
     autoRenewal?: boolean;
     ownerEmployeeId?: string;
+    status?: ContractorContractStatus;
   },
 ): Promise<ContractorContractRecord> {
   return tenantApiRequest<ContractorContractRecord>(
@@ -142,13 +165,49 @@ export function createContractorContract(
   );
 }
 
+export function updateContractorContractPaymentTerms(
+  contractId: string,
+  input: {
+    paymentStructure: ContractorPaymentStructure;
+    paymentTerms: ContractorPaymentTerms;
+    billingFrequency?: ContractorBillingFrequency;
+    fixedFeeAmount?: string;
+    annualValue?: string;
+    hourlyRate?: string;
+    currency?: string;
+    autoRenewal?: boolean;
+    noticePeriodDays?: number;
+    scopeDescription?: string;
+    milestones?: Array<{
+      id?: string;
+      title: string;
+      description?: string;
+      amount: string;
+      targetDate?: string;
+      sortOrder?: number;
+    }>;
+  },
+): Promise<ContractorContractRecord> {
+  return tenantApiRequest<ContractorContractRecord>(
+    `/contractor-contracts/${contractId}/payment-terms`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
 export function listContractorInvoices(
   companyId: string,
-  params?: { contractorId?: string; status?: string },
+  params?: {
+    contractorId?: string;
+    contractId?: string;
+    status?: string;
+    search?: string;
+  },
 ): Promise<ContractorInvoiceRecord[]> {
   const query = new URLSearchParams();
   if (params?.contractorId) query.set('contractorId', params.contractorId);
+  if (params?.contractId) query.set('contractId', params.contractId);
   if (params?.status) query.set('status', params.status);
+  if (params?.search) query.set('search', params.search);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<ContractorInvoiceRecord[]>(
     `/companies/${companyId}/contractor-invoices${suffix}`,
@@ -160,8 +219,11 @@ export function createContractorInvoice(
   input: {
     contractorId: string;
     contractId: string;
+    milestoneId?: string;
     periodLabel?: string;
     description?: string;
+    lineItems?: ContractorInvoiceLineItem[];
+    hoursWorked?: string;
     amount: string;
     currency?: string;
     issuedAt: string;
@@ -191,6 +253,26 @@ export function approveContractorInvoice(
   );
 }
 
+export function rejectContractorInvoice(
+  invoiceId: string,
+  reason?: string,
+): Promise<ContractorInvoiceRecord> {
+  return tenantApiRequest<ContractorInvoiceRecord>(
+    `/contractor-invoices/${invoiceId}/reject`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  );
+}
+
+export function markContractorInvoicePaid(
+  invoiceId: string,
+  paymentReference?: string,
+): Promise<ContractorInvoiceRecord> {
+  return tenantApiRequest<ContractorInvoiceRecord>(
+    `/contractor-invoices/${invoiceId}/mark-paid`,
+    { method: 'POST', body: JSON.stringify({ paymentReference }) },
+  );
+}
+
 export function listContractorPaymentBatches(
   companyId: string,
 ): Promise<ContractorPaymentBatchRecord[]> {
@@ -206,5 +288,14 @@ export function createContractorPaymentBatch(
   return tenantApiRequest<ContractorPaymentBatchRecord>(
     `/companies/${companyId}/contractor-payment-batches`,
     { method: 'POST', body: JSON.stringify({ invoiceIds }) },
+  );
+}
+
+export function markContractorPaymentBatchPaid(
+  batchId: string,
+): Promise<ContractorPaymentBatchRecord> {
+  return tenantApiRequest<ContractorPaymentBatchRecord>(
+    `/contractor-payment-batches/${batchId}/mark-paid`,
+    { method: 'PATCH' },
   );
 }

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
+import { PermissionGate } from '@/components/rbac';
 
 type PlatformRole = 'Super Admin' | 'Support Agent' | 'Billing Ops';
 
@@ -136,12 +137,14 @@ export function PlatformUsersPage() {
             Internal CMSN-HR operators — not tenant employees or company admins.
           </p>
         </div>
-        <button
-          onClick={() => setInviteOpen(true)}
-          className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/15"
-        >
-          <Plus className="h-4 w-4" /> Invite New Staff
-        </button>
+        <PermissionGate module="user" action="create">
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/15"
+          >
+            <Plus className="h-4 w-4" /> Invite New Staff
+          </button>
+        </PermissionGate>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

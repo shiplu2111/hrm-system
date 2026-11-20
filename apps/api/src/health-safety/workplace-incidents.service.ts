@@ -10,6 +10,7 @@ import type {
   WorkplaceIncidentParty,
 } from '@prisma/client';
 import type {
+  IncidentReportingRuleConfig,
   WorkplaceIncidentRecord,
   WorkplaceIncidentStatus,
 } from '@hrm/shared-types';
@@ -23,17 +24,42 @@ import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateEmployeeIncidentDto,
   CreateWorkplaceIncidentDto,
+  IncidentPartyDto,
   ListIncidentsQueryDto,
   UpdateWorkplaceIncidentDto,
 } from './dto/health-safety.dto';
 import {
+  buildIncidentReportingConfig,
   generateIncidentNumber,
+  parseStoredReportingConfig,
   resolveRegulatorReporting,
+  validateAndSanitizeCountrySpecificData,
 } from './health-safety.utils';
 import { HealthSafetyRulesService } from './health-safety-rules.service';
 
+const INCIDENT_INCLUDE = {
+  reportedByEmployee: { select: { firstName: true, lastName: true } },
+  regulatorSubmittedByUser: {
+    select: {
+      id: true,
+      email: true,
+      employee: { select: { firstName: true, lastName: true } },
+    },
+  },
+  parties: {
+    include: {
+      employee: { select: { firstName: true, lastName: true } },
+    },
+  },
+} satisfies Prisma.WorkplaceIncidentInclude;
+
 type IncidentWithRelations = WorkplaceIncident & {
   reportedByEmployee: { firstName: string; lastName: string };
+  regulatorSubmittedByUser?: {
+    id: string;
+    email: string;
+    employee: { firstName: string; lastName: string } | null;
+  } | null;
   parties: Array<
     WorkplaceIncidentParty & {
       employee: { firstName: string; lastName: string };
@@ -57,15 +83,20 @@ export class WorkplaceIncidentsService {
     query: ListIncidentsQueryDto,
     user: AuthenticatedUser,
   ): Promise<WorkplaceIncidentRecord[]> {
-    await this.companyScope.assertCompanyInTenant(companyId);
+    const company = await this.companyScope.assertCompanyInTenant(companyId);
 
     const search = query.search?.trim();
     const scopeWhere = await this.scopeWhere(user);
     const rows = await this.prisma.unscoped.workplaceIncident.findMany({
       where: {
+        tenantId: company.tenantId,
         companyId,
-        status: query.status,
-        severity: query.severity,
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.severity ? { severity: query.severity } : {}),
+        ...(query.incidentType ? { incidentType: query.incidentType } : {}),
+        ...(query.regulatorRequiredOnly === 'true'
+          ? { regulatorReportRequired: true }
+          : {}),
         ...(scopeWhere ? { AND: [scopeWhere] } : {}),
         ...(search
           ? {
@@ -77,14 +108,7 @@ export class WorkplaceIncidentsService {
             }
           : {}),
       },
-      include: {
-        reportedByEmployee: { select: { firstName: true, lastName: true } },
-        parties: {
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: INCIDENT_INCLUDE,
       orderBy: { occurredAt: 'desc' },
       take: query.limit ?? 50,
     });
@@ -98,7 +122,8 @@ export class WorkplaceIncidentsService {
   ): Promise<WorkplaceIncidentRecord> {
     const row = await this.findIncidentOrThrow(incidentId);
     await this.assertIncidentInScope(user, row);
-    return this.toRecord(row);
+    const resolvedConfig = await this.resolveConfigForIncident(row);
+    return this.toRecord(row, resolvedConfig);
   }
 
   async createForEmployee(
@@ -149,19 +174,33 @@ export class WorkplaceIncidentsService {
       await this.dataScope.assertEmployeeInScope(user, reporterId);
     }
 
-    await this.assertActiveEmployee(reporterId, companyId);
-    const partyIds = dto.parties?.map((party) => party.employeeId) ?? [];
+    const dedupedParties = this.dedupeParties(dto.parties);
+    await this.assertActiveEmployee(reporterId, companyId, company.tenantId);
     await Promise.all(
-      partyIds.map((id) => this.assertActiveEmployee(id, companyId)),
+      dedupedParties.map((party) =>
+        this.assertActiveEmployee(party.employeeId, companyId, company.tenantId),
+      ),
     );
 
     const occurredAt = new Date(dto.occurredAt);
-    const rules = await this.rulesService.resolveForEmployee(reporterId, occurredAt);
+    const { rules, layers } = await this.rulesService.resolveWithMetadataForEmployee(
+      reporterId,
+      occurredAt,
+    );
     const regulator = resolveRegulatorReporting({
       rules,
       severity: dto.severity,
       incidentType: dto.incidentType,
       occurredAt,
+    });
+    const resolvedConfig = buildIncidentReportingConfig(rules, layers, occurredAt);
+
+    const countrySpecificData = validateAndSanitizeCountrySpecificData({
+      data: dto.countrySpecificData,
+      fields: resolvedConfig.reportingFields,
+      regulatorRequired: regulator.required,
+      enforceRequired: dto.countrySpecificData !== undefined,
+      enforceRegulatorRequired: false,
     });
 
     const year = occurredAt.getUTCFullYear();
@@ -169,6 +208,7 @@ export class WorkplaceIncidentsService {
     const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
     const countForYear = await this.prisma.unscoped.workplaceIncident.count({
       where: {
+        tenantId: company.tenantId,
         companyId,
         occurredAt: { gte: yearStart, lt: yearEnd },
       },
@@ -190,10 +230,12 @@ export class WorkplaceIncidentsService {
         regulatorReportRequired: regulator.required,
         regulatorReportDueAt: regulator.dueAt,
         regulatorName: regulator.regulatorName,
+        countrySpecificData: countrySpecificData as Prisma.InputJsonValue,
+        resolvedRuleSnapshot: resolvedConfig as unknown as Prisma.InputJsonValue,
         createdByUserId: user.id,
-        parties: dto.parties?.length
+        parties: dedupedParties.length
           ? {
-              create: dto.parties.map((party) => ({
+              create: dedupedParties.map((party) => ({
                 tenantId: company.tenantId,
                 employeeId: party.employeeId,
                 partyRole: party.partyRole,
@@ -201,14 +243,7 @@ export class WorkplaceIncidentsService {
             }
           : undefined,
       },
-      include: {
-        reportedByEmployee: { select: { firstName: true, lastName: true } },
-        parties: {
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: INCIDENT_INCLUDE,
     });
 
     const reporterName = this.employeeName(row.reportedByEmployee);
@@ -243,10 +278,11 @@ export class WorkplaceIncidentsService {
         incidentType: row.incidentType,
         severity: row.severity,
         regulatorReportRequired: row.regulatorReportRequired,
+        countrySpecificData,
       },
     });
 
-    return this.toRecord(row);
+    return this.toRecord(row, resolvedConfig);
   }
 
   async update(
@@ -256,32 +292,81 @@ export class WorkplaceIncidentsService {
   ): Promise<WorkplaceIncidentRecord> {
     const existing = await this.findIncidentOrThrow(incidentId);
     await this.assertIncidentInScope(user, existing);
+    const resolvedConfig = await this.resolveConfigForIncident(existing);
+    const fields = resolvedConfig?.reportingFields ?? [];
 
-    const updateData: Record<string, unknown> = {};
+    const existingCountryData = this.normalizeJsonObject(existing.countrySpecificData);
+    const mergedCountryData =
+      dto.countrySpecificData !== undefined
+        ? { ...existingCountryData, ...dto.countrySpecificData }
+        : existingCountryData;
+
+    const shouldValidateData =
+      fields.length > 0 &&
+      (dto.countrySpecificData !== undefined || dto.regulatorReportSubmitted === true);
+
+    const validatedCountryData = shouldValidateData
+      ? validateAndSanitizeCountrySpecificData({
+          data: mergedCountryData,
+          fields,
+          regulatorRequired: existing.regulatorReportRequired,
+          enforceRequired: true,
+          enforceRegulatorRequired: dto.regulatorReportSubmitted === true,
+        })
+      : existingCountryData;
+
+    const updateData: Prisma.WorkplaceIncidentUpdateInput = {};
     if (dto.status) {
       updateData.status = dto.status;
       if (dto.status === 'resolved' || dto.status === 'closed') {
-        updateData.resolvedAt = new Date();
+        updateData.resolvedAt = existing.resolvedAt ?? new Date();
+      } else {
+        updateData.resolvedAt = null;
       }
     }
     if (dto.investigationNotes !== undefined) {
       updateData.investigationNotes = dto.investigationNotes.trim() || null;
     }
+    if (dto.countrySpecificData !== undefined) {
+      updateData.countrySpecificData = validatedCountryData as Prisma.InputJsonValue;
+    }
+    if (dto.regulatorReferenceNumber !== undefined) {
+      updateData.regulatorReferenceNumber = dto.regulatorReferenceNumber.trim() || null;
+    }
     if (dto.regulatorReportSubmitted === true) {
-      updateData.regulatorReportSubmittedAt = new Date();
+      updateData.regulatorReportSubmittedAt =
+        existing.regulatorReportSubmittedAt ?? new Date();
+      updateData.regulatorSubmittedByUser = { connect: { id: user.id } };
+    }
+    if (!existing.resolvedRuleSnapshot && resolvedConfig) {
+      updateData.resolvedRuleSnapshot = resolvedConfig as unknown as Prisma.InputJsonValue;
+    }
+
+    if (dto.parties !== undefined) {
+      const dedupedParties = this.dedupeParties(dto.parties);
+      await Promise.all(
+        dedupedParties.map((party) =>
+          this.assertActiveEmployee(
+            party.employeeId,
+            existing.companyId,
+            existing.tenantId,
+          ),
+        ),
+      );
+      updateData.parties = {
+        deleteMany: {},
+        create: dedupedParties.map((party) => ({
+          tenantId: existing.tenantId,
+          employeeId: party.employeeId,
+          partyRole: party.partyRole,
+        })),
+      };
     }
 
     const row = await this.prisma.unscoped.workplaceIncident.update({
       where: { id: incidentId },
       data: updateData,
-      include: {
-        reportedByEmployee: { select: { firstName: true, lastName: true } },
-        parties: {
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: INCIDENT_INCLUDE,
     });
 
     await this.auditService.log({
@@ -290,14 +375,51 @@ export class WorkplaceIncidentsService {
       action: 'update',
       module: 'health_safety',
       recordId: row.id,
-      oldValue: { status: existing.status },
+      oldValue: {
+        status: existing.status,
+        investigationNotes: existing.investigationNotes,
+        regulatorReportSubmittedAt: existing.regulatorReportSubmittedAt,
+        regulatorReferenceNumber: existing.regulatorReferenceNumber,
+        countrySpecificData: existingCountryData,
+      },
       newValue: {
         status: row.status,
+        investigationNotes: row.investigationNotes,
         regulatorReportSubmittedAt: row.regulatorReportSubmittedAt,
+        regulatorReferenceNumber: row.regulatorReferenceNumber,
+        countrySpecificData: row.countrySpecificData,
       },
     });
 
-    return this.toRecord(row);
+    return this.toRecord(row, resolvedConfig);
+  }
+
+  private async resolveConfigForIncident(
+    row: IncidentWithRelations,
+  ): Promise<IncidentReportingRuleConfig | null> {
+    const stored = parseStoredReportingConfig(row.resolvedRuleSnapshot);
+    if (stored) {
+      return stored;
+    }
+    if (typeof this.rulesService?.resolveWithMetadataForEmployee !== 'function') {
+      return null;
+    }
+
+    try {
+      const { rules, layers } =
+        await this.rulesService.resolveWithMetadataForEmployee(
+          row.reportedByEmployeeId,
+          row.occurredAt,
+        );
+      return buildIncidentReportingConfig(rules, layers, row.occurredAt);
+    } catch {
+      const { rules, layers } =
+        await this.rulesService.resolveWithMetadataForCompany(
+          row.companyId,
+          row.occurredAt,
+        );
+      return buildIncidentReportingConfig(rules, layers, row.occurredAt);
+    }
   }
 
   private async findIncidentOrThrow(
@@ -305,14 +427,7 @@ export class WorkplaceIncidentsService {
   ): Promise<IncidentWithRelations> {
     const row = await this.prisma.unscoped.workplaceIncident.findUnique({
       where: { id: incidentId },
-      include: {
-        reportedByEmployee: { select: { firstName: true, lastName: true } },
-        parties: {
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
+      include: INCIDENT_INCLUDE,
     });
     if (!row) {
       throw new NotFoundException('Incident not found');
@@ -354,10 +469,15 @@ export class WorkplaceIncidentsService {
     });
   }
 
-  private async assertActiveEmployee(employeeId: string, companyId: string) {
+  private async assertActiveEmployee(
+    employeeId: string,
+    companyId: string,
+    tenantId: string,
+  ) {
     const employee = await this.prisma.unscoped.employee.findFirst({
       where: {
         id: employeeId,
+        tenantId,
         companyId,
         deletedAt: null,
         employmentStatus: 'active',
@@ -369,11 +489,46 @@ export class WorkplaceIncidentsService {
     }
   }
 
+  private dedupeParties(parties?: IncidentPartyDto[]): IncidentPartyDto[] {
+    if (!parties?.length) return [];
+    const map = new Map<string, IncidentPartyDto>();
+    for (const party of parties) {
+      map.set(party.employeeId, party);
+    }
+    return [...map.values()];
+  }
+
+  private normalizeJsonObject(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
   private employeeName(employee: { firstName: string; lastName: string }): string {
     return `${employee.firstName} ${employee.lastName}`.trim();
   }
 
-  private toRecord(row: IncidentWithRelations): WorkplaceIncidentRecord {
+  private submitterName(
+    user?: {
+      email: string;
+      employee: { firstName: string; lastName: string } | null;
+    } | null,
+  ): string | null {
+    if (!user) return null;
+    if (user.employee) {
+      const full = this.employeeName(user.employee);
+      if (full.length > 0) return full;
+    }
+    return user.email;
+  }
+
+  private toRecord(
+    row: IncidentWithRelations,
+    resolvedReportingConfig: IncidentReportingRuleConfig | null = parseStoredReportingConfig(
+      row.resolvedRuleSnapshot,
+    ),
+  ): WorkplaceIncidentRecord {
     return {
       id: row.id,
       companyId: row.companyId,
@@ -392,7 +547,13 @@ export class WorkplaceIncidentsService {
       regulatorReportDueAt: row.regulatorReportDueAt?.toISOString() ?? null,
       regulatorReportSubmittedAt:
         row.regulatorReportSubmittedAt?.toISOString() ?? null,
+      regulatorReportSubmittedByName: this.submitterName(
+        row.regulatorSubmittedByUser,
+      ),
+      regulatorReferenceNumber: row.regulatorReferenceNumber ?? null,
       regulatorName: row.regulatorName,
+      countrySpecificData: this.normalizeJsonObject(row.countrySpecificData),
+      resolvedReportingConfig,
       investigationNotes: row.investigationNotes,
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       parties: row.parties.map((party) => ({

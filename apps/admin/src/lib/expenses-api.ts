@@ -4,6 +4,7 @@ import type {
   ExpenseClaimReceiptRecord,
   ExpenseClaimRecord,
   ExpenseClaimStatus,
+  WorkflowApprovalRoute,
 } from '@hrm/shared-types';
 import { fetchTenantFile, type DownloadedFile } from './download';
 import { ApiError, getTenantAccessToken, tenantApiRequest } from './tenant-api-client';
@@ -56,6 +57,19 @@ export function updateExpenseCategory(
   return tenantApiRequest<ExpenseCategoryRecord>(
     `/expense-categories/${categoryId}`,
     { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function getExpenseApprovalRoute(
+  companyId: string,
+  amount?: number,
+): Promise<WorkflowApprovalRoute> {
+  const qs =
+    amount != null && Number.isFinite(amount) && amount >= 0
+      ? `?amount=${encodeURIComponent(String(amount))}`
+      : '';
+  return tenantApiRequest<WorkflowApprovalRoute>(
+    `/companies/${companyId}/expense-claims/approval-route${qs}`,
   );
 }
 

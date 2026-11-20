@@ -122,3 +122,68 @@ export async function tenantLogin(
   setTenantAccessToken(data.accessToken);
   return data.accessToken;
 }
+
+// ---------------------------------------------------------------------------
+// Support Access Session Context (SECURITY.md §2, AUDIT_LOG.md)
+// ---------------------------------------------------------------------------
+
+export interface ActiveSupportSession {
+  isSupportAccess: boolean;
+  staffName: string;
+  staffEmail: string;
+  accessMode: 'read_only' | 'read_write';
+  expiresAt?: string;
+  requestId?: string;
+  tenantName?: string;
+  tenantSubdomain?: string;
+}
+
+function parseJwt(token: string): any {
+  try {
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join(''),
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
+export function getActiveSupportSession(): ActiveSupportSession | null {
+  const token = getTenantAccessToken();
+  if (!token) return null;
+  const payload = parseJwt(token);
+  if (!payload?.support_access) return null;
+  return {
+    isSupportAccess: true,
+    staffName: payload.staff_name ?? 'Platform Staff',
+    staffEmail: payload.staff_email ?? '',
+    accessMode: payload.access_mode ?? 'read_only',
+    expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : undefined,
+    requestId: payload.support_request_id,
+    tenantName: payload.tenant_name ?? undefined,
+    tenantSubdomain: payload.tenant_subdomain ?? undefined,
+  };
+}
+
+export function clearSupportSession(): void {
+  setTenantAccessToken(null);
+}
+
+// Ingest support_token from URL if redirected from Platform Control Panel
+if (typeof window !== 'undefined') {
+  const params = new URLSearchParams(window.location.search);
+  const supportToken = params.get('support_token');
+  if (supportToken) {
+    setTenantAccessToken(supportToken);
+    const newUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, document.title, newUrl);
+  }
+}
+

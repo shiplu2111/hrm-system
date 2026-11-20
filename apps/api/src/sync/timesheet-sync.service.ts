@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { TimesheetSyncEventType } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../database/prisma.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { TimesheetEntriesService } from '../timesheets/timesheet-entries.service';
 import type { TimesheetSyncEventDto } from '../timesheets/dto/timesheet.dto';
 
@@ -19,6 +20,7 @@ export class TimesheetSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly entriesService: TimesheetEntriesService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async syncBatch(
@@ -38,6 +40,17 @@ export class TimesheetSyncService {
     event: TimesheetSyncEventDto,
     user: AuthenticatedUser,
   ): Promise<TimesheetSyncItemResult> {
+    if (
+      (user.employeeId && user.employeeId !== event.employee_id) ||
+      !(await this.dataScope.canAccessEmployee(user, event.employee_id))
+    ) {
+      return {
+        local_id: event.local_id,
+        status: 'rejected',
+        reason: 'forbidden_employee',
+      };
+    }
+
     const existing = await this.prisma.unscoped.timesheetSyncEvent.findUnique({
       where: {
         employeeId_localId: {
@@ -53,14 +66,6 @@ export class TimesheetSyncService {
         status: 'duplicate',
         server_id: existing.timesheetEntryId ?? existing.id,
         reason: existing.timeAnomaly ? 'time_anomaly' : undefined,
-      };
-    }
-
-    if (user.employeeId && user.employeeId !== event.employee_id) {
-      return {
-        local_id: event.local_id,
-        status: 'rejected',
-        reason: 'forbidden_employee',
       };
     }
 

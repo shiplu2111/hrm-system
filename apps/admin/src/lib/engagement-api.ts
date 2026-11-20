@@ -1,5 +1,7 @@
 import type {
   CompanyAnnouncementRecord,
+  EmployeeKudosModerationRecord,
+  EmployeeKudosModerationStatus,
   EmployeeKudosRecord,
   EmployeeKudosType,
   EngagementQuestionType,
@@ -8,6 +10,7 @@ import type {
   EngagementSurveyType,
   EngagementSummary,
   EnpsTrendPoint,
+  KudosModerationFeedResult,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -58,6 +61,36 @@ export function publishAnnouncement(announcementId: string): Promise<CompanyAnno
   return tenantApiRequest<CompanyAnnouncementRecord>(
     `/engagement/announcements/${announcementId}/publish`,
     { method: 'POST' },
+  );
+}
+
+export function updateAnnouncement(
+  announcementId: string,
+  input: {
+    title?: string;
+    body?: string;
+    isPinned?: boolean;
+    expiresAt?: string | null;
+    status?: 'draft' | 'published' | 'archived';
+  },
+): Promise<CompanyAnnouncementRecord> {
+  return tenantApiRequest<CompanyAnnouncementRecord>(
+    `/engagement/announcements/${announcementId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function updateSurvey(
+  surveyId: string,
+  input: {
+    title?: string;
+    description?: string;
+    isAnonymous?: boolean;
+  },
+): Promise<EngagementSurveyRecord> {
+  return tenantApiRequest<EngagementSurveyRecord>(
+    `/engagement/surveys/${surveyId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
   );
 }
 
@@ -123,10 +156,51 @@ export function getEnpsTrends(companyId: string): Promise<EnpsTrendPoint[]> {
 
 export function listKudos(
   companyId: string,
-  limit = 20,
+  limitOrParams:
+    | number
+    | {
+        limit?: number;
+        kudosType?: EmployeeKudosType;
+        toEmployeeId?: string;
+        fromEmployeeId?: string;
+        q?: string;
+      } = 50,
 ): Promise<EmployeeKudosRecord[]> {
+  const params =
+    typeof limitOrParams === 'number' ? { limit: limitOrParams } : limitOrParams;
+  const search = new URLSearchParams();
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.kudosType) search.set('kudosType', params.kudosType);
+  if (params.toEmployeeId) search.set('toEmployeeId', params.toEmployeeId);
+  if (params.fromEmployeeId) search.set('fromEmployeeId', params.fromEmployeeId);
+  if (params.q) search.set('q', params.q);
+  const query = search.toString();
   return tenantApiRequest<EmployeeKudosRecord[]>(
-    `/companies/${companyId}/engagement/kudos?limit=${limit}`,
+    `/companies/${companyId}/engagement/kudos${query ? `?${query}` : ''}`,
+  );
+}
+
+export function listKudosModeration(
+  companyId: string,
+  params?: {
+    status?: EmployeeKudosModerationStatus | 'all';
+    kudosType?: EmployeeKudosType;
+    toEmployeeId?: string;
+    fromEmployeeId?: string;
+    q?: string;
+    limit?: number;
+  },
+): Promise<KudosModerationFeedResult> {
+  const search = new URLSearchParams();
+  if (params?.status) search.set('status', params.status);
+  if (params?.kudosType) search.set('kudosType', params.kudosType);
+  if (params?.toEmployeeId) search.set('toEmployeeId', params.toEmployeeId);
+  if (params?.fromEmployeeId) search.set('fromEmployeeId', params.fromEmployeeId);
+  if (params?.q) search.set('q', params.q);
+  if (params?.limit) search.set('limit', String(params.limit));
+  const query = search.toString();
+  return tenantApiRequest<KudosModerationFeedResult>(
+    `/companies/${companyId}/engagement/kudos/moderation${query ? `?${query}` : ''}`,
   );
 }
 
@@ -137,5 +211,24 @@ export function createKudos(
   return tenantApiRequest<EmployeeKudosRecord>(
     `/companies/${companyId}/engagement/kudos`,
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function removeKudos(
+  kudosId: string,
+  reason?: string,
+): Promise<EmployeeKudosModerationRecord> {
+  return tenantApiRequest<EmployeeKudosModerationRecord>(
+    `/engagement/kudos/${kudosId}/remove`,
+    { method: 'POST', body: JSON.stringify({ ...(reason ? { reason } : {}) }) },
+  );
+}
+
+export function restoreKudos(
+  kudosId: string,
+): Promise<EmployeeKudosModerationRecord> {
+  return tenantApiRequest<EmployeeKudosModerationRecord>(
+    `/engagement/kudos/${kudosId}/restore`,
+    { method: 'POST' },
   );
 }

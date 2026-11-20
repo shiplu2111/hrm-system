@@ -210,6 +210,24 @@ export class AccountingController {
     };
   }
 
+  @Post('companies/:companyId/gl-exports/contractor-export')
+  @RequirePermission('payroll', 'create')
+  @ApiOperation({
+    summary:
+      'Link completed paid contractor batches and direct paid invoices into GL Exports as contractor_expense',
+  })
+  async exportCompletedContractorPayments(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      data: await this.contractorAccountingService.exportCompletedUnexportedPayments(
+        companyId,
+        user,
+      ),
+    };
+  }
+
   @Get('companies/:companyId/payroll-periods/:periodId/journal-preview')
   @RequirePermission('payroll', 'view')
   async previewJournal(

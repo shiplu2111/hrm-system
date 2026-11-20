@@ -67,7 +67,12 @@ export class EmployeeDocumentsService {
     const employee = await this.assertEmployee(employeeId);
 
     const docType = await this.prisma.unscoped.documentType.findFirst({
-      where: { id: dto.documentTypeId, companyId: employee.companyId, isActive: true },
+      where: {
+        id: dto.documentTypeId,
+        companyId: employee.companyId,
+        scope: 'employee',
+        isActive: true,
+      },
       include: {
         fieldDefinitions: {
           where: {
@@ -298,6 +303,30 @@ export class EmployeeDocumentsService {
     };
   }
 
+  async downloadDocumentFile(
+    employeeId: string,
+    documentId: string,
+    user: AuthenticatedUser,
+  ) {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
+    await this.assertEmployee(employeeId);
+    const existing = await this.getDocOrThrow(employeeId, documentId);
+
+    if (!existing.fileKey) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Document has no uploaded file',
+      });
+    }
+
+    const { buffer, meta } = await this.storageService.read(existing.fileKey);
+    return {
+      buffer,
+      meta,
+      filename: meta.originalName ?? 'document',
+    };
+  }
+
   async verifyDocument(
     employeeId: string,
     documentId: string,
@@ -441,15 +470,19 @@ export class EmployeeDocumentsService {
     }>,
   ) {
     const verified = !!row.verifiedAt;
-    let status: 'verified' | 'pending' | 'expiring_soon' = verified
+    let status: 'verified' | 'pending' | 'expiring_soon' | 'expired' = verified
       ? 'verified'
       : 'pending';
 
     if (row.expiryDate) {
       const expiry = row.expiryDate.getTime();
-      const now = Date.now();
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
+      const startOfToday = todayUtc.getTime();
       const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-      if (expiry - now <= thirtyDays && expiry >= now) {
+      if (expiry < startOfToday) {
+        status = 'expired';
+      } else if (expiry - startOfToday <= thirtyDays) {
         status = 'expiring_soon';
       }
     }

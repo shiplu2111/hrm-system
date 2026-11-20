@@ -1,112 +1,158 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
+  AlertCircle,
+  BookOpen,
   CheckCircle2,
+  HelpCircle,
   Loader2,
-  Search,
+  Plus,
   Ticket,
 } from 'lucide-react';
 import type {
   KbArticleListItem,
-  KbArticleRecord,
-  SupportTicketPriority,
+  KbCategoryRecord,
+  SupportTicketDetail,
   SupportTicketRecord,
-  SupportTicketStatus,
 } from '@hrm/shared-types';
 import { useAppTranslation } from '@hrm/i18n';
-import { KbMarkdown } from '@/components/support/KbMarkdown';
-import { Badge } from '@/components/ui/Badge';
+import { CreateSupportTicketModal } from '@/components/my/support/CreateSupportTicketModal';
+import { KbArticleReaderModal } from '@/components/my/support/KbArticleReaderModal';
+import { MyKnowledgeBaseTab } from '@/components/my/support/MyKnowledgeBaseTab';
+import { MySupportTicketsTab } from '@/components/my/support/MySupportTicketsTab';
+import { SupportTicketDetailModal } from '@/components/my/support/SupportTicketDetailModal';
 import { Button } from '@/components/ui/Button';
-import { Card, CardBody } from '@/components/ui/Card';
-import { Input, Label, Select, Textarea } from '@/components/ui/Form';
-import { Modal } from '@/components/ui/Modal';
 import {
-  createSupportTicket,
-  getKbArticle,
   listKbArticles,
+  listKbCategories,
   listSupportTickets,
 } from '@/lib/support-api';
 import { ApiError } from '@/lib/tenant-api-client';
 
-const statusTone: Record<
-  SupportTicketStatus,
-  'neutral' | 'accent' | 'warning' | 'success'
-> = {
-  open: 'accent',
-  in_progress: 'warning',
-  waiting: 'neutral',
-  resolved: 'success',
-  closed: 'neutral',
-};
-
-const ticketPriorities: SupportTicketPriority[] = ['low', 'medium', 'high', 'urgent'];
+type ActiveTab = 'tickets' | 'kb';
 
 export function HelpSupportView() {
   const { t } = useAppTranslation();
-  const [query, setQuery] = useState('');
-  const [articles, setArticles] = useState<KbArticleListItem[]>([]);
-  const [tickets, setTickets] = useState<SupportTicketRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedArticle, setSelectedArticle] = useState<KbArticleRecord | null>(null);
-  const [ticketModal, setTicketModal] = useState(false);
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<SupportTicketPriority>('medium');
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const initialTab = searchParams.get('tab') === 'kb' ? 'kb' : 'tickets';
+  const initialTicketId = searchParams.get('ticket');
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialTab);
+  const [tickets, setTickets] = useState<SupportTicketRecord[]>([]);
+  const [categories, setCategories] = useState<KbCategoryRecord[]>([]);
+  const [articles, setArticles] = useState<KbArticleListItem[]>([]);
+
+  const [loadingTickets, setLoadingTickets] = useState(true);
+  const [loadingKb, setLoadingKb] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Modals state
+  const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(initialTicketId);
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
+
+  // KB search state
+  const [kbQuery, setKbQuery] = useState('');
+  const [kbCategory, setKbCategory] = useState<string | null>(null);
+
+  // Load tickets
+  const loadTickets = useCallback(async () => {
     try {
-      const [arts, tix] = await Promise.all([
-        listKbArticles({ search: query.trim() || undefined }),
-        listSupportTickets(),
-      ]);
-      setArticles(arts);
-      setTickets(tix);
+      const rows = await listSupportTickets();
+      setTickets(rows);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('errors.loadHelp'));
     } finally {
-      setLoading(false);
+      setLoadingTickets(false);
     }
-  }, [query, t]);
+  }, [t]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => void load(), query ? 300 : 0);
-    return () => clearTimeout(timer);
-  }, [load, query]);
-
-  const openArticle = async (articleId: string) => {
+  // Load KB categories
+  const loadCategories = useCallback(async () => {
     try {
-      setSelectedArticle(await getKbArticle(articleId));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('errors.loadArticle'));
+      const cats = await listKbCategories();
+      setCategories(cats);
+    } catch {
+      // Non-fatal, category filter will simply be empty
     }
-  };
+  }, []);
 
-  const submitTicket = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!subject.trim() || !description.trim()) return;
-    setSubmitting(true);
+  // Load KB articles
+  const loadArticles = useCallback(async () => {
+    setLoadingKb(true);
     try {
-      await createSupportTicket({
-        subject: subject.trim(),
-        description: description.trim(),
-        priority,
+      const arts = await listKbArticles({
+        search: kbQuery.trim() || undefined,
+        categoryId: kbCategory || undefined,
       });
-      setSubmitted(true);
-      setSubject('');
-      setDescription('');
-      await load();
+      setArticles(arts);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('errors.submitTicket'));
+      setError(err instanceof ApiError ? err.message : t('errors.loadHelp'));
     } finally {
-      setSubmitting(false);
+      setLoadingKb(false);
     }
+  }, [kbQuery, kbCategory, t]);
+
+  // Initial data loading
+  useEffect(() => {
+    void loadTickets();
+    void loadCategories();
+  }, [loadTickets, loadCategories]);
+
+  // Debounced load articles on query / category change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadArticles();
+    }, kbQuery ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [loadArticles, kbQuery]);
+
+  // Sync URL search params with active tab and selected ticket
+  const handleTabChange = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === 'kb') {
+          next.set('tab', 'kb');
+        } else {
+          next.delete('tab');
+        }
+        return next;
+      },
+      { replace: true },
+    );
   };
 
-  if (loading && articles.length === 0) {
+  const handleSelectTicket = (ticketId: string | null) => {
+    setSelectedTicketId(ticketId);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (ticketId) {
+          next.set('ticket', ticketId);
+        } else {
+          next.delete('ticket');
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const handleTicketCreated = (ticket: SupportTicketDetail) => {
+    setIsNewTicketOpen(false);
+    setNotice(t('support.ticketCreatedSuccess'));
+    void loadTickets();
+    setActiveTab('tickets');
+    handleSelectTicket(ticket.id);
+  };
+
+  const isInitialLoading = loadingTickets && loadingKb && tickets.length === 0 && articles.length === 0;
+
+  if (isInitialLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-accent-600" />
@@ -116,116 +162,139 @@ export function HelpSupportView() {
 
   return (
     <div className="space-y-6">
+      {/* Alert Notices */}
       {error && (
-        <div className="rounded-lg border border-error-200 bg-error-50 px-4 py-3 text-sm text-error-700 dark:border-error-800 dark:bg-error-900/30 dark:text-error-300">
-          {error}
+        <div className="flex items-start gap-2.5 rounded-lg border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:border-error-800 dark:bg-error-950/30 dark:text-error-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <p>{error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-xs text-error-600 hover:text-error-800 dark:text-error-400"
+          >
+            {t('common.dismiss')}
+          </button>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full max-w-xl">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('support.searchArticles')}
-            className="pl-9"
-          />
+      {notice && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-success-200 bg-success-50 p-4 text-sm text-success-800 dark:border-success-800 dark:bg-success-950/30 dark:text-success-300">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success-600 dark:text-success-400" />
+          <span className="flex-1 font-medium">{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="text-xs text-success-700 hover:text-success-900 dark:text-success-300"
+          >
+            {t('common.dismiss')}
+          </button>
         </div>
-        <Button variant="primary" size="sm" onClick={() => { setSubmitted(false); setTicketModal(true); }}>
-          <Ticket className="h-4 w-4" /> {t('support.newTicket')}
+      )}
+
+      {/* Tabs and Top Action Navigation */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-base pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleTabChange('tickets')}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+              activeTab === 'tickets'
+                ? 'bg-accent-600 text-white shadow-sm'
+                : 'text-secondary hover:bg-[rgb(var(--bg-hover))] hover:text-primary'
+            }`}
+          >
+            <Ticket className="h-4 w-4" />
+            <span>{t('support.tabTickets')}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs ${
+                activeTab === 'tickets'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+              }`}
+            >
+              {tickets.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('kb')}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+              activeTab === 'kb'
+                ? 'bg-accent-600 text-white shadow-sm'
+                : 'text-secondary hover:bg-[rgb(var(--bg-hover))] hover:text-primary'
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>{t('support.tabKnowledgeBase')}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs ${
+                activeTab === 'kb'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+              }`}
+            >
+              {articles.length}
+            </span>
+          </button>
+        </div>
+
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setIsNewTicketOpen(true)}
+          className="self-start sm:self-auto"
+        >
+          <Plus className="h-4 w-4" />
+          {t('support.newTicket')}
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-primary">{t('support.knowledgeBase')}</h3>
-          {articles.map((article) => (
-            <Card key={article.id}>
-              <CardBody className="p-4">
-                <Badge tone="accent" className="mb-2">{article.categoryName}</Badge>
-                <button
-                  type="button"
-                  className="text-left text-sm font-semibold text-primary hover:text-accent-700"
-                  onClick={() => void openArticle(article.id)}
-                >
-                  {article.title}
-                </button>
-                <p className="mt-1 text-xs text-secondary">{article.summary}</p>
-              </CardBody>
-            </Card>
-          ))}
-          {articles.length === 0 && (
-            <p className="text-sm text-secondary">{t('support.noArticles')}</p>
-          )}
-        </div>
+      {/* Tab Panels */}
+      {activeTab === 'tickets' ? (
+        <MySupportTicketsTab
+          tickets={tickets}
+          loading={loadingTickets}
+          onOpenNewTicket={() => setIsNewTicketOpen(true)}
+          onSelectTicket={handleSelectTicket}
+          selectedTicketId={selectedTicketId}
+        />
+      ) : (
+        <MyKnowledgeBaseTab
+          articles={articles}
+          categories={categories}
+          loading={loadingKb}
+          onSelectArticle={(id) => setSelectedArticleId(id)}
+          onOpenNewTicket={() => setIsNewTicketOpen(true)}
+          searchQuery={kbQuery}
+          onSearchChange={setKbQuery}
+          selectedCategoryId={kbCategory}
+          onCategoryChange={setKbCategory}
+        />
+      )}
 
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-primary">{t('support.myTickets')}</h3>
-          {tickets.map((ticket) => (
-            <Card key={ticket.id}>
-              <CardBody className="flex items-center justify-between gap-3 p-4">
-                <div>
-                  <p className="font-mono text-[10px] text-muted">{ticket.ticketNumber}</p>
-                  <p className="text-sm font-medium text-primary">{ticket.subject}</p>
-                </div>
-                <Badge tone={statusTone[ticket.status]}>
-                  {t(`support.ticketStatus.${ticket.status}`)}
-                </Badge>
-              </CardBody>
-            </Card>
-          ))}
-          {tickets.length === 0 && (
-            <p className="text-sm text-secondary">{t('support.noTickets')}</p>
-          )}
-        </div>
-      </div>
+      {/* Modals */}
+      <CreateSupportTicketModal
+        open={isNewTicketOpen}
+        onClose={() => setIsNewTicketOpen(false)}
+        onSuccess={handleTicketCreated}
+      />
 
-      <Modal
-        open={Boolean(selectedArticle)}
-        onClose={() => setSelectedArticle(null)}
-        title={selectedArticle?.title ?? t('support.articleFallback')}
-        size="lg"
-      >
-        {selectedArticle && (
-          <div className="space-y-3 text-sm">
-            <p className="text-secondary">{selectedArticle.summary}</p>
-            <KbMarkdown source={selectedArticle.body} />
-          </div>
-        )}
-      </Modal>
+      <SupportTicketDetailModal
+        ticketId={selectedTicketId}
+        open={Boolean(selectedTicketId)}
+        onClose={() => handleSelectTicket(null)}
+        onTicketUpdated={loadTickets}
+      />
 
-      <Modal open={ticketModal} onClose={() => setTicketModal(false)} title={t('support.newSupportTicket')}>
-        {submitted ? (
-          <div className="flex flex-col items-center gap-3 py-6">
-            <CheckCircle2 className="h-10 w-10 text-success-600" />
-            <p className="text-sm font-semibold">{t('support.ticketSubmitted')}</p>
-            <Button variant="secondary" size="sm" onClick={() => setTicketModal(false)}>{t('common.close')}</Button>
-          </div>
-        ) : (
-          <form className="space-y-3" onSubmit={(e) => void submitTicket(e)}>
-            <div>
-              <Label htmlFor="ess-ticket-subject">{t('support.subject')}</Label>
-              <Input id="ess-ticket-subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="ess-ticket-priority">{t('support.priority')}</Label>
-              <Select id="ess-ticket-priority" value={priority} onChange={(e) => setPriority(e.target.value as SupportTicketPriority)}>
-                {ticketPriorities.map((key) => (
-                  <option key={key} value={key}>{t(`support.ticketPriority.${key}`)}</option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="ess-ticket-body">{t('support.description')}</Label>
-              <Textarea id="ess-ticket-body" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-            <Button type="submit" variant="primary" disabled={submitting}>
-              {submitting ? t('common.submitting') : t('common.submit')}
-            </Button>
-          </form>
-        )}
-      </Modal>
+      <KbArticleReaderModal
+        articleId={selectedArticleId}
+        open={Boolean(selectedArticleId)}
+        onClose={() => setSelectedArticleId(null)}
+        onOpenTicketModal={() => setIsNewTicketOpen(true)}
+      />
     </div>
   );
 }

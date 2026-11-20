@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import {
   BulkPayrollRunTransitionDto,
   CalculatePayrollRunsDto,
@@ -25,6 +26,7 @@ import { PayrollRunsService } from './payroll-runs.service';
 
 @ApiTags('payroll-runs')
 @ApiBearerAuth('access-token')
+@RequireFeature('basic_payroll')
 @Controller('companies/:companyId')
 export class PayrollRunsController {
   constructor(private readonly payrollRunsService: PayrollRunsService) {}

@@ -1,6 +1,9 @@
+import { BadRequestException } from '@nestjs/common';
 import {
+  buildIncidentReportingConfig,
   parseHealthSafetyRules,
   resolveRegulatorReporting,
+  validateAndSanitizeCountrySpecificData,
 } from './health-safety.utils';
 
 describe('health-safety.utils', () => {
@@ -69,6 +72,98 @@ describe('health-safety.utils', () => {
 
       expect(result.required).toBe(false);
       expect(result.dueAt).toBeNull();
+    });
+  });
+
+  describe('reportingFields parsing and validation', () => {
+    const rules = parseHealthSafetyRules({
+      incidentReporting: {
+        regulatorName: 'OSHA',
+        regulatorReferenceLabel: 'OSHA Case Number',
+        regulatorReportRequiredSeverities: ['high', 'critical'],
+        regulatorReportDeadlineHours: 8,
+        reportingFields: [
+          {
+            key: 'oshaClassification',
+            label: 'OSHA Classification',
+            type: 'select',
+            requiredWhenRegulatorNotifiable: true,
+            options: [
+              { value: 'days_away', label: 'Days away from work' },
+              { value: 'restricted', label: 'Restricted work' },
+            ],
+          },
+          {
+            key: 'daysAwayFromWork',
+            label: 'Days Away From Work',
+            type: 'number',
+          },
+          {
+            key: 'sitePreserved',
+            label: 'Site Preserved',
+            type: 'boolean',
+            required: true,
+          },
+          { key: 'badType', label: 'Bad', type: 'unknown_widget' },
+        ],
+      },
+    });
+
+    it('parses valid reporting fields and drops malformed widget types', () => {
+      const cfg = buildIncidentReportingConfig(rules);
+      expect(cfg.regulatorName).toBe('OSHA');
+      expect(cfg.regulatorReferenceLabel).toBe('OSHA Case Number');
+      expect(cfg.reportingFields).toHaveLength(3);
+      expect(cfg.reportingFields.map((f) => f.key)).toEqual([
+        'oshaClassification',
+        'daysAwayFromWork',
+        'sitePreserved',
+      ]);
+    });
+
+    it('sanitizes types and strips unknown keys', () => {
+      const sanitized = validateAndSanitizeCountrySpecificData({
+        data: {
+          oshaClassification: 'days_away',
+          daysAwayFromWork: '3',
+          sitePreserved: true,
+          injectedExtraKey: 'should-be-dropped',
+        },
+        fields: rules.incidentReporting?.reportingFields ?? [],
+        regulatorRequired: true,
+        enforceRequired: true,
+        enforceRegulatorRequired: true,
+      });
+
+      expect(sanitized).toEqual({
+        oshaClassification: 'days_away',
+        daysAwayFromWork: 3,
+        sitePreserved: true,
+      });
+    });
+
+    it('rejects missing requiredWhenRegulatorNotifiable fields on regulator submission', () => {
+      expect(() =>
+        validateAndSanitizeCountrySpecificData({
+          data: { sitePreserved: false },
+          fields: rules.incidentReporting?.reportingFields ?? [],
+          regulatorRequired: true,
+          enforceRequired: true,
+          enforceRegulatorRequired: true,
+        }),
+      ).toThrow(BadRequestException);
+    });
+
+    it('rejects invalid select option values', () => {
+      expect(() =>
+        validateAndSanitizeCountrySpecificData({
+          data: { oshaClassification: 'invalid_choice', sitePreserved: true },
+          fields: rules.incidentReporting?.reportingFields ?? [],
+          regulatorRequired: false,
+          enforceRequired: true,
+          enforceRegulatorRequired: false,
+        }),
+      ).toThrow(BadRequestException);
     });
   });
 });

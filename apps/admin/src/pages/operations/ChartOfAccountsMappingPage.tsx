@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   BookOpen,
@@ -95,14 +95,23 @@ function sameDraft(a: Draft = {}, b: Draft = {}): boolean {
 
 function MappingContent({ companyId }: { companyId: string }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { can } = usePermissions();
   const canEdit = can('payroll', 'edit');
   const canCreateAccount = can('payroll', 'create');
 
+  const initialTabParam = searchParams.get('tab');
+  const initialTab: Tab =
+    initialTabParam === 'contractor' ||
+    initialTabParam === 'cost-centres' ||
+    initialTabParam === 'accounts'
+      ? initialTabParam
+      : 'components';
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('components');
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   const [accounts, setAccounts] = useState<GlAccountRecord[]>([]);
   const [mappings, setMappings] = useState<GlPayrollMappingRecord[]>([]);

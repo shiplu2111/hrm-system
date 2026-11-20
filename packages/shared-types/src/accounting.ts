@@ -186,6 +186,9 @@ export interface GlExportStatusRecord {
   /** Stable row id: `payroll:<exportId>`, `contractor:<exportId>` or `sync:<syncJobId>` */
   id: string;
   kind: GlExportKind;
+  /** Distinct GL reporting category (`contractor_expense` keeps non-employee AP separate from `payroll`). */
+  expenseCategory?: 'payroll' | 'contractor_expense';
+  invoiceCount?: number | null;
   destination: GlExportDestination;
   outcome: GlExportOutcome;
   exportId: string | null;
@@ -225,12 +228,32 @@ export interface GlExportStatusSummary {
   queueAvailable: boolean;
 }
 
+export interface GlContractorExpenseSummary {
+  categoryKey: 'contractor_expense';
+  mappedExpenseAccount: string | null;
+  mappedPayableAccount: string | null;
+  totalExportedAmount: string;
+  succeededCount: number;
+  failedCount: number;
+  unexportedPaidBatchCount: number;
+  unexportedPaidInvoiceCount: number;
+  unexportedPaidAmount: string;
+}
+
 export interface GlExportStatusList {
   items: GlExportStatusRecord[];
   summary: GlExportStatusSummary;
+  contractorExpense?: GlContractorExpenseSummary;
   page: number;
   pageSize: number;
   total: number;
+}
+
+export interface ContractorCompletedGlSyncResult {
+  exportedBatches: number;
+  exportedInvoices: number;
+  failedExports: number;
+  exportIds: string[];
 }
 
 export interface GlExportStatusDetail extends GlExportStatusRecord {

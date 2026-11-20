@@ -64,7 +64,11 @@ export interface DocumentTypeRecord {
   updatedAt: string;
 }
 
-export type EmployeeDocumentStatus = 'verified' | 'pending' | 'expiring_soon';
+export type EmployeeDocumentStatus =
+  | 'verified'
+  | 'pending'
+  | 'expiring_soon'
+  | 'expired';
 
 export interface EmployeeDocumentRecord {
   id: string;

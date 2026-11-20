@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -19,6 +20,8 @@ const ANNOUNCEMENT_STATUSES = ['draft', 'published', 'archived'] as const;
 const SURVEY_STATUSES = ['draft', 'published', 'closed'] as const;
 const SURVEY_TYPES = ['pulse', 'enps'] as const;
 const QUESTION_TYPES = ['multiple_choice', 'rating', 'text', 'enps'] as const;
+const KUDOS_TYPES = ['peer', 'manager'] as const;
+const KUDOS_MODERATION_FILTERS = ['active', 'removed', 'all'] as const;
 
 export class ListAnnouncementsQueryDto {
   @IsOptional()
@@ -174,10 +177,61 @@ export class ListKudosQueryDto {
   toEmployeeId?: string;
 
   @IsOptional()
+  @IsUUID()
+  fromEmployeeId?: string;
+
+  @IsOptional()
+  @IsIn([...KUDOS_TYPES])
+  kudosType?: (typeof KUDOS_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(100)
   limit?: number;
+}
+
+export class ListKudosModerationQueryDto {
+  @IsOptional()
+  @IsIn([...KUDOS_MODERATION_FILTERS])
+  status?: (typeof KUDOS_MODERATION_FILTERS)[number];
+
+  @IsOptional()
+  @IsIn([...KUDOS_TYPES])
+  kudosType?: (typeof KUDOS_TYPES)[number];
+
+  @IsOptional()
+  @IsUUID()
+  toEmployeeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  fromEmployeeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+export class RemoveKudosDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class CreateKudosDto {
@@ -189,6 +243,7 @@ export class CreateKudosDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(2000)
   message!: string;
 }
 
@@ -198,5 +253,6 @@ export class CreateEmployeeKudosDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(2000)
   message!: string;
 }

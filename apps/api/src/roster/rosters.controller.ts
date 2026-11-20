@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import {
   BulkAssignRosterDto,
   BulkClearRosterDto,
@@ -28,6 +29,7 @@ import { RostersService } from './rosters.service';
 
 @ApiTags('rosters')
 @ApiBearerAuth('access-token')
+@RequireFeature('roster')
 @Controller('companies/:companyId/rosters')
 export class RostersController {
   constructor(

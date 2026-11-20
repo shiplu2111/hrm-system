@@ -13,11 +13,13 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import { CreateShiftDto, UpdateShiftDto } from './dto/shifts.dto';
 import { ShiftsService } from './shifts.service';
 
 @ApiTags('shifts')
 @ApiBearerAuth('access-token')
+@RequireFeature('roster')
 @Controller('companies/:companyId/shifts')
 export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}

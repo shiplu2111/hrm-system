@@ -10,6 +10,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import type {
   CreateExpenseCategoryDto,
   ListExpenseCategoriesQueryDto,
@@ -23,13 +24,16 @@ export class ExpenseCategoriesService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    private readonly dataScope: DataScopeService,
   ) {}
 
   async list(
     companyId: string,
     query: ListExpenseCategoriesQueryDto,
+    user?: AuthenticatedUser,
   ): Promise<ExpenseCategoryRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    const employeeFilter = user ? await this.dataScope.employeeIdFilter(user) : undefined;
 
     const rows = await this.prisma.unscoped.expenseCategory.findMany({
       where: {
@@ -39,7 +43,7 @@ export class ExpenseCategoriesService {
       orderBy: [{ name: 'asc' }],
     });
 
-    const usage = await this.loadUsage(companyId);
+    const usage = await this.loadUsage(companyId, employeeFilter);
     return rows.map((row) => ({
       ...this.toRecord(row),
       usage: usage.get(row.id) ?? { claimCount: 0, openClaimCount: 0, monthToDateAmount: 0 },
@@ -147,18 +151,26 @@ export class ExpenseCategoriesService {
     return row;
   }
 
-  private async loadUsage(companyId: string): Promise<Map<string, ExpenseCategoryUsage>> {
+  private async loadUsage(
+    companyId: string,
+    employeeFilter?: { in: string[] },
+  ): Promise<Map<string, ExpenseCategoryUsage>> {
+    if (employeeFilter && employeeFilter.in.length === 0) {
+      return new Map();
+    }
     const { start, end } = monthBounds(new Date());
+    const scopeWhere = employeeFilter ? { employeeId: employeeFilter } : {};
     const [byStatus, monthToDate] = await Promise.all([
       this.prisma.unscoped.expenseClaim.groupBy({
         by: ['categoryId', 'status'],
-        where: { companyId },
+        where: { companyId, ...scopeWhere },
         _count: { _all: true },
       }),
       this.prisma.unscoped.expenseClaim.groupBy({
         by: ['categoryId'],
         where: {
           companyId,
+          ...scopeWhere,
           expenseDate: { gte: start, lte: end },
           status: {
             in: [

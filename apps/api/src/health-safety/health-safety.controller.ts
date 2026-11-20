@@ -12,11 +12,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
-import type {
+import {
   CreateEmployeeIncidentDto,
   CreateInjuryLogEntryDto,
   CreateSafetyInspectionDto,
   CreateWorkplaceIncidentDto,
+  GetHealthSafetyRequirementsQueryDto,
   ListIncidentsQueryDto,
   ListInjuryLogQueryDto,
   UpdateSafetyComplianceDto,
@@ -47,9 +48,15 @@ export class HealthSafetyController {
 
   @Get('companies/:companyId/health-safety/requirements')
   @RequirePermission('health_safety', 'view')
-  async getRequirements(@Param('companyId', ParseUUIDPipe) companyId: string) {
+  async getRequirements(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: GetHealthSafetyRequirementsQueryDto,
+  ) {
     return {
-      data: await this.rulesService.getRequirementsForCompany(companyId),
+      data: await this.rulesService.getRequirementsForCompany(companyId, {
+        employeeId: query.employeeId,
+        asOf: query.asOf ? new Date(query.asOf) : undefined,
+      }),
     };
   }
 

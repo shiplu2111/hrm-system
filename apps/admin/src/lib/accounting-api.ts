@@ -1,6 +1,7 @@
 import type {
   AccountingConnectionRecord,
   AccountingSyncJobRecord,
+  ContractorCompletedGlSyncResult,
   ContractorJournalExportRecord,
   GlAccountRecord,
   GlAccountType,
@@ -152,6 +153,24 @@ export function listContractorJournalExports(
 ): Promise<ContractorJournalExportRecord[]> {
   return tenantApiRequest<ContractorJournalExportRecord[]>(
     `/companies/${companyId}/contractor-journal-exports`,
+  );
+}
+
+export function exportContractorJournal(
+  batchId: string,
+): Promise<ContractorJournalExportRecord> {
+  return tenantApiRequest<ContractorJournalExportRecord>(
+    `/contractor-payment-batches/${batchId}/journal-export`,
+    { method: 'POST' },
+  );
+}
+
+export function exportCompletedContractorPaymentsToGl(
+  companyId: string,
+): Promise<ContractorCompletedGlSyncResult> {
+  return tenantApiRequest<ContractorCompletedGlSyncResult>(
+    `/companies/${companyId}/gl-exports/contractor-export`,
+    { method: 'POST' },
   );
 }
 

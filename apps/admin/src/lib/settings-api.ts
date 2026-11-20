@@ -5,12 +5,76 @@ import type {
   SmtpSettingsView,
   UpdateNotificationEventSettingsInput,
   UpdateSmtpSettingsInput,
+  SupportAccessRequestRecord,
+  TenantSecuritySettings,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
 function companySettingsPath(companyId: string, resource: string): string {
   return `/organization/companies/${companyId}/settings/${resource}`;
 }
+
+// ---------------------------------------------------------------------------
+// Support Access Settings (SECURITY.md, AUDIT_LOG.md)
+// ---------------------------------------------------------------------------
+
+export interface TenantSupportAccessData {
+  settings: TenantSecuritySettings;
+  requests: SupportAccessRequestRecord[];
+}
+
+export function getTenantSupportAccessSettings(): Promise<TenantSupportAccessData> {
+  return tenantApiRequest<TenantSupportAccessData>('/tenant/security/support-access');
+}
+
+export function updateSupportAccessPreauthorization(
+  preauthorized: boolean,
+): Promise<TenantSecuritySettings> {
+  return tenantApiRequest<TenantSecuritySettings>('/tenant/security/support-access/preauthorize', {
+    method: 'PUT',
+    body: JSON.stringify({ preauthorized }),
+  });
+}
+
+export function approveSupportAccessRequest(
+  requestId: string,
+  accessMode?: 'read_only' | 'read_write',
+): Promise<SupportAccessRequestRecord> {
+  return tenantApiRequest<SupportAccessRequestRecord>(
+    `/tenant/security/support-access/requests/${requestId}/approve`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ accessMode }),
+    },
+  );
+}
+
+export function rejectSupportAccessRequest(
+  requestId: string,
+  reason?: string,
+): Promise<SupportAccessRequestRecord> {
+  return tenantApiRequest<SupportAccessRequestRecord>(
+    `/tenant/security/support-access/requests/${requestId}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+export function revokeSupportAccessSession(
+  requestId: string,
+  reason: string,
+): Promise<SupportAccessRequestRecord> {
+  return tenantApiRequest<SupportAccessRequestRecord>(
+    `/tenant/security/support-access/requests/${requestId}/revoke`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
+}
+
 
 export function getNotificationEventSettings(companyId: string): Promise<NotificationEventSettingsView> {
   return tenantApiRequest<NotificationEventSettingsView>(companySettingsPath(companyId, 'notifications/events'));

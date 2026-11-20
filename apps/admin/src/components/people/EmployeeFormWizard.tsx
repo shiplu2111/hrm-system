@@ -220,7 +220,10 @@ export function EmployeeFormWizard({
 
   const showSaveError = (err: unknown, fallback: string) => {
     setError(err instanceof ApiError ? err.message : fallback);
-    setPlanLimitHit(err instanceof ApiError && err.code === 'PLAN_EMPLOYEE_LIMIT_REACHED');
+    setPlanLimitHit(
+      err instanceof ApiError &&
+        (err.code === 'PLAN_EMPLOYEE_LIMIT_REACHED' || err.code === 'PLAN_LIMIT_REACHED'),
+    );
   };
 
   const currentStep = STEP_KEYS[stepIndex];

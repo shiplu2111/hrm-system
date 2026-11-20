@@ -117,3 +117,95 @@ export interface UpdateNotificationEventSettingsInput {
   realtimeEnabled: boolean;
   events: Array<NotificationEventChannelState & { eventType: NotificationEventType }>;
 }
+
+/** Notification categories for employee channel preferences (NOTIFICATION_LOGIC.md §8). */
+export type NotificationCategory =
+  | 'security_critical'
+  | 'leave_attendance'
+  | 'payroll_compensation'
+  | 'approvals_tasks'
+  | 'engagement_social'
+  | 'compliance_documents';
+
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  'security_critical',
+  'leave_attendance',
+  'payroll_compensation',
+  'approvals_tasks',
+  'engagement_social',
+  'compliance_documents',
+];
+
+export interface NotificationCategoryChannelPreference {
+  category: NotificationCategory;
+  isCritical: boolean;
+  inApp: boolean;
+  email: boolean;
+  push: boolean;
+  companyAllowed: {
+    inApp: boolean;
+    email: boolean;
+    push: boolean;
+  };
+}
+
+export interface UserNotificationPreferencesView {
+  userId: string;
+  categories: NotificationCategoryChannelPreference[];
+  updatedAt: string | null;
+}
+
+export interface UpdateUserNotificationPreferencesInput {
+  preferences: Array<{
+    category: NotificationCategory;
+    inApp?: boolean;
+    email?: boolean;
+    push?: boolean;
+  }>;
+}
+
+export function getNotificationCategoryForEvent(eventType: string): NotificationCategory {
+  if (
+    eventType.startsWith('auth.') ||
+    eventType.startsWith('security.') ||
+    eventType === 'account.locked'
+  ) {
+    return 'security_critical';
+  }
+  if (
+    eventType.startsWith('leave.') ||
+    eventType.startsWith('attendance.') ||
+    eventType.startsWith('shift.') ||
+    eventType.startsWith('roster.')
+  ) {
+    return 'leave_attendance';
+  }
+  if (
+    eventType.startsWith('payroll.') ||
+    eventType.startsWith('payslip.') ||
+    eventType.startsWith('salary.')
+  ) {
+    return 'payroll_compensation';
+  }
+  if (
+    eventType.startsWith('approval.') ||
+    eventType.startsWith('expense.') ||
+    eventType.includes('renewal')
+  ) {
+    return 'approvals_tasks';
+  }
+  if (
+    eventType.startsWith('kudos.') ||
+    eventType.startsWith('onboarding.') ||
+    eventType.includes('birthday') ||
+    eventType.includes('anniversary')
+  ) {
+    return 'engagement_social';
+  }
+  return 'compliance_documents';
+}
+
+export function isCriticalNotificationCategory(category: NotificationCategory): boolean {
+  return category === 'security_critical';
+}
+

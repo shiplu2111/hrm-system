@@ -10,10 +10,15 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   dashboard: '/',
   'my-dashboard': '/my',
   'my-profile': '/my/profile',
+  'my-documents': '/my/documents',
+  'my-directory': '/my/directory',
   'my-attendance': '/my/attendance',
   'my-leave': '/my/leave',
   'my-roster': '/my/roster',
+  'my-timesheets': '/my/timesheets',
   'my-payslips': '/my/payslips',
+  'my-expenses': '/my/expenses',
+  'my-notifications': '/my/notifications',
   'my-help': '/my/help',
   'emp-directory': '/employees/directory',
   'emp-profile': '/employees/:employeeId',
@@ -96,8 +101,13 @@ export const PAGE_PATHS: Partial<Record<PageKey, string>> = {
   'training-skills': '/talent/training/skills',
   'employee-relations': '/talent/employee-relations',
   engagement: '/talent/engagement',
+  'engagement-surveys': '/talent/engagement/surveys',
+  'engagement-kudos': '/talent/engagement/kudos',
   'health-safety': '/talent/health-safety',
+  'health-safety-incident-detail': '/talent/health-safety/incidents/:incidentId',
   'vendors-contractors': '/talent/vendors-contractors',
+  'contractor-payment-terms': '/talent/vendors-contractors/payment-terms',
+  'contractor-invoices': '/talent/vendors-contractors/invoices',
   'reports-hub': '/reports',
   'reports-scheduled': '/reports/scheduled',
   'data-import': '/reports/import',
@@ -178,6 +188,10 @@ const DYNAMIC_ROUTES: Array<{
     pattern: /^\/settings\/workflows\/([0-9a-f-]{36})$/i,
     resolve: () => ({ page: 'settings-workflow-builder' }),
   },
+  {
+    pattern: /^\/talent\/health-safety\/incidents\/([0-9a-f-]{36})$/i,
+    resolve: () => ({ page: 'health-safety-incident-detail' }),
+  },
 ];
 
 export function pathForPage(
@@ -189,6 +203,7 @@ export function pathForPage(
     loanId?: string | null;
     claimId?: string | null;
     definitionId?: string | null;
+    incidentId?: string | null;
   },
 ): string {
   const template = PAGE_PATHS[page];
@@ -221,6 +236,9 @@ export function pathForPage(
   if (page === 'settings-workflow-builder' && params?.definitionId) {
     return `/settings/workflows/${params.definitionId}`;
   }
+  if (page === 'health-safety-incident-detail' && params?.incidentId) {
+    return `/talent/health-safety/incidents/${params.incidentId}`;
+  }
 
   return template;
 }
@@ -250,6 +268,7 @@ const RECORD_PARENT: Partial<Record<PageKey, PageKey>> = {
   'loan-detail': 'loans',
   'expense-detail': 'expenses',
   'settings-workflow-builder': 'settings-workflows',
+  'health-safety-incident-detail': 'health-safety',
 };
 
 /** The list page for a URL that names a specific record; null when the URL names no record. */

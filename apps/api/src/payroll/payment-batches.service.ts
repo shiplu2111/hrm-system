@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -148,6 +149,14 @@ export class PaymentBatchesService {
     user: AuthenticatedUser,
     transactionReference?: string,
   ): Promise<PaymentBatchTransitionResult> {
+    if (user.isSupportAccess) {
+      throw new ForbiddenException({
+        code: 'SUPPORT_ACCESS_RESTRICTED',
+        message:
+          'Security Policy: Support engineers are strictly prohibited from executing payments.',
+      });
+    }
+
     return this.transition(companyId, batchId, 'paid', user, {
       paidAt: new Date(),
       transactionReference: transactionReference?.trim() || null,

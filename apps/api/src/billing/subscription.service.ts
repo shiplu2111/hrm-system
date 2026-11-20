@@ -1,7 +1,13 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { EmploymentStatus, type Prisma } from '@prisma/client';
-import type { SubscriptionPlanTier, TenantSubscriptionView } from '@hrm/shared-types';
+import type {
+  PlanDefinition,
+  PlanFeatureKey,
+  SubscriptionPlanTier,
+  TenantSubscriptionView,
+} from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
+import { FeatureGateService } from './feature-gate.service';
 import {
   hasSeatsFor,
   nextPlanId,
@@ -24,9 +30,62 @@ const planLabel = (planId: SubscriptionPlanTier) =>
 
 @Injectable()
 export class SubscriptionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly featureGate?: FeatureGateService,
+  ) {}
 
   async getSubscription(tenantId: string): Promise<TenantSubscriptionView> {
+    if (this.featureGate) {
+      const details = await this.featureGate.getEffectivePlanDetails(tenantId);
+      const usedEmployees =
+        details.limits.find((l) => l.limitKey === 'employees')?.used ?? 0;
+      const employeeLimit =
+        details.limits.find((l) => l.limitKey === 'employees')?.limit ?? null;
+
+      // Query database for catalog or fallback to PLAN_CATALOG
+      let dbPlans: any[] = [];
+      try {
+        dbPlans = await (this.prisma.unscoped as any).plan?.findMany({
+          where: { isActive: true },
+          include: { features: true, limits: true },
+          orderBy: { rank: 'asc' },
+        }) ?? [];
+      } catch {
+        dbPlans = [];
+      }
+
+      const catalog: PlanDefinition[] =
+        dbPlans && dbPlans.length > 0
+          ? dbPlans.map((p: any) => ({
+              planId: p.code as SubscriptionPlanTier,
+              features: p.features
+                .filter((f: any) => f.enabled)
+                .map((f: any) => f.featureKey as PlanFeatureKey),
+              limits: Object.fromEntries(p.limits.map((l: any) => [l.limitKey, l.value])),
+            }))
+          : [...PLAN_CATALOG];
+
+      return {
+        planId: details.planId,
+        status: details.status,
+        features: details.features
+          .filter((f) => f.enabled)
+          .map((f) => f.featureKey as PlanFeatureKey),
+        usage: [
+          {
+            key: 'employees',
+            used: usedEmployees,
+            limit: employeeLimit,
+            level: usageLevel(usedEmployees, employeeLimit),
+          },
+        ],
+        plans: catalog,
+        nextPlanId: nextPlanId(details.planId),
+        approachingRatio: PLAN_LIMIT_APPROACHING_RATIO,
+      };
+    }
+
     const [tenant, used] = await Promise.all([
       this.prisma.unscoped.tenant.findUniqueOrThrow({
         where: { id: tenantId },
@@ -36,7 +95,7 @@ export class SubscriptionService {
     ]);
     const planId = normalizePlanId(tenant.planId);
     const plan = planDefinition(planId);
-    const limit = plan.limits.employees;
+    const limit = plan.limits.employees ?? null;
 
     return {
       planId,
@@ -51,13 +110,17 @@ export class SubscriptionService {
 
   /** Enforces the plan's employee cap (BILLING_SUBSCRIPTION.md §3) before `additional` employees take a seat. */
   async assertEmployeeSeats(tenantId: string, additional = 1): Promise<void> {
+    if (this.featureGate) {
+      return this.featureGate.assertWithinLimit(tenantId, 'employees', additional);
+    }
+
     if (additional <= 0) return;
     const tenant = await this.prisma.unscoped.tenant.findUniqueOrThrow({
       where: { id: tenantId },
       select: { planId: true },
     });
     const planId = normalizePlanId(tenant.planId);
-    const limit = planDefinition(planId).limits.employees;
+    const limit = planDefinition(planId).limits.employees ?? null;
     if (limit === null) return;
 
     const used = await this.countBillableEmployees(tenantId);

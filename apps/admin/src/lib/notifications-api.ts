@@ -1,4 +1,8 @@
-import type { InAppNotificationRecord } from '@hrm/shared-types';
+import type {
+  InAppNotificationRecord,
+  UpdateUserNotificationPreferencesInput,
+  UserNotificationPreferencesView,
+} from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
 export function listNotifications(options?: {
@@ -24,8 +28,42 @@ export function markNotificationRead(
 }
 
 export async function markAllNotificationsRead(
-  notifications: InAppNotificationRecord[],
+  _notifications?: InAppNotificationRecord[],
 ): Promise<void> {
-  const unread = notifications.filter((n) => !n.readAt);
-  await Promise.all(unread.map((n) => markNotificationRead(n.id)));
+  await tenantApiRequest<{ updatedCount: number }>(`/notifications/read-all`, {
+    method: 'PATCH',
+  });
 }
+
+export function deleteNotification(
+  id: string,
+): Promise<{ deleted: boolean }> {
+  return tenantApiRequest<{ deleted: boolean }>(`/notifications/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export function clearAllReadNotifications(): Promise<{ deletedCount: number }> {
+  return tenantApiRequest<{ deletedCount: number }>(`/notifications/clear-all`, {
+    method: 'DELETE',
+  });
+}
+
+export function getNotificationPreferences(): Promise<UserNotificationPreferencesView> {
+  return tenantApiRequest<UserNotificationPreferencesView>(
+    `/notifications/preferences`,
+  );
+}
+
+export function updateNotificationPreferences(
+  input: UpdateUserNotificationPreferencesInput,
+): Promise<UserNotificationPreferencesView> {
+  return tenantApiRequest<UserNotificationPreferencesView>(
+    `/notifications/preferences`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+}
+

@@ -12,6 +12,8 @@ import {
 } from '@prisma/client';
 import { PAY_FORMULA_LOAN_INSTALLMENT } from '@hrm/shared-types';
 import bcrypt from 'bcryptjs';
+import { FieldEncryptionService } from '../src/crypto/field-encryption.service';
+import { seedPlans } from './seed-plans';
 
 const prisma = new PrismaClient();
 
@@ -216,6 +218,7 @@ const ID = {
   glMappingContractorPayable: '10000000-0000-4000-8000-00000000029a',
   contractorMilestoneClearPath1: '10000000-0000-4000-8000-00000000029b',
   contractorMilestoneClearPath2: '10000000-0000-4000-8000-00000000029c',
+  globalRuleHealthSafety: '10000000-0000-4000-8000-00000000029d',
   safetyComplianceInduction: '10000000-0000-4000-8000-000000000291',
   userPayrollAdmin: '10000000-0000-4000-8000-000000000062',
   userManager: '10000000-0000-4000-8000-000000000063',
@@ -363,6 +366,7 @@ async function upsertRolePermissions(
 
 async function main(): Promise<void> {
   console.log('Seeding demo data…');
+  await seedPlans(prisma);
 
   const tenant = await prisma.tenant.upsert({
     where: { subdomain: 'demo' },
@@ -550,72 +554,124 @@ async function main(): Promise<void> {
     },
   });
 
+  await prisma.globalRule.upsert({
+    where: { id: ID.globalRuleHealthSafety },
+    create: {
+      id: ID.globalRuleHealthSafety,
+      ruleType: 'health_safety',
+      payload: {
+        incidentReporting: {
+          regulatorReportRequiredSeverities: ['critical'],
+          notifiableIncidentTypes: ['injury'],
+          regulatorReportDeadlineHours: 48,
+          regulatorReferenceLabel: 'Regulatory Notification Reference',
+          reportingFields: [
+            {
+              key: 'immediateContainmentActions',
+              label: 'Immediate Containment & Make-Safe Actions',
+              type: 'textarea',
+              required: false,
+              placeholder: 'Describe area isolation, lock-out/tag-out, or medical response taken.',
+            },
+          ],
+        },
+        injuryLog: {
+          retentionYears: 5,
+          requireBodyPart: false,
+        },
+      },
+      effectiveFrom: EFFECTIVE_FROM,
+    },
+    update: {},
+  });
+
+  const healthSafetyPayload = {
+    incidentReporting: {
+      regulatorReportRequiredSeverities: ['high', 'critical'],
+      notifiableIncidentTypes: ['injury'],
+      regulatorReportDeadlineHours: 24,
+      regulatorName: 'Safe Work Australia',
+      regulatorReferenceLabel: 'Safe Work Notification Reference',
+      reportingFields: [
+        {
+          key: 'notifiableIncidentCategory',
+          label: 'WHS Notifiable Category',
+          type: 'select',
+          requiredWhenRegulatorNotifiable: true,
+          helpText: 'Model WHS Act s.35–37 classification resolved from country rules.',
+          options: [
+            { value: 'death', label: 'Death of a person' },
+            { value: 'serious_injury_illness', label: 'Serious injury or illness' },
+            {
+              value: 'dangerous_incident',
+              label: 'Dangerous incident (collapse / explosion / electric shock)',
+            },
+            { value: 'non_notifiable', label: 'Internal / non-notifiable incident' },
+          ],
+        },
+        {
+          key: 'incidentSitePreserved',
+          label: 'Incident site preserved (WHS Act s.39)',
+          type: 'boolean',
+          requiredWhenRegulatorNotifiable: true,
+          helpText: 'Confirm whether the scene was preserved until inspector clearance.',
+        },
+        {
+          key: 'jurisdictionAuthority',
+          label: 'State / Territory WHS Regulator',
+          type: 'text',
+          placeholder: 'e.g. SafeWork NSW, WorkSafe Victoria',
+          helpText: 'Authority notified under the company jurisdiction.',
+        },
+        {
+          key: 'workersCompClaimRef',
+          label: 'Workers Compensation Claim Ref',
+          type: 'text',
+          placeholder: 'e.g. WC-2026-00412',
+        },
+        {
+          key: 'immediateContainmentActions',
+          label: 'Immediate Containment & Make-Safe Actions',
+          type: 'textarea',
+          required: true,
+          placeholder: 'Describe area isolation, hazard controls, or emergency aid provided.',
+        },
+      ],
+    },
+    injuryLog: {
+      retentionYears: 7,
+      requireBodyPart: true,
+    },
+    complianceRequirements: [
+      {
+        key: 'safety_induction',
+        title: 'Mandatory safety induction',
+        type: 'training',
+        description: 'Annual workplace safety induction for all staff',
+        renewalMonths: 12,
+      },
+      {
+        key: 'monthly_workplace_inspection',
+        title: 'Monthly workplace inspection',
+        type: 'inspection',
+        description: 'Walk-through inspection of operational areas',
+        frequencyDays: 30,
+      },
+    ],
+  };
+
   await prisma.countryRule.upsert({
     where: { id: ID.countryRuleHealthSafety },
     create: {
       id: ID.countryRuleHealthSafety,
       countryId: country.id,
       ruleType: CountryRuleType.health_safety,
-      payload: {
-        incidentReporting: {
-          regulatorReportRequiredSeverities: ['high', 'critical'],
-          notifiableIncidentTypes: ['injury'],
-          regulatorReportDeadlineHours: 24,
-          regulatorName: 'Safe Work Australia',
-        },
-        injuryLog: {
-          retentionYears: 7,
-          requireBodyPart: true,
-        },
-        complianceRequirements: [
-          {
-            key: 'safety_induction',
-            title: 'Mandatory safety induction',
-            type: 'training',
-            description: 'Annual workplace safety induction for all staff',
-            renewalMonths: 12,
-          },
-          {
-            key: 'monthly_workplace_inspection',
-            title: 'Monthly workplace inspection',
-            type: 'inspection',
-            description: 'Walk-through inspection of operational areas',
-            frequencyDays: 30,
-          },
-        ],
-      },
+      payload: healthSafetyPayload,
       effectiveFrom: EFFECTIVE_FROM,
     },
     update: {
       ruleType: CountryRuleType.health_safety,
-      payload: {
-        incidentReporting: {
-          regulatorReportRequiredSeverities: ['high', 'critical'],
-          notifiableIncidentTypes: ['injury'],
-          regulatorReportDeadlineHours: 24,
-          regulatorName: 'Safe Work Australia',
-        },
-        injuryLog: {
-          retentionYears: 7,
-          requireBodyPart: true,
-        },
-        complianceRequirements: [
-          {
-            key: 'safety_induction',
-            title: 'Mandatory safety induction',
-            type: 'training',
-            description: 'Annual workplace safety induction for all staff',
-            renewalMonths: 12,
-          },
-          {
-            key: 'monthly_workplace_inspection',
-            title: 'Monthly workplace inspection',
-            type: 'inspection',
-            description: 'Walk-through inspection of operational areas',
-            frequencyDays: 30,
-          },
-        ],
-      },
+      payload: healthSafetyPayload,
       effectiveFrom: EFFECTIVE_FROM,
       effectiveTo: null,
     },
@@ -4231,6 +4287,8 @@ async function main(): Promise<void> {
     },
   });
 
+  await seedPlatformStaff(prisma);
+
   console.log('Seed complete.');
   console.log(`  Tenant:   ${tenant.name} (subdomain: demo)`);
   console.log(`  Company:  ${company.name}`);
@@ -4246,11 +4304,181 @@ async function main(): Promise<void> {
     console.log(`    - ${emp.email} (${emp.roleName})`);
   }
   console.log(`    - super@${SEED_EMAIL_DOMAIN} (Super Admin — platform, no tenant)`);
+  console.log('    - platform.owner@cmsnbd.com (Platform Owner, 2FA Secret: JBSWY3DPEHPK3PXP)');
   console.log('  Example: POST /api/v1/auth/login');
   console.log(
     `    { "email": "${ROLE_SEED_EMAIL['Company Owner']}", "password": "${DEMO_PASSWORD}", "tenantSubdomain": "demo" }`,
   );
+  console.log('  Platform Login: POST /platform/auth/login');
+  console.log('    { "email": "platform.owner@cmsnbd.com", "password": "password", "totpCode": "..." }');
 }
+
+async function seedPlatformStaff(client: PrismaClient) {
+  const encryption = new FieldEncryptionService();
+
+  const DEFAULT_PLATFORM_ROLES = [
+    {
+      name: 'Platform Owner',
+      description: 'Full administrative access across the platform, infrastructure, and governance.',
+      permissions: [
+        { module: 'platform', action: 'manage' },
+        { module: 'tenant', action: 'manage' },
+        { module: 'billing', action: 'manage' },
+        { module: 'compliance', action: 'manage' },
+        { module: 'country', action: 'manage' },
+        { module: 'support', action: 'manage' },
+        { module: 'audit', action: 'view' },
+        { module: 'setting', action: 'manage' },
+        { module: 'user', action: 'manage' },
+      ],
+    },
+    {
+      name: 'Platform Admin',
+      description: 'Day-to-day platform administration, tenant lifecycle, and system maintenance.',
+      permissions: [
+        { module: 'platform', action: 'view' },
+        { module: 'platform', action: 'edit' },
+        { module: 'tenant', action: 'view' },
+        { module: 'tenant', action: 'create' },
+        { module: 'tenant', action: 'edit' },
+        { module: 'tenant', action: 'delete' },
+        { module: 'tenant', action: 'manage' },
+        { module: 'compliance', action: 'view' },
+        { module: 'compliance', action: 'edit' },
+        { module: 'country', action: 'view' },
+        { module: 'country', action: 'edit' },
+        { module: 'billing', action: 'view' },
+        { module: 'support', action: 'view' },
+        { module: 'support', action: 'manage' },
+        { module: 'audit', action: 'view' },
+        { module: 'setting', action: 'view' },
+        { module: 'setting', action: 'edit' },
+        { module: 'user', action: 'view' },
+        { module: 'user', action: 'create' },
+        { module: 'user', action: 'edit' },
+      ],
+    },
+    {
+      name: 'Billing Admin',
+      description: 'Subscription management, invoicing, plan configuration, and financial operations.',
+      permissions: [
+        { module: 'billing', action: 'view' },
+        { module: 'billing', action: 'create' },
+        { module: 'billing', action: 'edit' },
+        { module: 'billing', action: 'manage' },
+        { module: 'tenant', action: 'view' },
+        { module: 'audit', action: 'view' },
+        { module: 'platform', action: 'view' },
+      ],
+    },
+    {
+      name: 'Support Agent',
+      description: 'Customer assistance, ticket resolution, and authorized tenant support views.',
+      permissions: [
+        { module: 'support', action: 'view' },
+        { module: 'support', action: 'manage' },
+        { module: 'support', action: 'impersonate' },
+        { module: 'tenant', action: 'view' },
+        { module: 'platform', action: 'view' },
+      ],
+    },
+    {
+      name: 'Compliance Admin',
+      description: 'Statutory compliance, country rule packs, tax brackets, and regulatory baselines.',
+      permissions: [
+        { module: 'compliance', action: 'view' },
+        { module: 'compliance', action: 'create' },
+        { module: 'compliance', action: 'edit' },
+        { module: 'compliance', action: 'manage' },
+        { module: 'country', action: 'view' },
+        { module: 'country', action: 'create' },
+        { module: 'country', action: 'edit' },
+        { module: 'country', action: 'manage' },
+        { module: 'audit', action: 'view' },
+        { module: 'platform', action: 'view' },
+      ],
+    },
+    {
+      name: 'Read-Only Auditor',
+      description: 'Independent compliance and security auditing across platform operations and logs.',
+      permissions: [
+        { module: 'audit', action: 'view' },
+        { module: 'platform', action: 'view' },
+        { module: 'tenant', action: 'view' },
+        { module: 'billing', action: 'view' },
+        { module: 'compliance', action: 'view' },
+        { module: 'country', action: 'view' },
+        { module: 'support', action: 'view' },
+      ],
+    },
+  ];
+
+  let ownerRoleId: string | null = null;
+  for (const def of DEFAULT_PLATFORM_ROLES) {
+    const role = await client.platformRole.upsert({
+      where: { name: def.name },
+      create: {
+        name: def.name,
+        description: def.description,
+        isSystem: true,
+      },
+      update: {
+        description: def.description,
+        isSystem: true,
+      },
+    });
+
+    if (def.name === 'Platform Owner') {
+      ownerRoleId = role.id;
+    }
+
+    for (const perm of def.permissions) {
+      await client.platformPermission.upsert({
+        where: {
+          roleId_module_action: {
+            roleId: role.id,
+            module: perm.module,
+            action: perm.action,
+          },
+        },
+        create: {
+          roleId: role.id,
+          module: perm.module,
+          action: perm.action,
+        },
+        update: {},
+      });
+    }
+  }
+
+  const passwordHash = await bcrypt.hash('password', 12);
+  const totpSecret = 'JBSWY3DPEHPK3PXP'; // Base32 test secret
+  const encryptedSecret = encryption.encrypt(totpSecret);
+
+  await client.platformUser.upsert({
+    where: { email: 'platform.owner@cmsnbd.com' },
+    create: {
+      email: 'platform.owner@cmsnbd.com',
+      passwordHash,
+      firstName: 'Platform',
+      lastName: 'Owner',
+      roleId: ownerRoleId!,
+      isActive: true,
+      totpSecretEncrypted: encryptedSecret,
+      totpEnabled: true,
+    },
+    update: {
+      passwordHash,
+      roleId: ownerRoleId!,
+      isActive: true,
+      totpSecretEncrypted: encryptedSecret,
+      totpEnabled: true,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    },
+  });
+}
+
 
 main()
   .catch((error: unknown) => {

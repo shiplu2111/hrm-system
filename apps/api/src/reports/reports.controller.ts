@@ -11,6 +11,7 @@ import type { Response } from 'express';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import { ReportExportQueryDto, ReportQueryDto } from './dto/report-query.dto';
 import { ReportsService } from './reports.service';
 
@@ -24,6 +25,7 @@ const ANY_REPORT_MODULE = {
 
 @ApiTags('reports')
 @ApiBearerAuth('access-token')
+@RequireFeature('advanced_reports')
 @Controller()
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}

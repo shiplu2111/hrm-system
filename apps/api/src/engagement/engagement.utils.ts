@@ -49,6 +49,27 @@ export function computeEnps(scores: number[]): EnpsSummary {
   };
 }
 
+export const DEFAULT_KUDOS_REMOVAL_REASON = 'Removed by administrator';
+
 export function responseFingerprint(employeeId: string, surveyId: string): string {
   return createHash('sha256').update(`${employeeId}:${surveyId}`).digest('hex');
+}
+
+export function normalizeRemovalReason(reason?: string | null): string {
+  const trimmed = reason?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_KUDOS_REMOVAL_REASON;
+}
+
+export function formatModeratorName(
+  moderator?: {
+    email: string;
+    employee?: { firstName: string; lastName: string } | null;
+  } | null,
+): string | null {
+  if (!moderator) return null;
+  if (moderator.employee) {
+    const full = `${moderator.employee.firstName} ${moderator.employee.lastName}`.trim();
+    if (full.length > 0) return full;
+  }
+  return moderator.email;
 }

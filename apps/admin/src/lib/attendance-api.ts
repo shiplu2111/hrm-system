@@ -1,7 +1,9 @@
 import type {
   AttendanceCaptureInput,
+  AttendanceCorrectionStatus,
   AttendanceDayRecord,
   AttendancePhase,
+  CompanyAttendanceCorrectionItem,
 } from '@hrm/shared-types';
 import { tenantApiRequest } from './tenant-api-client';
 
@@ -192,5 +194,35 @@ export function getCompanyDailyAttendance(
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
   return tenantApiRequest<CompanyDailyAttendanceResponse>(
     `/companies/${companyId}/attendance/daily${query}`,
+  );
+}
+
+export function listCompanyCorrections(
+  companyId: string,
+  status?: AttendanceCorrectionStatus,
+): Promise<CompanyAttendanceCorrectionItem[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return tenantApiRequest<CompanyAttendanceCorrectionItem[]>(
+    `/companies/${companyId}/attendance/corrections${query}`,
+  );
+}
+
+export function approveAttendanceCorrection(
+  correctionId: string,
+  comment?: string,
+): Promise<CompanyAttendanceCorrectionItem> {
+  return tenantApiRequest<CompanyAttendanceCorrectionItem>(
+    `/attendance/corrections/${correctionId}/approve`,
+    { method: 'POST', body: JSON.stringify(comment ? { comment } : {}) },
+  );
+}
+
+export function rejectAttendanceCorrection(
+  correctionId: string,
+  comment?: string,
+): Promise<CompanyAttendanceCorrectionItem> {
+  return tenantApiRequest<CompanyAttendanceCorrectionItem>(
+    `/attendance/corrections/${correctionId}/reject`,
+    { method: 'POST', body: JSON.stringify(comment ? { comment } : {}) },
   );
 }

@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Decimal } from '@prisma/client/runtime/library';
 import type { ContractorContract, ContractorContractMilestone } from '@prisma/client';
 import type {
   ContractorContractMilestoneRecord,
@@ -13,7 +12,11 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
-import type { CreateContractorContractDto } from './dto/contractors.dto';
+import type {
+  CreateContractorContractDto,
+  ListContractorContractsQueryDto,
+  UpdateContractorPaymentTermsDto,
+} from './dto/contractors.dto';
 import { resolveDefaultPaymentStructure } from './contractor-payment-structure.utils';
 import {
   daysUntilExpiry,
@@ -36,11 +39,19 @@ export class ContractorContractsService {
     private readonly auditService: AuditService,
   ) {}
 
-  async list(companyId: string): Promise<ContractorContractRecord[]> {
+  async list(
+    companyId: string,
+    query: ListContractorContractsQueryDto = {},
+  ): Promise<ContractorContractRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
 
     const rows = await this.prisma.unscoped.contractorContract.findMany({
-      where: { companyId },
+      where: {
+        companyId,
+        contractorId: query.contractorId,
+        paymentStructure: query.paymentStructure,
+        paymentTerms: query.paymentTerms,
+      },
       include: this.defaultInclude(),
       orderBy: { endDate: 'asc' },
     });
@@ -175,8 +186,186 @@ export class ContractorContractsService {
     return this.toRecord(row);
   }
 
+  async updatePaymentTerms(
+    contractId: string,
+    dto: UpdateContractorPaymentTermsDto,
+    user: AuthenticatedUser,
+  ): Promise<ContractorContractRecord> {
+    const existing = await this.prisma.unscoped.contractorContract.findUnique({
+      where: { id: contractId },
+      include: {
+        milestones: { orderBy: { sortOrder: 'asc' } },
+        invoices: {
+          where: { status: { notIn: ['rejected', 'cancelled'] } },
+          select: { id: true },
+        },
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException('Contractor contract not found');
+    }
+    const company = await this.companyScope.assertCompanyInTenant(existing.companyId);
+
+    if (existing.status === 'terminated') {
+      throw new BadRequestException('Terminated contracts cannot modify payment terms');
+    }
+    if (
+      dto.paymentStructure !== existing.paymentStructure &&
+      existing.invoices.length > 0
+    ) {
+      throw new BadRequestException(
+        'Cannot change payment structure after invoices exist on this contract',
+      );
+    }
+
+    this.validatePaymentStructureFields(dto, dto.paymentStructure);
+
+    const row = await this.prisma.unscoped.$transaction(async (tx) => {
+      if (dto.paymentStructure === 'milestone') {
+        const incoming = dto.milestones ?? [];
+        const incomingIds = new Set(incoming.map((m) => m.id).filter(Boolean) as string[]);
+
+        for (const existingMilestone of existing.milestones) {
+          const locked = existingMilestone.status !== 'pending';
+          if (locked && !incomingIds.has(existingMilestone.id)) {
+            throw new BadRequestException(
+              `Milestone "${existingMilestone.title}" is already ${existingMilestone.status} and cannot be removed`,
+            );
+          }
+          if (locked) {
+            const match = incoming.find((m) => m.id === existingMilestone.id);
+            if (match && !parseMoney(match.amount).eq(existingMilestone.amount)) {
+              throw new BadRequestException(
+                `Milestone "${existingMilestone.title}" is ${existingMilestone.status} and its amount cannot change`,
+              );
+            }
+          }
+        }
+
+        const removablePendingIds = existing.milestones
+          .filter((m) => m.status === 'pending' && !incomingIds.has(m.id))
+          .map((m) => m.id);
+        if (removablePendingIds.length > 0) {
+          await tx.contractorContractMilestone.deleteMany({
+            where: { id: { in: removablePendingIds } },
+          });
+        }
+
+        for (let index = 0; index < incoming.length; index += 1) {
+          const item = incoming[index];
+          const existingMatch = item.id
+            ? existing.milestones.find((m) => m.id === item.id)
+            : undefined;
+          if (existingMatch) {
+            if (existingMatch.status === 'pending') {
+              await tx.contractorContractMilestone.update({
+                where: { id: existingMatch.id },
+                data: {
+                  title: item.title.trim(),
+                  description: item.description?.trim() || null,
+                  amount: parseMoney(item.amount),
+                  targetDate: item.targetDate ? new Date(item.targetDate) : null,
+                  sortOrder: item.sortOrder ?? index,
+                },
+              });
+            }
+          } else {
+            await tx.contractorContractMilestone.create({
+              data: {
+                tenantId: company.tenantId,
+                companyId: existing.companyId,
+                contractId,
+                title: item.title.trim(),
+                description: item.description?.trim() || null,
+                amount: parseMoney(item.amount),
+                targetDate: item.targetDate ? new Date(item.targetDate) : null,
+                sortOrder: item.sortOrder ?? index,
+              },
+            });
+          }
+        }
+      } else {
+        const pendingIds = existing.milestones
+          .filter((m) => m.status === 'pending')
+          .map((m) => m.id);
+        if (pendingIds.length > 0) {
+          await tx.contractorContractMilestone.deleteMany({
+            where: { id: { in: pendingIds } },
+          });
+        }
+      }
+
+      return tx.contractorContract.update({
+        where: { id: contractId },
+        data: {
+          paymentStructure: dto.paymentStructure,
+          paymentTerms: dto.paymentTerms,
+          billingFrequency:
+            dto.paymentStructure === 'milestone'
+              ? 'milestone'
+              : (dto.billingFrequency ?? existing.billingFrequency),
+          fixedFeeAmount:
+            dto.paymentStructure === 'fixed_project_fee'
+              ? dto.fixedFeeAmount
+                ? parseMoney(dto.fixedFeeAmount)
+                : dto.annualValue
+                  ? parseMoney(dto.annualValue)
+                  : null
+              : null,
+          annualValue:
+            dto.annualValue !== undefined
+              ? dto.annualValue
+                ? parseMoney(dto.annualValue)
+                : null
+              : dto.paymentStructure === 'fixed_project_fee' && dto.fixedFeeAmount
+                ? parseMoney(dto.fixedFeeAmount)
+                : existing.annualValue,
+          hourlyRate:
+            dto.paymentStructure === 'hourly_invoice' && dto.hourlyRate
+              ? parseMoney(dto.hourlyRate)
+              : null,
+          currency: dto.currency?.toUpperCase() ?? existing.currency,
+          autoRenewal: dto.autoRenewal ?? existing.autoRenewal,
+          noticePeriodDays: dto.noticePeriodDays ?? existing.noticePeriodDays,
+          scopeDescription:
+            dto.scopeDescription !== undefined
+              ? dto.scopeDescription.trim() || null
+              : existing.scopeDescription,
+        },
+        include: this.defaultInclude(),
+      });
+    });
+
+    await this.auditService.log({
+      tenantId: company.tenantId,
+      userId: user.id,
+      action: 'update',
+      module: 'contractors',
+      recordId: contractId,
+      oldValue: {
+        paymentStructure: existing.paymentStructure,
+        paymentTerms: existing.paymentTerms,
+        billingFrequency: existing.billingFrequency,
+        fixedFeeAmount: existing.fixedFeeAmount ? formatMoney(existing.fixedFeeAmount) : null,
+        hourlyRate: existing.hourlyRate ? formatMoney(existing.hourlyRate) : null,
+      },
+      newValue: {
+        paymentStructure: row.paymentStructure,
+        paymentTerms: row.paymentTerms,
+        billingFrequency: row.billingFrequency,
+        fixedFeeAmount: row.fixedFeeAmount ? formatMoney(row.fixedFeeAmount) : null,
+        hourlyRate: row.hourlyRate ? formatMoney(row.hourlyRate) : null,
+      },
+    });
+
+    return this.toRecord(row);
+  }
+
   private validatePaymentStructureFields(
-    dto: CreateContractorContractDto,
+    dto: Pick<
+      CreateContractorContractDto | UpdateContractorPaymentTermsDto,
+      'fixedFeeAmount' | 'annualValue' | 'hourlyRate' | 'milestones'
+    >,
     paymentStructure: ReturnType<typeof resolveDefaultPaymentStructure>,
   ): void {
     if (paymentStructure === 'fixed_project_fee' && !dto.fixedFeeAmount && !dto.annualValue) {

@@ -113,6 +113,7 @@ export interface EngagementSummary {
 }
 
 export type EmployeeKudosType = 'peer' | 'manager';
+export type EmployeeKudosModerationStatus = 'active' | 'removed';
 
 export interface EmployeeKudosRecord {
   id: string;
@@ -124,6 +125,27 @@ export interface EmployeeKudosRecord {
   kudosType: EmployeeKudosType;
   message: string;
   createdAt: string;
+}
+
+export interface EmployeeKudosModerationRecord extends EmployeeKudosRecord {
+  moderationStatus: EmployeeKudosModerationStatus;
+  removedAt: string | null;
+  removedByUserId: string | null;
+  removedByName: string | null;
+  removalReason: string | null;
+}
+
+export interface KudosModerationSummary {
+  activeCount: number;
+  removedCount: number;
+  peerCount: number;
+  managerCount: number;
+  thisMonthCount: number;
+}
+
+export interface KudosModerationFeedResult {
+  items: EmployeeKudosModerationRecord[];
+  summary: KudosModerationSummary;
 }
 
 export interface EmployeeEngagementFeed {

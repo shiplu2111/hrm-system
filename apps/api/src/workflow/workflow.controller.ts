@@ -14,6 +14,7 @@ import { WorkflowEntityType } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import {
   CreateWorkflowDefinitionDto,
   ListWorkflowDefinitionsQueryDto,
@@ -34,10 +35,13 @@ const ENTITY_AUDIT_MODULE: Record<WorkflowEntityType, string> = {
   job_requisition: 'recruitment',
   offer_letter: 'recruitment',
   performance_review: 'performance',
+  shift_swap_request: 'attendance',
+  overtime_request: 'attendance',
 };
 
 @ApiTags('workflow-definitions')
 @ApiBearerAuth('access-token')
+@RequireFeature('advanced_workflow')
 @Controller('companies/:companyId/workflow-definitions')
 export class WorkflowDefinitionsController {
   constructor(private readonly definitionsService: WorkflowDefinitionsService) {}
@@ -100,6 +104,7 @@ export class WorkflowDefinitionsController {
 
 @ApiTags('workflow-instances')
 @ApiBearerAuth('access-token')
+@RequireFeature('advanced_workflow')
 @Controller()
 export class WorkflowInstancesController {
   constructor(

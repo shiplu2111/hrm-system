@@ -16,6 +16,8 @@ export const WORKFLOW_MODULE_LABELS: Record<WorkflowEntityType, string> = {
   job_requisition: 'Job requisition',
   offer_letter: 'Offer letter',
   performance_review: 'Performance review',
+  shift_swap_request: 'Shift swap',
+  overtime_request: 'Overtime request',
 };
 
 export function supportsAmountRouting(entityType: WorkflowEntityType): boolean {

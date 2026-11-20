@@ -22,6 +22,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
   RequirePermission,
+  SelfService,
   type PermissionRef,
 } from '../rbac/require-permission.decorator';
 import {
@@ -42,6 +43,7 @@ const DOCUMENT_TYPE_READERS: PermissionRef[] = [
 export class DocumentTypesController {
   constructor(private readonly documentTypesService: DocumentTypesService) {}
 
+  @SelfService()
   @Get()
   @RequirePermission('settings', 'view', { orAnyOf: DOCUMENT_TYPE_READERS })
   @ApiOperation({ summary: 'List admin-defined document types with field schemas' })
@@ -49,6 +51,7 @@ export class DocumentTypesController {
     return { data: await this.documentTypesService.listDocumentTypes(companyId) };
   }
 
+  @SelfService()
   @Get(':id')
   @RequirePermission('settings', 'view', { orAnyOf: DOCUMENT_TYPE_READERS })
   async getOne(

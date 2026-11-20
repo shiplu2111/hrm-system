@@ -36,7 +36,7 @@ export class OAuthTokenAuthService {
     if (!apiEnabled) {
       throw new UnauthorizedException({
         code: 'PLAN_FEATURE_UNAVAILABLE',
-        message: 'API access requires the Enterprise plan',
+        message: 'API access feature is not enabled for your subscription plan',
       });
     }
 

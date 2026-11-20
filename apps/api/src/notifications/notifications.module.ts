@@ -14,6 +14,7 @@ import { NotificationSettingsController } from './notification-settings.controll
 import { NotificationSettingsService } from './notification-settings.service';
 import { NotificationsController } from './notifications.controller';
 import { PushDeviceTokensService } from './push-device-tokens.service';
+import { UserNotificationPreferencesService } from './user-notification-preferences.service';
 
 @Module({
   imports: [PrismaModule, SettingsModule, RealtimeModule, PushModule, WebhooksModule, OrganizationModule],
@@ -26,7 +27,13 @@ import { PushDeviceTokensService } from './push-device-tokens.service';
     NotificationEngineService,
     InAppNotificationsService,
     PushDeviceTokensService,
+    UserNotificationPreferencesService,
   ],
-  exports: [NotificationEngineService, InAppNotificationsService, NotificationDeliveryService],
+  exports: [
+    NotificationEngineService,
+    InAppNotificationsService,
+    NotificationDeliveryService,
+    UserNotificationPreferencesService,
+  ],
 })
 export class NotificationsModule {}

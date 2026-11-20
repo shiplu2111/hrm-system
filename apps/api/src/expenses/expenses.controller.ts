@@ -17,7 +17,7 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagg
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import { DOCUMENT_FILE_POLICY } from '../storage/document-file.policy';
 import {
   CreateExpenseCategoryDto,
@@ -40,14 +40,16 @@ export class ExpensesController {
     private readonly claimsService: ExpenseClaimsService,
   ) {}
 
+  @SelfService()
   @Get('companies/:companyId/expense-categories')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'List expense categories with their limits and claim usage' })
   async listCategories(
     @Param('companyId', ParseUUIDPipe) companyId: string,
     @Query() query: ListExpenseCategoriesQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.categoriesService.list(companyId, query) };
+    return { data: await this.categoriesService.list(companyId, query, user) };
   }
 
   @Post('companies/:companyId/expense-categories')
@@ -72,6 +74,20 @@ export class ExpensesController {
     return { data: await this.categoriesService.update(categoryId, dto, user) };
   }
 
+  @SelfService()
+  @Get('companies/:companyId/expense-claims/approval-route')
+  @RequirePermission('payroll', 'view')
+  @ApiOperation({ summary: 'Preview the approval chain an expense claim of this amount will follow' })
+  async previewApprovalRoute(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query('amount') amountRaw?: string,
+  ) {
+    const parsed = amountRaw !== undefined ? Number(amountRaw) : 0;
+    const amount = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    return { data: await this.claimsService.previewRoute(companyId, amount) };
+  }
+
+  @SelfService()
   @Get('companies/:companyId/expense-claims')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'List expense claims' })
@@ -83,6 +99,7 @@ export class ExpensesController {
     return { data: await this.claimsService.list(companyId, query, user) };
   }
 
+  @SelfService()
   @Get('expense-claims/:claimId')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'Expense claim with approval chain, receipts and limit check' })
@@ -93,8 +110,11 @@ export class ExpensesController {
     return { data: await this.claimsService.get(claimId, user) };
   }
 
+  @SelfService()
   @Post('companies/:companyId/expense-claims')
-  @RequirePermission('payroll', 'create')
+  @RequirePermission('payroll', 'create', {
+    orAnyOf: [{ module: 'payroll', action: 'view' }],
+  })
   @ApiOperation({ summary: 'Create an expense claim (draft, or submitted with `submit: true`)' })
   async createClaim(
     @Param('companyId', ParseUUIDPipe) companyId: string,
@@ -104,8 +124,11 @@ export class ExpensesController {
     return { data: await this.claimsService.create(companyId, dto, user) };
   }
 
+  @SelfService()
   @Post('expense-claims/:claimId/submit')
-  @RequirePermission('payroll', 'create')
+  @RequirePermission('payroll', 'create', {
+    orAnyOf: [{ module: 'payroll', action: 'view' }],
+  })
   @ApiOperation({ summary: 'Submit a draft claim for approval' })
   async submitClaim(
     @Param('claimId', ParseUUIDPipe) claimId: string,
@@ -136,8 +159,11 @@ export class ExpensesController {
     return { data: await this.claimsService.reject(claimId, user, dto) };
   }
 
+  @SelfService()
   @Post('expense-claims/:claimId/cancel')
-  @RequirePermission('payroll', 'create')
+  @RequirePermission('payroll', 'create', {
+    orAnyOf: [{ module: 'payroll', action: 'view' }],
+  })
   @ApiOperation({ summary: 'Cancel a draft or pending claim' })
   async cancelClaim(
     @Param('claimId', ParseUUIDPipe) claimId: string,
@@ -156,8 +182,11 @@ export class ExpensesController {
     return { data: await this.claimsService.markReimbursed(claimId, user) };
   }
 
+  @SelfService()
   @Post('expense-claims/:claimId/receipts')
-  @RequirePermission('payroll', 'create')
+  @RequirePermission('payroll', 'create', {
+    orAnyOf: [{ module: 'payroll', action: 'view' }],
+  })
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Attach a receipt (PDF, JPG or PNG, up to 10 MB)' })
   @UseInterceptors(
@@ -179,27 +208,32 @@ export class ExpensesController {
     return { data: await this.claimsService.uploadReceipt(claimId, file, user) };
   }
 
+  @SelfService()
   @Get('expense-claims/:claimId/receipts/:receiptId/file-url')
   @RequirePermission('payroll', 'view')
   async getReceiptFileUrl(
     @Param('claimId', ParseUUIDPipe) claimId: string,
     @Param('receiptId', ParseUUIDPipe) receiptId: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return { data: await this.claimsService.getReceiptFileUrl(claimId, receiptId) };
+    return { data: await this.claimsService.getReceiptFileUrl(claimId, receiptId, user) };
   }
 
+  @SelfService()
   @Get('expense-claims/:claimId/receipts/:receiptId/file')
   @RequirePermission('payroll', 'view')
   @ApiOperation({ summary: 'Stream a receipt file for viewing or download' })
   async downloadReceipt(
     @Param('claimId', ParseUUIDPipe) claimId: string,
     @Param('receiptId', ParseUUIDPipe) receiptId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
     @Query('disposition') disposition?: string,
   ): Promise<void> {
     const { buffer, contentType, filename } = await this.claimsService.readReceiptFile(
       claimId,
       receiptId,
+      user,
     );
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');

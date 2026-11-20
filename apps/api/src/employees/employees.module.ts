@@ -7,11 +7,18 @@ import { EmployeeDirectoryController, EmployeesController } from './employees.co
 import { EmployeesService } from './employees.service';
 import { PortalAccessController } from './portal-access.controller';
 import { PortalAccessService } from './portal-access.service';
+import { ProfileUpdateRequestsController } from './profile-update-requests.controller';
+import { ProfileUpdateRequestsService } from './profile-update-requests.service';
 
 @Module({
   imports: [PrismaModule, OrganizationModule, WebhooksModule, BillingModule],
-  controllers: [EmployeesController, EmployeeDirectoryController, PortalAccessController],
-  providers: [EmployeesService, PortalAccessService],
-  exports: [EmployeesService],
+  controllers: [
+    EmployeesController,
+    EmployeeDirectoryController,
+    PortalAccessController,
+    ProfileUpdateRequestsController,
+  ],
+  providers: [EmployeesService, PortalAccessService, ProfileUpdateRequestsService],
+  exports: [EmployeesService, ProfileUpdateRequestsService],
 })
 export class EmployeesModule {}

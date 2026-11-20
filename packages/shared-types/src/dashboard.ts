@@ -71,3 +71,62 @@ export interface EmployeeDashboardView {
   activeSurveys: EngagementSurveyListItem[];
   kudosFeed: EmployeeKudosRecord[];
 }
+
+export interface PlatformTenantsByStatus {
+  trial: number;
+  active: number;
+  suspended: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface PlatformNewTenantsPerWeek {
+  weekStart: string;
+  weekEnd: string;
+  count: number;
+  weekLabel: string;
+}
+
+export interface PlatformTenantApproachingLimit {
+  tenantId: string;
+  name: string;
+  subdomain: string;
+  plan: string;
+  employeeCount: number;
+  limit: number;
+  usagePercentage: number;
+}
+
+export type PlatformNeedsAttentionType = 'failed_payment' | 'over_limit' | 'expiring_trial';
+
+export interface PlatformNeedsAttentionItem {
+  id: string;
+  type: PlatformNeedsAttentionType;
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  metric?: string;
+  dueDate?: string;
+  actionLabel?: string;
+}
+
+export interface PlatformDashboardView {
+  asOf: string;
+  tenantsByStatus: PlatformTenantsByStatus;
+  totalActiveEmployees: number;
+  mrr: number;
+  arr: number;
+  newTenantsPerWeek: PlatformNewTenantsPerWeek[];
+  tenantsApproachingLimits: PlatformTenantApproachingLimit[];
+  needsAttention: PlatformNeedsAttentionItem[];
+  failedPaymentsCount: number;
+  openSupportTicketsCount: number;
+  last24hErrorRate: number;
+  cached?: boolean;
+  cachedAt?: string;
+  cacheTtlSeconds?: number;
+}
+

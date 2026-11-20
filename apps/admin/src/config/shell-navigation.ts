@@ -4,6 +4,7 @@
 import {
   LayoutDashboard,
   Building2,
+  Briefcase,
   Users,
   Clock,
   CalendarDays,
@@ -15,6 +16,9 @@ import {
   LifeBuoy,
   Target,
   GraduationCap,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import type { PageKey } from '@/context/NavContext';
@@ -58,10 +62,15 @@ export const adminNavItems: AdminNavItem[] = [
     children: [
       { label: 'Home', labelKey: 'shell.nav.myHome', page: 'my-dashboard' },
       { label: 'My Profile', labelKey: 'shell.nav.myProfile', page: 'my-profile' },
+      { label: 'My Documents', labelKey: 'shell.nav.myDocuments', page: 'my-documents' },
       { label: 'My Attendance', labelKey: 'shell.nav.myAttendance', page: 'my-attendance' },
       { label: 'My Leave', labelKey: 'shell.nav.myLeave', page: 'my-leave' },
       { label: 'My Roster', labelKey: 'shell.nav.myRoster', page: 'my-roster' },
+      { label: 'Company Directory', labelKey: 'shell.nav.myDirectory', page: 'my-directory' },
+      { label: 'My Timesheets', labelKey: 'shell.nav.myTimesheets', page: 'my-timesheets' },
       { label: 'My Payslips', labelKey: 'shell.nav.myPayslips', page: 'my-payslips' },
+      { label: 'My Expenses', labelKey: 'shell.nav.myExpenses', page: 'my-expenses' },
+      { label: 'Notifications', labelKey: 'shell.nav.myNotifications', page: 'my-notifications' },
       { label: 'Help & Support', labelKey: 'shell.nav.myHelp', page: 'my-help' },
     ],
   },
@@ -172,6 +181,40 @@ export const adminNavItems: AdminNavItem[] = [
     ],
   },
   {
+    label: 'Employee Relations',
+    labelKey: 'shell.nav.employeeRelations',
+    page: 'employee-relations',
+    icon: ShieldAlert,
+    permission: { module: 'employee_relations', action: 'view' },
+    children: [
+      { label: 'Case Management', labelKey: 'shell.nav.caseManagement', page: 'employee-relations' },
+    ],
+  },
+  {
+    label: 'Employee Engagement',
+    labelKey: 'shell.nav.employeeEngagement',
+    page: 'engagement',
+    icon: Sparkles,
+    permission: { module: 'engagement', action: 'view' },
+    relatedPages: ['engagement-surveys', 'engagement-kudos'],
+    children: [
+      { label: 'Announcements & News', labelKey: 'shell.nav.announcements', page: 'engagement' },
+      { label: 'Surveys & eNPS', labelKey: 'shell.nav.surveys', page: 'engagement-surveys' },
+      { label: 'Kudos & Recognition', labelKey: 'shell.nav.kudos', page: 'engagement-kudos' },
+    ],
+  },
+  {
+    label: 'Health & Safety',
+    labelKey: 'shell.nav.healthSafety',
+    page: 'health-safety',
+    icon: ShieldCheck,
+    permission: { module: 'health_safety', action: 'view' },
+    relatedPages: ['health-safety-incident-detail'],
+    children: [
+      { label: 'Incident Register', labelKey: 'shell.nav.safetyIncidents', page: 'health-safety' },
+    ],
+  },
+  {
     label: 'Payroll',
     labelKey: 'shell.nav.payroll',
     page: 'payroll-runs',
@@ -198,6 +241,31 @@ export const adminNavItems: AdminNavItem[] = [
       { label: 'GL Export & Sync', page: 'accounting-exports' },
       { label: 'Accounting Connections', page: 'accounting-connections' },
       { label: 'Payroll Journal', page: 'accounting' },
+    ],
+  },
+  {
+    label: 'Vendors & Contractors',
+    labelKey: 'shell.nav.vendorsContractors',
+    page: 'vendors-contractors',
+    icon: Briefcase,
+    permission: { module: 'contractors', action: 'view' },
+    relatedPages: ['contractor-payment-terms', 'contractor-invoices'],
+    children: [
+      {
+        label: 'Contractor & Vendor List',
+        labelKey: 'shell.nav.contractorList',
+        page: 'vendors-contractors',
+      },
+      {
+        label: 'Payment Terms Setup',
+        labelKey: 'shell.nav.contractorPaymentTerms',
+        page: 'contractor-payment-terms',
+      },
+      {
+        label: 'Invoices & Payments',
+        labelKey: 'shell.nav.contractorInvoices',
+        page: 'contractor-invoices',
+      },
     ],
   },
   {

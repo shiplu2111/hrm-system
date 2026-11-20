@@ -348,7 +348,7 @@ export class WebhookDeliveryQueueService implements OnModuleInit, OnModuleDestro
       return;
     }
     if (!(await this.planFeatures.hasFeature(delivery.tenantId, 'api_access'))) {
-      await this.markFailed(delivery.id, 'Webhooks need the Enterprise plan');
+      await this.markFailed(delivery.id, 'Webhook delivery feature is not enabled for subscription plan');
       return;
     }
 

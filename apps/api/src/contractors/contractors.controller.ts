@@ -16,14 +16,16 @@ import { ContractorContractsService } from './contractor-contracts.service';
 import { ContractorInvoicesService } from './contractor-invoices.service';
 import { ContractorPaymentBatchesService } from './contractor-payment-batches.service';
 import { ContractorsService } from './contractors.service';
-import type {
+import {
   ContractorInvoiceActionDto,
   CreateContractorContractDto,
   CreateContractorDto,
   CreateContractorInvoiceDto,
   CreateContractorPaymentBatchDto,
+  ListContractorContractsQueryDto,
   ListContractorInvoicesQueryDto,
   ListContractorsQueryDto,
+  UpdateContractorPaymentTermsDto,
 } from './dto/contractors.dto';
 
 @ApiTags('contractors')
@@ -71,8 +73,11 @@ export class ContractorsController {
 
   @Get('companies/:companyId/contractor-contracts')
   @RequirePermission('contractors', 'view')
-  async listContracts(@Param('companyId', ParseUUIDPipe) companyId: string) {
-    return { data: await this.contractsService.list(companyId) };
+  async listContracts(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListContractorContractsQueryDto,
+  ) {
+    return { data: await this.contractsService.list(companyId, query) };
   }
 
   @Get('contractors/:contractorId/contracts')
@@ -91,6 +96,16 @@ export class ContractorsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return { data: await this.contractsService.create(companyId, dto, user) };
+  }
+
+  @Patch('contractor-contracts/:id/payment-terms')
+  @RequirePermission('contractors', 'edit')
+  async updateContractPaymentTerms(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateContractorPaymentTermsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.contractsService.updatePaymentTerms(id, dto, user) };
   }
 
   @Get('companies/:companyId/contractor-invoices')

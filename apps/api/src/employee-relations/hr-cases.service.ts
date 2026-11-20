@@ -5,6 +5,9 @@ import {
 } from '@nestjs/common';
 import type { HrCase, HrCaseDisciplinaryAction, HrCaseInvestigationRecord, HrCaseNote, HrCaseParty } from '@prisma/client';
 import type {
+  AuditLogAction,
+  AuditLogActor,
+  AuditLogEntry,
   HrCaseDetailRecord,
   HrCaseDisciplinaryActionRecord,
   HrCaseInvestigationRecordView,
@@ -18,6 +21,7 @@ import type {
 } from '@hrm/shared-types';
 import type { AuditAction } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { redactAuditValue } from '../audit/audit-redaction.utils';
 import { AuditService } from '../audit/audit.service';
 import { SensitiveFieldService } from '../crypto/sensitive-field.service';
 import { PrismaService } from '../database/prisma.service';
@@ -131,6 +135,75 @@ export class HrCasesService {
   async getCaseDetail(caseId: string): Promise<HrCaseDetailRecord> {
     const row = await this.getCaseWithRelationsOrThrow(caseId);
     return this.toDetailRecord(row);
+  }
+
+  async getCaseAuditLogs(caseId: string): Promise<AuditLogEntry[]> {
+    const existing = await this.getCaseOrThrow(caseId);
+
+    const [notes, actions, investigationRecords] = await Promise.all([
+      this.prisma.unscoped.hrCaseNote.findMany({
+        where: { caseId },
+        select: { id: true },
+      }),
+      this.prisma.unscoped.hrCaseDisciplinaryAction.findMany({
+        where: { caseId },
+        select: { id: true },
+      }),
+      this.prisma.unscoped.hrCaseInvestigationRecord.findMany({
+        where: { caseId },
+        select: { id: true },
+      }),
+    ]);
+
+    const recordIds = [
+      caseId,
+      ...notes.map((n) => n.id),
+      ...actions.map((a) => a.id),
+      ...investigationRecords.map((r) => r.id),
+    ];
+
+    const rows = await this.prisma.unscoped.auditLog.findMany({
+      where: {
+        tenantId: existing.tenantId,
+        module: 'employee_relations',
+        recordId: { in: recordIds },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const users =
+      userIds.length > 0
+        ? await this.prisma.unscoped.user.findMany({
+            where: { id: { in: userIds } },
+            select: {
+              id: true,
+              email: true,
+              employee: { select: { firstName: true, lastName: true } },
+            },
+          })
+        : [];
+
+    const actorMap = new Map<string, AuditLogActor>();
+    for (const u of users) {
+      const name = u.employee
+        ? `${u.employee.firstName} ${u.employee.lastName}`.trim()
+        : null;
+      actorMap.set(u.id, { id: u.id, name, email: u.email });
+    }
+
+    return rows.map((row) => ({
+      id: row.id,
+      action: row.action as AuditLogAction,
+      module: row.module,
+      recordId: row.recordId,
+      actor: actorMap.get(row.userId) ?? { id: row.userId, name: null, email: null },
+      oldValue: redactAuditValue(row.oldValue),
+      newValue: redactAuditValue(row.newValue),
+      ipAddress: row.ipAddress,
+      device: row.device,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
   async createCase(

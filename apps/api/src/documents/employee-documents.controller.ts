@@ -11,16 +11,17 @@ import {
   Patch,
   Post,
   Req,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { DOCUMENT_FILE_POLICY } from '../storage/document-file.policy';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
 import {
   CreateEmployeeDocumentDto,
   UpdateEmployeeDocumentDto,
@@ -35,6 +36,7 @@ export class EmployeeDocumentsController {
     private readonly employeeDocumentsService: EmployeeDocumentsService,
   ) {}
 
+  @SelfService()
   @Get()
   @RequirePermission('employee', 'view')
   @ApiOperation({ summary: 'List employee documents' })
@@ -47,6 +49,7 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @SelfService()
   @Get(':documentId')
   @RequirePermission('employee', 'view')
   async getOne(
@@ -63,6 +66,7 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @SelfService()
   @Get(':documentId/file-url')
   @RequirePermission('employee', 'view')
   @ApiOperation({
@@ -82,8 +86,37 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @SelfService()
+  @Get(':documentId/download')
+  @RequirePermission('employee', 'view')
+  @ApiOperation({
+    summary: 'Download or stream document file via FileStorage driver (authenticated)',
+  })
+  async downloadFile(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, meta, filename } =
+      await this.employeeDocumentsService.downloadDocumentFile(
+        employeeId,
+        documentId,
+        user,
+      );
+    res.setHeader('Content-Type', meta.contentType ?? 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${filename.replace(/"/g, '')}"`,
+    );
+    res.send(buffer);
+  }
+
+  @SelfService()
   @Post()
-  @RequirePermission('employee', 'create')
+  @RequirePermission('employee', 'create', {
+    orAnyOf: [{ module: 'employee', action: 'edit' }],
+  })
   async create(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Body() dto: CreateEmployeeDocumentDto,
@@ -100,6 +133,7 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @SelfService()
   @Post(':documentId/file')
   @RequirePermission('employee', 'edit')
   @UseInterceptors(
@@ -143,6 +177,7 @@ export class EmployeeDocumentsController {
     };
   }
 
+  @SelfService()
   @Patch(':documentId')
   @RequirePermission('employee', 'edit')
   async update(

@@ -1,3 +1,12 @@
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Pre-load environment variables from workspace root or current directory
+dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -15,6 +24,12 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'x-request-id', 'x-tenant-id'],
   });
   app.useWebSocketAdapter(new IoAdapter(app));
+  app.use((req: any, _res: any, next: any) => {
+    if (typeof req.url === 'string' && req.url.startsWith('/platform/') && !req.url.startsWith('/api/v1/platform/')) {
+      req.url = `/api/v1${req.url}`;
+    }
+    next();
+  });
   app.setGlobalPrefix('api/v1', {
     exclude: ['', 'health'],
   });

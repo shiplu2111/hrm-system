@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -395,6 +396,14 @@ export class PayrollRunsService {
     const previousStatus = existing.status as SharedPayrollRunStatus;
     const targetStatus = dto.targetStatus as SharedPayrollRunStatus;
 
+    if (user.isSupportAccess && (targetStatus === 'finalized' || targetStatus === 'paid')) {
+      throw new ForbiddenException({
+        code: 'SUPPORT_ACCESS_RESTRICTED',
+        message:
+          'Security Policy: Support engineers are strictly prohibited from finalizing payroll runs.',
+      });
+    }
+
     if (previousStatus === targetStatus) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
@@ -444,6 +453,14 @@ export class PayrollRunsService {
     await this.assertPeriod(companyId, periodId);
     const fromStatus = dto.fromStatus as SharedPayrollRunStatus;
     const targetStatus = dto.targetStatus as SharedPayrollRunStatus;
+
+    if (user.isSupportAccess && (targetStatus === 'finalized' || targetStatus === 'paid')) {
+      throw new ForbiddenException({
+        code: 'SUPPORT_ACCESS_RESTRICTED',
+        message:
+          'Security Policy: Support engineers are strictly prohibited from finalizing payroll runs.',
+      });
+    }
 
     assertPayrollRunTransition(fromStatus, targetStatus);
     await this.permissionsService.assertPermission(

@@ -36,9 +36,18 @@ export class UnifiedAuthGuard extends AuthGuard('jwt') {
     }
 
     const request = context.switchToHttp().getRequest<{
+      url?: string;
+      originalUrl?: string;
       headers: { authorization?: string };
       user?: unknown;
     }>();
+
+    // Platform routes are authenticated by PlatformAuthGuard
+    const url = request.originalUrl ?? request.url ?? '';
+    if (url.includes('/platform/')) {
+      return true;
+    }
+
     const header = request.headers.authorization;
     if (!header?.startsWith('Bearer ')) {
       throw new UnauthorizedException({

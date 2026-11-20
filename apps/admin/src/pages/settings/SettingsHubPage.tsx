@@ -37,6 +37,7 @@ import { Input, Label, Select, Textarea } from '@/components/ui/Form';
 import { Toggle, Avatar } from '@/components/ui/Toggle';
 import { NotificationSettingsScreen } from '@/components/settings/notifications/NotificationSettingsScreen';
 import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
+import { SupportAccessSettingsPanel } from '@/components/settings/SupportAccessSettingsPanel';
 import {
   loginHistory,
   apiKeys,
@@ -321,6 +322,9 @@ export function SettingsHubPage() {
                   </div>
                 </CardBody>
               </Card>
+
+              {/* Support Access Troubleshooting Policy (SECURITY.md §2, AUDIT_LOG.md) */}
+              <SupportAccessSettingsPanel />
 
               {/* Login History Table */}
               <Card>

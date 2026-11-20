@@ -68,6 +68,18 @@ export const WORKFLOW_MODULES: Record<WorkflowEntityType, WorkflowModuleInfo> = 
     requests: 'performance reviews',
     builtInSteps: ["Requester's manager", "Manager's manager", 'HR Admin'],
   },
+  shift_swap_request: {
+    label: 'Shift swaps',
+    request: 'shift swap request',
+    requests: 'shift swap requests',
+    builtInSteps: ["Requester's manager"],
+  },
+  overtime_request: {
+    label: 'Overtime requests',
+    request: 'overtime request',
+    requests: 'overtime requests',
+    builtInSteps: ["Requester's manager"],
+  },
   leave_request: {
     label: 'Leave requests',
     request: 'leave request',
@@ -85,6 +97,8 @@ export const WORKFLOW_MODULES: Record<WorkflowEntityType, WorkflowModuleInfo> = 
 export const WORKFLOW_MODULE_ORDER: WorkflowEntityType[] = [
   'expense_claim',
   'timesheet_entry',
+  'shift_swap_request',
+  'overtime_request',
   'contract',
   'job_requisition',
   'offer_letter',

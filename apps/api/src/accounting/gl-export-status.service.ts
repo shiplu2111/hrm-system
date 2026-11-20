@@ -4,8 +4,10 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Decimal } from '@prisma/client/runtime/library';
 import type {
   ContractorJournalPreview,
+  GlContractorExpenseSummary,
   GlExportKind,
   GlExportStatusDetail,
   GlExportStatusList,
@@ -16,7 +18,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
-import { formatDateOnly } from '../payroll/payroll.utils';
+import { formatDateOnly, formatMoney } from '../payroll/payroll.utils';
 import { AccountingSyncQueueService } from './accounting-sync-queue.service';
 import { contractorJournalToCsv } from './contractor-journal.builder';
 import type { ListGlExportsQueryDto } from './dto/accounting.dto';
@@ -53,7 +55,10 @@ export class GlExportStatusService {
   async list(companyId: string, query: ListGlExportsQueryDto): Promise<GlExportStatusList> {
     await this.companyScope.assertCompanyInTenant(companyId);
     const queueAvailable = this.syncQueue.isAvailable();
-    const rows = await this.loadRows(companyId, queueAvailable);
+    const [rows, contractorExpense] = await Promise.all([
+      this.loadRows(companyId, queueAvailable),
+      this.loadContractorExpenseSummaryBase(companyId),
+    ]);
     const filtered = rows.filter(
       (row) =>
         (!query.kind || row.kind === query.kind) && matchesOutcomeFilter(row, query.outcome),
@@ -61,9 +66,28 @@ export class GlExportStatusService {
     const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
     const page = query.page ?? 1;
 
+    let totalExportedAmount = new Decimal(0);
+    let succeededCount = 0;
+    let failedCount = 0;
+    for (const row of rows) {
+      if (row.kind !== 'contractor' || row.superseded) continue;
+      if (row.outcome === 'succeeded') {
+        succeededCount += 1;
+        if (row.totalDebit) totalExportedAmount = totalExportedAmount.plus(row.totalDebit);
+      } else if (row.outcome === 'failed') {
+        failedCount += 1;
+      }
+    }
+
     return {
       items: filtered.slice((page - 1) * pageSize, page * pageSize),
       summary: summarizeExportRows(rows, queueAvailable),
+      contractorExpense: {
+        ...contractorExpense,
+        totalExportedAmount: formatMoney(totalExportedAmount),
+        succeededCount,
+        failedCount,
+      },
       page,
       pageSize,
       total: filtered.length,
@@ -274,6 +298,7 @@ export class GlExportStatusService {
       drafts.push({
         id: `payroll:${row.id}`,
         kind: 'payroll',
+        expenseCategory: 'payroll',
         destination: row.provider ?? 'csv',
         outcome,
         exportId: row.id,
@@ -311,6 +336,7 @@ export class GlExportStatusService {
       drafts.push({
         id: `sync:${job.id}`,
         kind: 'payroll',
+        expenseCategory: 'payroll',
         destination: job.provider,
         outcome,
         exportId: null,
@@ -335,10 +361,12 @@ export class GlExportStatusService {
 
     for (const row of contractorExports) {
       const outcome = deriveExportOutcome({ exportStatus: row.status, syncStatus: null });
-      const journal = row.journalData as unknown as JournalSnapshot;
+      const journal = row.journalData as unknown as ContractorJournalPreview;
       drafts.push({
         id: `contractor:${row.id}`,
         kind: 'contractor',
+        expenseCategory: 'contractor_expense',
+        invoiceCount: journal.invoiceCount ?? null,
         destination: row.provider ?? 'csv',
         outcome,
         exportId: row.id,
@@ -365,5 +393,64 @@ export class GlExportStatusService {
     }
 
     return finalizeExportRows(drafts, queueAvailable);
+  }
+
+  private async loadContractorExpenseSummaryBase(
+    companyId: string,
+  ): Promise<
+    Pick<
+      GlContractorExpenseSummary,
+      | 'categoryKey'
+      | 'mappedExpenseAccount'
+      | 'mappedPayableAccount'
+      | 'unexportedPaidBatchCount'
+      | 'unexportedPaidInvoiceCount'
+      | 'unexportedPaidAmount'
+    >
+  > {
+    const [mappings, unexportedBatches, unbatchedPaidInvoices] = await Promise.all([
+      this.prisma.unscoped.glContractorMapping.findMany({
+        where: { companyId },
+        include: { glAccount: { select: { code: true, name: true } } },
+      }),
+      this.prisma.unscoped.contractorPaymentBatch.aggregate({
+        where: {
+          companyId,
+          status: 'paid',
+          journalExport: null,
+        },
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.unscoped.contractorInvoice.aggregate({
+        where: {
+          companyId,
+          status: 'paid',
+          paymentBatchItem: null,
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const expenseMap = mappings.find((m) => m.systemKey === 'contractor_expense');
+    const payableMap = mappings.find((m) => m.systemKey === 'contractor_payable');
+
+    const unexportedTotal = new Decimal(unexportedBatches._sum.totalAmount ?? 0).plus(
+      new Decimal(unbatchedPaidInvoices._sum.amount ?? 0),
+    );
+
+    return {
+      categoryKey: 'contractor_expense',
+      mappedExpenseAccount: expenseMap
+        ? `${expenseMap.glAccount.code} · ${expenseMap.glAccount.name}`
+        : null,
+      mappedPayableAccount: payableMap
+        ? `${payableMap.glAccount.code} · ${payableMap.glAccount.name}`
+        : null,
+      unexportedPaidBatchCount: unexportedBatches._count._all,
+      unexportedPaidInvoiceCount: unbatchedPaidInvoices._count._all,
+      unexportedPaidAmount: formatMoney(unexportedTotal),
+    };
   }
 }

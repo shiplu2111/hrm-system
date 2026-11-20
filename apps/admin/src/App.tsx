@@ -14,10 +14,15 @@ import { AppShell } from '@/components/layout/AppShell';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { MyDashboardPage } from '@/pages/my/MyDashboardPage';
 import { MyProfilePage } from '@/pages/my/MyProfilePage';
+import { MyDocumentsPage } from '@/pages/my/MyDocumentsPage';
+import { MyDirectoryPage } from '@/pages/my/MyDirectoryPage';
 import { MyAttendancePage } from '@/pages/my/MyAttendancePage';
 import { MyLeavePage } from '@/pages/my/MyLeavePage';
 import { MyRosterPage } from '@/pages/my/MyRosterPage';
+import { MyTimesheetsPage } from '@/pages/my/MyTimesheetsPage';
 import { MyPayslipsPage } from '@/pages/my/MyPayslipsPage';
+import { MyExpensesPage } from '@/pages/my/MyExpensesPage';
+import { MyNotificationsPage } from '@/pages/my/MyNotificationsPage';
 import { MyHelpPage } from '@/pages/my/MyHelpPage';
 import { CompanyProfilePage } from '@/pages/org/CompanyProfilePage';
 import { DepartmentsPage } from '@/pages/org/DepartmentsPage';
@@ -105,6 +110,9 @@ import { TrainingAttendancePage } from '@/pages/talent/TrainingAttendancePage';
 import { EmployeeRelationsPage } from '@/pages/talent/EmployeeRelationsPage';
 import { EmployeeEngagementPage } from '@/pages/talent/EmployeeEngagementPage';
 import { HealthSafetyPage } from '@/pages/talent/HealthSafetyPage';
+import { HealthSafetyIncidentDetailPage } from '@/pages/talent/HealthSafetyIncidentDetailPage';
+import { ContractorInvoicesPage } from '@/pages/talent/ContractorInvoicesPage';
+import { ContractorPaymentTermsPage } from '@/pages/talent/ContractorPaymentTermsPage';
 import { VendorContractorPage } from '@/pages/talent/VendorContractorPage';
 import { ReportsHubPage } from '@/pages/reports/ReportsHubPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
@@ -124,10 +132,15 @@ function PageRoutes() {
 
       <Route path="/my" element={<MyDashboardPage />} />
       <Route path="/my/profile" element={<MyProfilePage />} />
+      <Route path="/my/documents" element={<MyDocumentsPage />} />
+      <Route path="/my/directory" element={<MyDirectoryPage />} />
       <Route path="/my/attendance" element={<MyAttendancePage />} />
       <Route path="/my/leave" element={<MyLeavePage />} />
       <Route path="/my/roster" element={<MyRosterPage />} />
+      <Route path="/my/timesheets" element={<MyTimesheetsPage />} />
       <Route path="/my/payslips" element={<MyPayslipsPage />} />
+      <Route path="/my/expenses" element={<MyExpensesPage />} />
+      <Route path="/my/notifications" element={<MyNotificationsPage />} />
       <Route path="/my/help" element={<MyHelpPage />} />
 
       <Route path="/employees/directory" element={<EmployeeDirectoryPage />} />
@@ -224,9 +237,33 @@ function PageRoutes() {
       <Route path="/talent/training/certifications" element={<TrainingCertificationsPage />} />
       <Route path="/talent/training/skills" element={<TrainingSkillMatrixPage />} />
       <Route path="/talent/employee-relations" element={<EmployeeRelationsPage />} />
-      <Route path="/talent/engagement" element={<EmployeeEngagementPage />} />
+      <Route path="/talent/cases" element={<Navigate to="/talent/employee-relations" replace />} />
+      <Route path="/cases" element={<Navigate to="/talent/employee-relations" replace />} />
+      <Route path="/talent/engagement" element={<EmployeeEngagementPage defaultTab="announcements" />} />
+      <Route path="/talent/engagement/surveys" element={<EmployeeEngagementPage defaultTab="surveys" />} />
+      <Route path="/talent/engagement/kudos" element={<EmployeeEngagementPage defaultTab="kudos" />} />
+      <Route path="/engagement" element={<Navigate to="/talent/engagement" replace />} />
+      <Route path="/announcements" element={<Navigate to="/talent/engagement" replace />} />
+      <Route path="/surveys" element={<Navigate to="/talent/engagement/surveys" replace />} />
+      <Route path="/kudos" element={<Navigate to="/talent/engagement/kudos" replace />} />
       <Route path="/talent/health-safety" element={<HealthSafetyPage />} />
+      <Route path="/talent/health-safety/incidents/:incidentId" element={<HealthSafetyIncidentDetailPage />} />
+      <Route path="/health-safety" element={<Navigate to="/talent/health-safety" replace />} />
       <Route path="/talent/vendors-contractors" element={<VendorContractorPage />} />
+      <Route
+        path="/talent/vendors-contractors/payment-terms"
+        element={<ContractorPaymentTermsPage />}
+      />
+      <Route path="/talent/vendors-contractors/invoices" element={<ContractorInvoicesPage />} />
+      <Route path="/contractors" element={<Navigate to="/talent/vendors-contractors" replace />} />
+      <Route
+        path="/contractor-payment-terms"
+        element={<Navigate to="/talent/vendors-contractors/payment-terms" replace />}
+      />
+      <Route
+        path="/contractor-invoices"
+        element={<Navigate to="/talent/vendors-contractors/invoices" replace />}
+      />
 
       <Route path="/reports" element={<ReportsPage />} />
       <Route path="/reports/scheduled" element={<ReportsHubPage />} />

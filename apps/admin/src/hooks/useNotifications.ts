@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { InAppNotificationRecord } from '@hrm/shared-types';
 import {
+  clearAllReadNotifications,
+  deleteNotification,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -10,17 +12,21 @@ import { ApiError } from '@/lib/tenant-api-client';
 const POLL_MS = 60_000;
 
 /** `reloadKey` identifies the session; changing it drops loaded items and ignores in-flight responses. */
-export function useNotifications(reloadKey: string | number = 0) {
+export function useNotifications(
+  reloadKey: string | number = 0,
+  options?: { limit?: number },
+) {
   const [items, setItems] = useState<InAppNotificationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const activeKey = useRef(reloadKey);
   activeKey.current = reloadKey;
+  const limit = options?.limit ?? 50;
 
   const refresh = useCallback(async () => {
     const requestKey = activeKey.current;
     try {
-      const data = await listNotifications({ limit: 20 });
+      const data = await listNotifications({ limit });
       if (activeKey.current !== requestKey) return;
       setItems(data);
       setError(null);
@@ -36,7 +42,7 @@ export function useNotifications(reloadKey: string | number = 0) {
     } finally {
       if (activeKey.current === requestKey) setLoading(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     setItems([]);
@@ -68,6 +74,16 @@ export function useNotifications(reloadKey: string | number = 0) {
     );
   }, [items]);
 
+  const deleteItem = useCallback(async (id: string) => {
+    await deleteNotification(id);
+    setItems((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const clearAllRead = useCallback(async () => {
+    await clearAllReadNotifications();
+    setItems((current) => current.filter((item) => !item.readAt));
+  }, []);
+
   return {
     items,
     unreadCount,
@@ -76,5 +92,7 @@ export function useNotifications(reloadKey: string | number = 0) {
     refresh,
     markRead,
     markAllRead,
+    deleteItem,
+    clearAllRead,
   };
 }

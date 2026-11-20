@@ -8,7 +8,7 @@ export function MyLeavePage() {
   const { employeeId, companyId, loading, error } = useMyEmployee();
 
   return (
-    <MyPageLayout title={t('nav.leave')} loading={loading} error={error}>
+    <MyPageLayout title={t('nav.leave')} subtitle={t('leave.subtitle')} loading={loading} error={error}>
       {employeeId && companyId ? <EssLeaveView employeeId={employeeId} companyId={companyId} /> : null}
     </MyPageLayout>
   );

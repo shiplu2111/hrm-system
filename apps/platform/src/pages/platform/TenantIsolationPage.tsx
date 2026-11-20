@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
+  Building2,
   Check,
   CheckCircle2,
   Clock3,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
 import { Modal } from '@/components/ui/Modal';
+import { usePlatformTenant } from '@/context/PlatformTenantContext';
 
 type View = 'Provisioning Defaults' | 'Isolation Status';
 type BackupStatus = 'Healthy' | 'Delayed' | 'Running';
@@ -75,6 +77,7 @@ function CopyField({ icon, label, value, onCopy }: { icon: ReactNode; label: str
 }
 
 export function TenantIsolationPage() {
+  const { selectedTenant, setSelectedTenant } = usePlatformTenant();
   const [view, setView] = useState<View>('Provisioning Defaults');
   const [modules, setModules] = useState(() => Object.fromEntries(moduleDefaults.map((module) => [module.key, module.enabled])));
   const [country, setCountry] = useState('United States');
@@ -86,10 +89,19 @@ export function TenantIsolationPage() {
   const [copied, setCopied] = useState('');
   const [saved, setSaved] = useState(false);
 
-  const filtered = useMemo(() => tenants.filter((tenant) =>
-    `${tenant.name} ${tenant.id} ${tenant.schema} ${tenant.region}`.toLowerCase().includes(search.toLowerCase())
-    && (region === 'All regions' || tenant.region.includes(region)),
-  ), [search, region]);
+  const filtered = useMemo(() => tenants.filter((tenant) => {
+    if (
+      selectedTenant &&
+      !tenant.name.toLowerCase().includes(selectedTenant.name.toLowerCase()) &&
+      !selectedTenant.name.toLowerCase().includes(tenant.name.toLowerCase())
+    ) {
+      return false;
+    }
+    return (
+      `${tenant.name} ${tenant.id} ${tenant.schema} ${tenant.region}`.toLowerCase().includes(search.toLowerCase()) &&
+      (region === 'All regions' || tenant.region.includes(region))
+    );
+  }), [search, region, selectedTenant]);
 
   const handleCopy = (value: string) => {
     void navigator.clipboard?.writeText(value);
@@ -112,6 +124,43 @@ export function TenantIsolationPage() {
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" /> All isolation controls enforced</div>
       </div>
+
+      {/* Tenant Context Filter Banner */}
+      {selectedTenant && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400">
+                  Tenant Scope Active:
+                </span>
+                <span className="text-sm font-bold text-white">{selectedTenant.name}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold border bg-purple-500/20 text-purple-300 border-purple-500/30">
+                  Plan: {selectedTenant.plan}
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                  Status: {selectedTenant.status}
+                </span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                <span>Infrastructure & isolation metrics filtered to {selectedTenant.subdomain}.cmsnbd.com</span>
+                <span>·</span>
+                <span className="text-amber-300 font-medium">Business payroll/employee data strictly isolated</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedTenant(null)}
+            className="h-8 px-3 rounded-lg border border-slate-700 hover:border-slate-600 text-xs text-slate-300 hover:text-white transition-colors self-start sm:self-center"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Isolated tenants" value="128 / 128" icon={<Database className="h-4 w-4" />} />

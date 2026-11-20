@@ -53,10 +53,21 @@ function actor(employeeId: string | null): AuthenticatedUser {
 describe('ExpenseClaimsService decisions', () => {
   let prisma: {
     unscoped: {
-      expenseClaim: { findUnique: jest.Mock; update: jest.Mock; aggregate: jest.Mock };
+      expenseClaim: {
+        findUnique: jest.Mock;
+        findMany: jest.Mock;
+        update: jest.Mock;
+        aggregate: jest.Mock;
+      };
     };
   };
   let workflow: Record<string, jest.Mock>;
+  let permissions: { hasPermission: jest.Mock };
+  let dataScope: {
+    assertEmployeeInScope: jest.Mock;
+    employeeIdFilter: jest.Mock;
+    isOwnOnly: jest.Mock;
+  };
   let service: ExpenseClaimsService;
 
   beforeEach(() => {
@@ -64,6 +75,7 @@ describe('ExpenseClaimsService decisions', () => {
       unscoped: {
         expenseClaim: {
           findUnique: jest.fn().mockResolvedValue(claim()),
+          findMany: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockImplementation(({ data }) => Promise.resolve(claim(data))),
           aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
         },
@@ -75,6 +87,14 @@ describe('ExpenseClaimsService decisions', () => {
       findForClaims: jest.fn().mockResolvedValue(new Map()),
       resolveRoutes: jest.fn().mockResolvedValue(new Map()),
       startForClaim: jest.fn(),
+      cancelForClaim: jest.fn().mockResolvedValue(undefined),
+      previewRoute: jest.fn(),
+    };
+    permissions = { hasPermission: jest.fn().mockReturnValue(true) };
+    dataScope = {
+      assertEmployeeInScope: jest.fn().mockResolvedValue(undefined),
+      employeeIdFilter: jest.fn().mockResolvedValue(undefined),
+      isOwnOnly: jest.fn().mockResolvedValue(false),
     };
     service = new ExpenseClaimsService(
       prisma as never,
@@ -85,7 +105,8 @@ describe('ExpenseClaimsService decisions', () => {
       { canActOnSteps: jest.fn().mockResolvedValue([]) } as never,
       { emit: jest.fn().mockResolvedValue(undefined) } as never,
       {} as never,
-      { hasPermission: jest.fn().mockReturnValue(true) } as never,
+      permissions as never,
+      dataScope as never,
     );
   });
 
@@ -131,6 +152,31 @@ describe('ExpenseClaimsService decisions', () => {
     );
     expect(workflow.startForClaim).not.toHaveBeenCalled();
   });
+
+  it('prevents an own-scoped employee from submitting or cancelling another employee claim', async () => {
+    permissions.hasPermission.mockReturnValue(false);
+    dataScope.isOwnOnly.mockResolvedValue(true);
+
+    await expect(
+      service.cancel('claim-1', actor('emp-2')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    prisma.unscoped.expenseClaim.findUnique.mockResolvedValue(
+      claim({ status: ExpenseClaimStatus.draft, employeeId: 'emp-1' }),
+    );
+    await expect(
+      service.submit('claim-1', actor('emp-2')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows an own-scoped employee to cancel their own pending claim', async () => {
+    permissions.hasPermission.mockReturnValue(false);
+    dataScope.isOwnOnly.mockResolvedValue(true);
+
+    const cancelled = await service.cancel('claim-1', actor('emp-1'));
+    expect(cancelled.status).toBe(ExpenseClaimStatus.cancelled);
+    expect(workflow.cancelForClaim).toHaveBeenCalledWith('claim-1');
+  });
 });
 
 describe('ExpenseCategoriesService limits', () => {
@@ -166,6 +212,7 @@ describe('ExpenseCategoriesService limits', () => {
       prisma as never,
       { assertCompanyInTenant: jest.fn().mockResolvedValue({ tenantId: 't1' }) } as never,
       { log: jest.fn().mockResolvedValue(undefined) } as never,
+      { employeeIdFilter: jest.fn().mockResolvedValue(undefined) } as never,
     );
   });
 

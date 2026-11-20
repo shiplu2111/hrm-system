@@ -73,12 +73,43 @@ export class EmployeesService {
         lastName: true,
         department: { select: { id: true, name: true } },
         designation: { select: { id: true, name: true } },
+        workLocation: { select: { id: true, name: true } },
+        user: { select: { email: true } },
+        personalInfo: true,
       },
     });
-    return rows.map((row) => ({
-      ...row,
-      fullName: `${row.firstName} ${row.lastName}`.trim(),
-    }));
+    return rows.map((row) => {
+      const pi =
+        row.personalInfo && typeof row.personalInfo === 'object' && !Array.isArray(row.personalInfo)
+          ? (row.personalInfo as Record<string, unknown>)
+          : {};
+      const contact =
+        pi.contact && typeof pi.contact === 'object' && !Array.isArray(pi.contact)
+          ? (pi.contact as Record<string, unknown>)
+          : {};
+      const rawEmail =
+        (typeof contact.email === 'string' && contact.email.trim()) ||
+        (typeof pi.email === 'string' && pi.email.trim()) ||
+        row.user?.email ||
+        null;
+      const rawPhone =
+        (typeof contact.phone === 'string' && contact.phone.trim()) ||
+        (typeof contact.mobile === 'string' && contact.mobile.trim()) ||
+        null;
+
+      return {
+        id: row.id,
+        companyId: row.companyId,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        fullName: `${row.firstName} ${row.lastName}`.trim(),
+        department: row.department,
+        designation: row.designation,
+        workLocation: row.workLocation,
+        email: rawEmail,
+        phone: rawPhone,
+      };
+    });
   }
 
   async getEmployee(id: string) {

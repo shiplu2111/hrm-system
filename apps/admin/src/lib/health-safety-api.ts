@@ -1,6 +1,7 @@
 import type {
   HealthSafetyCountryRequirements,
   HealthSafetySummary,
+  IncidentPartyRole,
   InjuryLogEntryRecord,
   SafetyComplianceRecordView,
   SafetyInspectionRecord,
@@ -35,6 +36,12 @@ export const INCIDENT_STATUS_LABELS: Record<WorkplaceIncidentStatus, string> = {
   closed: 'Closed',
 };
 
+export const PARTY_ROLE_LABELS: Record<IncidentPartyRole, string> = {
+  involved: 'Involved',
+  witness: 'Witness',
+  injured: 'Injured',
+};
+
 export function getHealthSafetySummary(companyId: string): Promise<HealthSafetySummary> {
   return tenantApiRequest<HealthSafetySummary>(
     `/companies/${companyId}/health-safety/summary`,
@@ -43,23 +50,44 @@ export function getHealthSafetySummary(companyId: string): Promise<HealthSafetyS
 
 export function getHealthSafetyRequirements(
   companyId: string,
+  options?: { employeeId?: string; asOf?: string },
 ): Promise<HealthSafetyCountryRequirements> {
+  const query = new URLSearchParams();
+  if (options?.employeeId) query.set('employeeId', options.employeeId);
+  if (options?.asOf) query.set('asOf', options.asOf);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<HealthSafetyCountryRequirements>(
-    `/companies/${companyId}/health-safety/requirements`,
+    `/companies/${companyId}/health-safety/requirements${suffix}`,
   );
 }
 
 export function listIncidents(
   companyId: string,
-  params?: { status?: string; severity?: string; search?: string },
+  params?: {
+    status?: string;
+    severity?: string;
+    incidentType?: string;
+    regulatorRequiredOnly?: boolean;
+    search?: string;
+    limit?: number;
+  },
 ): Promise<WorkplaceIncidentRecord[]> {
   const query = new URLSearchParams();
   if (params?.status) query.set('status', params.status);
   if (params?.severity) query.set('severity', params.severity);
+  if (params?.incidentType) query.set('incidentType', params.incidentType);
+  if (params?.regulatorRequiredOnly) query.set('regulatorRequiredOnly', 'true');
   if (params?.search) query.set('search', params.search);
+  if (params?.limit) query.set('limit', String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<WorkplaceIncidentRecord[]>(
     `/companies/${companyId}/health-safety/incidents${suffix}`,
+  );
+}
+
+export function getIncident(incidentId: string): Promise<WorkplaceIncidentRecord> {
+  return tenantApiRequest<WorkplaceIncidentRecord>(
+    `/health-safety/incidents/${incidentId}`,
   );
 }
 
@@ -72,7 +100,10 @@ export function createIncident(
     occurredAt: string;
     description: string;
     reportedByEmployeeId?: string;
-    parties?: Array<{ employeeId: string; partyRole: string }>;
+    gpsLat?: number;
+    gpsLng?: number;
+    parties?: Array<{ employeeId: string; partyRole: IncidentPartyRole }>;
+    countrySpecificData?: Record<string, unknown>;
   },
 ): Promise<WorkplaceIncidentRecord> {
   return tenantApiRequest<WorkplaceIncidentRecord>(
@@ -87,6 +118,9 @@ export function updateIncident(
     status?: WorkplaceIncidentStatus;
     investigationNotes?: string;
     regulatorReportSubmitted?: boolean;
+    regulatorReferenceNumber?: string;
+    countrySpecificData?: Record<string, unknown>;
+    parties?: Array<{ employeeId: string; partyRole: IncidentPartyRole }>;
   },
 ): Promise<WorkplaceIncidentRecord> {
   return tenantApiRequest<WorkplaceIncidentRecord>(
@@ -95,9 +129,17 @@ export function updateIncident(
   );
 }
 
-export function listInjuryLog(companyId: string): Promise<InjuryLogEntryRecord[]> {
+export function listInjuryLog(
+  companyId: string,
+  params?: { employeeId?: string; incidentId?: string; limit?: number },
+): Promise<InjuryLogEntryRecord[]> {
+  const query = new URLSearchParams();
+  if (params?.employeeId) query.set('employeeId', params.employeeId);
+  if (params?.incidentId) query.set('incidentId', params.incidentId);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const suffix = query.toString() ? `?${query.toString()}` : '';
   return tenantApiRequest<InjuryLogEntryRecord[]>(
-    `/companies/${companyId}/health-safety/injuries`,
+    `/companies/${companyId}/health-safety/injuries${suffix}`,
   );
 }
 

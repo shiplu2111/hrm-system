@@ -5,17 +5,16 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { EnterpriseFeature } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { IS_PUBLIC_KEY } from '../common/decorators/public.decorator';
 import { ENTERPRISE_FEATURE_KEY } from './require-enterprise-feature.decorator';
-import { PlanFeaturesService } from './plan-features.service';
+import { FeatureGateService } from './feature-gate.service';
 
 @Injectable()
 export class EnterpriseFeatureGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly planFeatures: PlanFeaturesService,
+    private readonly featureGate: FeatureGateService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -27,7 +26,7 @@ export class EnterpriseFeatureGuard implements CanActivate {
       return true;
     }
 
-    const feature = this.reflector.getAllAndOverride<EnterpriseFeature>(
+    const feature = this.reflector.getAllAndOverride<string>(
       ENTERPRISE_FEATURE_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -35,7 +34,17 @@ export class EnterpriseFeatureGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>();
+    const request = context.switchToHttp().getRequest<{
+      user?: AuthenticatedUser;
+      url?: string;
+      originalUrl?: string;
+    }>();
+
+    const url = request.originalUrl ?? request.url ?? '';
+    if (url.includes('/platform/')) {
+      return true;
+    }
+
     const user = request.user;
     if (!user?.tenantId) {
       throw new ForbiddenException({
@@ -44,7 +53,9 @@ export class EnterpriseFeatureGuard implements CanActivate {
       });
     }
 
-    await this.planFeatures.assertFeature(user.tenantId, feature);
+    await this.featureGate.assertFeature(user.tenantId, feature);
     return true;
   }
 }
+
+export const FeatureGateGuard = EnterpriseFeatureGuard;

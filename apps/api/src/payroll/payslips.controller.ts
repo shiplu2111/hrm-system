@@ -13,11 +13,13 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import { ListPayslipsQueryDto } from './dto/payslips.dto';
 import { PayslipService } from './payslip.service';
 
 @ApiTags('payslips')
 @ApiBearerAuth('access-token')
+@RequireFeature('basic_payroll')
 @Controller()
 export class PayslipsController {
   constructor(

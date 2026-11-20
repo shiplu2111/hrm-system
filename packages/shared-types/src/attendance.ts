@@ -150,11 +150,68 @@ export interface AttendanceRegisterDay {
   recordId: string | null;
   clockInAt: string | null;
   clockOutAt: string | null;
+  clockInDisplay?: string | null;
+  clockOutDisplay?: string | null;
   netMinutes: number | null;
+  breakMinutes?: number | null;
+  overtimeMinutes?: number | null;
   shiftName: string | null;
+  shiftStartTime?: string | null;
+  shiftEndTime?: string | null;
   holidayName: string | null;
   leaveTypeName: string | null;
   flags: AttendanceDayFlags;
+}
+
+export interface EmployeeAttendanceHistoryView {
+  employeeId: string;
+  from: string;
+  to: string;
+  today: string;
+  timezone: string;
+  days: AttendanceRegisterDay[];
+  counts: Partial<Record<AttendanceDayStatus, number>>;
+  netMinutes: number;
+}
+
+export interface SubmitAttendanceCorrectionInput {
+  date: string;
+  /** Local wall-clock time "HH:mm" in the employee's branch timezone. */
+  clockIn?: string;
+  /** Local wall-clock time "HH:mm" in the employee's branch timezone. */
+  clockOut?: string;
+  /** True if requested clock-out is on the calendar day after `date`. */
+  clockOutNextDay?: boolean;
+  clockInAt?: string | null;
+  clockOutAt?: string | null;
+  reason: string;
+}
+
+export interface AttendanceCorrectionOriginalValues {
+  clockInAt?: string | null;
+  clockOutAt?: string | null;
+  status?: AttendanceStatus | null;
+  source?: string | null;
+}
+
+export interface CompanyAttendanceCorrectionItem {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  date: string;
+  kind: AttendanceCorrectionKind;
+  status: AttendanceCorrectionStatus;
+  reason: string;
+  originalValues: AttendanceCorrectionOriginalValues;
+  requestedClockInAt: string | null;
+  requestedClockOutAt: string | null;
+  requestedStatus: AttendanceStatus | null;
+  requestedBy: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  createdAt: string;
 }
 
 export interface AttendanceRegisterRow {

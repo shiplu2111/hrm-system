@@ -6,7 +6,9 @@ export type WorkflowEntityType =
   | 'timesheet_entry'
   | 'job_requisition'
   | 'offer_letter'
-  | 'performance_review';
+  | 'performance_review'
+  | 'shift_swap_request'
+  | 'overtime_request';
 
 export type WorkflowAssigneeType = 'role' | 'direct_manager' | 'skip_level_manager';
 
@@ -55,6 +57,8 @@ export const WORKFLOW_ROUTING_MODES: Record<WorkflowEntityType, WorkflowRoutingM
   job_requisition: 'default_only',
   offer_letter: 'default_only',
   performance_review: 'default_only',
+  shift_swap_request: 'default_only',
+  overtime_request: 'default_only',
   leave_request: 'leave_policy',
   payroll_adjustment: 'not_connected',
 };

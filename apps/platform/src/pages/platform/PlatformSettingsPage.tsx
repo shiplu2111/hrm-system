@@ -12,6 +12,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
+import { PermissionGate } from '@/components/rbac';
 
 interface Country {
   name: string;
@@ -65,9 +66,11 @@ export function PlatformSettingsPage() {
           <h1 className="text-2xl font-extrabold">Platform Settings</h1>
           <p className="text-sm text-slate-500 mt-1">Global onboarding, regional compliance, and operational defaults.</p>
         </div>
-        <button onClick={save} className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/15">
-          {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />} {saved ? 'Settings saved' : 'Save changes'}
-        </button>
+        <PermissionGate module="setting" action="edit">
+          <button onClick={save} className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/15">
+            {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />} {saved ? 'Settings saved' : 'Save changes'}
+          </button>
+        </PermissionGate>
       </div>
 
       <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">

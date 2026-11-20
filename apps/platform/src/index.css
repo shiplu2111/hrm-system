@@ -1,3 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: 244 247 250;       /* #f4f7fa */
+    --bg-surface: 255 255 255;    /* #ffffff */
+    --bg-elevated: 255 255 255;   /* #ffffff */
+    --bg-muted: 237 242 247;      /* #edf2f7 */
+    --bg-hover: 229 235 242;      /* #e5ebf2 */
+    --border-base: 218 226 234;   /* #dae2ea */
+    --border-strong: 192 203 216; /* #c0cbd8 */
+    --text-primary: 12 25 41;     /* #0c1929 */
+    --text-secondary: 72 84 102;  /* #485466 */
+    --text-muted: 107 119 133;    /* #6b7785 */
+    --text-inverse: 255 255 255;
+  }
+
+  .dark {
+    --bg-base: 6 16 28;           /* #06101c */
+    --bg-surface: 12 25 41;       /* #0c1929 */
+    --bg-elevated: 18 37 58;      /* #12253a */
+    --bg-muted: 18 37 58;         /* #12253a */
+    --bg-hover: 24 48 74;         /* #18304a */
+    --border-base: 30 52 75;      /* #1e344b */
+    --border-strong: 45 71 97;    /* #2d4761 */
+    --text-primary: 244 247 250;  /* #f4f7fa */
+    --text-secondary: 148 163 184;/* #94a3b8 */
+    --text-muted: 100 116 139;    /* #64748b */
+    --text-inverse: 12 25 41;
+  }
+
+  * {
+    border-color: rgb(var(--border-base));
+  }
+
+  body {
+    background-color: rgb(var(--bg-base));
+    color: rgb(var(--text-primary));
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: rgb(30 73 118 / 0.25);
+  }
+}

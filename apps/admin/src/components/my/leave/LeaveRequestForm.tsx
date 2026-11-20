@@ -25,6 +25,7 @@ interface LeaveRequestFormProps {
   employeeId: string;
   leaveTypes: LeaveTypeRecord[];
   balances: LeaveBalanceRecord[];
+  initialLeaveTypeId?: string;
   onClose: () => void;
   onSubmitted: () => void;
 }
@@ -45,11 +46,16 @@ function LeaveRequestFormBody({
   employeeId,
   leaveTypes,
   balances,
+  initialLeaveTypeId,
   onClose,
   onSubmitted,
 }: LeaveRequestFormProps) {
   const { t, days, range } = useLeaveFormat();
-  const [leaveTypeId, setLeaveTypeId] = useState(() => defaultLeaveTypeId(leaveTypes, balances));
+  const [leaveTypeId, setLeaveTypeId] = useState(() =>
+    initialLeaveTypeId && leaveTypes.some((type) => type.id === initialLeaveTypeId)
+      ? initialLeaveTypeId
+      : defaultLeaveTypeId(leaveTypes, balances),
+  );
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [halfDayChecked, setHalfDayChecked] = useState(false);
@@ -59,7 +65,9 @@ function LeaveRequestFormBody({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const singleDay = Boolean(startDate) && startDate === endDate;
-  const halfDay = singleDay && halfDayChecked;
+  const shown = result && 'preview' in result ? result : null;
+  const halfDayBlocked = shown?.preview.policy?.halfDayAllowed === false;
+  const halfDay = singleDay && !halfDayBlocked && halfDayChecked;
   const datesChosen = Boolean(leaveTypeId && startDate && endDate);
   const requestKey = datesChosen ? `${leaveTypeId}|${startDate}|${endDate}|${halfDay}` : null;
 
@@ -97,8 +105,6 @@ function LeaveRequestFormBody({
   const current = result && result.key === requestKey ? result : null;
   const stale = requestKey !== null && current === null;
   const failed = current !== null && 'error' in current;
-  const shown = result && 'preview' in result ? result : null;
-  const halfDayBlocked = shown?.preview.policy?.halfDayAllowed === false;
 
   const canSubmit =
     datesChosen &&
@@ -141,10 +147,15 @@ function LeaveRequestFormBody({
       description={t('leave.form.subtitle')}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" className="min-h-[44px]" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" disabled={!canSubmit} onClick={() => void handleSubmit()}>
+          <Button
+            variant="primary"
+            className="min-h-[44px]"
+            disabled={!canSubmit}
+            onClick={() => void handleSubmit()}
+          >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
             {t('leave.form.submit')}
           </Button>
@@ -158,7 +169,10 @@ function LeaveRequestFormBody({
             <Select
               id="leave-type"
               value={leaveTypeId}
-              onChange={(e) => setLeaveTypeId(e.target.value)}
+              onChange={(e) => {
+                setLeaveTypeId(e.target.value);
+                setHalfDayChecked(false);
+              }}
             >
               {leaveTypes.map((type) => {
                 const balance = balanceByType.get(type.id);

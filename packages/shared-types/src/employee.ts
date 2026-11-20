@@ -66,6 +66,9 @@ export interface EmployeeDirectoryEntry {
   fullName: string;
   department: { id: string; name: string } | null;
   designation: { id: string; name: string } | null;
+  workLocation?: { id: string; name: string } | null;
+  email?: string | null;
+  phone?: string | null;
 }
 
 export interface BulkUpdateEmployeeStatusInput {
@@ -98,4 +101,59 @@ export interface EmployeeRecord extends EmployeeSummary {
   workLocation?: { id: string; name: string } | null;
   costCentre?: { id: string; name: string; code: string } | null;
   company?: { id: string; name: string } | null;
+}
+
+export type ProfileFieldAccessTier = 'direct_edit' | 'hr_approval' | 'read_only';
+
+export type ProfileUpdateFieldKey =
+  | 'first_name'
+  | 'last_name'
+  | 'work_location'
+  | 'department'
+  | 'designation'
+  | 'manager'
+  | 'dependents'
+  | 'bank_or_tax'
+  | 'other';
+
+export type ProfileUpdateRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled';
+
+export interface UpdateSelfProfileInput {
+  contact?: EmployeeContact;
+  emergencyContact?: EmergencyContact;
+  address?: EmployeeAddress;
+}
+
+export interface CreateProfileUpdateRequestInput {
+  fieldKey: ProfileUpdateFieldKey;
+  requestedValue: string;
+  reason: string;
+  effectiveDate?: string;
+}
+
+export interface ProfileUpdateRequestRecord {
+  id: string;
+  tenantId: string;
+  companyId: string;
+  employeeId: string;
+  employeeName?: string;
+  employeeNumber?: string;
+  fieldKey: ProfileUpdateFieldKey;
+  currentValue: string | null;
+  requestedValue: string;
+  reason: string;
+  effectiveDate: string | null;
+  status: ProfileUpdateRequestStatus;
+  requestedByUserId: string;
+  reviewedByUserId: string | null;
+  reviewedByName?: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  appliedOnApproval: boolean;
+  createdAt: string;
+  updatedAt: string;
 }

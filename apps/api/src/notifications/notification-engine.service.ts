@@ -7,6 +7,7 @@ import {
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationRecipientsService } from './notification-recipients.service';
 import { NotificationRulesService } from './notification-rules.service';
+import { UserNotificationPreferencesService } from './user-notification-preferences.service';
 import { escapeHtml } from '../settings/mail.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import { isWebhookEventType } from '../webhooks/webhook.constants';
@@ -19,6 +20,7 @@ export class NotificationEngineService {
     private readonly deliveryService: NotificationDeliveryService,
     private readonly recipientsService: NotificationRecipientsService,
     private readonly rulesService: NotificationRulesService,
+    private readonly userPreferencesService: UserNotificationPreferencesService,
     private readonly webhookEmitter: WebhookEmitterService,
   ) {}
 
@@ -73,43 +75,69 @@ export class NotificationEngineService {
       for (const recipient of recipients) {
         if (rule.channels.inApp && recipient.userId && !seenInApp.has(recipient.userId)) {
           seenInApp.add(recipient.userId);
-          await this.deliveryService.deliverInApp({
-            tenantId: input.tenantId,
-            companyId: input.companyId,
-            userId: recipient.userId,
-            eventType: input.eventType,
-            title,
-            body,
-            payload,
-          });
+          const allowed = await this.userPreferencesService.shouldDeliverToUser(
+            recipient.userId,
+            input.tenantId,
+            input.eventType,
+            'inApp',
+          );
+          if (allowed) {
+            await this.deliveryService.deliverInApp({
+              tenantId: input.tenantId,
+              companyId: input.companyId,
+              userId: recipient.userId,
+              eventType: input.eventType,
+              title,
+              body,
+              payload,
+            });
+          }
         }
 
         if (rule.channels.push && recipient.userId && !seenPush.has(recipient.userId)) {
           seenPush.add(recipient.userId);
-          await this.deliveryService.deliverPushWithRetry({
-            tenantId: input.tenantId,
-            companyId: input.companyId,
-            eventType: input.eventType,
-            recipientUserId: recipient.userId,
-            title,
-            body,
-            payload,
-          });
+          const allowed = await this.userPreferencesService.shouldDeliverToUser(
+            recipient.userId,
+            input.tenantId,
+            input.eventType,
+            'push',
+          );
+          if (allowed) {
+            await this.deliveryService.deliverPushWithRetry({
+              tenantId: input.tenantId,
+              companyId: input.companyId,
+              eventType: input.eventType,
+              recipientUserId: recipient.userId,
+              title,
+              body,
+              payload,
+            });
+          }
         }
 
         if (rule.channels.email && recipient.email && !seenEmail.has(recipient.email)) {
           seenEmail.add(recipient.email);
-          await this.deliveryService.deliverEmailWithRetry({
-            tenantId: input.tenantId,
-            companyId: input.companyId,
-            eventType: input.eventType,
-            toEmail: recipient.email,
-            recipientUserId: recipient.userId,
-            subject: emailSubject,
-            text: body,
-            html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
-            payload,
-          });
+          const allowed = recipient.userId
+            ? await this.userPreferencesService.shouldDeliverToUser(
+                recipient.userId,
+                input.tenantId,
+                input.eventType,
+                'email',
+              )
+            : true;
+          if (allowed) {
+            await this.deliveryService.deliverEmailWithRetry({
+              tenantId: input.tenantId,
+              companyId: input.companyId,
+              eventType: input.eventType,
+              toEmail: recipient.email,
+              recipientUserId: recipient.userId,
+              subject: emailSubject,
+              text: body,
+              html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
+              payload,
+            });
+          }
         }
       }
     } catch (error) {

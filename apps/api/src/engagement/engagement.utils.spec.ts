@@ -1,4 +1,10 @@
-import { computeEnps, resolveKudosType } from './engagement.utils';
+import {
+  DEFAULT_KUDOS_REMOVAL_REASON,
+  computeEnps,
+  formatModeratorName,
+  normalizeRemovalReason,
+  resolveKudosType,
+} from './engagement.utils';
 
 describe('engagement.utils', () => {
   describe('computeEnps', () => {
@@ -41,6 +47,39 @@ describe('engagement.utils', () => {
 
     it('returns peer when recipient has no manager', () => {
       expect(resolveKudosType(peerId, null)).toBe('peer');
+    });
+  });
+
+  describe('normalizeRemovalReason', () => {
+    it('trims non-empty moderation reasons', () => {
+      expect(normalizeRemovalReason('  Inappropriate language  ')).toBe('Inappropriate language');
+    });
+
+    it('falls back to default reason when empty or omitted', () => {
+      expect(normalizeRemovalReason(undefined)).toBe(DEFAULT_KUDOS_REMOVAL_REASON);
+      expect(normalizeRemovalReason(null)).toBe(DEFAULT_KUDOS_REMOVAL_REASON);
+      expect(normalizeRemovalReason('   ')).toBe(DEFAULT_KUDOS_REMOVAL_REASON);
+    });
+  });
+
+  describe('formatModeratorName', () => {
+    it('prefers employee full name when linked', () => {
+      expect(
+        formatModeratorName({
+          email: 'hr@cmsnbd.com',
+          employee: { firstName: 'Sadia', lastName: 'Rahman' },
+        }),
+      ).toBe('Sadia Rahman');
+    });
+
+    it('falls back to email when user has no linked employee record', () => {
+      expect(formatModeratorName({ email: 'admin@cmsnbd.com', employee: null })).toBe(
+        'admin@cmsnbd.com',
+      );
+    });
+
+    it('returns null when moderator is null or undefined', () => {
+      expect(formatModeratorName(null)).toBeNull();
     });
   });
 });

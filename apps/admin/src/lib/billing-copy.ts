@@ -19,13 +19,22 @@ export const billingCopy = {
 
   status: {
     active: 'Active',
+    trial: 'Trial',
+    past_due: 'Past due',
     suspended: 'Suspended',
     cancelled: 'Cancelled',
+    pending_deletion: 'Pending deletion',
+    deleted: 'Deleted',
   } satisfies Record<TenantSubscriptionStatus, string>,
   statusNotice: {
+    active: '',
+    trial: 'Your trial is active. Upgrade to a paid plan before it ends to retain uninterrupted access.',
+    past_due: 'Your payment is past due. Please update payment details to prevent workspace suspension.',
     suspended: 'Your subscription is suspended. Your data is safe, but some actions are unavailable until it is reactivated.',
     cancelled: 'Your subscription is cancelled. Your data is kept, but some actions are unavailable until you resubscribe.',
-  },
+    pending_deletion: 'This workspace is scheduled for permanent deletion.',
+    deleted: 'This workspace has been permanently deleted.',
+  } satisfies Record<TenantSubscriptionStatus, string>,
 
   currentPlan: 'Current plan',
   usageTitle: 'Usage',
@@ -45,8 +54,10 @@ export const billingCopy = {
 
   compareTitle: 'Compare plans',
   compareBody: 'Pricing depends on your headcount and billing cycle — our team confirms it when you request a change.',
-  employeesLimit: (limit: number | null) =>
-    limit === null ? 'Unlimited employees' : `Up to ${limit.toLocaleString()} employees`,
+  employeesLimit: (limit: number | null | undefined) =>
+    limit === null || limit === undefined
+      ? 'Unlimited employees'
+      : `Up to ${limit.toLocaleString()} employees`,
   everythingIn: (plan: string) => `Everything in ${plan}, plus:`,
   yourPlan: 'Your plan',
   requestUpgrade: 'Request upgrade',
@@ -62,8 +73,8 @@ export const billingCopy = {
     exceededTitle: 'You are over your employee limit',
     exceededBody: (used: number, limit: number, plan: string) =>
       `${used.toLocaleString()} employees are on the books, but the ${plan} plan covers ${limit.toLocaleString()}. New employees can't be added until you upgrade.`,
-    nextPlan: (plan: string, limit: number | null) =>
-      limit === null
+    nextPlan: (plan: string, limit: number | null | undefined) =>
+      limit === null || limit === undefined
         ? `${plan} has no employee limit.`
         : `${plan} covers up to ${limit.toLocaleString()} employees.`,
     freeSeat: 'You can also free a seat by terminating someone who has left.',

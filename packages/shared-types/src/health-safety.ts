@@ -31,6 +31,47 @@ export type SafetyComplianceStatus = 'pending' | 'compliant' | 'overdue' | 'waiv
 
 export type SafetyInspectionStatus = 'draft' | 'completed';
 
+export type SafetyReportingFieldType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'select';
+
+export interface SafetyReportingFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface SafetyReportingFieldDefinition {
+  key: string;
+  label: string;
+  type: SafetyReportingFieldType;
+  required?: boolean;
+  requiredWhenRegulatorNotifiable?: boolean;
+  placeholder?: string;
+  helpText?: string;
+  options?: SafetyReportingFieldOption[];
+}
+
+export interface HealthSafetyRuleLayerSummary {
+  layer: 'global' | 'country' | 'state' | 'company' | 'employee_contract';
+  applied: boolean;
+  ruleId: string | null;
+}
+
+export interface IncidentReportingRuleConfig {
+  regulatorName: string | null;
+  regulatorReferenceLabel: string | null;
+  regulatorReportDeadlineHours: number;
+  regulatorReportRequiredSeverities: string[];
+  notifiableIncidentTypes: string[];
+  reportingFields: SafetyReportingFieldDefinition[];
+  resolvedAsOf?: string | null;
+  resolvedLayers?: HealthSafetyRuleLayerSummary[];
+}
+
 export interface WorkplaceIncidentPartyRecord {
   employeeId: string;
   employeeName: string;
@@ -54,7 +95,11 @@ export interface WorkplaceIncidentRecord {
   regulatorReportRequired: boolean;
   regulatorReportDueAt: string | null;
   regulatorReportSubmittedAt: string | null;
+  regulatorReportSubmittedByName: string | null;
+  regulatorReferenceNumber: string | null;
   regulatorName: string | null;
+  countrySpecificData: Record<string, unknown>;
+  resolvedReportingConfig: IncidentReportingRuleConfig | null;
   investigationNotes: string | null;
   resolvedAt: string | null;
   parties: WorkplaceIncidentPartyRecord[];
@@ -138,4 +183,5 @@ export interface HealthSafetyCountryRequirements {
     frequencyDays?: number;
   }>;
   injuryLogRequireBodyPart: boolean;
+  incidentReporting: IncidentReportingRuleConfig;
 }

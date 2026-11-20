@@ -19,6 +19,7 @@ import {
   mergeReviewFlags,
 } from '../attendance/geofence.utils';
 import { PrismaService } from '../database/prisma.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { getTenantIdFromSession } from '../tenant/tenant.context';
 import type { AttendanceSyncEventDto } from './dto/attendance-sync.dto';
 
@@ -49,7 +50,10 @@ interface EventValidation {
 
 @Injectable()
 export class AttendanceSyncService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dataScope: DataScopeService,
+  ) {}
 
   async syncBatch(
     deviceId: string,
@@ -70,6 +74,17 @@ export class AttendanceSyncService {
     event: AttendanceSyncEventDto,
     user: AuthenticatedUser,
   ): Promise<AttendanceSyncItemResult> {
+    if (
+      (user.employeeId && user.employeeId !== event.employee_id) ||
+      !(await this.dataScope.canAccessEmployee(user, event.employee_id))
+    ) {
+      return {
+        local_id: event.local_id,
+        status: 'rejected',
+        reason: 'forbidden_employee',
+      };
+    }
+
     const existing = await this.prisma.unscoped.attendanceSyncEvent.findUnique({
       where: {
         employeeId_localId: {
@@ -81,14 +96,6 @@ export class AttendanceSyncService {
 
     if (existing) {
       return this.toDuplicateResult(event.local_id, existing);
-    }
-
-    if (user.employeeId && user.employeeId !== event.employee_id) {
-      return {
-        local_id: event.local_id,
-        status: 'rejected',
-        reason: 'forbidden_employee',
-      };
     }
 
     try {

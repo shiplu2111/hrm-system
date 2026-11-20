@@ -14,15 +14,21 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import { AttendanceService } from './attendance.service';
 import {
   AttendanceCaptureDto,
   AttendanceDateQueryDto,
+  AttendanceHistoryQueryDto,
   CorrectAttendanceDto,
+  ListCompanyCorrectionsQueryDto,
+  ReviewAttendanceCorrectionDto,
+  SubmitAttendanceCorrectionDto,
 } from './dto/attendance.dto';
 
 @ApiTags('attendance')
 @ApiBearerAuth('access-token')
+@RequireFeature('attendance')
 @Controller('employees/:employeeId/attendance')
 export class AttendanceController {
   constructor(
@@ -42,6 +48,23 @@ export class AttendanceController {
     await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.attendanceService.getDayRecord(employeeId, query.date),
+    };
+  }
+
+  @SelfService()
+  @Get('history')
+  @RequirePermission('attendance', 'view')
+  @ApiOperation({
+    summary: 'Get attendance calendar/list history for a date range (ATTENDANCE_LOGIC.md)',
+  })
+  async getHistory(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: AttendanceHistoryQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['getEmployeeHistory']>>>> {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
+    return {
+      data: await this.attendanceService.getEmployeeHistory(employeeId, query),
     };
   }
 
@@ -111,6 +134,7 @@ export class AttendanceController {
     };
   }
 
+  @SelfService()
   @Get('corrections')
   @RequirePermission('attendance', 'view')
   @ApiOperation({ summary: 'Get attendance correction audit history for employee' })
@@ -122,6 +146,29 @@ export class AttendanceController {
     await this.dataScope.assertEmployeeInScope(user, employeeId);
     return {
       data: await this.attendanceService.getCorrections(employeeId, query.date),
+    };
+  }
+
+  @SelfService()
+  @Post('corrections')
+  @RequirePermission('attendance', 'create')
+  @ApiOperation({
+    summary: 'Submit an employee attendance correction / regularization request',
+  })
+  async submitCorrection(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Body() dto: SubmitAttendanceCorrectionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<
+    ApiEnvelope<Awaited<ReturnType<AttendanceService['submitCorrectionRequest']>>>
+  > {
+    await this.dataScope.assertEmployeeInScope(user, employeeId);
+    return {
+      data: await this.attendanceService.submitCorrectionRequest(
+        employeeId,
+        dto,
+        user,
+      ),
     };
   }
 }
@@ -143,5 +190,70 @@ export class CompanyAttendanceController {
       data: await this.attendanceService.getCompanyDailyAttendance(companyId, query.date),
     };
   }
+
+  @Get('corrections')
+  @RequirePermission('attendance', 'approve', {
+    orAnyOf: [{ module: 'attendance', action: 'edit' }],
+  })
+  @ApiOperation({ summary: 'List employee attendance correction requests for company' })
+  async listCompanyCorrections(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListCompanyCorrectionsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<
+    ApiEnvelope<Awaited<ReturnType<AttendanceService['listCompanyCorrections']>>>
+  > {
+    return {
+      data: await this.attendanceService.listCompanyCorrections(
+        companyId,
+        query.status,
+        user,
+      ),
+    };
+  }
 }
 
+@ApiTags('attendance')
+@ApiBearerAuth('access-token')
+@Controller('attendance/corrections')
+export class AttendanceCorrectionController {
+  constructor(private readonly attendanceService: AttendanceService) {}
+
+  @Post(':correctionId/approve')
+  @RequirePermission('attendance', 'approve', {
+    orAnyOf: [{ module: 'attendance', action: 'edit' }],
+  })
+  @ApiOperation({ summary: 'Approve a pending attendance correction request' })
+  async approveCorrection(
+    @Param('correctionId', ParseUUIDPipe) correctionId: string,
+    @Body() dto: ReviewAttendanceCorrectionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['approveCorrection']>>>> {
+    return {
+      data: await this.attendanceService.approveCorrection(
+        correctionId,
+        user,
+        dto.comment,
+      ),
+    };
+  }
+
+  @Post(':correctionId/reject')
+  @RequirePermission('attendance', 'approve', {
+    orAnyOf: [{ module: 'attendance', action: 'edit' }],
+  })
+  @ApiOperation({ summary: 'Reject a pending attendance correction request' })
+  async rejectCorrection(
+    @Param('correctionId', ParseUUIDPipe) correctionId: string,
+    @Body() dto: ReviewAttendanceCorrectionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ApiEnvelope<Awaited<ReturnType<AttendanceService['rejectCorrection']>>>> {
+    return {
+      data: await this.attendanceService.rejectCorrection(
+        correctionId,
+        user,
+        dto.comment,
+      ),
+    };
+  }
+}

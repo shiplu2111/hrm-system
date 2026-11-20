@@ -44,5 +44,11 @@ apps/mobile/ios/
 *.tar.gz
 *.zip
 *.pem
+*.deb
+
+# Secrets & temp
+.env.production
+.playwright-mcp/
+/*.png
 
 

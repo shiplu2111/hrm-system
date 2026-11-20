@@ -20,6 +20,7 @@ import type {
   TaxBracketRecord,
 } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
+import { PermissionGate } from '@/components/rbac';
 import {
   ApiError,
   getPlatformAccessToken,
@@ -330,13 +331,15 @@ export function CountryCompliancePage() {
               Manage tax brackets, leave, OT, and public holidays without code deployment.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setAddCountryOpen(true)}
-            className="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-lg shadow-indigo-900/15 hover:bg-indigo-500"
-          >
-            <Plus className="h-4 w-4" /> Add country
-          </button>
+          <PermissionGate module="country" action="create">
+            <button
+              type="button"
+              onClick={() => setAddCountryOpen(true)}
+              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-lg shadow-indigo-900/15 hover:bg-indigo-500"
+            >
+              <Plus className="h-4 w-4" /> Add country
+            </button>
+          </PermissionGate>
         </div>
 
         {error && (
@@ -498,15 +501,17 @@ export function CountryCompliancePage() {
             {selected.isoCode} · {selected.currency} · {selected.timezone}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void saveCurrentTab()}
-          disabled={loading}
-          className="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
-        >
-          {saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {saved ? 'Changes saved' : 'Save changes'}
-        </button>
+        <PermissionGate module="country" action="edit">
+          <button
+            type="button"
+            onClick={() => void saveCurrentTab()}
+            disabled={loading}
+            className="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {saved ? 'Changes saved' : 'Save changes'}
+          </button>
+        </PermissionGate>
       </div>
 
       {error && (

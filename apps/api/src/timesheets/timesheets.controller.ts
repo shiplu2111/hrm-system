@@ -10,7 +10,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { RequirePermission } from '../rbac/require-permission.decorator';
+import { RequirePermission, SelfService } from '../rbac/require-permission.decorator';
+import { RequireFeature } from '../billing/require-enterprise-feature.decorator';
 import {
   BulkTimesheetActionDto,
   CreateTimesheetEntryDto,
@@ -25,6 +26,7 @@ import { TimesheetProjectsService } from './timesheet-projects.service';
 
 @ApiTags('timesheets')
 @ApiBearerAuth('access-token')
+@RequireFeature('timesheets')
 @Controller()
 export class TimesheetsController {
   constructor(
@@ -32,6 +34,7 @@ export class TimesheetsController {
     private readonly entriesService: TimesheetEntriesService,
   ) {}
 
+  @SelfService()
   @Get('companies/:companyId/timesheet-projects')
   @RequirePermission('attendance', 'view')
   async listProjects(@Param('companyId', ParseUUIDPipe) companyId: string) {
@@ -47,6 +50,7 @@ export class TimesheetsController {
     return { data: await this.projectsService.create(companyId, dto) };
   }
 
+  @SelfService()
   @Get('companies/:companyId/timesheet-entries')
   @RequirePermission('attendance', 'view')
   async listEntries(
@@ -68,6 +72,7 @@ export class TimesheetsController {
     return { data: await this.entriesService.listApprovals(companyId, query, user) };
   }
 
+  @SelfService()
   @Get('companies/:companyId/timesheet-approval-route')
   @RequirePermission('attendance', 'view')
   @ApiOperation({ summary: 'Approval chain new timesheet submissions will follow' })
@@ -86,6 +91,7 @@ export class TimesheetsController {
     return { data: await this.entriesService.bulkAction(companyId, dto, user) };
   }
 
+  @SelfService()
   @Post('companies/:companyId/timesheet-entries')
   @RequirePermission('attendance', 'create')
   async createEntry(
@@ -96,6 +102,7 @@ export class TimesheetsController {
     return { data: await this.entriesService.create(companyId, dto, user) };
   }
 
+  @SelfService()
   @Post('timesheet-entries/:entryId/submit')
   @RequirePermission('attendance', 'create')
   async submitEntry(

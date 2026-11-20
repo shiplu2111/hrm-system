@@ -12,11 +12,22 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 enum TenantStatus {
+  trial
   active
+  past_due
   suspended
   cancelled
+  pending_deletion
+  deleted
 
   @@map("tenant_status")
+}
+
+enum TenantSuspensionMode {
+  read_only
+  fully_blocked
+
+  @@map("tenant_suspension_mode")
 }
 
 enum StorageDriver {
@@ -38,20 +49,37 @@ enum CountryRuleType {
 }
 
 model Tenant {
-  id            String        @id @default(uuid()) @db.Uuid
-  name          String
-  subdomain     String        @unique
-  planId        String?       @map("plan_id")
-  status        TenantStatus  @default(active)
-  storageDriver StorageDriver @default(local) @map("storage_driver")
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  id                  String                @id @default(uuid()) @db.Uuid
+  name                String
+  subdomain           String                @unique
+  planId              String?               @map("plan_id")
+  status              TenantStatus          @default(active)
+  storageDriver       StorageDriver         @default(local) @map("storage_driver")
+  isSandbox           Boolean               @default(false) @map("is_sandbox")
+  sandboxTemplate     String?               @map("sandbox_template")
+  sandboxExpiresAt    DateTime?             @map("sandbox_expires_at")
+  lastResetAt         DateTime?             @map("last_reset_at")
+  demoLeadName        String?               @map("demo_lead_name")
+  demoLeadEmail       String?               @map("demo_lead_email")
+  suspensionMode      TenantSuspensionMode? @map("suspension_mode")
+  suspensionReason    String?               @map("suspension_reason")
+  suspendedAt         DateTime?             @map("suspended_at")
+  trialEndsAt         DateTime?             @map("trial_ends_at")
+  cancelledAt         DateTime?             @map("cancelled_at")
+  cancelReason        String?               @map("cancel_reason")
+  scheduledDeletionAt DateTime?             @map("scheduled_deletion_at")
+  deletedAt           DateTime?             @map("deleted_at")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
 
   companies Company[]
   employees Employee[]
   auditLogs AuditLog[]
   roles     Role[]
   tenantSettings TenantSetting[]
+  supportAccessRequests SupportAccessRequest[]
+  featureOverrides      TenantFeatureOverride[]
+  limitOverrides        TenantLimitOverride[]
   users     User[]
   inAppNotifications InAppNotification[]
   notificationDeliveries NotificationDelivery[]
@@ -604,6 +632,10 @@ model Employee {
   safetyInspectionsConducted  SafetyInspection[] @relation("SafetyInspector")
   ownedContractorContracts    ContractorContract[] @relation("ContractOwner")
   contractorsOwned            Contractor[] @relation("ContractorOwner")
+  profileUpdateRequests       ProfileUpdateRequest[]
+  requestedShiftSwaps         ShiftSwapRequest[] @relation("ShiftSwapRequester")
+  receivedShiftSwaps          ShiftSwapRequest[] @relation("ShiftSwapTarget")
+  overtimeRequests            OvertimeRequest[]
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -2185,6 +2217,8 @@ enum WorkflowEntityType {
   job_requisition
   offer_letter
   performance_review
+  shift_swap_request
+  overtime_request
 
   @@map("workflow_entity_type")
 }
@@ -4451,28 +4485,42 @@ enum EmployeeKudosType {
   @@map("employee_kudos_type")
 }
 
+enum EmployeeKudosModerationStatus {
+  active
+  removed
+
+  @@map("employee_kudos_moderation_status")
+}
+
 /// Peer or manager recognition post on the company feed (MODULES.md §29).
 model EmployeeKudos {
-  id              String            @id @default(uuid()) @db.Uuid
-  tenantId        String            @map("tenant_id") @db.Uuid
-  companyId       String            @map("company_id") @db.Uuid
-  fromEmployeeId  String            @map("from_employee_id") @db.Uuid
-  toEmployeeId  String            @map("to_employee_id") @db.Uuid
-  kudosType       EmployeeKudosType @map("kudos_type")
-  message         String            @db.Text
-  createdByUserId String            @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  id               String                        @id @default(uuid()) @db.Uuid
+  tenantId         String                        @map("tenant_id") @db.Uuid
+  companyId        String                        @map("company_id") @db.Uuid
+  fromEmployeeId   String                        @map("from_employee_id") @db.Uuid
+  toEmployeeId     String                        @map("to_employee_id") @db.Uuid
+  kudosType        EmployeeKudosType             @map("kudos_type")
+  message          String                        @db.Text
+  moderationStatus EmployeeKudosModerationStatus @default(active) @map("moderation_status")
+  removedAt        DateTime?                     @map("removed_at")
+  removedByUserId  String?                       @map("removed_by_user_id") @db.Uuid
+  removalReason    String?                       @map("removal_reason") @db.Text
+  createdByUserId  String                        @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                      @default(now()) @map("created_at")
+  updatedAt        DateTime                      @updatedAt @map("updated_at")
 
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  fromEmployee Employee @relation("KudosGiven", fields: [fromEmployeeId], references: [id], onDelete: Restrict)
-  toEmployee   Employee @relation("KudosReceived", fields: [toEmployeeId], references: [id], onDelete: Restrict)
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fromEmployee  Employee @relation("KudosGiven", fields: [fromEmployeeId], references: [id], onDelete: Restrict)
+  toEmployee    Employee @relation("KudosReceived", fields: [toEmployeeId], references: [id], onDelete: Restrict)
+  removedByUser User?    @relation("KudosModeratedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([companyId, moderationStatus, createdAt])
   @@index([companyId, createdAt])
   @@index([toEmployeeId])
   @@index([fromEmployeeId])
+  @@index([removedByUserId])
   @@map("employee_kudos")
 }
 
@@ -4533,27 +4581,33 @@ model WorkplaceIncident {
   reportedByEmployeeId     String                    @map("reported_by_employee_id") @db.Uuid
   gpsLat                   Decimal?                  @map("gps_lat") @db.Decimal(10, 7)
   gpsLng                   Decimal?                  @map("gps_lng") @db.Decimal(10, 7)
-  regulatorReportRequired  Boolean                   @default(false) @map("regulator_report_required")
-  regulatorReportDueAt     DateTime?                 @map("regulator_report_due_at")
-  regulatorReportSubmittedAt DateTime?               @map("regulator_report_submitted_at")
-  regulatorName            String?                   @map("regulator_name")
-  investigationNotes       String?                   @map("investigation_notes") @db.Text
-  resolvedAt               DateTime?                 @map("resolved_at")
-  createdByUserId          String                    @map("created_by_user_id") @db.Uuid
-  createdAt                DateTime                  @default(now()) @map("created_at")
-  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  regulatorReportRequired          Boolean                   @default(false) @map("regulator_report_required")
+  regulatorReportDueAt             DateTime?                 @map("regulator_report_due_at")
+  regulatorReportSubmittedAt       DateTime?                 @map("regulator_report_submitted_at")
+  regulatorReportSubmittedByUserId String?                   @map("regulator_report_submitted_by_user_id") @db.Uuid
+  regulatorReferenceNumber         String?                   @map("regulator_reference_number")
+  regulatorName                    String?                   @map("regulator_name")
+  countrySpecificData              Json                      @default("{}") @map("country_specific_data")
+  resolvedRuleSnapshot             Json?                     @map("resolved_rule_snapshot")
+  investigationNotes               String?                   @map("investigation_notes") @db.Text
+  resolvedAt                       DateTime?                 @map("resolved_at")
+  createdByUserId                  String                    @map("created_by_user_id") @db.Uuid
+  createdAt                        DateTime                  @default(now()) @map("created_at")
+  updatedAt                        DateTime                  @updatedAt @map("updated_at")
 
-  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  company          Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  reportedByEmployee Employee                @relation("IncidentReporter", fields: [reportedByEmployeeId], references: [id], onDelete: Restrict)
-  parties          WorkplaceIncidentParty[]
-  injuryEntries    InjuryLogEntry[]
+  tenant                    Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company                   Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reportedByEmployee        Employee                  @relation("IncidentReporter", fields: [reportedByEmployeeId], references: [id], onDelete: Restrict)
+  regulatorSubmittedByUser  User?                     @relation("IncidentRegulatorSubmittedBy", fields: [regulatorReportSubmittedByUserId], references: [id], onDelete: SetNull)
+  parties                   WorkplaceIncidentParty[]
+  injuryEntries             InjuryLogEntry[]
 
   @@unique([companyId, incidentNumber])
   @@index([tenantId])
   @@index([companyId, status])
   @@index([companyId, occurredAt])
   @@index([reportedByEmployeeId])
+  @@index([regulatorReportSubmittedByUserId])
   @@map("workplace_incidents")
 }
 
@@ -5134,7 +5188,9 @@ model User {
   pushDeviceTokens PushDeviceToken[]
   completedInterviewRounds JobApplicationInterviewRound[] @relation("InterviewCompletedBy")
   candidateNotes           CandidateNote[]                @relation("CandidateNoteAuthor")
-  candidateDocuments       CandidateDocument[]            @relation("CandidateDocumentUploader")
+  candidateDocuments          CandidateDocument[]            @relation("CandidateDocumentUploader")
+  kudosModerated              EmployeeKudos[]                @relation("KudosModeratedBy")
+  regulatorSubmittedIncidents WorkplaceIncident[]            @relation("IncidentRegulatorSubmittedBy")
 
   @@index([tenantId])
   @@index([roleId])
@@ -5265,6 +5321,7 @@ enum TenantSettingCategory {
   integration
   branding
   feature_flag
+  security
 
   @@map("tenant_setting_category")
 }
@@ -5308,3 +5365,429 @@ model PlatformSetting {
   @@unique([category, key])
   @@map("platform_settings")
 }
+
+// ---------------------------------------------------------------------------
+// §24 Employee Self-Service Profile Update Requests (MODULES.md §04, §24)
+// ---------------------------------------------------------------------------
+
+enum ProfileUpdateFieldKey {
+  first_name
+  last_name
+  work_location
+  department
+  designation
+  manager
+  dependents
+  bank_or_tax
+  other
+
+  @@map("profile_update_field_key")
+}
+
+enum ProfileUpdateRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+
+  @@map("profile_update_request_status")
+}
+
+model ProfileUpdateRequest {
+  id                String                     @id @default(uuid()) @db.Uuid
+  tenantId          String                     @map("tenant_id") @db.Uuid
+  companyId         String                     @map("company_id") @db.Uuid
+  employeeId        String                     @map("employee_id") @db.Uuid
+  fieldKey          ProfileUpdateFieldKey      @map("field_key")
+  currentValue      String?                    @map("current_value")
+  requestedValue    String                     @map("requested_value")
+  reason            String
+  effectiveDate     DateTime?                  @map("effective_date") @db.Date
+  status            ProfileUpdateRequestStatus @default(pending)
+  requestedByUserId String                     @map("requested_by_user_id") @db.Uuid
+  reviewedByUserId  String?                    @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt        DateTime?                  @map("reviewed_at")
+  reviewComment     String?                    @map("review_comment")
+  appliedOnApproval Boolean                    @default(false) @map("applied_on_approval")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([employeeId, status])
+  @@map("profile_update_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §12 & §15 Shift Swap & Overtime Requests (MODULES.md §12, §15, §24, §35)
+// ---------------------------------------------------------------------------
+
+enum ShiftSwapRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+
+  @@map("shift_swap_request_status")
+}
+
+model ShiftSwapRequest {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
+  companyId            String                 @map("company_id") @db.Uuid
+  requesterEmployeeId  String                 @map("requester_employee_id") @db.Uuid
+  targetEmployeeId     String                 @map("target_employee_id") @db.Uuid
+  requesterRosterId    String?                @map("requester_roster_id") @db.Uuid
+  requesterShiftName   String?                @map("requester_shift_name")
+  requesterShiftWindow String?                @map("requester_shift_window")
+  targetRosterId       String?                @map("target_roster_id") @db.Uuid
+  targetShiftName      String?                @map("target_shift_name")
+  targetShiftWindow    String?                @map("target_shift_window")
+  swapDate             DateTime               @map("swap_date") @db.Date
+  targetDate           DateTime               @map("target_date") @db.Date
+  reason               String
+  status               ShiftSwapRequestStatus @default(pending)
+  requestedByUserId    String                 @map("requested_by_user_id") @db.Uuid
+  reviewedByUserId     String?                @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt           DateTime?              @map("reviewed_at")
+  reviewComment        String?                @map("review_comment")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  requesterEmployee Employee @relation("ShiftSwapRequester", fields: [requesterEmployeeId], references: [id], onDelete: Restrict)
+  targetEmployee    Employee @relation("ShiftSwapTarget", fields: [targetEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([requesterEmployeeId, status])
+  @@index([targetEmployeeId, status])
+  @@map("shift_swap_requests")
+}
+
+enum OvertimeRateType {
+  weekday
+  weekend
+  holiday
+  night
+
+  @@map("overtime_rate_type")
+}
+
+enum OvertimeRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+
+  @@map("overtime_request_status")
+}
+
+model OvertimeRequest {
+  id                String                @id @default(uuid()) @db.Uuid
+  tenantId          String                @map("tenant_id") @db.Uuid
+  companyId         String                @map("company_id") @db.Uuid
+  employeeId        String                @map("employee_id") @db.Uuid
+  date              DateTime              @db.Date
+  startTime         String?               @map("start_time")
+  endTime           String?               @map("end_time")
+  hours             Decimal               @db.Decimal(5, 2)
+  rateType          OvertimeRateType      @default(weekday) @map("rate_type")
+  reason            String
+  status            OvertimeRequestStatus @default(pending)
+  requestedByUserId String                @map("requested_by_user_id") @db.Uuid
+  reviewedByUserId  String?               @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt        DateTime?             @map("reviewed_at")
+  reviewComment     String?               @map("review_comment")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([employeeId, date])
+  @@map("overtime_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §46 Platform Staff Identity & Governance (STAGE A, Prompt A.0)
+// Tables: platform_users, platform_roles, platform_permissions,
+//         platform_sessions, platform_login_history, platform_audit_logs.
+// No tenant_id on any of these.
+// ---------------------------------------------------------------------------
+
+model PlatformRole {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users       PlatformUser[]
+  permissions PlatformPermission[]
+
+  @@map("platform_roles")
+}
+
+model PlatformPermission {
+  id        String   @id @default(uuid()) @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  module    String
+  action    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  role PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, module, action])
+  @@index([roleId])
+  @@map("platform_permissions")
+}
+
+model PlatformUser {
+  id                  String    @id @default(uuid()) @db.Uuid
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
+  firstName           String    @map("first_name")
+  lastName            String    @map("last_name")
+  roleId              String    @map("role_id") @db.Uuid
+  isActive            Boolean   @default(true) @map("is_active")
+  totpSecretEncrypted String?   @map("totp_secret_encrypted")
+  totpEnabled         Boolean   @default(true) @map("totp_enabled")
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  role         PlatformRole            @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  sessions     PlatformSession[]
+  loginHistory PlatformLoginHistory[]
+  auditLogs    PlatformAuditLog[]
+  supportAccessRequests SupportAccessRequest[]
+
+  @@index([email])
+  @@index([roleId])
+  @@map("platform_users")
+}
+
+model PlatformSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  refreshTokenHash String   @map("refresh_token_hash")
+  ipAddress        String?  @map("ip_address")
+  userAgent        String?  @map("user_agent")
+  expiresAt        DateTime @map("expires_at")
+  isRevoked        Boolean  @default(false) @map("is_revoked")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+  @@map("platform_sessions")
+}
+
+model PlatformLoginHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  email         String
+  status        String   // success | failed | locked | 2fa_failed | 2fa_challenge
+  failureReason String?  @map("failure_reason")
+  ipAddress     String?  @map("ip_address")
+  userAgent     String?  @map("user_agent")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user PlatformUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([createdAt])
+  @@map("platform_login_history")
+}
+
+model PlatformAuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  module    String
+  recordId  String?  @map("record_id")
+  reason    String?  @map("reason")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user PlatformUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([module])
+  @@index([recordId])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Support Access Impersonation (SECURITY.md, AUDIT_LOG.md)
+// ---------------------------------------------------------------------------
+
+enum SupportAccessMode {
+  read_only
+  read_write
+
+  @@map("support_access_mode")
+}
+
+enum SupportAccessStatus {
+  pending
+  approved
+  rejected
+  expired
+  revoked
+
+  @@map("support_access_status")
+}
+
+model SupportAccessRequest {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  platformUserId   String              @map("platform_user_id") @db.Uuid
+  staffName        String              @map("staff_name")
+  staffEmail       String              @map("staff_email")
+  reason           String
+  durationMinutes  Int                 @map("duration_minutes")
+  accessMode       SupportAccessMode   @default(read_only) @map("access_mode")
+  status           SupportAccessStatus @default(pending)
+  autoApproved     Boolean             @default(false) @map("auto_approved")
+  approvedAt       DateTime?           @map("approved_at")
+  approvedByUserId String?             @map("approved_by_user_id") @db.Uuid
+  expiresAt        DateTime?           @map("expires_at")
+  revokedAt        DateTime?           @map("revoked_at")
+  revokedByUserId  String?             @map("revoked_by_user_id") @db.Uuid
+  revokedReason    String?             @map("revoked_reason")
+  tokenJti         String?             @unique @map("token_jti")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([platformUserId])
+  @@index([status])
+  @@map("support_access_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §12 Subscription Plans & Feature Gates (BILLING_SUBSCRIPTION.md §1-§3)
+// ---------------------------------------------------------------------------
+
+model Plan {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  rank        Int      @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+  isCustom    Boolean  @default(false) @map("is_custom")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  prices   PlanPrice[]
+  features PlanFeature[]
+  limits   PlanLimit[]
+
+  @@map("plans")
+}
+
+model PlanPrice {
+  id            String    @id @default(uuid()) @db.Uuid
+  planId        String    @map("plan_id") @db.Uuid
+  currency      String    @db.VarChar(3)
+  billingCycle  String    @map("billing_cycle")
+  amount        Decimal   @db.Decimal(14, 2)
+  perSeatAmount Decimal?  @map("per_seat_amount") @db.Decimal(14, 2)
+  effectiveFrom DateTime  @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([currency, billingCycle])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("plan_prices")
+}
+
+model PlanFeature {
+  id         String   @id @default(uuid()) @db.Uuid
+  planId     String   @map("plan_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, featureKey])
+  @@index([planId])
+  @@index([featureKey])
+  @@map("plan_features")
+}
+
+model PlanLimit {
+  id        String   @id @default(uuid()) @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  limitKey  String   @map("limit_key")
+  value     Int?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, limitKey])
+  @@index([planId])
+  @@index([limitKey])
+  @@map("plan_limits")
+}
+
+model TenantFeatureOverride {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  enabled    Boolean
+  reason     String?
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, featureKey])
+  @@index([tenantId])
+  @@map("tenant_feature_overrides")
+}
+
+model TenantLimitOverride {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  limitKey  String   @map("limit_key")
+  value     Int?
+  reason    String?
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, limitKey])
+  @@index([tenantId])
+  @@map("tenant_limit_overrides")
+}
+
+

@@ -51,4 +51,41 @@ export class InAppNotificationsService {
 
     return toInAppNotificationRecord(updated);
   }
+
+  async markAllRead(user: AuthenticatedUser): Promise<{ updatedCount: number }> {
+    const res = await this.prisma.unscoped.inAppNotification.updateMany({
+      where: { userId: user.id, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { updatedCount: res.count };
+  }
+
+  async delete(
+    user: AuthenticatedUser,
+    notificationId: string,
+  ): Promise<{ deleted: boolean }> {
+    const row = await this.prisma.unscoped.inAppNotification.findFirst({
+      where: { id: notificationId, userId: user.id },
+    });
+
+    if (!row) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Notification not found',
+      });
+    }
+
+    await this.prisma.unscoped.inAppNotification.delete({
+      where: { id: row.id },
+    });
+
+    return { deleted: true };
+  }
+
+  async clearAllRead(user: AuthenticatedUser): Promise<{ deletedCount: number }> {
+    const res = await this.prisma.unscoped.inAppNotification.deleteMany({
+      where: { userId: user.id, readAt: { not: null } },
+    });
+    return { deletedCount: res.count };
+  }
 }

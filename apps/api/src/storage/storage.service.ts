@@ -1,11 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { FeatureGateService } from '../billing/feature-gate.service';
 import { buildStorageKey } from './storage-key.util';
 import { STORAGE_DRIVER } from './storage.constants';
 import type { FileMeta, StorageDriver } from './storage.types';
 
 @Injectable()
 export class StorageService {
-  constructor(@Inject(STORAGE_DRIVER) private readonly driver: StorageDriver) {}
+  constructor(
+    @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
+    @Optional() private readonly featureGate?: FeatureGateService,
+  ) {}
 
   buildEmployeeDocumentKey(
     tenantId: string,
@@ -71,7 +75,18 @@ export class StorageService {
     return buildStorageKey(tenantId, 'offer-letters', offerLetterId, originalFilename);
   }
 
-  upload(key: string, file: Buffer, meta: FileMeta): Promise<string> {
+  async upload(
+    key: string,
+    file: Buffer,
+    meta: FileMeta,
+    explicitTenantId?: string,
+  ): Promise<string> {
+    const tenantId = explicitTenantId ?? (key.includes('/') ? key.split('/')[0] : null);
+    if (tenantId && this.featureGate) {
+      const fileBytes = file.byteLength || (meta?.size ?? (meta as any)?.sizeBytes ?? 0);
+      const fileGb = fileBytes / (1024 * 1024 * 1024);
+      await this.featureGate.assertWithinLimit(tenantId, 'storage_gb', fileGb);
+    }
     return this.driver.upload(key, file, meta);
   }
 

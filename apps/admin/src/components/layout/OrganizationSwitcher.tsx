@@ -17,7 +17,7 @@ function orgInitials(name: string): string {
     .join('');
 }
 
-function OrgLogo({
+export function OrgLogo({
   name,
   logoUrl,
   size = 'md',
@@ -72,7 +72,7 @@ function OrgDisplay({
         <span className="text-[10px] text-muted">Organization</span>
       </div>
       {interactive && (
-        <ChevronDown className="h-4 w-4 text-muted shrink-0 hidden sm:block" />
+        <ChevronDown className="h-4 w-4 text-muted shrink-0" />
       )}
     </div>
   );

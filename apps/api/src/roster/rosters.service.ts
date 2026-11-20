@@ -75,7 +75,14 @@ export class RostersService {
             },
           },
           shift: {
-            select: { id: true, name: true, startTime: true, endTime: true },
+            select: {
+              id: true,
+              name: true,
+              shiftType: true,
+              startTime: true,
+              endTime: true,
+              breakMinutes: true,
+            },
           },
           location: { select: { id: true, name: true, timezone: true } },
         },
@@ -318,7 +325,14 @@ export class RostersService {
         },
       },
       shift: {
-        select: { id: true, name: true, startTime: true, endTime: true },
+        select: {
+          id: true,
+          name: true,
+          shiftType: true,
+          startTime: true,
+          endTime: true,
+          breakMinutes: true,
+        },
       },
       location: { select: { id: true, name: true, timezone: true } },
     } as const;
@@ -396,8 +410,10 @@ export class RostersService {
       ? {
           id: row.shift.id,
           name: row.shift.name,
+          type: row.shift.shiftType,
           startTime: row.shift.startTime.toISOString().slice(11, 16),
           endTime: row.shift.endTime.toISOString().slice(11, 16),
+          breakMinutes: row.shift.breakMinutes,
         }
       : undefined;
 

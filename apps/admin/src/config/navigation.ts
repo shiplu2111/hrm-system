@@ -145,6 +145,8 @@ export const navGroups: NavGroup[] = [
       { label: 'Employee Engagement', page: 'engagement', badge: 'Phase 3' },
       { label: 'Health & Safety', page: 'health-safety', badge: 'Phase 3' },
       { label: 'Vendors & Contractors', page: 'vendors-contractors', badge: 'Phase 3' },
+      { label: 'Contractor Payment Terms', page: 'contractor-payment-terms', badge: 'Phase 3' },
+      { label: 'Contractor Invoices & Payments', page: 'contractor-invoices', badge: 'Phase 3' },
     ],
   },
   {

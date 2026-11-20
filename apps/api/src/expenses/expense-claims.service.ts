@@ -15,6 +15,7 @@ import type {
   ExpenseClaimDetailRecord,
   ExpenseClaimReceiptRecord,
   ExpenseClaimRecord,
+  WorkflowApprovalRoute,
   WorkflowInstanceRecord,
 } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -26,6 +27,7 @@ import {
   buildExpenseOutcomeVariables,
 } from '../notifications/notification.helpers';
 import { CompanyScopeService } from '../organization/company-scope.service';
+import { DataScopeService } from '../rbac/data-scope.service';
 import { PermissionsService } from '../rbac/permissions.service';
 import { assertValidDocumentUpload } from '../storage/document-file.policy';
 import { StorageService } from '../storage/storage.service';
@@ -74,7 +76,16 @@ export class ExpenseClaimsService {
     private readonly notificationEngine: NotificationEngineService,
     private readonly storageService: StorageService,
     private readonly permissions: PermissionsService,
+    private readonly dataScope: DataScopeService,
   ) {}
+
+  async previewRoute(
+    companyId: string,
+    amount = 0,
+  ): Promise<WorkflowApprovalRoute> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    return this.expenseWorkflow.previewRoute(companyId, amount);
+  }
 
   async list(
     companyId: string,
@@ -82,11 +93,18 @@ export class ExpenseClaimsService {
     user: AuthenticatedUser,
   ): Promise<ExpenseClaimRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    if (query.employeeId) {
+      await this.dataScope.assertEmployeeInScope(user, query.employeeId);
+    }
+    const employeeFilter = await this.dataScope.employeeIdFilter(user);
+    if (employeeFilter && employeeFilter.in.length === 0) {
+      return [];
+    }
 
     const rows = await this.prisma.unscoped.expenseClaim.findMany({
       where: {
         companyId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+        employeeId: query.employeeId ?? employeeFilter,
         ...(query.categoryId ? { categoryId: query.categoryId } : {}),
         ...(query.status ? { status: query.status } : {}),
       },
@@ -100,6 +118,7 @@ export class ExpenseClaimsService {
   async get(claimId: string, user: AuthenticatedUser): Promise<ExpenseClaimDetailRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.dataScope.assertEmployeeInScope(user, row.employeeId);
     const [record] = await this.presentMany([row], user);
 
     const { start, end } = monthBounds(row.expenseDate);
@@ -139,6 +158,7 @@ export class ExpenseClaimsService {
     dto: CreateExpenseClaimDto,
     user: AuthenticatedUser,
   ): Promise<ExpenseClaimRecord> {
+    await this.assertCanManageEmployeeClaim(user, dto.employeeId);
     const employee = await this.assertEmployee(dto.employeeId, companyId);
     const category = await this.categoriesService.findOrThrow(dto.categoryId);
     if (category.companyId !== companyId || !category.isActive) {
@@ -207,6 +227,7 @@ export class ExpenseClaimsService {
   ): Promise<ExpenseClaimRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.assertCanManageEmployeeClaim(user, row.employeeId);
 
     if (row.status !== ExpenseClaimStatus.draft) {
       throw new BadRequestException({
@@ -364,6 +385,7 @@ export class ExpenseClaimsService {
   ): Promise<ExpenseClaimRecord> {
     const row = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(row.companyId);
+    await this.assertCanManageEmployeeClaim(user, row.employeeId);
 
     if (
       row.status !== ExpenseClaimStatus.draft &&
@@ -440,6 +462,7 @@ export class ExpenseClaimsService {
     assertValidDocumentUpload(file);
     const claim = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(claim.companyId);
+    await this.assertCanManageEmployeeClaim(user, claim.employeeId);
 
     if (
       claim.status !== ExpenseClaimStatus.draft &&
@@ -486,15 +509,15 @@ export class ExpenseClaimsService {
     return this.toReceiptRecord(receipt);
   }
 
-  async getReceiptFileUrl(claimId: string, receiptId: string) {
-    const receipt = await this.findReceiptOrThrow(claimId, receiptId);
+  async getReceiptFileUrl(claimId: string, receiptId: string, user: AuthenticatedUser) {
+    const receipt = await this.findReceiptOrThrow(claimId, receiptId, user);
     const url = await this.storageService.getUrl(receipt.fileKey, 900);
     return { url, expiresInSeconds: 900, fileKey: receipt.fileKey };
   }
 
   /** Receipt bytes, checked against the claim rather than the generic storage route. */
-  async readReceiptFile(claimId: string, receiptId: string) {
-    const receipt = await this.findReceiptOrThrow(claimId, receiptId);
+  async readReceiptFile(claimId: string, receiptId: string, user: AuthenticatedUser) {
+    const receipt = await this.findReceiptOrThrow(claimId, receiptId, user);
     const exists = await this.storageService.exists(receipt.fileKey);
     if (!exists) {
       throw new NotFoundException({
@@ -510,9 +533,14 @@ export class ExpenseClaimsService {
     };
   }
 
-  private async findReceiptOrThrow(claimId: string, receiptId: string) {
+  private async findReceiptOrThrow(
+    claimId: string,
+    receiptId: string,
+    user: AuthenticatedUser,
+  ) {
     const claim = await this.findOrThrow(claimId);
     await this.companyScope.assertCompanyInTenant(claim.companyId);
+    await this.dataScope.assertEmployeeInScope(user, claim.employeeId);
 
     const receipt = await this.prisma.unscoped.expenseClaimReceipt.findFirst({
       where: { id: receiptId, claimId },
@@ -524,6 +552,29 @@ export class ExpenseClaimsService {
       });
     }
     return receipt;
+  }
+
+  /**
+   * Callers without `payroll:create` (or limited to `own` data scope) may create, upload
+   * receipts for, submit, or cancel claims only for their own linked employee record.
+   */
+  private async assertCanManageEmployeeClaim(
+    user: AuthenticatedUser,
+    employeeId: string,
+  ): Promise<void> {
+    if (
+      this.permissions.hasPermission(user, 'payroll', 'create') &&
+      !(await this.dataScope.isOwnOnly(user))
+    ) {
+      await this.dataScope.assertEmployeeInScope(user, employeeId);
+      return;
+    }
+    if (!user.employeeId || user.employeeId !== employeeId) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You can only manage your own expense claims',
+      });
+    }
   }
 
   private assertNotOwnClaim(

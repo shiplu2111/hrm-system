@@ -1,4 +1,5 @@
 import type { LocaleContext, RosterDisplayFields } from './locale';
+import type { WorkflowApprovalRoute, WorkflowInstanceRecord } from './workflow';
 
 export type ShiftType =
   | 'fixed'
@@ -127,7 +128,10 @@ export interface RosterRecord {
   date: string;
   locationId: string | null;
   employee?: { id: string; firstName: string; lastName: string; employeeNumber: string };
-  shift?: Pick<ShiftRecord, 'id' | 'name' | 'startTime' | 'endTime'>;
+  shift?: Pick<ShiftRecord, 'id' | 'name' | 'startTime' | 'endTime'> & {
+    type?: ShiftType;
+    breakMinutes?: number;
+  };
   location?: { id: string; name: string; timezone?: string | null } | null;
   createdAt: string;
   updatedAt: string;
@@ -211,4 +215,79 @@ export interface ResolvedHolidayCalendar {
   locationId: string | null;
   employeeId: string | null;
   entries: HolidayEntry[];
+}
+
+export type ShiftSwapRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface CreateShiftSwapRequestInput {
+  targetEmployeeId: string;
+  swapDate: string;
+  targetDate?: string;
+  requesterRosterId?: string;
+  reason: string;
+}
+
+export interface ShiftSwapRequestRecord {
+  id: string;
+  tenantId: string;
+  companyId: string;
+  requesterEmployeeId: string;
+  requesterName: string;
+  requesterEmployeeNumber: string;
+  targetEmployeeId: string;
+  targetName: string;
+  targetEmployeeNumber: string;
+  requesterRosterId: string | null;
+  requesterShiftName: string | null;
+  requesterShiftWindow: string | null;
+  targetRosterId: string | null;
+  targetShiftName: string | null;
+  targetShiftWindow: string | null;
+  swapDate: string;
+  targetDate: string;
+  reason: string;
+  status: ShiftSwapRequestStatus;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  workflowInstance?: WorkflowInstanceRecord | null;
+  approvalRoute?: WorkflowApprovalRoute;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type OvertimeRateType = 'weekday' | 'weekend' | 'holiday' | 'night';
+
+export type OvertimeRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface CreateOvertimeRequestInput {
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  hours: number;
+  rateType: OvertimeRateType;
+  reason: string;
+}
+
+export interface OvertimeRequestRecord {
+  id: string;
+  tenantId: string;
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNumber: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  hours: number;
+  rateType: OvertimeRateType;
+  reason: string;
+  status: OvertimeRequestStatus;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  workflowInstance?: WorkflowInstanceRecord | null;
+  approvalRoute?: WorkflowApprovalRoute;
+  createdAt: string;
+  updatedAt: string;
 }

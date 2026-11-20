@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -16,14 +17,16 @@ import { RequirePermission, SelfService } from '../rbac/require-permission.decor
 import { AnnouncementsService } from './announcements.service';
 import { EngagementSurveysService } from './engagement-surveys.service';
 import { KudosService } from './kudos.service';
-import type {
+import {
   CreateAnnouncementDto,
   CreateKudosDto,
   CreateEmployeeKudosDto,
   CreateSurveyDto,
   ListAnnouncementsQueryDto,
+  ListKudosModerationQueryDto,
   ListKudosQueryDto,
   ListSurveysQueryDto,
+  RemoveKudosDto,
   SubmitSurveyResponseDto,
   UpdateAnnouncementDto,
   UpdateSurveyDto,
@@ -189,6 +192,50 @@ export class EngagementController {
         allowDelegate: true,
       }),
     };
+  }
+
+  // --- Kudos / recognition moderation (admin) ---
+
+  @Get('companies/:companyId/engagement/kudos/moderation')
+  @RequirePermission('engagement', 'edit')
+  @ApiOperation({ summary: 'Company recognition feed with admin moderation history and summary' })
+  async listKudosModeration(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Query() query: ListKudosModerationQueryDto,
+  ) {
+    return { data: await this.kudosService.listForModeration(companyId, query) };
+  }
+
+  @Post('engagement/kudos/:kudosId/remove')
+  @RequirePermission('engagement', 'edit')
+  @ApiOperation({ summary: 'Remove an inappropriate recognition post (soft-delete + audit log)' })
+  async removeKudos(
+    @Param('kudosId', ParseUUIDPipe) kudosId: string,
+    @Body() dto: RemoveKudosDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.kudosService.removeKudos(kudosId, dto, user) };
+  }
+
+  @Delete('engagement/kudos/:kudosId')
+  @RequirePermission('engagement', 'edit')
+  @ApiOperation({ summary: 'Remove an inappropriate recognition post (DELETE alias)' })
+  async deleteKudos(
+    @Param('kudosId', ParseUUIDPipe) kudosId: string,
+    @Query() dto: RemoveKudosDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.kudosService.removeKudos(kudosId, dto, user) };
+  }
+
+  @Post('engagement/kudos/:kudosId/restore')
+  @RequirePermission('engagement', 'edit')
+  @ApiOperation({ summary: 'Restore a previously removed recognition post' })
+  async restoreKudos(
+    @Param('kudosId', ParseUUIDPipe) kudosId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return { data: await this.kudosService.restoreKudos(kudosId, user) };
   }
 
   // --- Employee-facing ---

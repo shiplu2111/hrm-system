@@ -18,15 +18,21 @@ export function Toggle({ checked, onChange, size = 'md', disabled = false, label
       aria-label={label}
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
-      className={`relative inline-flex ${dims.h} ${dims.w} shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+      className={`relative inline-flex items-center justify-center min-h-[44px] min-w-[44px] p-2 bg-transparent border-0 focus:outline-none ${
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-      } ${checked ? 'bg-accent-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+      }`}
     >
       <span
-        className={`pointer-events-none inline-block ${dims.knob} transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
-          checked ? dims.translate : 'translate-x-0'
+        className={`relative inline-flex ${dims.h} ${dims.w} shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+          checked ? 'bg-accent-600' : 'bg-slate-300 dark:bg-slate-600'
         }`}
-      />
+      >
+        <span
+          className={`pointer-events-none inline-block ${dims.knob} transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
+            checked ? dims.translate : 'translate-x-0'
+          }`}
+        />
+      </span>
     </button>
   );
 }

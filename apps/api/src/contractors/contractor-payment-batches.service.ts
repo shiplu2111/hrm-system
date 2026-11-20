@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   forwardRef,
   Inject,
@@ -31,11 +32,12 @@ export class ContractorPaymentBatchesService {
 
     const rows = await this.prisma.unscoped.contractorPaymentBatch.findMany({
       where: { companyId },
+      include: { journalExport: { select: { id: true } } },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
-    return rows.map((row) => this.toRecord(row));
+    return rows.map((row) => this.toRecord(row, row.journalExport?.id ?? null));
   }
 
   async createFromApprovedInvoices(
@@ -125,9 +127,21 @@ export class ContractorPaymentBatchesService {
   }
 
   async markPaid(batchId: string, user: AuthenticatedUser): Promise<ContractorPaymentBatchRecord> {
+    if (user.isSupportAccess) {
+      throw new ForbiddenException({
+        code: 'SUPPORT_ACCESS_RESTRICTED',
+        message:
+          'Security Policy: Support engineers are strictly prohibited from executing payments.',
+      });
+    }
+
     const batch = await this.prisma.unscoped.contractorPaymentBatch.findUnique({
       where: { id: batchId },
-      include: { items: true },
+      include: {
+        items: {
+          include: { contractorInvoice: { select: { milestoneId: true } } },
+        },
+      },
     });
     if (!batch) {
       throw new BadRequestException('Payment batch not found');
@@ -139,6 +153,10 @@ export class ContractorPaymentBatchesService {
     }
 
     const paidAt = new Date();
+    const milestoneIds = batch.items
+      .map((item) => item.contractorInvoice.milestoneId)
+      .filter((id): id is string => Boolean(id));
+
     const updated = await this.prisma.unscoped.$transaction(async (tx) => {
       const row = await tx.contractorPaymentBatch.update({
         where: { id: batchId },
@@ -154,6 +172,13 @@ export class ContractorPaymentBatchesService {
         where: { id: { in: batch.items.map((item) => item.contractorInvoiceId) } },
         data: { status: 'paid', paidAt },
       });
+
+      if (milestoneIds.length > 0) {
+        await tx.contractorContractMilestone.updateMany({
+          where: { id: { in: milestoneIds } },
+          data: { status: 'paid' },
+        });
+      }
 
       return row;
     });

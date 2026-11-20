@@ -1,12 +1,16 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  forwardRef,
 } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import type { ContractorInvoice, ContractorPaymentTerms } from '@prisma/client';
 import type { ContractorInvoiceRecord } from '@hrm/shared-types';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { ContractorAccountingService } from '../accounting/contractor-accounting.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
@@ -33,6 +37,9 @@ export class ContractorInvoicesService {
     private readonly prisma: PrismaService,
     private readonly companyScope: CompanyScopeService,
     private readonly auditService: AuditService,
+    @Optional()
+    @Inject(forwardRef(() => ContractorAccountingService))
+    private readonly contractorAccounting?: ContractorAccountingService,
   ) {}
 
   async list(
@@ -40,12 +47,32 @@ export class ContractorInvoicesService {
     query: ListContractorInvoicesQueryDto,
   ): Promise<ContractorInvoiceRecord[]> {
     await this.companyScope.assertCompanyInTenant(companyId);
+    const search = query.search?.trim();
 
     const rows = await this.prisma.unscoped.contractorInvoice.findMany({
       where: {
         companyId,
         contractorId: query.contractorId,
+        contractId: query.contractId,
         status: query.status,
+        ...(search
+          ? {
+              OR: [
+                { invoiceNumber: { contains: search, mode: 'insensitive' } },
+                { periodLabel: { contains: search, mode: 'insensitive' } },
+                { description: { contains: search, mode: 'insensitive' } },
+                { paymentReference: { contains: search, mode: 'insensitive' } },
+                {
+                  contractor: {
+                    OR: [
+                      { legalName: { contains: search, mode: 'insensitive' } },
+                      { displayName: { contains: search, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              ],
+            }
+          : {}),
       },
       include: this.defaultInclude(),
       orderBy: { issuedAt: 'desc' },
@@ -179,10 +206,18 @@ export class ContractorInvoicesService {
   async reject(
     invoiceId: string,
     user: AuthenticatedUser,
-    _dto: ContractorInvoiceActionDto,
+    dto: ContractorInvoiceActionDto,
   ): Promise<ContractorInvoiceRecord> {
     const existing = await this.findOrThrow(invoiceId);
-    const row = await this.transition(invoiceId, user, 'submitted', 'rejected');
+    const reason = dto.reason?.trim() || undefined;
+    const row = await this.transition(
+      invoiceId,
+      user,
+      'submitted',
+      'rejected',
+      {},
+      reason ? { rejectionReason: reason } : undefined,
+    );
 
     if (existing.milestoneId) {
       await this.prisma.unscoped.contractorContractMilestone.updateMany({
@@ -200,10 +235,18 @@ export class ContractorInvoicesService {
     dto: ContractorInvoiceActionDto,
   ): Promise<ContractorInvoiceRecord> {
     const existing = await this.findOrThrow(invoiceId);
-    const row = await this.transition(invoiceId, user, ['approved', 'scheduled'], 'paid', {
-      paidAt: new Date(),
-      paymentReference: dto.paymentReference?.trim() || null,
-    });
+    const paymentReference = dto.paymentReference?.trim() || null;
+    const row = await this.transition(
+      invoiceId,
+      user,
+      ['approved', 'scheduled'],
+      'paid',
+      {
+        paidAt: new Date(),
+        paymentReference,
+      },
+      paymentReference ? { paymentReference } : undefined,
+    );
 
     if (existing.milestoneId) {
       await this.prisma.unscoped.contractorContractMilestone.updateMany({
@@ -211,6 +254,10 @@ export class ContractorInvoicesService {
         data: { status: 'paid' },
       });
     }
+
+    await this.contractorAccounting?.exportDirectPaidInvoice(invoiceId, user).catch(() => {
+      /* GL failure recorded on contractor_journal_exports; payment stays settled */
+    });
 
     return row;
   }
@@ -221,6 +268,7 @@ export class ContractorInvoicesService {
     from: string | string[],
     to: ContractorInvoice['status'],
     extra: Record<string, unknown> = {},
+    auditExtra?: Record<string, unknown>,
   ): Promise<ContractorInvoiceRecord> {
     const existing = await this.findOrThrow(invoiceId);
     const allowed = Array.isArray(from) ? from : [from];
@@ -241,7 +289,7 @@ export class ContractorInvoicesService {
       module: 'contractors',
       recordId: row.id,
       oldValue: { status: existing.status },
-      newValue: { status: row.status },
+      newValue: { status: row.status, ...auditExtra },
     });
 
     return this.toRecord(row);

@@ -35,6 +35,18 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
+    const request = context.switchToHttp().getRequest<{
+      url?: string;
+      originalUrl?: string;
+      user?: AuthenticatedUser;
+    }>();
+
+    // Platform routes enforce PlatformPermissionsGuard instead of tenant RBAC
+    const url = request.originalUrl ?? request.url ?? '';
+    if (url.includes('/platform/')) {
+      return true;
+    }
+
     const required = this.reflector.getAllAndOverride<RequiredPermission>(
       PERMISSION_KEY,
       [context.getHandler(), context.getClass()],
@@ -42,7 +54,6 @@ export class PermissionsGuard implements CanActivate {
 
     assertPermissionDeclared(required, context.getHandler().name);
 
-    const request = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>();
     const user = request.user;
 
     if (!user) {

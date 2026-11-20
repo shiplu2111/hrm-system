@@ -24,7 +24,8 @@ import { ApiError } from '@/lib/tenant-api-client';
 const statusTone: Record<EmployeeDocumentRecord['status'], 'success' | 'warning' | 'error'> = {
   verified: 'success',
   pending: 'warning',
-  expiring_soon: 'error',
+  expiring_soon: 'warning',
+  expired: 'error',
 };
 
 export function EmployeeDocumentsPage() {

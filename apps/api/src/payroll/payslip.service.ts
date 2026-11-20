@@ -32,9 +32,28 @@ export class PayslipService {
     const rows = await this.prisma.unscoped.payslip.findMany({
       where: { payrollRun: { employeeId, deletedAt: null } },
       include: {
-        payrollRun: { select: { employeeId: true } },
+        payrollRun: {
+          select: {
+            employeeId: true,
+            payCurrency: true,
+            grossPay: true,
+            totalDeductions: true,
+            netPay: true,
+            status: true,
+            payrollPeriod: {
+              select: {
+                startDate: true,
+                endDate: true,
+                paymentDate: true,
+              },
+            },
+          },
+        },
       },
-      orderBy: { generatedAt: 'desc' },
+      orderBy: [
+        { payrollRun: { payrollPeriod: { startDate: 'desc' } } },
+        { generatedAt: 'desc' },
+      ],
     });
 
     return Promise.all(rows.map((row) => this.toRecord(row)));
@@ -283,7 +302,21 @@ export class PayslipService {
   }
 
   private async toRecord(
-    row: Payslip & { payrollRun: { employeeId: string } },
+    row: Payslip & {
+      payrollRun: {
+        employeeId: string;
+        payCurrency?: string;
+        grossPay?: Parameters<typeof formatMoney>[0];
+        totalDeductions?: Parameters<typeof formatMoney>[0];
+        netPay?: Parameters<typeof formatMoney>[0];
+        status?: PayrollRunStatus;
+        payrollPeriod?: {
+          startDate: Date;
+          endDate: Date;
+          paymentDate: Date;
+        };
+      };
+    },
   ): Promise<PayslipRecord> {
     const employeeId = row.payrollRun.employeeId;
     return {
@@ -293,15 +326,44 @@ export class PayslipService {
   }
 
   private toRecordSync(
-    row: Payslip & { payrollRun: { employeeId: string } },
+    row: Payslip & {
+      payrollRun: {
+        employeeId: string;
+        payCurrency?: string;
+        grossPay?: Parameters<typeof formatMoney>[0];
+        totalDeductions?: Parameters<typeof formatMoney>[0];
+        netPay?: Parameters<typeof formatMoney>[0];
+        status?: PayrollRunStatus;
+        payrollPeriod?: {
+          startDate: Date;
+          endDate: Date;
+          paymentDate: Date;
+        };
+      };
+    },
   ): PayslipRecord {
+    const run = row.payrollRun;
     return {
       id: row.id,
       payrollRunId: row.payrollRunId,
-      employeeId: row.payrollRun.employeeId,
+      employeeId: run.employeeId,
       fileKey: row.fileKey,
       generatedAt: row.generatedAt.toISOString(),
       createdAt: row.createdAt.toISOString(),
+      ...(run.payrollPeriod
+        ? {
+            periodStartDate: formatDateOnly(run.payrollPeriod.startDate),
+            periodEndDate: formatDateOnly(run.payrollPeriod.endDate),
+            paymentDate: formatDateOnly(run.payrollPeriod.paymentDate),
+          }
+        : {}),
+      ...(run.payCurrency ? { payCurrency: run.payCurrency } : {}),
+      ...(run.grossPay !== undefined ? { grossPay: formatMoney(run.grossPay) } : {}),
+      ...(run.totalDeductions !== undefined
+        ? { totalDeductions: formatMoney(run.totalDeductions) }
+        : {}),
+      ...(run.netPay !== undefined ? { netPay: formatMoney(run.netPay) } : {}),
+      ...(run.status ? { runStatus: run.status } : {}),
     };
   }
 
