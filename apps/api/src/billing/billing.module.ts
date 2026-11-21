@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { forwardRef, Global, Module } from '@nestjs/common';
 import { PrismaModule } from '../database/prisma.module';
 import { PlatformAuditModule } from '../platform/audit/platform-audit.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -17,7 +17,7 @@ import { TenantInvoicesController } from './tenant-invoices.controller';
 
 @Global()
 @Module({
-  imports: [PrismaModule, PlatformAuditModule, SettingsModule],
+  imports: [PrismaModule, PlatformAuditModule, forwardRef(() => SettingsModule)],
   controllers: [
     SubscriptionController,
     TenantInvoicesController,

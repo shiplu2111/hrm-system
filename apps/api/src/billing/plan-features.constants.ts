@@ -24,6 +24,8 @@ export const PLAN_FEATURES: Record<SubscriptionPlanTier, EnterpriseFeature[]> = 
     'sso',
     'custom_payroll_rules',
     'advanced_workflow',
+    'custom_domains',
+    'white_label',
   ],
 };
 

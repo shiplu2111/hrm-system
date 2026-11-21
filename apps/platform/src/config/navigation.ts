@@ -12,6 +12,7 @@ import {
   Globe2,
   Headphones,
   LayoutDashboard,
+  Palette,
   PlusCircle,
   Receipt,
   Settings,
@@ -29,6 +30,7 @@ export type PlatformViewKey =
   | 'tenant-detail'
   | 'tenant-provisioning'
   | 'tenant-isolation'
+  | 'branding-domains'
   | 'billing'
   | 'billing-invoices'
   | 'country-compliance'
@@ -120,6 +122,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: Database,
         badge: 'Enforced',
         badgeTone: 'blue',
+        permission: { module: 'tenant', action: 'view' },
+      },
+      {
+        key: 'branding-domains',
+        label: 'Branding & Custom Domains',
+        description: "Platform view of any tenant's branding, custom domain verification, DNS records, and plan gate",
+        icon: Palette,
+        badge: 'Live',
+        badgeTone: 'emerald',
         permission: { module: 'tenant', action: 'view' },
       },
     ],

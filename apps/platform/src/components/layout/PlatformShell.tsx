@@ -18,6 +18,7 @@ import { TenantsPage } from '@/pages/platform/TenantsPage';
 import { SandboxTenantsPage } from '@/pages/platform/SandboxTenantsPage';
 import { SystemHealthPage } from '@/pages/platform/SystemHealthPage';
 import { TenantIsolationPage } from '@/pages/platform/TenantIsolationPage';
+import { BrandingDomainsPage } from '@/pages/platform/BrandingDomainsPage';
 import { PlatformBillingPage } from '@/pages/platform/PlatformBillingPage';
 import { RevenueReportPage } from '@/pages/platform/RevenueReportPage';
 import { CountryCompliancePage } from '@/pages/platform/CountryCompliancePage';
@@ -142,6 +143,8 @@ export function PlatformShell({
         return <TenantsPage initialView="create" />;
       case 'tenant-isolation':
         return <TenantIsolationPage />;
+      case 'branding-domains':
+        return <BrandingDomainsPage />;
       case 'billing':
         return <PlatformBillingPage />;
       case 'billing-invoices':

@@ -10,7 +10,9 @@ export type EnterpriseFeature =
   | 'api_access'
   | 'sso'
   | 'custom_payroll_rules'
-  | 'advanced_workflow';
+  | 'advanced_workflow'
+  | 'custom_domains'
+  | 'white_label';
 
 /** Plan tier features from BILLING_SUBSCRIPTION.md §1, cumulative from Free to Enterprise. */
 export type PlanFeatureKey =

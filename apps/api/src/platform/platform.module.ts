@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PlatformAuditModule } from './audit/platform-audit.module';
 import { PlatformAuthModule } from './auth/platform-auth.module';
+import { PlatformBrandingModule } from './branding/platform-branding.module';
 import { CountriesModule } from './countries/countries.module';
 import { PlatformDashboardModule } from './dashboard/platform-dashboard.module';
 import { PlatformFeatureFlagsModule } from './feature-flags/platform-feature-flags.module';
@@ -18,6 +19,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     CountriesModule,
     PlatformAuthModule,
     PlatformAuditModule,
+    PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformFeatureFlagsModule,
     PlatformInvoicesModule,
@@ -33,6 +35,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     CountriesModule,
     PlatformAuthModule,
     PlatformAuditModule,
+    PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformFeatureFlagsModule,
     PlatformInvoicesModule,
