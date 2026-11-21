@@ -257,4 +257,108 @@ export interface PaymentRecordView {
   createdAt: string;
 }
 
+export type SubscriptionActionType =
+  | 'plan_change'
+  | 'trial_extension'
+  | 'discount_applied'
+  | 'credit_applied'
+  | 'pause'
+  | 'resume'
+  | 'cancel';
+
+export interface SubscriptionChangeRecord {
+  id: string;
+  subscriptionId: string;
+  tenantId: string;
+  action: SubscriptionActionType;
+  fromPlanId?: string | null;
+  fromPlanName?: string | null;
+  toPlanId?: string | null;
+  toPlanName?: string | null;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  reason?: string | null;
+  actorEmail?: string | null;
+  actorRole?: string | null;
+  metadata?: Record<string, any> | null;
+  createdAt: string;
+}
+
+export interface PlatformSubscriptionListItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSubdomain: string;
+  planId: string;
+  planCode: string;
+  planName: string;
+  status: SubscriptionState;
+  billingCycle: 'monthly' | 'annual';
+  currency: string;
+  baseAmount: number;
+  perSeatAmount: number | null;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  nextBillingAt: string;
+  trialEndsAt: string | null;
+  discountPercent: number | null;
+  creditBalance: number;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  pausedAt: string | null;
+  pendingPlan?: { id: string; code: string; name: string } | null;
+  employeeCount: number;
+  maxEmployees: number | null;
+  createdAt: string;
+}
+
+export interface PlatformSubscriptionDetailView extends PlatformSubscriptionListItem {
+  discountReason: string | null;
+  pauseReason: string | null;
+  cancelReason: string | null;
+  changes: SubscriptionChangeRecord[];
+  recentInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    total: number;
+    amountPaid: number;
+    amountDue: number;
+    status: InvoiceStatus;
+    dueDate: string;
+    paidAt: string | null;
+  }>;
+  limits: PlatformPlanLimitView[];
+  features: PlatformPlanFeatureView[];
+}
+
+export interface PlatformChangePlanRequest {
+  targetPlanId: string;
+  effectiveImmediately?: boolean;
+  reason?: string;
+}
+
+export interface PlatformExtendTrialRequest {
+  days?: number;
+  newTrialEndsAt?: string;
+  reason: string;
+}
+
+export interface PlatformApplyDiscountRequest {
+  discountPercent?: number;
+  creditAmount?: number;
+  reason: string;
+}
+
+export interface PlatformPauseSubscriptionRequest {
+  reason: string;
+}
+
+export interface PlatformCancelSubscriptionRequest {
+  cancelImmediately: boolean;
+  reason: string;
+}
+
+
 

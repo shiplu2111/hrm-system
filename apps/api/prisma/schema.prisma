@@ -168,6 +168,7 @@ model Tenant {
   contractorPaymentBatchItems ContractorPaymentBatchItem[]
   contractorContractMilestones ContractorContractMilestone[]
   subscriptions               Subscription[]
+  subscriptionChanges         SubscriptionChange[]
   invoices                    Invoice[]
   invoiceLines                InvoiceLine[]
   payments                    Payment[]
@@ -5849,14 +5850,20 @@ model Subscription {
   lastDunningAt      DateTime?          @map("last_dunning_at")
   nextBillingAt      DateTime           @map("next_billing_at")
   pendingPlanId      String?            @map("pending_plan_id") @db.Uuid
+  discountPercent    Decimal?           @map("discount_percent") @db.Decimal(5, 2)
+  discountReason     String?            @map("discount_reason")
+  creditBalance      Decimal            @default(0.00) @map("credit_balance") @db.Decimal(14, 2)
+  pauseReason        String?            @map("pause_reason")
+  cancelReason       String?            @map("cancel_reason")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan        Plan      @relation("PlanSubscriptions", fields: [planId], references: [id])
-  pendingPlan Plan?     @relation("PendingPlanSubscriptions", fields: [pendingPlanId], references: [id])
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan        Plan                 @relation("PlanSubscriptions", fields: [planId], references: [id])
+  pendingPlan Plan?                @relation("PendingPlanSubscriptions", fields: [pendingPlanId], references: [id])
   invoices    Invoice[]
   payments    Payment[]
+  changes     SubscriptionChange[]
 
   @@index([tenantId])
   @@index([planId])
@@ -5864,6 +5871,34 @@ model Subscription {
   @@index([status])
   @@index([nextBillingAt])
   @@map("subscriptions")
+}
+
+model SubscriptionChange {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  subscriptionId String   @map("subscription_id") @db.Uuid
+  action         String   @db.VarChar(50)
+  fromPlanId     String?  @map("from_plan_id") @db.Uuid
+  toPlanId       String?  @map("to_plan_id") @db.Uuid
+  fromStatus     String?  @map("from_status")
+  toStatus       String?  @map("to_status")
+  amount         Decimal? @db.Decimal(14, 2)
+  currency       String?  @db.VarChar(3)
+  reason         String?
+  metadata       Json?
+  actorId        String?  @map("actor_id") @db.Uuid
+  actorEmail     String?  @map("actor_email")
+  actorRole      String?  @map("actor_role")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([tenantId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("subscription_changes")
 }
 
 model Invoice {
