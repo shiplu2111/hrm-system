@@ -73,3 +73,44 @@ export interface TenantPlanInfo {
   features: EnterpriseFeature[];
   apiAccessEnabled: boolean;
 }
+
+export interface PlatformPlanPriceView {
+  id: string;
+  planId: string;
+  currency: string;
+  billingCycle: 'monthly' | 'annual';
+  amount: number;
+  perSeatAmount: number | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+export interface PlatformPlanFeatureView {
+  id: string;
+  planId: string;
+  featureKey: string;
+  enabled: boolean;
+}
+
+export interface PlatformPlanLimitView {
+  id: string;
+  planId: string;
+  limitKey: string;
+  value: number | null;
+}
+
+export interface PlatformPlanDetailView {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  rank: number;
+  isActive: boolean;
+  isCustom: boolean;
+  createdAt: string;
+  updatedAt: string;
+  prices: PlatformPlanPriceView[];
+  features: PlatformPlanFeatureView[];
+  limits: PlatformPlanLimitView[];
+}
+

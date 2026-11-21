@@ -1,29 +1,32 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Building2,
   Check,
   Clock,
+  Coins,
   CreditCard,
   Download,
+  Edit3,
+  Eye,
+  EyeOff,
+  Gauge,
+  Layers,
+  Loader2,
   Plus,
   RefreshCw,
   Search,
-  Trash2,
+  Sparkles,
 } from 'lucide-react';
+import type { PlatformPlanDetailView } from '@hrm/shared-types';
 import { usePlatformTenant } from '@/context/PlatformTenantContext';
 import { PermissionGate } from '@/components/rbac';
 import { usePermission } from '@/hooks/usePermission';
+import { listPlatformPlans } from '@/lib/plans-api';
+import { PlanEditorModal } from '@/components/plans/PlanEditorModal';
+import { FeatureMatrixGrid } from '@/components/plans/FeatureMatrixGrid';
 
-type TierName = 'Free' | 'Starter' | 'Business' | 'Enterprise';
 type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue' | 'Failed';
-
-interface Plan {
-  name: TierName;
-  price: string;
-  description: string;
-  features: string[];
-}
 
 interface Invoice {
   tenant: string;
@@ -33,26 +36,7 @@ interface Invoice {
   date: string;
 }
 
-const initialPlans: Plan[] = [
-  { name: 'Free', price: '0', description: 'For small teams evaluating core HR.', features: ['25 employees', 'Core employee records', 'Community support'] },
-  { name: 'Starter', price: '299', description: 'Essential people operations for growing teams.', features: ['250 employees', 'Attendance & leave', 'Email support'] },
-  { name: 'Business', price: '899', description: 'Advanced automation for scaling companies.', features: ['1,000 employees', 'Payroll & recruitment', 'Analytics workspace'] },
-  { name: 'Enterprise', price: 'Custom', description: 'Flexible controls for complex organizations.', features: ['Unlimited employees', 'SSO, SCIM & API', 'Priority support'] },
-];
-
-const moduleGroups = [
-  { name: 'Core HR', count: 7, access: { Free: true, Starter: true, Business: true, Enterprise: true } },
-  { name: 'Time & Attendance', count: 6, access: { Free: false, Starter: true, Business: true, Enterprise: true } },
-  { name: 'Leave & Scheduling', count: 5, access: { Free: false, Starter: true, Business: true, Enterprise: true } },
-  { name: 'Payroll', count: 7, access: { Free: false, Starter: false, Business: true, Enterprise: true } },
-  { name: 'Talent & Recruitment', count: 5, access: { Free: false, Starter: false, Business: true, Enterprise: true } },
-  { name: 'Performance', count: 4, access: { Free: false, Starter: false, Business: true, Enterprise: true } },
-  { name: 'Expenses & Benefits', count: 4, access: { Free: false, Starter: false, Business: true, Enterprise: true } },
-  { name: 'Analytics', count: 4, access: { Free: false, Starter: false, Business: true, Enterprise: true } },
-  { name: 'Platform & Security', count: 5, access: { Free: false, Starter: false, Business: false, Enterprise: true } },
-] satisfies { name: string; count: number; access: Record<TierName, boolean> }[];
-
-const invoices: Invoice[] = [
+const mockInvoices: Invoice[] = [
   { tenant: 'Acme Corporation', invoice: 'INV-2026-1082', amount: 4280, status: 'Paid', date: 'Aug 21, 2026' },
   { tenant: 'TechFlow Labs', invoice: 'INV-2026-1081', amount: 2180, status: 'Pending', date: 'Aug 20, 2026' },
   { tenant: 'Globex Industries', invoice: 'INV-2026-1079', amount: 5950, status: 'Failed', date: 'Aug 18, 2026' },
@@ -61,7 +45,6 @@ const invoices: Invoice[] = [
   { tenant: 'Vertex Health', invoice: 'INV-2026-1062', amount: 299, status: 'Paid', date: 'Aug 02, 2026' },
 ];
 
-const tiers: TierName[] = ['Free', 'Starter', 'Business', 'Enterprise'];
 const invoiceStatuses: Array<'All' | InvoiceStatus> = ['All', 'Paid', 'Pending', 'Overdue', 'Failed'];
 
 const statusTone: Record<InvoiceStatus, string> = {
@@ -74,8 +57,8 @@ const statusTone: Record<InvoiceStatus, string> = {
 function SectionTitle({ title, detail }: { title: string; detail: string }) {
   return (
     <div>
-      <h2 className="font-extrabold text-slate-900 dark:text-white">{title}</h2>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
+      <h2 className="font-extrabold text-slate-900 dark:text-white text-lg">{title}</h2>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
     </div>
   );
 }
@@ -83,17 +66,52 @@ function SectionTitle({ title, detail }: { title: string; detail: string }) {
 export function PlatformBillingPage() {
   const { selectedTenant, setSelectedTenant } = usePlatformTenant();
   const canEditBilling = usePermission('billing', 'edit');
-  const [plans, setPlans] = useState(initialPlans);
-  const [moduleAccess, setModuleAccess] = useState(() =>
-    Object.fromEntries(moduleGroups.map((group) => [group.name, { ...group.access }])) as Record<string, Record<TierName, boolean>>,
-  );
+  const canCreateBilling = usePermission('billing', 'create');
+
+  // Live Plans state
+  const [plans, setPlans] = useState<PlatformPlanDetailView[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState<boolean>(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
+
+  // Editor Modal state
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<PlatformPlanDetailView | null>(null);
+
+  // Invoices & Payment recovery state
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'All' | InvoiceStatus>('All');
   const [retrying, setRetrying] = useState(false);
   const [failureResolved, setFailureResolved] = useState(false);
 
+  const loadPlans = async () => {
+    try {
+      setIsLoadingPlans(true);
+      setPlansError(null);
+      const data = await listPlatformPlans();
+      setPlans(data);
+    } catch (err: any) {
+      setPlansError(err.message || 'Failed to load plans from server.');
+    } finally {
+      setIsLoadingPlans(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  const openCreateModal = () => {
+    setEditingPlan(null);
+    setIsEditorOpen(true);
+  };
+
+  const openEditModal = (plan: PlatformPlanDetailView) => {
+    setEditingPlan(plan);
+    setIsEditorOpen(true);
+  };
+
   const filteredInvoices = useMemo(() => {
-    return invoices.filter((invoice) => {
+    return mockInvoices.filter((invoice) => {
       if (
         selectedTenant &&
         !invoice.tenant.toLowerCase().includes(selectedTenant.name.toLowerCase()) &&
@@ -105,26 +123,6 @@ export function PlatformBillingPage() {
       return matchesSearch && (status === 'All' || invoice.status === status);
     });
   }, [search, status, selectedTenant]);
-
-  const updatePlan = (planIndex: number, field: 'price' | 'feature', value: string, featureIndex?: number) => {
-    setPlans((current) => current.map((plan, index) => {
-      if (index !== planIndex) return plan;
-      if (field === 'price') return { ...plan, price: value };
-      return { ...plan, features: plan.features.map((feature, itemIndex) => itemIndex === featureIndex ? value : feature) };
-    }));
-  };
-
-  const addFeature = (planIndex: number) => {
-    setPlans((current) => current.map((plan, index) =>
-      index === planIndex ? { ...plan, features: [...plan.features, 'New feature'] } : plan,
-    ));
-  };
-
-  const removeFeature = (planIndex: number, featureIndex: number) => {
-    setPlans((current) => current.map((plan, index) =>
-      index === planIndex ? { ...plan, features: plan.features.filter((_, itemIndex) => itemIndex !== featureIndex) } : plan,
-    ));
-  };
 
   const exportInvoices = () => {
     const rows = [
@@ -149,18 +147,38 @@ export function PlatformBillingPage() {
   };
 
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100">
+    <div className="space-y-8 text-slate-900 dark:text-slate-100">
+      {/* Top Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-300">
-            <CreditCard className="h-4 w-4" /> REVENUE OPERATIONS
+          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+            <CreditCard className="h-4 w-4" /> Monetization & Entitlements
           </div>
-          <h1 className="text-2xl font-extrabold lg:text-3xl">Subscriptions & Billing</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage platform pricing, entitlements, invoices and payment recovery.</p>
+          <h1 className="text-2xl font-extrabold lg:text-3xl text-slate-900 dark:text-white">
+            Plans, Pricing & Subscriptions
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Define commercial tiers, manage effective-dated pricing, set platform caps, and configure the feature matrix grid.
+          </p>
         </div>
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-right dark:border-indigo-800 dark:bg-indigo-950/40">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">Monthly recurring revenue</div>
-          <div className="text-xl font-extrabold text-indigo-700 dark:text-indigo-200">$284,610</div>
+        <div className="flex items-center gap-3">
+          {(canEditBilling || canCreateBilling) && (
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition shadow-sm"
+            >
+              <Plus className="h-4 w-4" /> Create New Plan
+            </button>
+          )}
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-right dark:border-indigo-800 dark:bg-indigo-950/40">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
+              Active Tier Count
+            </div>
+            <div className="text-xl font-extrabold text-indigo-700 dark:text-indigo-200">
+              {plans.length} Plans
+            </div>
+          </div>
         </div>
       </div>
 
@@ -201,133 +219,304 @@ export function PlatformBillingPage() {
         </div>
       )}
 
+      {/* Section 1: Plans List & Cards */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <SectionTitle
+            title="Subscription Plans Catalog"
+            detail="Commercial tiers available for tenant subscription. Controls quotas and base feature entitlements."
+          />
+          <button
+            type="button"
+            onClick={loadPlans}
+            disabled={isLoadingPlans}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoadingPlans ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        {plansError && (
+          <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>{plansError}</span>
+          </div>
+        )}
+
+        {isLoadingPlans && plans.length === 0 ? (
+          <div className="p-12 flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-400">
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-600 mb-2" />
+            <p className="text-sm font-semibold">Loading subscription plans catalog...</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+            {plans.map((plan) => {
+              // Extract primary USD price or first active price
+              const activePrices = (plan.prices ?? []).filter(
+                (p) => !p.effectiveTo || new Date(p.effectiveTo) > new Date(),
+              );
+              const monthlyPrice = activePrices.find((p) => p.billingCycle === 'monthly' && p.currency === 'USD') ?? activePrices[0];
+              const employeeLimit = (plan.limits ?? []).find((l) => l.limitKey === 'employees');
+              const storageLimit = (plan.limits ?? []).find((l) => l.limitKey === 'storage_gb');
+              const activeFeaturesCount = (plan.features ?? []).filter((f) => f.enabled).length;
+
+              return (
+                <article
+                  key={plan.id}
+                  className={`flex flex-col justify-between rounded-2xl border bg-white p-5 shadow-sm transition hover:shadow-md dark:bg-slate-900 ${
+                    plan.code === 'business'
+                      ? 'border-indigo-400 ring-2 ring-indigo-500/10'
+                      : 'border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <div>
+                    {/* Header: Name, Rank & Visibility Badge */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                            {plan.name}
+                          </h3>
+                          <span className="text-[10px] font-mono text-slate-400 uppercase">
+                            #{plan.rank}
+                          </span>
+                        </div>
+                        <p className="mt-1 min-h-8 text-xs leading-4 text-slate-500 dark:text-slate-400 line-clamp-2">
+                          {plan.description || 'No description provided.'}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            plan.isActive
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                          }`}
+                        >
+                          {plan.isActive ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                          {plan.isActive ? 'Public' : 'Hidden'}
+                        </span>
+                        {plan.code === 'business' && (
+                          <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider">
+                            Popular
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Price Card Preview */}
+                    <div className="mt-4 p-3 rounded-xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/60">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Active Price
+                      </div>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="text-2xl font-extrabold text-slate-900 dark:text-white">
+                          {monthlyPrice ? `$${monthlyPrice.amount.toFixed(0)}` : 'Free'}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {monthlyPrice ? `/${monthlyPrice.billingCycle === 'annual' ? 'yr' : 'mo'}` : ''}
+                        </span>
+                        {monthlyPrice && monthlyPrice.currency !== 'USD' && (
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">
+                            ({monthlyPrice.currency})
+                          </span>
+                        )}
+                      </div>
+                      {monthlyPrice?.perSeatAmount ? (
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          + ${monthlyPrice.perSeatAmount.toFixed(2)} / seat / mo
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Limits & Feature Counts */}
+                    <div className="mt-4 space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 py-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="flex items-center gap-1.5 text-slate-500">
+                          <Gauge className="h-3.5 w-3.5 text-slate-400" /> Max Employees:
+                        </span>
+                        <span className="font-bold">
+                          {employeeLimit && employeeLimit.value !== null
+                            ? employeeLimit.value.toLocaleString()
+                            : '∞ Unlimited'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 py-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="flex items-center gap-1.5 text-slate-500">
+                          <Layers className="h-3.5 w-3.5 text-slate-400" /> Cloud Storage:
+                        </span>
+                        <span className="font-bold">
+                          {storageLimit && storageLimit.value !== null
+                            ? `${storageLimit.value} GB`
+                            : '∞ Unlimited'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 py-1">
+                        <span className="flex items-center gap-1.5 text-slate-500">
+                          <Sparkles className="h-3.5 w-3.5 text-indigo-500" /> Features:
+                        </span>
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                          {activeFeaturesCount} Enabled
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Edit Plan Action */}
+                  <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(plan)}
+                      className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 rounded-xl transition"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" /> Edit Plan & Pricing
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Section 2: Interactive Feature Matrix Grid */}
+      <section>
+        <FeatureMatrixGrid
+          plans={plans}
+          onPlanUpdated={loadPlans}
+          canEdit={canEditBilling}
+        />
+      </section>
+
+      {/* Section 3: Payment Recovery Banner (if any pending) */}
       {!failureResolved ? (
         <section className="overflow-hidden rounded-2xl border border-red-200 bg-red-50 shadow-sm dark:border-red-900 dark:bg-red-950/30">
           <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="flex gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white"><AlertTriangle className="h-5 w-5" /></div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
               <div>
-                <div className="font-extrabold text-red-900 dark:text-red-100">Payment recovery in progress</div>
-                <p className="mt-1 text-xs text-red-700 dark:text-red-300">Globex Industries · $5,950 · Visa •••• 1842 · 2 automated retries failed</p>
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold">
-                  <span className="rounded-lg border border-red-200 bg-white/70 px-2.5 py-1.5 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200"><Clock className="mr-1 inline h-3.5 w-3.5" /> Retry in 04:18:32</span>
-                  <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300">Grace period: 3 days left</span>
+                <div className="font-extrabold text-red-900 dark:text-red-100">
+                  Payment recovery in progress
                 </div>
-                <div className="mt-3 h-1.5 max-w-md overflow-hidden rounded-full bg-red-200 dark:bg-red-950"><div className="h-full w-[72%] rounded-full bg-gradient-to-r from-orange-500 to-red-600" /></div>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                  Globex Industries · $5,950 · Visa •••• 1842 · 2 automated retries failed
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold">
+                  <span className="rounded-lg border border-red-200 bg-white/70 px-2.5 py-1.5 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
+                    <Clock className="mr-1 inline h-3.5 w-3.5" /> Retry in 04:18:32
+                  </span>
+                  <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300">
+                    Grace period: 3 days left
+                  </span>
+                </div>
+                <div className="mt-3 h-1.5 max-w-md overflow-hidden rounded-full bg-red-200 dark:bg-red-950">
+                  <div className="h-full w-[72%] rounded-full bg-gradient-to-r from-orange-500 to-red-600" />
+                </div>
               </div>
             </div>
             <PermissionGate module="billing" action="edit">
-              <button onClick={retryPayment} disabled={retrying} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60">
-                <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} /> {retrying ? 'Retrying…' : 'Retry now'}
+              <button
+                onClick={retryPayment}
+                disabled={retrying}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60 transition"
+              >
+                <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />{' '}
+                {retrying ? 'Retrying…' : 'Retry now'}
               </button>
             </PermissionGate>
           </div>
         </section>
       ) : (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"><Check className="h-4 w-4" /> Payment retry succeeded and the tenant is back in good standing.</div>
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+          <Check className="h-4 w-4" /> Payment retry succeeded and the tenant is back in good standing.
+        </div>
       )}
 
-      <section>
-        <SectionTitle title="Plan tier management" detail="Prices and feature copy are editable locally. Changes remain in this workspace." />
-        <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-          {plans.map((plan, planIndex) => (
-            <article key={plan.name} className={`rounded-2xl border bg-white p-5 shadow-sm dark:bg-slate-900 ${plan.name === 'Business' ? 'border-indigo-400 ring-2 ring-indigo-500/10' : 'border-slate-200 dark:border-slate-800'}`}>
-              <div className="flex items-start justify-between">
-                <div><h3 className="text-lg font-extrabold">{plan.name}</h3><p className="mt-1 min-h-8 text-[11px] leading-4 text-slate-500">{plan.description}</p></div>
-                {plan.name === 'Business' && <span className="rounded-full bg-indigo-600 px-2 py-1 text-[9px] font-bold text-white">POPULAR</span>}
-              </div>
-              <div className="mt-4 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
-                <span className="text-lg font-bold text-slate-400">$</span>
-                <input
-                  aria-label={`${plan.name} monthly price`}
-                  value={plan.price}
-                  readOnly={!canEditBilling}
-                  onChange={(event) => updatePlan(planIndex, 'price', event.target.value)}
-                  className={`h-11 min-w-0 flex-1 bg-transparent px-2 text-2xl font-extrabold outline-none ${!canEditBilling ? 'cursor-default' : ''}`}
-                />
-                <span className="text-[10px] text-slate-500">/ month</span>
-              </div>
-              <div className="mt-4 space-y-2">
-                {plan.features.map((feature, featureIndex) => (
-                  <div key={`${plan.name}-${featureIndex}`} className="group flex items-center gap-2">
-                    <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                    <input
-                      aria-label={`${plan.name} feature ${featureIndex + 1}`}
-                      value={feature}
-                      readOnly={!canEditBilling}
-                      onChange={(event) => updatePlan(planIndex, 'feature', event.target.value, featureIndex)}
-                      className="h-8 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-xs outline-none hover:border-slate-200 focus:border-indigo-400 dark:hover:border-slate-700"
-                    />
-                    {canEditBilling && (
-                      <button onClick={() => removeFeature(planIndex, featureIndex)} className="text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500" aria-label={`Remove ${feature}`}><Trash2 className="h-3.5 w-3.5" /></button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {canEditBilling && (
-                <button onClick={() => addFeature(planIndex)} className="mt-3 flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-300"><Plus className="h-3.5 w-3.5" /> Add feature</button>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-slate-200 p-5 dark:border-slate-800"><SectionTitle title="Module access matrix" detail="47 modules grouped into 9 product areas. Toggle access for each commercial tier." /></div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 dark:bg-slate-950/50">
-              <tr><th className="px-5 py-3">Module group</th>{tiers.map((tier) => <th key={tier} className="px-4 py-3 text-center">{tier}</th>)}</tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {moduleGroups.map((group) => (
-                <tr key={group.name} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
-                  <td className="px-5 py-3"><span className="text-sm font-bold">{group.name}</span><span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">{group.count} modules</span></td>
-                  {tiers.map((tier) => (
-                    <td key={tier} className="px-4 py-3 text-center">
-                      <input
-                        type="checkbox"
-                        aria-label={`${group.name} access for ${tier}`}
-                        checked={moduleAccess[group.name][tier]}
-                        disabled={!canEditBilling}
-                        onChange={(event) =>
-                          setModuleAccess((current) => ({
-                            ...current,
-                            [group.name]: { ...current[group.name], [tier]: event.target.checked },
-                          }))
-                        }
-                        className={`h-4 w-4 rounded border-slate-300 accent-indigo-600 ${
-                          !canEditBilling ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
+      {/* Section 4: Cross-Tenant Invoices */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-4 border-b border-slate-200 p-5 dark:border-slate-800 xl:flex-row xl:items-center xl:justify-between">
-          <SectionTitle title="Cross-tenant invoices" detail={`${filteredInvoices.length} invoices shown across all subscription accounts.`} />
+          <SectionTitle
+            title="Cross-tenant invoices"
+            detail={`${filteredInvoices.length} invoices shown across all subscription accounts.`}
+          />
           <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tenant or invoice…" className="h-10 w-full rounded-xl border border-slate-200 bg-transparent pl-9 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 sm:w-64" /></div>
-            <select value={status} onChange={(event) => setStatus(event.target.value as 'All' | InvoiceStatus)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-950">{invoiceStatuses.map((item) => <option key={item}>{item}</option>)}</select>
-            <button onClick={exportInvoices} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500"><Download className="h-4 w-4" /> Export</button>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search tenant or invoice…"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-transparent pl-9 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 sm:w-64"
+              />
+            </div>
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as 'All' | InvoiceStatus)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-950"
+            >
+              {invoiceStatuses.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            <button
+              onClick={exportInvoices}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500 transition"
+            >
+              <Download className="h-4 w-4" /> Export
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 dark:bg-slate-950/50"><tr><th className="px-5 py-3">Tenant</th><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Amount</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Date</th></tr></thead>
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 dark:bg-slate-950/50">
+              <tr>
+                <th className="px-5 py-3">Tenant</th>
+                <th className="px-4 py-3">Invoice</th>
+                <th className="px-4 py-3">Amount</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Date</th>
+              </tr>
+            </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredInvoices.map((invoice) => <tr key={invoice.invoice} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20"><td className="px-5 py-4 text-sm font-bold">{invoice.tenant}</td><td className="px-4 py-4 font-mono text-xs text-indigo-600 dark:text-indigo-300">{invoice.invoice}</td><td className="px-4 py-4 text-sm font-extrabold">${invoice.amount.toLocaleString()}</td><td className="px-4 py-4"><span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${statusTone[invoice.status]}`}>{invoice.status}</span></td><td className="px-4 py-4 text-xs text-slate-500">{invoice.date}</td></tr>)}
-              {filteredInvoices.length === 0 && <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">No invoices match these filters.</td></tr>}
+              {filteredInvoices.map((invoice) => (
+                <tr key={invoice.invoice} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
+                  <td className="px-5 py-4 text-sm font-bold">{invoice.tenant}</td>
+                  <td className="px-4 py-4 font-mono text-xs text-indigo-600 dark:text-indigo-300">
+                    {invoice.invoice}
+                  </td>
+                  <td className="px-4 py-4 text-sm font-extrabold">${invoice.amount.toLocaleString()}</td>
+                  <td className="px-4 py-4">
+                    <span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${statusTone[invoice.status]}`}>
+                      {invoice.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-xs text-slate-500">{invoice.date}</td>
+                </tr>
+              ))}
+              {filteredInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">
+                    No invoices match these filters.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
+
+      {/* Plan Editor & Creator Modal */}
+      <PlanEditorModal
+        isOpen={isEditorOpen}
+        onClose={() => setIsEditorOpen(false)}
+        plan={editingPlan}
+        onSuccess={loadPlans}
+        canEdit={canEditBilling || canCreateBilling}
+      />
     </div>
   );
 }

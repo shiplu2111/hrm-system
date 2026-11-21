@@ -3,6 +3,7 @@ import { PlatformAuditModule } from './audit/platform-audit.module';
 import { PlatformAuthModule } from './auth/platform-auth.module';
 import { CountriesModule } from './countries/countries.module';
 import { PlatformDashboardModule } from './dashboard/platform-dashboard.module';
+import { PlatformPlansModule } from './plans/platform-plans.module';
 import { PlatformStaffModule } from './staff/platform-staff.module';
 import { PlatformSupportAccessModule } from './support-access/platform-support-access.module';
 import { PlatformTenantsModule } from './tenants/platform-tenants.module';
@@ -13,6 +14,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuthModule,
     PlatformAuditModule,
     PlatformDashboardModule,
+    PlatformPlansModule,
     PlatformStaffModule,
     PlatformSupportAccessModule,
     PlatformTenantsModule,
@@ -22,6 +24,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuthModule,
     PlatformAuditModule,
     PlatformDashboardModule,
+    PlatformPlansModule,
     PlatformStaffModule,
     PlatformSupportAccessModule,
     PlatformTenantsModule,
