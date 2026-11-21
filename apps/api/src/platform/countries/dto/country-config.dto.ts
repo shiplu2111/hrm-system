@@ -3,6 +3,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -130,6 +131,7 @@ export class UpsertTaxBracketDto {
   @Max(2200)
   taxYear!: number;
 
+  @IsObject()
   bracketJson!: Record<string, unknown>;
 
   @IsDateString()
@@ -157,6 +159,7 @@ export class UpsertCountryRuleDto {
   ])
   ruleType!: CountryRuleKind;
 
+  @IsObject()
   payload!: Record<string, unknown>;
 
   @IsDateString()
@@ -174,6 +177,8 @@ export class UpsertCountryRuleDto {
 export class UpdateTaxBracketDto extends UpsertTaxBracketDto {}
 
 export class UpdateCountryRuleDto {
+  @IsOptional()
+  @IsObject()
   payload?: Record<string, unknown>;
 
   @IsOptional()
