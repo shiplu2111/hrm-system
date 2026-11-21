@@ -65,6 +65,13 @@ enum RuleVersionStatus {
   @@map("rule_version_status")
 }
 
+enum StateProvinceStatus {
+  active
+  retired
+
+  @@map("state_province_status")
+}
+
 model Tenant {
   id                  String                @id @default(uuid()) @db.Uuid
   name                String
@@ -222,14 +229,17 @@ model Country {
 }
 
 model StateProvince {
-  id        String   @id @default(uuid()) @db.Uuid
-  countryId String   @map("country_id") @db.Uuid
+  id        String              @id @default(uuid()) @db.Uuid
+  countryId String              @map("country_id") @db.Uuid
   name      String
-  code      String   @db.VarChar(16)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  code      String              @db.VarChar(16)
+  status    StateProvinceStatus @default(active) @map("status")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
 
-  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  country   Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  companies Company[]
+  locations Location[]
 
   @@unique([countryId, code])
   @@index([countryId])
@@ -340,6 +350,9 @@ model Company {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  stateProvinceId   String?        @map("state_province_id") @db.Uuid
+  stateProvince     StateProvince? @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)
+
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   country   Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
   locations       Location[]
@@ -441,6 +454,9 @@ model Location {
   geofenceRadiusM  Int?     @map("geofence_radius_m")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
+
+  stateProvinceId  String?        @map("state_province_id") @db.Uuid
+  stateProvince    StateProvince? @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employees Employee[] @relation("EmployeeWorkLocation")

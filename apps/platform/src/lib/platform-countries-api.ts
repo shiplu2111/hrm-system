@@ -1,4 +1,6 @@
 import type {
+  BulkImportStatesInput,
+  BulkImportStatesResult,
   CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleKind,
@@ -8,6 +10,7 @@ import type {
   CreateStateProvinceInput,
   StateProvinceView,
   TaxBracketRecord,
+  UpdateStateProvinceInput,
 } from '@hrm/shared-types';
 import { apiRequest } from './api-client';
 
@@ -79,6 +82,33 @@ export function createState(
 ): Promise<StateProvinceView> {
   return apiRequest<StateProvinceView>(
     `/platform/countries/${countryId}/states`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateState(
+  countryId: string,
+  stateId: string,
+  input: UpdateStateProvinceInput,
+): Promise<StateProvinceView> {
+  return apiRequest<StateProvinceView>(
+    `/platform/countries/${countryId}/states/${stateId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function bulkImportStates(
+  countryId: string,
+  input: BulkImportStatesInput,
+): Promise<BulkImportStatesResult> {
+  return apiRequest<BulkImportStatesResult>(
+    `/platform/countries/${countryId}/states/bulk-import`,
     {
       method: 'POST',
       body: JSON.stringify(input),

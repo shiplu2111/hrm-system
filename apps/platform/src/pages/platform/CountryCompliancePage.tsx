@@ -5,11 +5,15 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import type {
+  BulkImportStateItem,
+  BulkImportStatesResult,
   CountryConfiguration,
   CountryRuleKind,
   CountryStatus,
   CountrySummary,
+  StateProvinceStatus,
   StateProvinceView,
+  UpdateStateProvinceInput,
 } from '@hrm/shared-types';
 import {
   ApiError,
@@ -18,6 +22,7 @@ import {
   setPlatformAccessToken,
 } from '@/lib/api-client';
 import {
+  bulkImportStates,
   createCountry,
   createCountryRule,
   createState,
@@ -28,6 +33,7 @@ import {
   listStates,
   updateCountry,
   updateCountryRule,
+  updateState,
   updateTaxBracket,
 } from '@/lib/platform-countries-api';
 import { CountriesList } from '@/components/countries/CountriesList';
@@ -244,11 +250,30 @@ export function CountryCompliancePage() {
   };
 
   // Handler to add state/province
-  const handleAddState = async (name: string, code: string) => {
+  const handleAddState = async (name: string, code: string, status?: StateProvinceStatus) => {
     if (!selectedId) return;
-    await createState(selectedId, { name, code });
+    await createState(selectedId, { name, code, status });
     const fetchedStates = await listStates(selectedId);
     setStates(fetchedStates);
+  };
+
+  // Handler to update state/province
+  const handleUpdateState = async (stateId: string, input: UpdateStateProvinceInput) => {
+    if (!selectedId) return;
+    await updateState(selectedId, stateId, input);
+    const fetchedStates = await listStates(selectedId);
+    setStates(fetchedStates);
+  };
+
+  // Handler to bulk import states/provinces from CSV
+  const handleBulkImportStates = async (
+    items: BulkImportStateItem[],
+  ): Promise<BulkImportStatesResult> => {
+    if (!selectedId) throw new Error('No country selected');
+    const result = await bulkImportStates(selectedId, { states: items });
+    const fetchedStates = await listStates(selectedId);
+    setStates(fetchedStates);
+    return result;
   };
 
   // Handler to delete state/province
@@ -309,6 +334,8 @@ export function CountryCompliancePage() {
           onSaveTaxBracket={handleSaveTaxBracket}
           onSaveRule={handleSaveRule}
           onAddState={handleAddState}
+          onUpdateState={handleUpdateState}
+          onBulkImportStates={handleBulkImportStates}
           onDeleteState={handleDeleteState}
           states={states}
           statesLoading={statesLoading}

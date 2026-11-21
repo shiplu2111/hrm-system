@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CountryRuleType, CountryStatus, Prisma, RuleVersionStatus } from '@prisma/client';
+import { CountryRuleType, CountryStatus, Prisma, RuleVersionStatus, StateProvinceStatus } from '@prisma/client';
 import type {
+  BulkImportStatesResult,
   CountryConfigCategoryStatus,
   CountryConfigStatusView,
   CountryConfiguration,
@@ -17,9 +18,11 @@ import type {
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import type {
+  BulkImportStatesDto,
   CreateCountryDto,
   CreateStateProvinceDto,
   UpdateCountryDto,
+  UpdateStateProvinceDto,
   UpsertCountryRuleDto,
   UpsertTaxBracketDto,
 } from './dto/country-config.dto';
@@ -412,6 +415,7 @@ export class CountriesService {
     }
 
     const configStatus = await this.getCountryConfigStatus(countryId);
+    const states = await this.listStates(countryId);
 
     return {
       country: {
@@ -427,14 +431,7 @@ export class CountriesService {
         defaultPayFrequency: country.defaultPayFrequency,
         status: country.status,
       },
-      states: country.statesProvinces.map((s) => ({
-        id: s.id,
-        countryId: s.countryId,
-        name: s.name,
-        code: s.code,
-        createdAt: s.createdAt.toISOString(),
-        updatedAt: s.updatedAt.toISOString(),
-      })),
+      states,
       taxBrackets: country.taxBrackets.map((row) => this.toTaxBracket(row)),
       rules: country.countryRules.map((row) => this.toCountryRule(row)),
       configStatus,
@@ -447,17 +444,48 @@ export class CountriesService {
     await this.assertCountryExists(countryId);
     const states = await this.prisma.unscoped.stateProvince.findMany({
       where: { countryId },
-      orderBy: { name: 'asc' },
+      orderBy: [{ status: 'asc' }, { name: 'asc' }],
+      include: {
+        companies: {
+          select: { id: true, tenantId: true },
+        },
+        locations: {
+          select: {
+            company: {
+              select: { id: true, tenantId: true },
+            },
+          },
+        },
+      },
     });
 
-    return states.map((s) => ({
-      id: s.id,
-      countryId: s.countryId,
-      name: s.name,
-      code: s.code,
-      createdAt: s.createdAt.toISOString(),
-      updatedAt: s.updatedAt.toISOString(),
-    }));
+    return states.map((s) => {
+      const companyIds = new Set<string>();
+      const tenantIds = new Set<string>();
+
+      for (const comp of s.companies) {
+        companyIds.add(comp.id);
+        tenantIds.add(comp.tenantId);
+      }
+      for (const loc of s.locations) {
+        if (loc.company) {
+          companyIds.add(loc.company.id);
+          tenantIds.add(loc.company.tenantId);
+        }
+      }
+
+      return {
+        id: s.id,
+        countryId: s.countryId,
+        name: s.name,
+        code: s.code,
+        status: s.status,
+        companiesCount: companyIds.size,
+        tenantsCount: tenantIds.size,
+        createdAt: s.createdAt.toISOString(),
+        updatedAt: s.updatedAt.toISOString(),
+      };
+    });
   }
 
   async createState(
@@ -474,6 +502,7 @@ export class CountriesService {
           countryId,
           name,
           code,
+          status: dto.status ?? 'active',
         },
       });
 
@@ -482,6 +511,9 @@ export class CountriesService {
         countryId: created.countryId,
         name: created.name,
         code: created.code,
+        status: created.status,
+        companiesCount: 0,
+        tenantsCount: 0,
         createdAt: created.createdAt.toISOString(),
         updatedAt: created.updatedAt.toISOString(),
       };
@@ -497,6 +529,155 @@ export class CountriesService {
       }
       throw error;
     }
+  }
+
+  async updateState(
+    countryId: string,
+    stateId: string,
+    dto: UpdateStateProvinceDto,
+  ): Promise<StateProvinceView> {
+    await this.assertCountryExists(countryId);
+    const existing = await this.prisma.unscoped.stateProvince.findFirst({
+      where: { id: stateId, countryId },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'State/province not found',
+      });
+    }
+
+    const code = dto.code != null ? dto.code.trim().toUpperCase() : undefined;
+    const name = dto.name != null ? dto.name.trim() : undefined;
+
+    try {
+      const updated = await this.prisma.unscoped.stateProvince.update({
+        where: { id: stateId },
+        data: {
+          ...(name != null ? { name } : {}),
+          ...(code != null ? { code } : {}),
+          ...(dto.status != null ? { status: dto.status } : {}),
+        },
+        include: {
+          companies: { select: { id: true, tenantId: true } },
+          locations: { select: { company: { select: { id: true, tenantId: true } } } },
+        },
+      });
+
+      const companyIds = new Set<string>();
+      const tenantIds = new Set<string>();
+      for (const comp of updated.companies) {
+        companyIds.add(comp.id);
+        tenantIds.add(comp.tenantId);
+      }
+      for (const loc of updated.locations) {
+        if (loc.company) {
+          companyIds.add(loc.company.id);
+          tenantIds.add(loc.company.tenantId);
+        }
+      }
+
+      return {
+        id: updated.id,
+        countryId: updated.countryId,
+        name: updated.name,
+        code: updated.code,
+        status: updated.status,
+        companiesCount: companyIds.size,
+        tenantsCount: tenantIds.size,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `State/province with code ${code} already exists for this country`,
+        });
+      }
+      throw error;
+    }
+  }
+
+  async bulkImportStates(
+    countryId: string,
+    dto: BulkImportStatesDto,
+  ): Promise<BulkImportStatesResult> {
+    await this.assertCountryExists(countryId);
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    const errors: { line?: number; code?: string; message: string }[] = [];
+
+    for (let i = 0; i < dto.states.length; i++) {
+      const item = dto.states[i];
+      const code = item.code?.trim().toUpperCase();
+      const name = item.name?.trim();
+      const status: StateProvinceStatus = item.status === 'retired' ? 'retired' : 'active';
+
+      if (!code || !name) {
+        errors.push({
+          line: i + 1,
+          code: code || 'UNKNOWN',
+          message: 'Both state name and code are required',
+        });
+        continue;
+      }
+
+      if (code.length > 16) {
+        errors.push({
+          line: i + 1,
+          code,
+          message: `Code "${code}" exceeds maximum length of 16 characters`,
+        });
+        continue;
+      }
+
+      try {
+        const existing = await this.prisma.unscoped.stateProvince.findFirst({
+          where: { countryId, code },
+        });
+
+        if (existing) {
+          await this.prisma.unscoped.stateProvince.update({
+            where: { id: existing.id },
+            data: {
+              name,
+              status,
+            },
+          });
+          updatedCount++;
+        } else {
+          await this.prisma.unscoped.stateProvince.create({
+            data: {
+              countryId,
+              name,
+              code,
+              status,
+            },
+          });
+          createdCount++;
+        }
+      } catch (err: any) {
+        errors.push({
+          line: i + 1,
+          code,
+          message: err?.message || 'Database error processing state',
+        });
+      }
+    }
+
+    const states = await this.listStates(countryId);
+
+    return {
+      createdCount,
+      updatedCount,
+      errors,
+      states,
+    };
   }
 
   async deleteState(countryId: string, stateId: string): Promise<void> {

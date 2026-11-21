@@ -18,6 +18,7 @@ describe('CountriesService', () => {
         findMany: jest.Mock;
         findFirst: jest.Mock;
         create: jest.Mock;
+        update: jest.Mock;
         delete: jest.Mock;
       };
       taxBracket: {
@@ -48,6 +49,7 @@ describe('CountriesService', () => {
           findMany: jest.fn(),
           findFirst: jest.fn(),
           create: jest.fn(),
+          update: jest.fn(),
           delete: jest.fn(),
         },
         taxBracket: {
@@ -281,6 +283,126 @@ describe('CountriesService', () => {
       await expect(
         service.createState('c1', { name: 'New South Wales', code: 'NSW' }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('lists states with calculated company and tenant counts', async () => {
+      prisma.unscoped.country.findUnique.mockResolvedValue({ id: 'c1' });
+      prisma.unscoped.stateProvince.findMany.mockResolvedValue([
+        {
+          id: 'sp-nsw',
+          countryId: 'c1',
+          name: 'New South Wales',
+          code: 'NSW',
+          status: 'active',
+          createdAt: new Date('2024-01-01'),
+          updatedAt: new Date('2024-01-01'),
+          companies: [{ id: 'comp-1', tenantId: 'tenant-alpha' }],
+          locations: [
+            { company: { id: 'comp-1', tenantId: 'tenant-alpha' } },
+            { company: { id: 'comp-2', tenantId: 'tenant-beta' } },
+          ],
+        },
+      ]);
+
+      const list = await service.listStates('c1');
+      expect(list).toHaveLength(1);
+      expect(list[0].code).toBe('NSW');
+      expect(list[0].companiesCount).toBe(2);
+      expect(list[0].tenantsCount).toBe(2);
+      expect(list[0].status).toBe('active');
+    });
+
+    it('updates state and returns updated view', async () => {
+      prisma.unscoped.country.findUnique.mockResolvedValue({ id: 'c1' });
+      prisma.unscoped.stateProvince.findFirst.mockResolvedValue({
+        id: 'sp-1',
+        countryId: 'c1',
+        name: 'New South Wales',
+        code: 'NSW',
+        status: 'active',
+      });
+      prisma.unscoped.stateProvince.update.mockResolvedValue({
+        id: 'sp-1',
+        countryId: 'c1',
+        name: 'NSW (Updated)',
+        code: 'NSW',
+        status: 'retired',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        companies: [],
+        locations: [],
+      });
+
+      const updated = await service.updateState('c1', 'sp-1', {
+        name: 'NSW (Updated)',
+        status: 'retired',
+      });
+
+      expect(updated.name).toBe('NSW (Updated)');
+      expect(updated.status).toBe('retired');
+      expect(prisma.unscoped.stateProvince.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sp-1' },
+          data: { name: 'NSW (Updated)', status: 'retired' },
+        }),
+      );
+    });
+
+    it('throws NotFoundException when updating non-existent state', async () => {
+      prisma.unscoped.country.findUnique.mockResolvedValue({ id: 'c1' });
+      prisma.unscoped.stateProvince.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateState('c1', 'missing-id', { name: 'Foo' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('bulk imports states by upserting and collecting line errors', async () => {
+      prisma.unscoped.country.findUnique.mockResolvedValue({ id: 'c1' });
+      // First state already exists
+      prisma.unscoped.stateProvince.findFirst
+        .mockResolvedValueOnce({ id: 'sp-nsw', code: 'NSW' })
+        .mockResolvedValueOnce(null); // Second state does not exist
+      prisma.unscoped.stateProvince.update.mockResolvedValue({});
+      prisma.unscoped.stateProvince.create.mockResolvedValue({});
+      prisma.unscoped.stateProvince.findMany.mockResolvedValue([
+        {
+          id: 'sp-nsw',
+          countryId: 'c1',
+          name: 'New South Wales',
+          code: 'NSW',
+          status: 'active',
+          createdAt: new Date('2024-01-01'),
+          updatedAt: new Date('2024-01-01'),
+          companies: [],
+          locations: [],
+        },
+        {
+          id: 'sp-vic',
+          countryId: 'c1',
+          name: 'Victoria',
+          code: 'VIC',
+          status: 'active',
+          createdAt: new Date('2024-01-01'),
+          updatedAt: new Date('2024-01-01'),
+          companies: [],
+          locations: [],
+        },
+      ]);
+
+      const result = await service.bulkImportStates('c1', {
+        states: [
+          { name: 'New South Wales', code: 'nsw' },
+          { name: 'Victoria', code: 'VIC' },
+          { name: '', code: 'ERR' }, // Missing name -> error
+        ],
+      });
+
+      expect(result.updatedCount).toBe(1);
+      expect(result.createdCount).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].line).toBe(3);
+      expect(result.states).toHaveLength(2);
     });
 
     it('deletes state by id', async () => {

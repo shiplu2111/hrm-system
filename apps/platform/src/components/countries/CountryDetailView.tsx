@@ -16,8 +16,10 @@ import {
   Copy,
   CreditCard,
   DollarSign,
+  Edit3,
   ExternalLink,
   FileCheck2,
+  FileSpreadsheet,
   FileText,
   Globe2,
   HelpCircle,
@@ -38,10 +40,14 @@ import {
   Sparkles,
   Timer,
   Trash2,
+  Upload,
   UserMinus,
+  Users,
   Zap,
 } from 'lucide-react';
 import type {
+  BulkImportStateItem,
+  BulkImportStatesResult,
   CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleKind,
@@ -49,8 +55,10 @@ import type {
   CountryStatus,
   CountrySummary,
   PublicHolidayEntry,
+  StateProvinceStatus,
   StateProvinceView,
   TaxBracketRecord,
+  UpdateStateProvinceInput,
 } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
@@ -234,10 +242,53 @@ interface CountryDetailViewProps {
     effectiveFrom: string,
     effectiveTo?: string | null,
   ) => Promise<void>;
-  onAddState?: (name: string, code: string) => Promise<void>;
+  onAddState?: (name: string, code: string, status?: StateProvinceStatus) => Promise<void>;
+  onUpdateState?: (stateId: string, input: UpdateStateProvinceInput) => Promise<void>;
+  onBulkImportStates?: (items: BulkImportStateItem[]) => Promise<BulkImportStatesResult>;
   onDeleteState?: (stateId: string) => Promise<void>;
   states?: StateProvinceView[];
   statesLoading?: boolean;
+}
+
+export function parseStateCsv(csv: string): { items: BulkImportStateItem[]; parseErrors: string[] } {
+  const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const items: BulkImportStateItem[] = [];
+  const parseErrors: string[] = [];
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (idx === 0) {
+      const lower = line.toLowerCase();
+      if (lower.includes('name') && lower.includes('code')) {
+        continue; // skip header
+      }
+    }
+
+    const parts = line.split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
+    if (parts.length < 2) {
+      parseErrors.push(`Line ${idx + 1}: Must contain at least name and code separated by comma.`);
+      continue;
+    }
+
+    const name = parts[0].trim();
+    const code = parts[1].trim().toUpperCase();
+    const rawStatus = (parts[2] || '').trim().toLowerCase();
+    const status: StateProvinceStatus = rawStatus === 'retired' ? 'retired' : 'active';
+
+    if (!name || !code) {
+      parseErrors.push(`Line ${idx + 1}: Both state name and code are required.`);
+      continue;
+    }
+
+    if (code.length > 16) {
+      parseErrors.push(`Line ${idx + 1}: Code "${code}" exceeds maximum length of 16 characters.`);
+      continue;
+    }
+
+    items.push({ name, code, status });
+  }
+
+  return { items, parseErrors };
 }
 
 export function CountryDetailView({
@@ -250,6 +301,8 @@ export function CountryDetailView({
   onSaveTaxBracket,
   onSaveRule,
   onAddState,
+  onUpdateState,
+  onBulkImportStates,
   onDeleteState,
   states = [],
   statesLoading = false,
@@ -281,11 +334,26 @@ export function CountryDetailView({
     previewAmount: 5250.75,
   });
 
-  // State/Province modal
+  // Add State/Province modal
   const [isAddStateOpen, setIsAddStateOpen] = useState(false);
   const [newStateName, setNewStateName] = useState('');
   const [newStateCode, setNewStateCode] = useState('');
+  const [newStateStatus, setNewStateStatus] = useState<StateProvinceStatus>('active');
   const [stateSubmitting, setStateSubmitting] = useState(false);
+
+  // Edit State/Province modal
+  const [isEditStateOpen, setIsEditStateOpen] = useState(false);
+  const [editingStateId, setEditingStateId] = useState<string | null>(null);
+  const [editStateName, setEditStateName] = useState('');
+  const [editStateCode, setEditStateCode] = useState('');
+  const [editStateStatus, setEditStateStatus] = useState<StateProvinceStatus>('active');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Bulk Import modal
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [bulkCsvText, setBulkCsvText] = useState('');
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkImportStatesResult | null>(null);
 
   // Status change block modal
   const [activationBlockedOpen, setActivationBlockedOpen] = useState(false);
@@ -477,16 +545,95 @@ export function CountryDetailView({
     if (!newStateName.trim() || !newStateCode.trim() || !onAddState) return;
     try {
       setStateSubmitting(true);
-      await onAddState(newStateName.trim(), newStateCode.trim().toUpperCase());
+      await onAddState(newStateName.trim(), newStateCode.trim().toUpperCase(), newStateStatus);
       setIsAddStateOpen(false);
       setNewStateName('');
       setNewStateCode('');
+      setNewStateStatus('active');
       triggerSuccessBanner();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to add state/province.');
     } finally {
       setStateSubmitting(false);
     }
+  };
+
+  // State quick toggle active/retired
+  const handleToggleStateStatus = async (st: StateProvinceView) => {
+    if (!onUpdateState) return;
+    const nextStatus: StateProvinceStatus = st.status === 'active' ? 'retired' : 'active';
+    try {
+      await onUpdateState(st.id, { status: nextStatus });
+      triggerSuccessBanner();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to update state status.');
+    }
+  };
+
+  // Open edit state modal
+  const handleOpenEditState = (st: StateProvinceView) => {
+    setEditingStateId(st.id);
+    setEditStateName(st.name);
+    setEditStateCode(st.code);
+    setEditStateStatus(st.status);
+    setIsEditStateOpen(true);
+  };
+
+  // Submit edit state
+  const handleEditStateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStateId || !editStateName.trim() || !editStateCode.trim() || !onUpdateState) return;
+    try {
+      setEditSubmitting(true);
+      await onUpdateState(editingStateId, {
+        name: editStateName.trim(),
+        code: editStateCode.trim().toUpperCase(),
+        status: editStateStatus,
+      });
+      setIsEditStateOpen(false);
+      setEditingStateId(null);
+      triggerSuccessBanner();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to update state/province.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // Live CSV parsing for bulk import
+  const parsedBulkRows = useMemo(() => {
+    if (!bulkCsvText.trim()) return { items: [], parseErrors: [] };
+    return parseStateCsv(bulkCsvText);
+  }, [bulkCsvText]);
+
+  // Submit bulk import
+  const handleBulkImportSubmit = async () => {
+    if (!parsedBulkRows.items.length || !onBulkImportStates) return;
+    try {
+      setBulkImporting(true);
+      const res = await onBulkImportStates(parsedBulkRows.items);
+      setBulkResult(res);
+      triggerSuccessBanner();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Bulk import failed.');
+    } finally {
+      setBulkImporting(false);
+    }
+  };
+
+  // Handle CSV file selection
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setBulkCsvText(content);
+        setBulkResult(null);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const flag = ISO_FLAGS[country.isoCode] || '🌐';
@@ -816,24 +963,38 @@ export function CountryDetailView({
 
           {/* States & Provinces Management Card */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                   States, Provinces & Territories ({states.length})
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Jurisdiction subdivisions for state-specific payroll tax rules, public holidays, and workers comp.
+                  Jurisdiction subdivisions for state-specific payroll tax rules, public holidays, and regional compliance.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsAddStateOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-xs font-bold transition"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add State / Province
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkCsvText('');
+                    setBulkResult(null);
+                    setIsBulkImportOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-xs font-bold transition shadow-sm"
+                >
+                  <Upload className="h-3.5 w-3.5 text-indigo-500" />
+                  Bulk-Import CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddStateOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add State / Province
+                </button>
+              </div>
             </div>
 
             {statesLoading ? (
@@ -842,37 +1003,120 @@ export function CountryDetailView({
                 Loading states...
               </div>
             ) : states.length === 0 ? (
-              <div className="py-8 text-center text-slate-400">
-                <p className="text-xs">No states or provinces configured for {country.name}.</p>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Add state subdivisions if tax brackets or employment standards differ by region (e.g. US States, Australian States).
+              <div className="py-10 text-center text-slate-400">
+                <p className="text-xs font-semibold">No states or provinces configured for {country.name}.</p>
+                <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto">
+                  Add state subdivisions or bulk import from CSV if payroll tax brackets, leave, or public holidays differ by region (e.g. US States, Australian States, Canadian Provinces).
                 </p>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkCsvText('');
+                      setBulkResult(null);
+                      setIsBulkImportOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50"
+                  >
+                    <Upload className="h-3.5 w-3.5 text-indigo-500" />
+                    Bulk Import CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddStateOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 text-xs font-bold text-white hover:bg-indigo-500"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add First State
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {states.map((st) => (
                   <div
                     key={st.id}
-                    className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40"
+                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700 transition flex flex-col justify-between gap-3 shadow-xs"
                   >
                     <div>
-                      <span className="font-bold text-xs text-slate-900 dark:text-white block">
-                        {st.name}
-                      </span>
-                      <span className="font-mono text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
-                        {st.code}
-                      </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white">
+                            {st.name}
+                          </span>
+                          <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                            {st.code}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                            st.status === 'active'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                              : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600'
+                          }`}
+                        >
+                          {st.status}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-500">
+                        <span
+                          className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300"
+                          title="Companies sitting in this state"
+                        >
+                          <Building2 className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                          {st.companiesCount} compan{st.companiesCount === 1 ? 'y' : 'ies'}
+                        </span>
+                        <span>•</span>
+                        <span
+                          className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300"
+                          title="Tenants sitting in this state"
+                        >
+                          <Users className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                          {st.tenantsCount} tenant{st.tenantsCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
                     </div>
-                    {onDeleteState && (
+
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
                       <button
                         type="button"
-                        onClick={() => onDeleteState(st.id)}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition"
-                        title="Delete state"
+                        onClick={() => handleToggleStateStatus(st)}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded-lg transition ${
+                          st.status === 'active'
+                            ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40'
+                            : 'text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
+                        }`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {st.status === 'active' ? 'Retire State' : 'Re-activate'}
                       </button>
-                    )}
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditState(st)}
+                          className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition"
+                          title="Edit state"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+
+                        {onDeleteState && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete ${st.name} (${st.code})?`)) {
+                                void onDeleteState(st.id);
+                              }
+                            }}
+                            className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition"
+                            title="Delete state"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1089,8 +1333,23 @@ export function CountryDetailView({
               value={newStateCode}
               onChange={(e) => setNewStateCode(e.target.value.toUpperCase())}
               required
+              maxLength={16}
               className="mt-1 h-9 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 text-sm uppercase font-mono focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+              Initial Status
+            </label>
+            <select
+              value={newStateStatus}
+              onChange={(e) => setNewStateStatus(e.target.value as StateProvinceStatus)}
+              className="mt-1 h-9 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm focus:outline-none font-semibold"
+            >
+              <option value="active">Active (Available immediately)</option>
+              <option value="retired">Retired (Draft / Disabled)</option>
+            </select>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1111,6 +1370,207 @@ export function CountryDetailView({
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit State / Province Modal */}
+      <Modal
+        open={isEditStateOpen}
+        onClose={() => setIsEditStateOpen(false)}
+        title={`Edit State / Province: ${editStateCode}`}
+      >
+        <form onSubmit={handleEditStateSubmit} className="space-y-4">
+          <p className="text-xs text-slate-500">
+            Update name, subdivision code, or active status for this state/province.
+          </p>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+              State / Province Full Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={editStateName}
+              onChange={(e) => setEditStateName(e.target.value)}
+              required
+              className="mt-1 h-9 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 text-sm focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+              Subdivision Code <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={editStateCode}
+              onChange={(e) => setEditStateCode(e.target.value.toUpperCase())}
+              required
+              maxLength={16}
+              className="mt-1 h-9 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 text-sm uppercase font-mono focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+              State Status
+            </label>
+            <select
+              value={editStateStatus}
+              onChange={(e) => setEditStateStatus(e.target.value as StateProvinceStatus)}
+              className="mt-1 h-9 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm focus:outline-none font-semibold"
+            >
+              <option value="active">Active (Available for companies & branches)</option>
+              <option value="retired">Retired (Archived from new assignments)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsEditStateOpen(false)}
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={editSubmitting}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
+            >
+              {editSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bulk Import States Modal */}
+      <Modal
+        open={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        title={`Bulk-Import States & Provinces for ${country.name}`}
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          <p className="text-xs text-slate-500">
+            Import multiple states or provinces at once. You can either paste comma-separated lines below or upload a .csv file.
+          </p>
+
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs">
+            <span className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+              CSV Format Specification:
+            </span>
+            <code className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px] block">
+              name,code[,status]
+            </code>
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              Example: <code className="font-mono">Queensland,QLD,active</code> or <code className="font-mono">Tasmania,TAS</code>
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Upload CSV File
+              </label>
+              <label className="cursor-pointer text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Select File (.csv)
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <textarea
+              rows={6}
+              placeholder={`Queensland,QLD,active\nVictoria,VIC,active\nWestern Australia,WA,active\nSouth Australia,SA,active`}
+              value={bulkCsvText}
+              onChange={(e) => {
+                setBulkCsvText(e.target.value);
+                setBulkResult(null);
+              }}
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent p-3 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          {/* Parse Feedback & Preview Table */}
+          {parsedBulkRows.parseErrors.length > 0 && (
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-xs text-red-600 dark:text-red-300 space-y-1">
+              <span className="font-bold block">CSV Parsing Errors:</span>
+              {parsedBulkRows.parseErrors.map((err, i) => (
+                <div key={i}>• {err}</div>
+              ))}
+            </div>
+          )}
+
+          {parsedBulkRows.items.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <span>Preview Valid Rows ({parsedBulkRows.items.length} states detected):</span>
+                <span className="text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> Ready to Import
+                </span>
+              </div>
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 text-xs divide-y divide-slate-100 dark:divide-slate-800">
+                {parsedBulkRows.items.map((row, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-slate-400 text-[10px]">#{idx + 1}</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{row.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                        {row.code}
+                      </span>
+                      <span className="text-[10px] uppercase font-semibold text-slate-400">
+                        {row.status || 'active'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bulk Import Result Banner */}
+          {bulkResult && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 space-y-1">
+              <span className="font-bold flex items-center gap-1">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                Import Complete: {bulkResult.createdCount} created, {bulkResult.updatedCount} updated.
+              </span>
+              {bulkResult.errors?.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-emerald-200 dark:border-emerald-800/80 text-amber-700 dark:text-amber-300">
+                  <span className="font-bold block">Row warnings / errors:</span>
+                  {bulkResult.errors.map((e, idx) => (
+                    <div key={idx}>Line {e.line || idx + 1} ({e.code || 'ROW'}): {e.message}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsBulkImportOpen(false)}
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {bulkResult ? 'Close' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkImportSubmit}
+              disabled={bulkImporting || parsedBulkRows.items.length === 0}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60 shadow-sm"
+            >
+              {bulkImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Import {parsedBulkRows.items.length} State{parsedBulkRows.items.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Activation Blocked Modal */}

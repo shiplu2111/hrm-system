@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsDateString,
   IsIn,
   IsInt,
@@ -10,11 +11,14 @@ import {
   Matches,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type {
   CountryRuleKind,
   CountryStatus,
   RuleVersionStatus,
+  StateProvinceStatus,
 } from '@hrm/shared-types';
 
 export class CreateCountryDto {
@@ -111,6 +115,10 @@ export class CreateStateProvinceDto {
   @IsString()
   @Length(1, 16)
   code!: string;
+
+  @IsOptional()
+  @IsIn(['active', 'retired'])
+  status?: StateProvinceStatus;
 }
 
 export class UpdateStateProvinceDto {
@@ -123,6 +131,31 @@ export class UpdateStateProvinceDto {
   @IsString()
   @Length(1, 16)
   code?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'retired'])
+  status?: StateProvinceStatus;
+}
+
+export class BulkImportStateItemDto {
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @Length(1, 16)
+  code!: string;
+
+  @IsOptional()
+  @IsIn(['active', 'retired'])
+  status?: StateProvinceStatus;
+}
+
+export class BulkImportStatesDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkImportStateItemDto)
+  states!: BulkImportStateItemDto[];
 }
 
 export class UpsertTaxBracketDto {

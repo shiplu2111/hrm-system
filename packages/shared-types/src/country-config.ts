@@ -2,6 +2,8 @@
 
 export type CountryStatus = 'draft' | 'active' | 'retired';
 
+export type StateProvinceStatus = 'active' | 'retired';
+
 export type RuleVersionStatus = 'draft' | 'published' | 'archived';
 
 export type CountryRuleKind =
@@ -18,6 +20,9 @@ export interface StateProvinceView {
   countryId: string;
   name: string;
   code: string;
+  status: StateProvinceStatus;
+  companiesCount: number;
+  tenantsCount: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -25,6 +30,30 @@ export interface StateProvinceView {
 export interface CreateStateProvinceInput {
   name: string;
   code: string;
+  status?: StateProvinceStatus;
+}
+
+export interface UpdateStateProvinceInput {
+  name?: string;
+  code?: string;
+  status?: StateProvinceStatus;
+}
+
+export interface BulkImportStateItem {
+  name: string;
+  code: string;
+  status?: StateProvinceStatus;
+}
+
+export interface BulkImportStatesInput {
+  states: BulkImportStateItem[];
+}
+
+export interface BulkImportStatesResult {
+  createdCount: number;
+  updatedCount: number;
+  errors: { line?: number; code?: string; message: string }[];
+  states: StateProvinceView[];
 }
 
 export interface CountryConfigCategoryStatus {

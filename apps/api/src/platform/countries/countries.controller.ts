@@ -16,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
+  BulkImportStatesResult,
   CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleRecord,
@@ -29,10 +30,12 @@ import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import { CountriesService } from './countries.service';
 import {
+  BulkImportStatesDto,
   CreateCountryDto,
   CreateStateProvinceDto,
   UpdateCountryDto,
   UpdateCountryRuleDto,
+  UpdateStateProvinceDto,
   UpsertCountryRuleDto,
   UpsertTaxBracketDto,
 } from './dto/country-config.dto';
@@ -115,6 +118,31 @@ export class CountriesController {
     @Body() dto: CreateStateProvinceDto,
   ): Promise<ApiEnvelope<StateProvinceView>> {
     return { data: await this.countriesService.createState(countryId, dto) };
+  }
+
+  @Patch(':countryId/states/:stateId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Update or retire a state/province' })
+  async updateState(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('stateId', ParseUUIDPipe) stateId: string,
+    @Body() dto: UpdateStateProvinceDto,
+  ): Promise<ApiEnvelope<StateProvinceView>> {
+    return {
+      data: await this.countriesService.updateState(countryId, stateId, dto),
+    };
+  }
+
+  @Post(':countryId/states/bulk-import')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Bulk import states/provinces from CSV data' })
+  async bulkImportStates(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Body() dto: BulkImportStatesDto,
+  ): Promise<ApiEnvelope<BulkImportStatesResult>> {
+    return {
+      data: await this.countriesService.bulkImportStates(countryId, dto),
+    };
   }
 
   @Delete(':countryId/states/:stateId')
