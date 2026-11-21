@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Users,
 } from 'lucide-react';
 import type { PlatformPlanDetailView } from '@hrm/shared-types';
 import { usePlatformTenant } from '@/context/PlatformTenantContext';
@@ -25,6 +26,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { listPlatformPlans } from '@/lib/plans-api';
 import { PlanEditorModal } from '@/components/plans/PlanEditorModal';
 import { FeatureMatrixGrid } from '@/components/plans/FeatureMatrixGrid';
+import { SubscriptionsList } from '@/components/subscriptions/SubscriptionsList';
 
 type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue' | 'Failed';
 
@@ -67,6 +69,9 @@ export function PlatformBillingPage() {
   const { selectedTenant, setSelectedTenant } = usePlatformTenant();
   const canEditBilling = usePermission('billing', 'edit');
   const canCreateBilling = usePermission('billing', 'create');
+
+  // Active Tab state
+  const [activeTab, setActiveTab] = useState<'subscriptions' | 'plans' | 'matrix' | 'invoices'>('subscriptions');
 
   // Live Plans state
   const [plans, setPlans] = useState<PlatformPlanDetailView[]>([]);
@@ -219,8 +224,68 @@ export function PlatformBillingPage() {
         </div>
       )}
 
-      {/* Section 1: Plans List & Cards */}
-      <section className="space-y-4">
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-px">
+        <button
+          type="button"
+          onClick={() => setActiveTab('subscriptions')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition -mb-px ${
+            activeTab === 'subscriptions'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <Users className="h-4 w-4" /> Tenant Subscriptions Directory
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('plans')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition -mb-px ${
+            activeTab === 'plans'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <Layers className="h-4 w-4" /> Commercial Plans Catalog
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('matrix')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition -mb-px ${
+            activeTab === 'matrix'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <Sparkles className="h-4 w-4" /> Feature Matrix Grid
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('invoices')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition -mb-px ${
+            activeTab === 'invoices'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <CreditCard className="h-4 w-4" /> Invoices & Dunning
+        </button>
+      </div>
+
+      {/* Tab 1: Subscriptions Directory */}
+      {activeTab === 'subscriptions' && (
+        <SubscriptionsList
+          plans={plans}
+          selectedTenantId={selectedTenant?.id}
+        />
+      )}
+
+      {/* Tab 2: Commercial Plans Catalog */}
+      {activeTab === 'plans' && (
+        <section className="space-y-4">
         <div className="flex items-center justify-between">
           <SectionTitle
             title="Subscription Plans Catalog"
@@ -379,18 +444,23 @@ export function PlatformBillingPage() {
             })}
           </div>
         )}
-      </section>
+        </section>
+      )}
 
-      {/* Section 2: Interactive Feature Matrix Grid */}
-      <section>
-        <FeatureMatrixGrid
-          plans={plans}
-          onPlanUpdated={loadPlans}
-          canEdit={canEditBilling}
-        />
-      </section>
+      {/* Tab 3: Interactive Feature Matrix Grid */}
+      {activeTab === 'matrix' && (
+        <section>
+          <FeatureMatrixGrid
+            plans={plans}
+            onPlanUpdated={loadPlans}
+            canEdit={canEditBilling}
+          />
+        </section>
+      )}
 
-      {/* Section 3: Payment Recovery Banner (if any pending) */}
+      {/* Tab 4: Invoices & Payment Recovery */}
+      {activeTab === 'invoices' && (
+        <div className="space-y-6">
       {!failureResolved ? (
         <section className="overflow-hidden rounded-2xl border border-red-200 bg-red-50 shadow-sm dark:border-red-900 dark:bg-red-950/30">
           <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -508,6 +578,8 @@ export function PlatformBillingPage() {
           </table>
         </div>
       </section>
+        </div>
+      )}
 
       {/* Plan Editor & Creator Modal */}
       <PlanEditorModal

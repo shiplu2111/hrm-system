@@ -5,6 +5,7 @@ import { CountriesModule } from './countries/countries.module';
 import { PlatformDashboardModule } from './dashboard/platform-dashboard.module';
 import { PlatformPlansModule } from './plans/platform-plans.module';
 import { PlatformStaffModule } from './staff/platform-staff.module';
+import { PlatformSubscriptionsModule } from './subscriptions/platform-subscriptions.module';
 import { PlatformSupportAccessModule } from './support-access/platform-support-access.module';
 import { PlatformTenantsModule } from './tenants/platform-tenants.module';
 
@@ -16,6 +17,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformDashboardModule,
     PlatformPlansModule,
     PlatformStaffModule,
+    PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
     PlatformTenantsModule,
   ],
@@ -26,6 +28,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformDashboardModule,
     PlatformPlansModule,
     PlatformStaffModule,
+    PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
     PlatformTenantsModule,
   ],

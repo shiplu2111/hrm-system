@@ -3,6 +3,8 @@ module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: 'src',
   testRegex: '.*\\.spec\\.ts$',
+  maxWorkers: 2,
+  workerIdleMemoryLimit: '512MB',
   transform: {
     '^.+\\.(t|j)s$': 'ts-jest',
   },
