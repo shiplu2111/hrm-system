@@ -600,6 +600,32 @@ export interface PlatformFeatureFlagView {
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
+  overrideCount?: number;
+}
+
+export interface FlagTenantOverrideDetailView {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSubdomain: string;
+  featureKey: string;
+  enabled: boolean;
+  reason?: string | null;
+  expiresAt?: string | null;
+  isExpired: boolean;
+  createdAt: string;
+  createdBy?: string | null;
+  planCode?: string;
+  planName?: string;
+  planDefault: boolean;
+  effectiveEnabled: boolean;
+  effectiveSource: FeatureEvaluationSource;
+  explanation: string;
+}
+
+export interface PlatformFeatureFlagDetailView extends PlatformFeatureFlagView {
+  overrideCount: number;
+  overrides: FlagTenantOverrideDetailView[];
 }
 
 export interface CreatePlatformFeatureFlagRequest {

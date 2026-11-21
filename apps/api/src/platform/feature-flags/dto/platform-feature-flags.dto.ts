@@ -76,10 +76,10 @@ export class SetTenantFeatureOverrideDto implements SetTenantFeatureOverrideRequ
   @IsBoolean()
   value!: boolean;
 
-  @ApiPropertyOptional({ description: 'Justification for granting or restricting this override', example: 'VIP Beta customer' })
-  @IsOptional()
+  @ApiProperty({ description: 'Justification for granting or restricting this override (required for audit)', example: 'VIP Beta customer' })
   @IsString()
-  reason?: string;
+  @IsNotEmpty()
+  reason!: string;
 
   @ApiPropertyOptional({ description: 'Optional ISO timestamp when this override expires', example: '2026-12-31T23:59:59.000Z' })
   @IsOptional()

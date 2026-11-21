@@ -14,6 +14,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type {
   ApiResponse as ApiEnvelope,
   FeatureEvaluationResult,
+  FlagTenantOverrideDetailView,
+  PlatformFeatureFlagDetailView,
   PlatformFeatureFlagView,
   TenantFeatureOverrideView,
 } from '@hrm/shared-types';
@@ -66,6 +68,26 @@ export class PlatformFeatureFlagsController {
   ): Promise<ApiEnvelope<PlatformFeatureFlagView>> {
     const flag = await this.service.getFlag(key);
     return { data: flag };
+  }
+
+  @Get(':key/overrides')
+  @RequirePlatformPermission('platform', 'view')
+  @ApiOperation({ summary: 'List all tenant overrides for a feature flag with plan comparison' })
+  async getFlagOverrides(
+    @Param('key') key: string,
+  ): Promise<ApiEnvelope<FlagTenantOverrideDetailView[]>> {
+    const overrides = await this.service.getFlagOverrides(key);
+    return { data: overrides };
+  }
+
+  @Get(':key/detail')
+  @RequirePlatformPermission('platform', 'view')
+  @ApiOperation({ summary: 'Get feature flag detail including all overrides and counts' })
+  async getFlagDetail(
+    @Param('key') key: string,
+  ): Promise<ApiEnvelope<PlatformFeatureFlagDetailView>> {
+    const detail = await this.service.getFlagDetail(key);
+    return { data: detail };
   }
 
   @Patch(':key')

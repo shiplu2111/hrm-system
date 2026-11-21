@@ -6,12 +6,15 @@ import {
 } from '@nestjs/common';
 import type {
   FeatureEvaluationResult,
+  FlagTenantOverrideDetailView,
+  PlatformFeatureFlagDetailView,
   PlatformFeatureFlagView,
   TenantFeatureOverrideView,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import { FeatureGateService } from '../../billing/feature-gate.service';
+import { tenantHasFeature } from '../../billing/plan-features.constants';
 import {
   CreatePlatformFeatureFlagDto,
   SetTenantFeatureOverrideDto,
@@ -29,31 +32,173 @@ export class PlatformFeatureFlagsService {
   ) {}
 
   /**
-   * List all platform feature flags.
+   * Seed default catalog flags if none exist in the database.
+   */
+  private async ensureDefaultFlags(): Promise<void> {
+    try {
+      const count = await (this.prisma.unscoped as any).platformFeatureFlag.count();
+      if (count > 0) return;
+
+      const defaults = [
+        { key: 'api_access', description: 'Public REST API & Webhook Dispatch Access', defaultState: false, rolloutPercentage: 100 },
+        { key: 'sso', description: 'SAML 2.0 / OIDC Single Sign-On Authentication', defaultState: false, rolloutPercentage: 100 },
+        { key: 'custom_payroll_rules', description: 'Custom Statutory & Country Rule Engine', defaultState: false, rolloutPercentage: 100 },
+        { key: 'advanced_workflow', description: 'Multi-tier Approval Routing & Conditional Steps', defaultState: false, rolloutPercentage: 100 },
+        { key: 'ai_insights', description: 'AI Workforce Insights & Anomaly Detection', defaultState: false, rolloutPercentage: 35 },
+        { key: 'payroll_v2', description: 'Deterministic Payroll Engine v2 Calculation Pipeline', defaultState: true, rolloutPercentage: 100 },
+        { key: 'mobile_clock', description: 'Offline-First Mobile Attendance & Geo-Fencing', defaultState: true, rolloutPercentage: 70 },
+        { key: 'custom_reports', description: 'Custom Visual Drag-and-Drop Report Builder', defaultState: false, rolloutPercentage: 50 },
+        { key: 'multi_currency', description: 'Multi-Currency Payroll & International Direct Deposit', defaultState: false, rolloutPercentage: 20 },
+      ];
+
+      for (const d of defaults) {
+        await (this.prisma.unscoped as any).platformFeatureFlag.create({
+          data: d,
+        });
+      }
+      this.logger.log(`Initialized ${defaults.length} default platform feature flags.`);
+    } catch (err) {
+      this.logger.warn(`Could not seed default feature flags: ${err}`);
+    }
+  }
+
+  /**
+   * List all platform feature flags with rollout percentages and override counts.
    */
   async listFlags(): Promise<PlatformFeatureFlagView[]> {
+    await this.ensureDefaultFlags();
+
     const flags = await (this.prisma.unscoped as any).platformFeatureFlag.findMany({
       orderBy: { createdAt: 'desc' },
     });
 
-    return flags.map(this.mapFlagView);
+    // Query override counts
+    let countMap = new Map<string, number>();
+    try {
+      const counts = await (this.prisma.unscoped as any).tenantFeatureOverride.groupBy({
+        by: ['featureKey'],
+        _count: { id: true },
+      });
+      for (const c of counts) {
+        countMap.set(c.featureKey, c._count.id);
+      }
+    } catch {
+      // ignore
+    }
+
+    return flags.map((f: any) => ({
+      ...this.mapFlagView(f),
+      overrideCount: countMap.get(f.key) || 0,
+    }));
   }
 
   /**
-   * Get a single platform feature flag by key or ID.
+   * Get a single platform feature flag by key or ID with override count.
    */
   async getFlag(keyOrId: string): Promise<PlatformFeatureFlagView> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyOrId);
     const flag = await (this.prisma.unscoped as any).platformFeatureFlag.findFirst({
-      where: {
-        OR: [{ key: keyOrId }, { id: keyOrId }],
-      },
+      where: isUuid
+        ? { OR: [{ key: keyOrId }, { id: keyOrId }] }
+        : { key: keyOrId },
     });
 
     if (!flag) {
       throw new NotFoundException(`Feature flag '${keyOrId}' not found.`);
     }
 
-    return this.mapFlagView(flag);
+    const overrideCount = await (this.prisma.unscoped as any).tenantFeatureOverride.count({
+      where: { featureKey: flag.key },
+    }).catch(() => 0);
+
+    return {
+      ...this.mapFlagView(flag),
+      overrideCount,
+    };
+  }
+
+  /**
+   * List all tenant overrides for a specific flag with plan default comparisons.
+   */
+  async getFlagOverrides(key: string): Promise<FlagTenantOverrideDetailView[]> {
+    const overrides = await (this.prisma.unscoped as any).tenantFeatureOverride.findMany({
+      where: { featureKey: key },
+      include: {
+        tenant: {
+          include: {
+            subscriptions: {
+              where: { status: { in: ['active', 'past_due', 'trialing'] } },
+              include: { plan: true },
+              take: 1,
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const now = new Date();
+    return overrides.map((o: any) => {
+      const tenant = o.tenant;
+      const sub = tenant?.subscriptions?.[0];
+      const planCode = sub?.plan?.code ?? tenant?.planId ?? 'starter';
+      const planName = sub?.plan?.name ?? 'Standard Plan';
+
+      const planDefault = tenantHasFeature(
+        planCode as any,
+        key as any,
+      );
+      const isExpired = Boolean(o.expiresAt && new Date(o.expiresAt) <= now);
+      const effectiveEnabled = isExpired ? planDefault : Boolean(o.enabled);
+      const effectiveSource = isExpired ? 'plan_default' : 'tenant_override';
+
+      let explanation = '';
+      if (isExpired) {
+        explanation = `Override expired on ${new Date(o.expiresAt).toLocaleDateString()}. Reverted to plan default (${planDefault ? 'Enabled' : 'Disabled'} by ${planName}).`;
+      } else if (o.enabled) {
+        explanation = planDefault
+          ? `Explicitly granted by override (Plan default is also Enabled by ${planName}).`
+          : `Explicitly granted by override (Overrides plan default: Disabled by ${planName}).`;
+      } else {
+        explanation = planDefault
+          ? `Explicitly restricted by override (Overrides plan default: Enabled by ${planName}).`
+          : `Explicitly restricted by override (Plan default is also Disabled by ${planName}).`;
+      }
+
+      return {
+        id: o.id,
+        tenantId: o.tenantId,
+        tenantName: tenant?.name ?? 'Unknown Tenant',
+        tenantSubdomain: tenant?.subdomain ?? 'unknown',
+        featureKey: o.featureKey,
+        enabled: Boolean(o.enabled),
+        reason: o.reason ?? null,
+        expiresAt: o.expiresAt ? new Date(o.expiresAt).toISOString() : null,
+        isExpired,
+        createdAt: new Date(o.createdAt).toISOString(),
+        createdBy: o.createdBy ?? null,
+        planCode,
+        planName,
+        planDefault,
+        effectiveEnabled,
+        effectiveSource,
+        explanation,
+      };
+    });
+  }
+
+  /**
+   * Get feature flag details along with all active overrides and evaluation metadata.
+   */
+  async getFlagDetail(key: string): Promise<PlatformFeatureFlagDetailView> {
+    const flag = await this.getFlag(key);
+    const overrides = await this.getFlagOverrides(flag.key);
+    return {
+      ...flag,
+      overrideCount: overrides.length,
+      overrides,
+    };
   }
 
   /**

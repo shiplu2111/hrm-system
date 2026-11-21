@@ -1,6 +1,8 @@
 import type {
   CreatePlatformFeatureFlagRequest,
   FeatureEvaluationResult,
+  FlagTenantOverrideDetailView,
+  PlatformFeatureFlagDetailView,
   PlatformFeatureFlagView,
   SetTenantFeatureOverrideRequest,
   TenantFeatureOverrideView,
@@ -14,6 +16,18 @@ export async function listFeatureFlags(): Promise<PlatformFeatureFlagView[]> {
 
 export async function getFeatureFlag(key: string): Promise<PlatformFeatureFlagView> {
   return apiRequest<PlatformFeatureFlagView>(`/platform/feature-flags/${key}`);
+}
+
+export async function getFeatureFlagDetail(
+  key: string,
+): Promise<PlatformFeatureFlagDetailView> {
+  return apiRequest<PlatformFeatureFlagDetailView>(`/platform/feature-flags/${key}/detail`);
+}
+
+export async function listFlagOverrides(
+  key: string,
+): Promise<FlagTenantOverrideDetailView[]> {
+  return apiRequest<FlagTenantOverrideDetailView[]>(`/platform/feature-flags/${key}/overrides`);
 }
 
 export async function createFeatureFlag(

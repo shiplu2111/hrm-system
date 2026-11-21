@@ -20,10 +20,13 @@ describe('PlatformFeatureFlagsService', () => {
           create: jest.fn(),
           update: jest.fn(),
           delete: jest.fn(),
+          count: jest.fn().mockResolvedValue(1),
         },
         tenantFeatureOverride: {
           findMany: jest.fn(),
           findUnique: jest.fn(),
+          count: jest.fn().mockResolvedValue(0),
+          groupBy: jest.fn().mockResolvedValue([]),
         },
       },
     };
@@ -262,6 +265,57 @@ describe('PlatformFeatureFlagsService', () => {
       expect(res.enabled).toBe(true);
       expect(res.source).toBe('flag_rollout');
       expect(res.bucket).toBe(15);
+    });
+
+    it('returns flag overrides with plan default comparison', async () => {
+      mockPrisma.unscoped.tenantFeatureOverride.findMany.mockResolvedValue([
+        {
+          id: 'ov-1',
+          tenantId: 'tenant-1',
+          featureKey: 'api_access',
+          enabled: true,
+          reason: 'Pilot client',
+          expiresAt: null,
+          createdAt: new Date(),
+          tenant: {
+            id: 'tenant-1',
+            name: 'Acme Corp',
+            subdomain: 'acme',
+            subscriptions: [
+              {
+                status: 'active',
+                plan: { code: 'starter', name: 'Starter Plan' },
+              },
+            ],
+          },
+        },
+      ]);
+
+      const overrides = await service.getFlagOverrides('api_access');
+      expect(overrides.length).toBe(1);
+      expect(overrides[0].tenantName).toBe('Acme Corp');
+      expect(overrides[0].planDefault).toBe(false);
+      expect(overrides[0].enabled).toBe(true);
+      expect(overrides[0].explanation).toContain('Overrides plan default');
+    });
+
+    it('returns full flag detail with overrides', async () => {
+      mockPrisma.unscoped.platformFeatureFlag.findFirst.mockResolvedValue({
+        id: 'flag-1',
+        key: 'api_access',
+        description: 'REST API',
+        defaultState: false,
+        rolloutPercentage: 100,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      mockPrisma.unscoped.tenantFeatureOverride.count.mockResolvedValue(1);
+      mockPrisma.unscoped.tenantFeatureOverride.findMany.mockResolvedValue([]);
+
+      const detail = await service.getFlagDetail('api_access');
+      expect(detail.key).toBe('api_access');
+      expect(detail.overrideCount).toBe(0);
+      expect(Array.isArray(detail.overrides)).toBe(true);
     });
   });
 });
