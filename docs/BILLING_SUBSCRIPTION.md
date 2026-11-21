@@ -31,10 +31,13 @@ Final pricing numbers are a business decision outside this document's scope — 
 - `GET /api/v1/tenant/subscription` (`settings:view`) returns the plan, its features, usage vs. limits, and the plan catalogue for comparison.
 - **Not yet runtime-configurable:** the catalogue lives in code. Moving it to `platform_settings` with a Super Admin editor (SYSTEM_SETTINGS.md §2, ENV_SETUP.md §0) is outstanding. Only Enterprise features (`api_access`, `sso`, `advanced_workflow`, `custom_payroll_rules`) are gated server-side today; module-level tiers (e.g. Roster on Business) are displayed but not yet enforced.
 
-## 4. Billing Cycle
+## 4. Billing Cycle & Proration Rules
 
-- Monthly or annual billing cycle per tenant.
-- Employee-count-based plans recalculate the bill based on active employee count at the billing date (define whether proration applies mid-cycle — confirm business rule before implementation).
+- **Billing Cycle**: Monthly or annual billing cycle per tenant, anchored to the tenant's initial subscription date or billing anchor date.
+- **Proration Rule**: **Full month charged on the billing date, with no mid-cycle proration.**
+  - The monthly billing job runs on the scheduled billing date (`next_billing_at`), counts active employee seats holding an active profile (`active`, `on_leave`, `suspended`), and generates the invoice for the cycle.
+  - Adding or removing employees mid-cycle does not issue mid-period credit notes or immediate supplemental invoices; the new seat count is captured and charged in full on the subsequent cycle billing date.
+  - Plan upgrades executed mid-cycle adjust the plan entitlement immediately; the new plan's base fee and seat pricing take effect on the next renewal date. Downgrades take effect at the end of the current billing cycle (`cancel_at_period_end` or next renewal).
 
 ## 5. Payment Processing
 
@@ -45,11 +48,20 @@ Final pricing numbers are a business decision outside this document's scope — 
 - New tenants can start on a trial period before requiring payment details.
 - Sandbox/staging tenant (MODULES.md §01) is not billed and is clearly flagged as non-production.
 
-## 7. Downgrade/Suspension Handling
+## 7. Downgrade, Suspension & Dunning Handling
 
-- Downgrading a plan that removes access to a feature currently in use (e.g. tenant on Business using Roster, downgrades to Starter) must be handled explicitly: either block the downgrade, or clearly warn what data/access will become read-only/hidden.
+- **Downgrading a plan**:
+  - Downgrading a plan that removes access to a feature currently in use (e.g. tenant on Business using Roster, downgrades to Starter) must be handled explicitly: either block the downgrade, or clearly warn what data/access will become read-only/hidden.
   - API keys after a downgrade from Enterprise: existing keys stop authenticating, no new keys can be generated, and the API Keys screen still lists them as paused so the tenant can revoke them (MODULES.md §43).
-- Non-payment leads to a grace period, then read-only/suspended access (never immediate data deletion) — see SECURITY.md §9 for data retention during suspension.
+- **Dunning Lifecycle & Automated Retries**:
+  - When an automated subscription charge fails, the system enters an automated dunning sequence:
+    1. **Initial Failure (Day 0)**: Invoice remains open. Dunning step set to `1`. Retry scheduled for **Day 1** (+24h). Email sent to Company Owner / Billing Admin notifying payment failure and next retry.
+    2. **Retry 1 (Day 1)**: Second charge attempt. If failed, subscription status transitions to `past_due`. Dunning step set to `2`. Retry scheduled for **Day 3** (+48h). Past-due notice email sent.
+    3. **Retry 2 (Day 3)**: Third charge attempt. If failed, dunning step set to `3`. Final retry scheduled for **Day 7** (+96h). Urgent final notice email sent notifying impending suspension.
+    4. **Final Retry (Day 7)**: Final automated charge attempt. If failed, dunning step set to `4`, and 3-day grace period commences.
+    5. **Read-Only Suspension (Day 10)**: Upon grace period expiry with unpaid invoice, the tenant transitions to `suspended` with `suspension_mode = 'read_only'`. Staff/employees can view records and export data, but cannot clock in, run payroll, or modify records.
+    6. **Absolute No Data Deletion Rule**: Non-payment or suspension NEVER triggers automated data deletion (SECURITY.md §9). Data remains securely preserved in read-only mode until manual reactivation or explicit owner deletion request.
+  - At any point in the dunning sequence, if a charge or manual payment succeeds, the subscription is immediately restored to `active`, dunning step is reset to `0`, and any billing-related suspension is lifted.
 
 ## 8. Super Admin Visibility
 

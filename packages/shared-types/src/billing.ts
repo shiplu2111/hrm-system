@@ -114,3 +114,97 @@ export interface PlatformPlanDetailView {
   limits: PlatformPlanLimitView[];
 }
 
+export type SubscriptionState =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'paused'
+  | 'cancelled';
+
+export type InvoiceStatus =
+  | 'draft'
+  | 'open'
+  | 'paid'
+  | 'past_due'
+  | 'void'
+  | 'uncollectible';
+
+export type PaymentStatus =
+  | 'pending'
+  | 'succeeded'
+  | 'failed'
+  | 'refunded';
+
+export interface SubscriptionRecordView {
+  id: string;
+  tenantId: string;
+  planId: string;
+  planCode?: string;
+  planName?: string;
+  status: SubscriptionState;
+  billingCycle: 'monthly' | 'annual';
+  currency: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  pausedAt: string | null;
+  customerId: string | null;
+  paymentMethodId: string | null;
+  dunningStep: number;
+  lastDunningAt: string | null;
+  nextBillingAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvoiceLineView {
+  id: string;
+  tenantId: string;
+  invoiceId: string;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  amount: number;
+  createdAt: string;
+}
+
+export interface InvoiceView {
+  id: string;
+  tenantId: string;
+  subscriptionId: string | null;
+  invoiceNumber: string;
+  currency: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  amountPaid: number;
+  amountDue: number;
+  status: InvoiceStatus;
+  billingReason: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  paidAt: string | null;
+  createdAt: string;
+  lines: InvoiceLineView[];
+}
+
+export interface PaymentRecordView {
+  id: string;
+  tenantId: string;
+  invoiceId: string | null;
+  subscriptionId: string | null;
+  provider: string;
+  providerPaymentId: string | null;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  errorCode: string | null;
+  errorMessage: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+
