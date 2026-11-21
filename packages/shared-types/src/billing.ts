@@ -66,6 +66,10 @@ export interface TenantSubscriptionView {
   /** The next tier up, or `null` on the top tier. */
   nextPlanId: SubscriptionPlanTier | null;
   approachingRatio: number;
+  pendingPlanId?: string | null;
+  pendingPlanCode?: string | null;
+  pendingPlanName?: string | null;
+  pendingEffectiveDate?: string | null;
 }
 
 export interface TenantPlanInfo {
@@ -141,6 +145,9 @@ export interface SubscriptionRecordView {
   planId: string;
   planCode?: string;
   planName?: string;
+  pendingPlanId?: string | null;
+  pendingPlanCode?: string | null;
+  pendingPlanName?: string | null;
   status: SubscriptionState;
   billingCycle: 'monthly' | 'annual';
   currency: string;
@@ -157,6 +164,49 @@ export interface SubscriptionRecordView {
   nextBillingAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PlanChangePreviewRequest {
+  targetPlanCode: string;
+}
+
+export interface PlanChangePreview {
+  changeType: 'upgrade' | 'downgrade' | 'same';
+  currentPlanCode: string;
+  currentPlanName: string;
+  targetPlanCode: string;
+  targetPlanName: string;
+  isUpgrade: boolean;
+  isDowngrade: boolean;
+  immediate: boolean;
+  proratedAmount: number;
+  currency: string;
+  billingCycle: string;
+  daysRemaining: number;
+  totalDaysInPeriod: number;
+  currentRecurringAmount: number;
+  newRecurringAmount: number;
+  allowed: boolean;
+  blockReasons: string[];
+  effectiveDate: string;
+  message?: string;
+}
+
+export interface ExecutePlanChangeRequest {
+  targetPlanCode: string;
+}
+
+export interface PlanChangeResult {
+  success: boolean;
+  changeType: 'upgrade' | 'downgrade';
+  planId: string;
+  planCode: string;
+  effectiveImmediately: boolean;
+  effectiveDate: string;
+  invoiceId?: string;
+  proratedCharged?: number;
+  currency?: string;
+  message: string;
 }
 
 export interface InvoiceLineView {

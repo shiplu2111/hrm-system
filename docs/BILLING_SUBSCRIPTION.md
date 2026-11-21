@@ -34,10 +34,17 @@ Final pricing numbers are a business decision outside this document's scope — 
 ## 4. Billing Cycle & Proration Rules
 
 - **Billing Cycle**: Monthly or annual billing cycle per tenant, anchored to the tenant's initial subscription date or billing anchor date.
-- **Proration Rule**: **Full month charged on the billing date, with no mid-cycle proration.**
-  - The monthly billing job runs on the scheduled billing date (`next_billing_at`), counts active employee seats holding an active profile (`active`, `on_leave`, `suspended`), and generates the invoice for the cycle.
-  - Adding or removing employees mid-cycle does not issue mid-period credit notes or immediate supplemental invoices; the new seat count is captured and charged in full on the subsequent cycle billing date.
-  - Plan upgrades executed mid-cycle adjust the plan entitlement immediately; the new plan's base fee and seat pricing take effect on the next renewal date. Downgrades take effect at the end of the current billing cycle (`cancel_at_period_end` or next renewal).
+- **Proration Rule**:
+  - **Routine Seat Adjustments**: Full month charged on the billing date, with no mid-cycle proration for seat additions or removals. Active employee count is snapshotted and billed on the subsequent cycle date.
+  - **Plan Upgrades (Mid-Cycle)**:
+    - Plan upgrades take effect **immediately**.
+    - A prorated charge is computed for the remaining duration of the billing cycle:
+      $$\text{Prorated Charge} = \max(0, (\text{TargetPlanRecurring} - \text{CurrentPlanRecurring}) \times \frac{\text{Days Remaining}}{\text{Total Days in Period}})$$
+    - The prorated charge is displayed for tenant approval in the UI modal prior to payment execution.
+    - Upon approval, an immediate prorated invoice (`billingReason: 'plan_upgrade'`) is generated and charged via the payment provider. New tier entitlements and quotas activate instantly upon payment settlement.
+  - **Plan Downgrades**:
+    - Plan downgrades take effect **at next renewal** (`current_period_end` / `next_billing_at`).
+    - No mid-cycle prorated refunds or credits are issued; the tenant retains full access to the higher plan until the prepaid period expires.
 
 ## 5. Payment Processing
 
@@ -51,8 +58,23 @@ Final pricing numbers are a business decision outside this document's scope — 
 ## 7. Downgrade, Suspension & Dunning Handling
 
 - **Downgrading a plan**:
-  - Downgrading a plan that removes access to a feature currently in use (e.g. tenant on Business using Roster, downgrades to Starter) must be handled explicitly: either block the downgrade, or clearly warn what data/access will become read-only/hidden.
-  - API keys after a downgrade from Enterprise: existing keys stop authenticating, no new keys can be generated, and the API Keys screen still lists them as paused so the tenant can revoke them (MODULES.md §43).
+  - **Pre-Downgrade Eligibility & Blocking Rules**:
+    - Downgrades are strictly **blocked** with an explicit list of conflict reasons if the tenant currently uses a feature or exceeds a quota not allowed on the lower tier:
+      1. **Employee Limit**: Blocked if active employee seats exceed the target plan's cap (e.g. tenant with 65 employees attempting to downgrade to Starter with a cap of 50).
+      2. **Storage Limit**: Blocked if cloud file storage in use exceeds the target plan's storage limit.
+      3. **Company Limit**: Blocked if active companies configured exceed the lower tier's limit.
+      4. **Feature Usage Gating**: Blocked if tenant currently has active data or configuration in a tier-gated feature not included in the target tier:
+         - *Shift Rostering*: Blocked if tenant has scheduled shifts.
+         - *Timesheets*: Blocked if tenant has logged timesheet entries.
+         - *API Access*: Blocked if tenant has active API keys (must revoke keys before downgrading).
+         - *Single Sign-On (SSO)*: Blocked if SSO/SAML configuration is actively enabled.
+         - *Advanced Workflow*: Blocked if tenant has custom workflow definitions.
+         - *Custom Payroll Rules*: Blocked if tenant has custom payroll rules.
+         - *Attendance / Leave / Basic Payroll*: Blocked if downgrading to Free while records exist.
+  - **Execution at Next Renewal**:
+    - When all checks pass (zero blockers), the downgrade is scheduled via `pending_plan_id`.
+    - The tenant keeps full higher-tier access until `current_period_end`.
+    - When the monthly billing queue processes cycle renewal, `subscription.plan_id` and `tenant.plan_id` are automatically transitioned to the new plan tier, and recurring charges adjust accordingly.
 - **Dunning Lifecycle & Automated Retries**:
   - When an automated subscription charge fails, the system enters an automated dunning sequence:
     1. **Initial Failure (Day 0)**: Invoice remains open. Dunning step set to `1`. Retry scheduled for **Day 1** (+24h). Email sent to Company Owner / Billing Admin notifying payment failure and next retry.

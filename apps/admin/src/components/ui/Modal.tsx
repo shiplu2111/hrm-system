@@ -33,7 +33,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
@@ -44,7 +44,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         {(title || description) && (
           <div className="px-6 py-4 border-b border-base flex items-start justify-between gap-4">
             <div>
-              {title && <h2 className="text-base font-semibold text-primary">{title}</h2>}
+              {title && <h2 id="modal-title" className="text-base font-semibold text-primary">{title}</h2>}
               {description && <p className="text-sm text-secondary mt-0.5">{description}</p>}
             </div>
             <button

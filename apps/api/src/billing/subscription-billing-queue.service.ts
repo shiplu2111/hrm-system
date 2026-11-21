@@ -204,18 +204,32 @@ export class SubscriptionBillingQueueService
     }
 
     if (chargeRes.success) {
-      // Advance subscription cycle
-      await this.prisma.unscoped.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          status: 'active',
-          currentPeriodStart: subscription.currentPeriodEnd,
-          currentPeriodEnd: nextCycleEnd,
-          nextBillingAt: nextCycleEnd,
-          dunningStep: 0,
-          lastDunningAt: null,
-        },
-      });
+      const targetPlanId = subscription.pendingPlanId || subscription.planId;
+
+      // Advance subscription cycle & switch plan if scheduled downgrade
+      await this.prisma.unscoped.$transaction([
+        this.prisma.unscoped.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            planId: targetPlanId,
+            pendingPlanId: null,
+            status: 'active',
+            currentPeriodStart: subscription.currentPeriodEnd,
+            currentPeriodEnd: nextCycleEnd,
+            nextBillingAt: nextCycleEnd,
+            dunningStep: 0,
+            lastDunningAt: null,
+          },
+        }),
+        ...(subscription.pendingPlanId
+          ? [
+              this.prisma.unscoped.tenant.update({
+                where: { id: subscription.tenantId },
+                data: { planId: targetPlanId },
+              }),
+            ]
+          : []),
+      ]);
 
       await this.dunningService.handlePaymentSuccess(subscription.id);
       return { success: true, invoiceId: invoice.id };

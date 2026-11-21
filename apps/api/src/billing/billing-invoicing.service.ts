@@ -154,9 +154,14 @@ export class BillingInvoicingService {
       throw new NotFoundException(`Subscription '${subscriptionId}' not found`);
     }
 
+    const effectivePlanId = subscription.pendingPlanId || subscription.planId;
+    const effectivePlan = subscription.pendingPlanId
+      ? await this.prisma.unscoped.plan.findUnique({ where: { id: effectivePlanId } })
+      : subscription.plan;
+
     const activeSeats = await this.countActiveSeats(subscription.tenantId);
     const amounts = await this.calculateCycleAmounts(
-      subscription.planId,
+      effectivePlanId,
       subscription.currency,
       subscription.billingCycle,
       activeSeats,
@@ -190,7 +195,7 @@ export class BillingInvoicingService {
           create: [
             {
               tenantId: subscription.tenantId,
-              description: `${subscription.plan.name} (${subscription.billingCycle}) base subscription fee`,
+              description: `${effectivePlan?.name ?? subscription.plan.name} (${subscription.billingCycle}) base subscription fee`,
               quantity: 1,
               unitAmount: new Prisma.Decimal(amounts.baseAmount),
               amount: new Prisma.Decimal(amounts.baseAmount),

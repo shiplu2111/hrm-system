@@ -48,6 +48,10 @@ describe('SubscriptionBillingQueueService', () => {
           }),
           update: jest.fn().mockResolvedValue({ id: 'sub-1' }),
         },
+        tenant: {
+          update: jest.fn().mockResolvedValue({ id: 'tenant-1' }),
+        },
+        $transaction: jest.fn().mockImplementation((arr) => Promise.all(arr)),
       },
     };
 

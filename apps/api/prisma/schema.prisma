@@ -5701,10 +5701,11 @@ model Plan {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  prices   PlanPrice[]
-  features PlanFeature[]
-  limits   PlanLimit[]
-  subscriptions Subscription[]
+  prices               PlanPrice[]
+  features             PlanFeature[]
+  limits               PlanLimit[]
+  subscriptions        Subscription[] @relation("PlanSubscriptions")
+  pendingSubscriptions Subscription[] @relation("PendingPlanSubscriptions")
 
   @@map("plans")
 }
@@ -5847,16 +5848,19 @@ model Subscription {
   dunningStep        Int                @default(0) @map("dunning_step")
   lastDunningAt      DateTime?          @map("last_dunning_at")
   nextBillingAt      DateTime           @map("next_billing_at")
+  pendingPlanId      String?            @map("pending_plan_id") @db.Uuid
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan     Plan      @relation(fields: [planId], references: [id])
-  invoices Invoice[]
-  payments Payment[]
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan        Plan      @relation("PlanSubscriptions", fields: [planId], references: [id])
+  pendingPlan Plan?     @relation("PendingPlanSubscriptions", fields: [pendingPlanId], references: [id])
+  invoices    Invoice[]
+  payments    Payment[]
 
   @@index([tenantId])
   @@index([planId])
+  @@index([pendingPlanId])
   @@index([status])
   @@index([nextBillingAt])
   @@map("subscriptions")

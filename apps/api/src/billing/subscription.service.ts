@@ -66,6 +66,27 @@ export class SubscriptionService {
             }))
           : [...PLAN_CATALOG];
 
+      // Query for any scheduled downgrade pending on renewal
+      let pendingPlanId: string | null = null;
+      let pendingPlanCode: string | null = null;
+      let pendingPlanName: string | null = null;
+      let pendingEffectiveDate: string | null = null;
+      try {
+        const sub = await (this.prisma.unscoped as any).subscription?.findFirst({
+          where: { tenantId, status: { not: 'cancelled' } },
+          include: { pendingPlan: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (sub?.pendingPlanId && sub.pendingPlan) {
+          pendingPlanId = sub.pendingPlanId;
+          pendingPlanCode = sub.pendingPlan.code;
+          pendingPlanName = sub.pendingPlan.name;
+          pendingEffectiveDate = sub.currentPeriodEnd.toISOString();
+        }
+      } catch {
+        // fallback
+      }
+
       return {
         planId: details.planId,
         status: details.status,
@@ -83,6 +104,10 @@ export class SubscriptionService {
         plans: catalog,
         nextPlanId: nextPlanId(details.planId),
         approachingRatio: PLAN_LIMIT_APPROACHING_RATIO,
+        pendingPlanId,
+        pendingPlanCode,
+        pendingPlanName,
+        pendingEffectiveDate,
       };
     }
 

@@ -52,6 +52,10 @@ export interface EffectivePlanDetails {
   limits: EffectiveLimitInfo[];
 }
 
+const isUuid = (val?: string | null): val is string =>
+  typeof val === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
 @Injectable()
 export class FeatureGateService {
   private readonly logger = new Logger(FeatureGateService.name);
@@ -120,14 +124,11 @@ export class FeatureGateService {
 
     // Query database Plan + PlanFeature
     try {
+      const planWhere = isUuid(tenant.planId)
+        ? { OR: [{ id: tenant.planId }, { code: planCode }], isActive: true }
+        : { code: planCode, isActive: true };
       const plan = await (this.prisma.unscoped as any).plan?.findFirst({
-        where: {
-          OR: [
-            { id: tenant.planId ?? undefined },
-            { code: planCode },
-          ],
-          isActive: true,
-        },
+        where: planWhere,
         include: { features: true },
       });
 
@@ -290,14 +291,11 @@ export class FeatureGateService {
       });
       planCode = normalizePlanId(tenant?.planId);
 
+      const planWhere = isUuid(tenant?.planId)
+        ? { OR: [{ id: tenant.planId }, { code: planCode }], isActive: true }
+        : { code: planCode, isActive: true };
       const plan = await (this.prisma.unscoped as any).plan?.findFirst({
-        where: {
-          OR: [
-            { id: tenant?.planId ?? undefined },
-            { code: planCode },
-          ],
-          isActive: true,
-        },
+        where: planWhere,
         include: { limits: true },
       });
 
@@ -417,10 +415,9 @@ export class FeatureGateService {
     const [dbPlan, featureOverrides, limitOverrides, usedEmployees, usedCompanies] =
       await Promise.all([
         (this.prisma.unscoped as any).plan?.findFirst({
-          where: {
-            OR: [{ id: tenant.planId ?? undefined }, { code: planCode }],
-            isActive: true,
-          },
+          where: isUuid(tenant.planId)
+            ? { OR: [{ id: tenant.planId }, { code: planCode }], isActive: true }
+            : { code: planCode, isActive: true },
           include: { features: true, limits: true, prices: true },
         }),
         (this.prisma.unscoped as any).tenantFeatureOverride?.findMany({

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowUpCircle, Check, CreditCard, Info, Lock, Users } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Check, Clock, CreditCard, Info, Lock, Users } from 'lucide-react';
 import type { PlanUsageMetric, SubscriptionPlanTier, TenantSubscriptionView } from '@hrm/shared-types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/ui/StatusPill';
 import { ProgressBar } from '@/components/ui/Progress';
 import { OrgErrorBanner } from '@/components/org/OrgScreenParts';
 import { PlanLimitPrompt } from '@/components/billing/PlanLimitPrompt';
-import { UpgradeRequestModal } from '@/components/billing/UpgradeRequestModal';
+import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
 import { useSubscription } from '@/hooks/useSubscription';
 import { billingCopy as copy, planName } from '@/lib/billing-copy';
 import {
@@ -196,7 +196,13 @@ function PlanComparison({
                   <ArrowUpCircle className="h-4 w-4" aria-hidden /> {copy.requestUpgrade}
                 </Button>
               ) : (
-                <p className="text-xs text-muted">{copy.downgradeNote}</p>
+                <Button
+                  variant="secondary"
+                  className="w-full text-secondary hover:text-primary"
+                  onClick={() => onRequest(plan.planId)}
+                >
+                  <ArrowDownCircle className="h-4 w-4" aria-hidden /> Downgrade
+                </Button>
               )}
             </Card>
           );
@@ -243,6 +249,18 @@ export function BillingPage() {
         <Card className="p-5 text-sm text-secondary">{copy.noTenant}</Card>
       ) : (
         <>
+          {view.pendingPlanName && view.pendingEffectiveDate ? (
+            <div className="flex items-start gap-3 rounded-xl border border-warning-300 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-800 dark:bg-warning-900/20 dark:text-warning-300">
+              <Clock className="h-5 w-5 shrink-0 mt-0.5 text-warning-600" />
+              <div>
+                <div className="font-bold">Scheduled Downgrade Pending</div>
+                <div>
+                  Your subscription is scheduled to downgrade to <strong>{view.pendingPlanName}</strong> on {new Date(view.pendingEffectiveDate).toLocaleDateString()} upon cycle renewal.
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {view.status !== 'active' ? (
             <div className="flex items-start gap-2 rounded-xl border border-warning-300 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-800 dark:bg-warning-900/20 dark:text-warning-300">
               <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
@@ -264,11 +282,12 @@ export function BillingPage() {
           <PlanComparison view={view} onRequest={setRequestPlanId} />
 
           {requestPlanId ? (
-            <UpgradeRequestModal
+            <PlanChangeModal
               open
               onClose={() => setRequestPlanId(null)}
               view={view}
-              targetPlanId={requestPlanId}
+              targetPlanCode={requestPlanId}
+              onSuccess={() => void reload()}
             />
           ) : null}
         </>
