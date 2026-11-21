@@ -182,11 +182,226 @@ export interface CountrySummary {
 export interface TaxBracketRecord {
   id: string;
   countryId: string;
+  stateProvinceId?: string | null;
   taxYear: number;
   bracketJson: Record<string, unknown>;
   effectiveFrom: string;
   effectiveTo: string | null;
   status?: RuleVersionStatus;
+  sourceReference?: string;
+  changeNote?: string;
+  createdBy?: string;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Tax Rules & Brackets Framework (§8 DATABASE_SCHEMA.md & §10 PAYROLL_LOGIC.md)
+// ---------------------------------------------------------------------------
+
+export interface TaxBracketRow {
+  id?: string;
+  from: number;
+  to: number | null;
+  rate: number; // percentage (e.g. 16 for 16%) or decimal (0.16)
+  fixedAmount: number; // cumulative base tax for previous brackets
+}
+
+export type TaxRebateType = 'fixed_amount' | 'percentage' | 'tapered';
+
+export interface TaxRebateAllowance {
+  id: string;
+  name: string;
+  code: string;
+  type: TaxRebateType;
+  amount: number;
+  threshold?: number | null; // e.g. income phase-out start
+  phaseOutRate?: number | null; // e.g. 0.015 (1.5 cents per dollar)
+  description?: string;
+}
+
+export interface MinimumTaxConfig {
+  enabled: boolean;
+  amount: number;
+  description?: string;
+}
+
+export interface FilingStatusTaxConfig {
+  statusKey: string;
+  label: string;
+  brackets: TaxBracketRow[];
+  rebates: TaxRebateAllowance[];
+  minimumTax: MinimumTaxConfig;
+}
+
+export interface TaxRulePayload {
+  taxYear: number;
+  currency: string;
+  hasFilingStatuses: boolean;
+  brackets: TaxBracketRow[];
+  rebates: TaxRebateAllowance[];
+  minimumTax: MinimumTaxConfig;
+  filingStatuses?: FilingStatusTaxConfig[];
+  notes?: string;
+}
+
+export interface TaxBracketValidationError {
+  index: number;
+  field: 'from' | 'to' | 'rate' | 'fixedAmount' | 'brackets';
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+/**
+ * Validates bracket rows:
+ * - Contiguous: bracket i's 'to' must equal bracket i+1's 'from'
+ * - Ascending: 'to' > 'from'
+ * - Non-overlapping: no overlapping intervals
+ * - Last bracket may be open-ended (to is null)
+ * - Only the last bracket may be open-ended
+ */
+export function validateTaxBrackets(brackets: TaxBracketRow[]): {
+  isValid: boolean;
+  errors: TaxBracketValidationError[];
+  summaryError?: string;
+} {
+  const errors: TaxBracketValidationError[] = [];
+
+  if (!brackets || brackets.length === 0) {
+    return {
+      isValid: false,
+      errors: [
+        {
+          index: -1,
+          field: 'brackets',
+          message: 'At least one tax bracket must be configured.',
+          severity: 'error',
+        },
+      ],
+      summaryError: 'At least one tax bracket must be configured.',
+    };
+  }
+
+  // Bracket 0: from must be non-negative
+  if (brackets[0].from < 0) {
+    errors.push({
+      index: 0,
+      field: 'from',
+      message: 'The initial bracket must start at 0 or a positive threshold.',
+      severity: 'error',
+    });
+  }
+
+  for (let i = 0; i < brackets.length; i++) {
+    const current = brackets[i];
+    const isLast = i === brackets.length - 1;
+
+    // Rate validation
+    if (current.rate < 0 || current.rate > 100) {
+      errors.push({
+        index: i,
+        field: 'rate',
+        message: 'Tax rate must be between 0% and 100%.',
+        severity: 'error',
+      });
+    }
+
+    // Fixed amount non-negative
+    if (current.fixedAmount < 0) {
+      errors.push({
+        index: i,
+        field: 'fixedAmount',
+        message: 'Fixed base amount cannot be negative.',
+        severity: 'error',
+      });
+    }
+
+    if (!isLast) {
+      // Intermediate brackets must have finite 'to'
+      if (current.to === null || current.to === undefined || isNaN(current.to)) {
+        errors.push({
+          index: i,
+          field: 'to',
+          message: `Intermediate Bracket #${i + 1} must specify an upper bound. Only the final bracket may be open-ended.`,
+          severity: 'error',
+        });
+      } else {
+        // Ascending check
+        if (current.to <= current.from) {
+          errors.push({
+            index: i,
+            field: 'to',
+            message: `Bracket #${i + 1} upper bound (${current.to}) must be greater than lower bound (${current.from}).`,
+            severity: 'error',
+          });
+        }
+
+        // Contiguity and overlap check with next bracket
+        const next = brackets[i + 1];
+        if (next) {
+          if (next.from < current.to) {
+            errors.push({
+              index: i + 1,
+              field: 'from',
+              message: `Bracket #${i + 2} starts at ${next.from}, which overlaps with Bracket #${i + 1} (ends at ${current.to}).`,
+              severity: 'error',
+            });
+          } else if (next.from > current.to) {
+            errors.push({
+              index: i + 1,
+              field: 'from',
+              message: `Gap detected between Bracket #${i + 1} (ends at ${current.to}) and Bracket #${i + 2} (starts at ${next.from}). Brackets must be contiguous.`,
+              severity: 'error',
+            });
+          }
+        }
+      }
+    } else {
+      // Final bracket: if finite 'to' provided, must be > from
+      if (current.to !== null && current.to !== undefined && !isNaN(current.to)) {
+        if (current.to <= current.from) {
+          errors.push({
+            index: i,
+            field: 'to',
+            message: `Final bracket upper bound (${current.to}) must be greater than lower bound (${current.from}).`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+
+  const isValid = errors.length === 0;
+  const summaryError = !isValid
+    ? errors[0]?.message || 'Invalid tax bracket configuration.'
+    : undefined;
+
+  return { isValid, errors, summaryError };
+}
+
+/**
+ * Auto-calculates cumulative base/fixed amounts for contiguous brackets.
+ */
+export function calculateCumulativeFixedAmounts(
+  brackets: TaxBracketRow[],
+): TaxBracketRow[] {
+  let cumulativeTax = 0;
+  return brackets.map((b, idx) => {
+    if (idx === 0) {
+      return { ...b, fixedAmount: 0 };
+    }
+    const prev = brackets[idx - 1];
+    if (prev.to !== null && prev.to !== undefined && prev.to > prev.from) {
+      const width = prev.to - prev.from;
+      const normalizedRate = prev.rate > 1 ? prev.rate / 100 : prev.rate;
+      cumulativeTax += width * normalizedRate;
+    }
+    return {
+      ...b,
+      fixedAmount: Math.round(cumulativeTax * 100) / 100,
+    };
+  });
 }
 
 export interface CountryRuleRecord {

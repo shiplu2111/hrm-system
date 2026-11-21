@@ -62,6 +62,7 @@ import type {
 } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
 import { RuleVersionEditor } from '../rules/RuleVersionEditor';
+import { TaxRulesEditor } from '../tax/TaxRulesEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -1290,8 +1291,19 @@ export function CountryDetailView({
         </div>
       )}
 
-      {/* 3 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
-      {activeTab !== 'General' && activeTab !== 'Currency' && (
+      {/* 3. TAX RULES EDITOR (STAGE C.01) */}
+      {activeTab === 'Tax' && (
+        <TaxRulesEditor
+          country={country}
+          states={states}
+          configuration={configuration}
+          completeness={tabCompleteness['Tax']}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* 4 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {activeTab !== 'General' && activeTab !== 'Currency' && activeTab !== 'Tax' && (
         <LinkedStageTabPanel
           tab={ALL_TABS.find((t) => t.key === activeTab)!}
           country={country}

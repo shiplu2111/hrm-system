@@ -5,6 +5,9 @@ import { fileURLToPath, URL } from 'node:url';
 const portalUi = fileURLToPath(
   new URL('../../packages/portal-ui/src/components/ui', import.meta.url),
 );
+const sharedTypes = fileURLToPath(
+  new URL('../../packages/shared-types/src', import.meta.url),
+);
 const appSrc = fileURLToPath(new URL('./src', import.meta.url));
 
 export default defineConfig({
@@ -21,6 +24,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: '@/components/ui', replacement: portalUi },
+      { find: '@hrm/shared-types', replacement: sharedTypes },
       { find: '@', replacement: appSrc },
     ],
   },

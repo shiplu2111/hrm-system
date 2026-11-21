@@ -248,6 +248,7 @@ model StateProvince {
   companies    Company[]
   locations    Location[]
   countryRules CountryRule[]
+  taxBrackets  TaxBracket[]
 
   @@unique([countryId, code])
   @@index([countryId])
@@ -2833,6 +2834,7 @@ model PaymentBatchItem {
 model TaxBracket {
   id              String            @id @default(uuid()) @db.Uuid
   countryId       String            @map("country_id") @db.Uuid
+  stateProvinceId String?           @map("state_province_id") @db.Uuid
   taxYear         Int               @map("tax_year")
   bracketJson     Json              @map("bracket_json")
   effectiveFrom   DateTime          @map("effective_from") @db.Date
@@ -2845,9 +2847,12 @@ model TaxBracket {
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  country       Country        @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  stateProvince StateProvince? @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)
 
   @@index([countryId])
+  @@index([stateProvinceId])
+  @@index([countryId, stateProvinceId, taxYear, effectiveFrom])
   @@index([countryId, taxYear, effectiveFrom])
   @@map("tax_brackets")
 }

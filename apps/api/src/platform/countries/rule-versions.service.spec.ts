@@ -23,6 +23,12 @@ describe('RuleVersionsService', () => {
         update: jest.Mock;
         delete: jest.Mock;
       };
+      taxBracket: {
+        findFirst: jest.Mock;
+        create: jest.Mock;
+        update: jest.Mock;
+        deleteMany: jest.Mock;
+      };
     };
   };
   let auditService: {
@@ -42,12 +48,18 @@ describe('RuleVersionsService', () => {
           findFirst: jest.fn(),
         },
         countryRule: {
-          findMany: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
           findFirst: jest.fn(),
           findUnique: jest.fn(),
           create: jest.fn(),
           update: jest.fn(),
           delete: jest.fn(),
+        },
+        taxBracket: {
+          findFirst: jest.fn(),
+          create: jest.fn(),
+          update: jest.fn(),
+          deleteMany: jest.fn(),
         },
       },
     };
@@ -138,7 +150,10 @@ describe('RuleVersionsService', () => {
           effectiveFrom: '2025-07-01',
           sourceReference: 'Taxation Laws Amendment 2025',
           changeNote: 'Updated stage 3 tax thresholds',
-          payload: { brackets: [] },
+          payload: {
+            taxYear: 2025,
+            brackets: [{ from: 0, to: null, rate: 10, fixedAmount: 0 }],
+          },
         },
         mockUserId,
       );
@@ -636,6 +651,193 @@ describe('RuleVersionsService', () => {
 
       const removedField = diff.payloadDiff.find((p) => p.path === 'legacy_bonus_days');
       expect(removedField?.type).toBe('removed');
+    });
+  });
+
+  describe('Tax Rules inline validation and synchronization', () => {
+    it('should reject tax rule when brackets are overlapping', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'tax',
+            effectiveFrom: '2025-07-01',
+            sourceReference: 'ATO Schedule 2025',
+            changeNote: 'Overlap test',
+            payload: {
+              taxYear: 2025,
+              brackets: [
+                { from: 0, to: 20000, rate: 0, fixedAmount: 0 },
+                { from: 18000, to: 45000, rate: 16, fixedAmount: 0 }, // Overlaps 18000 < 20000
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject tax rule when there is a gap between brackets', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'tax',
+            effectiveFrom: '2025-07-01',
+            sourceReference: 'ATO Schedule 2025',
+            changeNote: 'Gap test',
+            payload: {
+              taxYear: 2025,
+              brackets: [
+                { from: 0, to: 18200, rate: 0, fixedAmount: 0 },
+                { from: 20000, to: 45000, rate: 16, fixedAmount: 0 }, // Gap 18200 -> 20000
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject tax rule when upper bound is not greater than lower bound', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'tax',
+            effectiveFrom: '2025-07-01',
+            sourceReference: 'ATO Schedule 2025',
+            changeNote: 'Non-ascending test',
+            payload: {
+              taxYear: 2025,
+              brackets: [
+                { from: 0, to: 18200, rate: 0, fixedAmount: 0 },
+                { from: 18200, to: 15000, rate: 16, fixedAmount: 0 }, // 15000 < 18200
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject tax rule when intermediate bracket is open-ended', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'tax',
+            effectiveFrom: '2025-07-01',
+            sourceReference: 'ATO Schedule 2025',
+            changeNote: 'Premature open-ended test',
+            payload: {
+              taxYear: 2025,
+              brackets: [
+                { from: 0, to: null, rate: 0, fixedAmount: 0 }, // intermediate bracket has no upper bound
+                { from: 18200, to: 45000, rate: 16, fixedAmount: 0 },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid contiguous brackets where only the final bracket is open-ended and sync to tax_brackets', async () => {
+      prisma.unscoped.countryRule.findFirst.mockResolvedValue(null);
+      prisma.unscoped.countryRule.create.mockImplementation(({ data }) =>
+        Promise.resolve({
+          id: 'tax-ver-1',
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          stateProvince: null,
+        }),
+      );
+      prisma.unscoped.taxBracket.findFirst.mockResolvedValue(null);
+      prisma.unscoped.taxBracket.create.mockResolvedValue({ id: 'tb-1' });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'tax',
+          effectiveFrom: '2025-07-01',
+          sourceReference: 'ATO Statutory Rates 2025-26',
+          changeNote: 'Published 2025-26 Australian progressive rates',
+          status: 'published',
+          payload: {
+            taxYear: 2025,
+            currency: 'AUD',
+            hasFilingStatuses: false,
+            brackets: [
+              { from: 0, to: 18200, rate: 0, fixedAmount: 0 },
+              { from: 18200, to: 45000, rate: 16, fixedAmount: 0 },
+              { from: 45000, to: 135000, rate: 30, fixedAmount: 4288 },
+              { from: 135000, to: 190000, rate: 37, fixedAmount: 31288 },
+              { from: 190000, to: null, rate: 45, fixedAmount: 51638 },
+            ],
+            rebates: [
+              {
+                id: 'rebate-1',
+                name: 'Low Income Tax Offset',
+                code: 'LITO',
+                type: 'tapered',
+                amount: 700,
+                threshold: 37500,
+                phaseOutRate: 0.015,
+              },
+            ],
+            minimumTax: {
+              enabled: false,
+              amount: 0,
+            },
+          },
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+      expect(prisma.unscoped.taxBracket.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            countryId: mockCountryId,
+            taxYear: 2025,
+            status: 'published',
+          }),
+        }),
+      );
+    });
+
+    it('should validate filing status variants when hasFilingStatuses is true', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'tax',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'IRS Pub 15-T',
+            changeNote: 'US Federal Filing Status with gap',
+            payload: {
+              taxYear: 2025,
+              hasFilingStatuses: true,
+              filingStatuses: [
+                {
+                  statusKey: 'married_joint',
+                  label: 'Married Filing Jointly',
+                  brackets: [
+                    { from: 0, to: 23200, rate: 10, fixedAmount: 0 },
+                    { from: 25000, to: null, rate: 12, fixedAmount: 2320 }, // Gap: 23200 -> 25000
+                  ],
+                  rebates: [],
+                  minimumTax: { enabled: false, amount: 0 },
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

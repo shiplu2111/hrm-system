@@ -10,11 +10,14 @@ import {
   Prisma,
   RuleVersionStatus,
 } from '@prisma/client';
-import type {
-  RuleVersionDiffResult,
-  RuleVersionMetadataDiff,
-  RuleVersionPayloadFieldDiff,
-  RuleVersionView,
+import {
+  type FilingStatusTaxConfig,
+  type RuleVersionDiffResult,
+  type RuleVersionMetadataDiff,
+  type RuleVersionPayloadFieldDiff,
+  type RuleVersionView,
+  type TaxBracketRow,
+  validateTaxBrackets,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
@@ -129,6 +132,11 @@ export class RuleVersionsService {
     const stateProvinceId = dto.stateProvinceId || null;
     const initialStatus: RuleVersionStatus = dto.status ?? 'draft';
 
+    // Validate tax bracket structure if tax rule
+    if (ruleType === 'tax' && dto.payload) {
+      this.validateTaxPayload(dto.payload);
+    }
+
     // Calculate incremental version number
     const maxVersionRecord = await this.prisma.unscoped.countryRule.findFirst({
       where: {
@@ -171,6 +179,11 @@ export class RuleVersionsService {
     });
 
     const view = this.toView(created);
+
+    // Synchronize tax_brackets table if tax rule
+    if (ruleType === 'tax') {
+      await this.syncTaxBracketTable(countryId, created);
+    }
 
     // Audit log write
     await this.auditService.log({
@@ -227,6 +240,10 @@ export class RuleVersionsService {
       }
     }
 
+    if (existing.ruleType === 'tax' && dto.payload) {
+      this.validateTaxPayload(dto.payload);
+    }
+
     const effectiveFrom = dto.effectiveFrom
       ? this.parseDateOnly(dto.effectiveFrom)
       : existing.effectiveFrom;
@@ -280,6 +297,11 @@ export class RuleVersionsService {
     });
 
     const newView = this.toView(updated);
+
+    // Synchronize tax_brackets table if tax rule
+    if (existing.ruleType === 'tax') {
+      await this.syncTaxBracketTable(countryId, updated);
+    }
 
     // Audit log write
     await this.auditService.log({
@@ -335,6 +357,11 @@ export class RuleVersionsService {
 
     const newView = this.toView(updated);
 
+    // Synchronize tax_brackets table if tax rule
+    if (existing.ruleType === 'tax') {
+      await this.syncTaxBracketTable(countryId, updated);
+    }
+
     await this.auditService.log({
       userId,
       action: 'country_rule_version.publish',
@@ -371,6 +398,17 @@ export class RuleVersionsService {
     await this.prisma.unscoped.countryRule.delete({
       where: { id: versionId },
     });
+
+    // Delete synchronized tax_brackets record if tax rule
+    if (existing.ruleType === 'tax') {
+      await this.prisma.unscoped.taxBracket.deleteMany({
+        where: {
+          countryId,
+          stateProvinceId: existing.stateProvinceId,
+          version: existing.version,
+        },
+      });
+    }
 
     await this.auditService.log({
       userId,
@@ -627,5 +665,96 @@ export class RuleVersionsService {
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * Inline validation for Tax Rules (PAYROLL_LOGIC.md §10 & DATABASE_SCHEMA.md §8):
+   * Contiguous, ascending, non-overlapping bracket table; open-ended last bracket.
+   */
+  private validateTaxPayload(payload: Record<string, unknown>): void {
+    if (!payload || typeof payload !== 'object') return;
+
+    // 1. Unified / Default Brackets validation
+    if (Array.isArray(payload.brackets)) {
+      const res = validateTaxBrackets(payload.brackets as TaxBracketRow[]);
+      if (!res.isValid) {
+        throw new BadRequestException({
+          code: 'INVALID_TAX_BRACKETS',
+          message: res.summaryError || 'Invalid tax brackets structure.',
+          details: res.errors,
+        });
+      }
+    }
+
+    // 2. Filing Status variants validation
+    if (payload.hasFilingStatuses && Array.isArray(payload.filingStatuses)) {
+      for (const fs of payload.filingStatuses as FilingStatusTaxConfig[]) {
+        if (Array.isArray(fs.brackets)) {
+          const res = validateTaxBrackets(fs.brackets);
+          if (!res.isValid) {
+            throw new BadRequestException({
+              code: 'INVALID_TAX_BRACKETS',
+              message: `Filing Status "${fs.label || fs.statusKey}": ${res.summaryError}`,
+              details: res.errors,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Synchronize published or draft tax rule to tax_brackets table.
+   */
+  private async syncTaxBracketTable(
+    countryId: string,
+    rule: CountryRule,
+  ): Promise<void> {
+    if (rule.ruleType !== 'tax') return;
+    const payload = (rule.payload as Record<string, unknown>) || {};
+    const taxYear =
+      typeof payload.taxYear === 'number'
+        ? payload.taxYear
+        : rule.effectiveFrom.getFullYear();
+
+    const existing = await this.prisma.unscoped.taxBracket.findFirst({
+      where: {
+        countryId,
+        stateProvinceId: rule.stateProvinceId,
+        version: rule.version,
+      },
+    });
+
+    if (existing) {
+      await this.prisma.unscoped.taxBracket.update({
+        where: { id: existing.id },
+        data: {
+          taxYear,
+          bracketJson: rule.payload as Prisma.InputJsonValue,
+          effectiveFrom: rule.effectiveFrom,
+          effectiveTo: rule.effectiveTo,
+          status: rule.status,
+          sourceReference: rule.sourceReference,
+          changeNote: rule.changeNote,
+          createdBy: rule.createdBy,
+        },
+      });
+    } else {
+      await this.prisma.unscoped.taxBracket.create({
+        data: {
+          countryId,
+          stateProvinceId: rule.stateProvinceId,
+          taxYear,
+          bracketJson: rule.payload as Prisma.InputJsonValue,
+          effectiveFrom: rule.effectiveFrom,
+          effectiveTo: rule.effectiveTo,
+          status: rule.status,
+          sourceReference: rule.sourceReference,
+          changeNote: rule.changeNote,
+          createdBy: rule.createdBy,
+          version: rule.version,
+        },
+      });
+    }
   }
 }
