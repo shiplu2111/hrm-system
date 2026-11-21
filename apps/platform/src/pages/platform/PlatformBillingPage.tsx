@@ -27,6 +27,7 @@ import { listPlatformPlans } from '@/lib/plans-api';
 import { PlanEditorModal } from '@/components/plans/PlanEditorModal';
 import { FeatureMatrixGrid } from '@/components/plans/FeatureMatrixGrid';
 import { SubscriptionsList } from '@/components/subscriptions/SubscriptionsList';
+import { InvoicesList } from '@/components/invoices/InvoicesList';
 
 type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue' | 'Failed';
 
@@ -507,77 +508,7 @@ export function PlatformBillingPage() {
       )}
 
       {/* Section 4: Cross-Tenant Invoices */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex flex-col gap-4 border-b border-slate-200 p-5 dark:border-slate-800 xl:flex-row xl:items-center xl:justify-between">
-          <SectionTitle
-            title="Cross-tenant invoices"
-            detail={`${filteredInvoices.length} invoices shown across all subscription accounts.`}
-          />
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search tenant or invoice…"
-                className="h-10 w-full rounded-xl border border-slate-200 bg-transparent pl-9 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 sm:w-64"
-              />
-            </div>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value as 'All' | InvoiceStatus)}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-950"
-            >
-              {invoiceStatuses.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <button
-              onClick={exportInvoices}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500 transition"
-            >
-              <Download className="h-4 w-4" /> Export
-            </button>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 dark:bg-slate-950/50">
-              <tr>
-                <th className="px-5 py-3">Tenant</th>
-                <th className="px-4 py-3">Invoice</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.invoice} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
-                  <td className="px-5 py-4 text-sm font-bold">{invoice.tenant}</td>
-                  <td className="px-4 py-4 font-mono text-xs text-indigo-600 dark:text-indigo-300">
-                    {invoice.invoice}
-                  </td>
-                  <td className="px-4 py-4 text-sm font-extrabold">${invoice.amount.toLocaleString()}</td>
-                  <td className="px-4 py-4">
-                    <span className={`rounded-md border px-2 py-1 text-[10px] font-bold ${statusTone[invoice.status]}`}>
-                      {invoice.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-xs text-slate-500">{invoice.date}</td>
-                </tr>
-              ))}
-              {filteredInvoices.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-10 text-center text-sm text-slate-500">
-                    No invoices match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <InvoicesList />
         </div>
       )}
 

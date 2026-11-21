@@ -75,6 +75,14 @@ export class StorageService {
     return buildStorageKey(tenantId, 'offer-letters', offerLetterId, originalFilename);
   }
 
+  buildInvoicePdfKey(
+    tenantId: string,
+    invoiceId: string,
+    originalFilename = 'invoice.pdf',
+  ): string {
+    return buildStorageKey(tenantId, 'invoices', invoiceId, originalFilename);
+  }
+
   async upload(
     key: string,
     file: Buffer,

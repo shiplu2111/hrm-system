@@ -360,5 +360,79 @@ export interface PlatformCancelSubscriptionRequest {
   reason: string;
 }
 
+export interface CreditNoteView {
+  id: string;
+  tenantId: string;
+  invoiceId: string;
+  creditNoteNumber: string;
+  amount: number;
+  currency: string;
+  reason: string;
+  status: string;
+  issuedBy: string;
+  issuedAt: string;
+  createdAt: string;
+}
+
+export interface PlatformInvoiceListItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSubdomain: string;
+  subscriptionId: string | null;
+  invoiceNumber: string;
+  currency: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  amountPaid: number;
+  amountDue: number;
+  status: InvoiceStatus;
+  billingReason: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  paidAt: string | null;
+  pdfKey: string | null;
+  paidReason: string | null;
+  paymentMethod: string | null;
+  createdAt: string;
+}
+
+export interface PlatformInvoiceDetailView extends PlatformInvoiceListItem {
+  lines: InvoiceLineView[];
+  payments: PaymentRecordView[];
+  creditNotes: CreditNoteView[];
+  pdfUrl: string | null;
+}
+
+export interface MarkInvoicePaidRequest {
+  reason: string;
+  paymentMethod?: string;
+  reference?: string;
+}
+
+export interface IssueCreditNoteRequest {
+  amount: number;
+  reason: string;
+}
+
+export interface ResendInvoiceEmailRequest {
+  recipientEmail?: string;
+}
+
+export interface QueryInvoicesFilter {
+  tenantId?: string;
+  search?: string;
+  status?: InvoiceStatus;
+  fromDate?: string;
+  toDate?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  page?: number;
+  limit?: number;
+}
+
+
 
 

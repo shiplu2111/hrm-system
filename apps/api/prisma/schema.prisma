@@ -172,6 +172,7 @@ model Tenant {
   invoices                    Invoice[]
   invoiceLines                InvoiceLine[]
   payments                    Payment[]
+  creditNotes                 CreditNote[]
 
   @@map("tenants")
 }
@@ -5918,6 +5919,9 @@ model Invoice {
   periodEnd      DateTime      @map("period_end")
   dueDate        DateTime      @map("due_date")
   paidAt         DateTime?     @map("paid_at")
+  pdfKey         String?       @map("pdf_key")
+  paidReason     String?       @map("paid_reason") @db.Text
+  paymentMethod  String?       @map("payment_method") @db.VarChar(50)
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
@@ -5925,6 +5929,7 @@ model Invoice {
   subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   lines        InvoiceLine[]
   payments     Payment[]
+  creditNotes  CreditNote[]
 
   @@index([tenantId])
   @@index([subscriptionId])
@@ -5993,6 +5998,29 @@ model PaymentEvent {
   @@index([provider, eventType])
   @@map("payment_events")
 }
+
+model CreditNote {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  invoiceId        String   @map("invoice_id") @db.Uuid
+  creditNoteNumber String   @unique @map("credit_note_number")
+  amount           Decimal  @db.Decimal(14, 2)
+  currency         String   @default("USD") @db.VarChar(3)
+  reason           String   @db.Text
+  status           String   @default("issued") @db.VarChar(50)
+  issuedBy         String   @map("issued_by") @db.VarChar(255)
+  issuedAt         DateTime @default(now()) @map("issued_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([creditNoteNumber])
+  @@map("credit_notes")
+}
+
 
 
 
