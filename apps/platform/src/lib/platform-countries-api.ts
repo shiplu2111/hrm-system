@@ -1,8 +1,12 @@
 import type {
+  CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleKind,
   CountryRuleRecord,
+  CountryStatus,
   CountrySummary,
+  CreateStateProvinceInput,
+  StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
 import { apiRequest } from './api-client';
@@ -19,17 +23,79 @@ export function getCountryConfiguration(
   );
 }
 
+export function getCountryConfigStatus(
+  countryId: string,
+): Promise<CountryConfigStatusView> {
+  return apiRequest<CountryConfigStatusView>(
+    `/platform/countries/${countryId}/config-status`,
+  );
+}
+
 export function createCountry(input: {
   name: string;
   isoCode: string;
   currency: string;
   timezone: string;
   dateFormat: string;
+  numberFormat?: string;
+  defaultFinancialYearStart?: string;
+  defaultPayFrequency?: string;
+  status?: CountryStatus;
 }): Promise<CountrySummary> {
   return apiRequest<CountrySummary>('/platform/countries', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function updateCountry(
+  countryId: string,
+  input: {
+    name?: string;
+    currency?: string;
+    timezone?: string;
+    dateFormat?: string;
+    numberFormat?: string;
+    defaultFinancialYearStart?: string;
+    defaultPayFrequency?: string;
+    status?: CountryStatus;
+  },
+): Promise<CountrySummary> {
+  return apiRequest<CountrySummary>(`/platform/countries/${countryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listStates(countryId: string): Promise<StateProvinceView[]> {
+  return apiRequest<StateProvinceView[]>(
+    `/platform/countries/${countryId}/states`,
+  );
+}
+
+export function createState(
+  countryId: string,
+  input: CreateStateProvinceInput,
+): Promise<StateProvinceView> {
+  return apiRequest<StateProvinceView>(
+    `/platform/countries/${countryId}/states`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteState(
+  countryId: string,
+  stateId: string,
+): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>(
+    `/platform/countries/${countryId}/states/${stateId}`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 export function updateTaxBracket(

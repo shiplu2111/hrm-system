@@ -1,30 +1,50 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CountryRuleType, Prisma } from '@prisma/client';
+import { CountryRuleType, CountryStatus, Prisma, RuleVersionStatus } from '@prisma/client';
 import type {
+  CountryConfigCategoryStatus,
+  CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleKind,
   CountryRuleRecord,
   CountrySummary,
+  StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import type {
   CreateCountryDto,
+  CreateStateProvinceDto,
   UpdateCountryDto,
   UpsertCountryRuleDto,
   UpsertTaxBracketDto,
 } from './dto/country-config.dto';
 
 const CONFIGURABLE_RULE_TYPES: CountryRuleKind[] = [
+  'tax',
   'leave',
   'ot',
   'social_security',
   'public_holiday',
   'health_safety',
+  'employment_rules',
+];
+
+const REQUIRED_CATEGORIES: { category: CountryRuleKind; label: string }[] = [
+  { category: 'tax', label: 'Tax Brackets / Rates' },
+  { category: 'leave', label: 'Leave Entitlements & Policies' },
+  { category: 'ot', label: 'Overtime & Working Hours' },
+  { category: 'public_holiday', label: 'Public Holidays' },
+  { category: 'employment_rules', label: 'Employment & Statutory Rules' },
+];
+
+const OPTIONAL_CATEGORIES: { category: CountryRuleKind; label: string }[] = [
+  { category: 'social_security', label: 'Social Security / Pension' },
+  { category: 'health_safety', label: 'Workplace Health & Safety' },
 ];
 
 @Injectable()
@@ -36,15 +56,14 @@ export class CountriesService {
       orderBy: { name: 'asc' },
       include: {
         companies: { select: { tenantId: true } },
+        statesProvinces: { select: { id: true } },
         countryRules: {
-          select: { updatedAt: true },
+          select: { ruleType: true, status: true, updatedAt: true, effectiveFrom: true },
           orderBy: { updatedAt: 'desc' },
-          take: 1,
         },
         taxBrackets: {
-          select: { updatedAt: true },
+          select: { status: true, updatedAt: true, effectiveFrom: true },
           orderBy: { updatedAt: 'desc' },
-          take: 1,
         },
       },
     });
@@ -59,23 +78,164 @@ export class CountriesService {
             : latestTax
           : latestRule ?? latestTax;
 
+      // Calculate category completeness
+      const publishedRules = country.countryRules.filter((r) => r.status === 'published');
+      const publishedTaxBrackets = country.taxBrackets.filter((tb) => tb.status === 'published');
+
+      const missingCategories: string[] = [];
+      let completedRequiredCount = 0;
+
+      for (const req of REQUIRED_CATEGORIES) {
+        let complete = false;
+        if (req.category === 'tax') {
+          complete =
+            publishedTaxBrackets.length > 0 ||
+            publishedRules.some((r) => r.ruleType === 'tax');
+        } else {
+          complete = publishedRules.some((r) => r.ruleType === (req.category as CountryRuleType));
+        }
+
+        if (complete) {
+          completedRequiredCount++;
+        } else {
+          missingCategories.push(req.category);
+        }
+      }
+
       return {
         id: country.id,
         name: country.name,
         isoCode: country.isoCode,
         currency: country.currency,
         timezone: country.timezone,
+        defaultTimezone: country.timezone,
         dateFormat: country.dateFormat,
         numberFormat: country.numberFormat,
-        tenantCount: new Set(country.companies.map((company) => company.tenantId))
-          .size,
+        defaultFinancialYearStart: country.defaultFinancialYearStart,
+        defaultPayFrequency: country.defaultPayFrequency,
+        status: country.status,
+        tenantCount: new Set(country.companies.map((company) => company.tenantId)).size,
+        statesCount: country.statesProvinces.length,
         lastRuleUpdate: lastRuleUpdate?.toISOString() ?? null,
+        configStatus: {
+          isReadyForActivation: missingCategories.length === 0,
+          completedRequiredCount,
+          totalRequiredCount: REQUIRED_CATEGORIES.length,
+          missingCategories,
+        },
       };
     });
   }
 
+  async getCountryConfigStatus(countryId: string): Promise<CountryConfigStatusView> {
+    const country = await this.prisma.unscoped.country.findUnique({
+      where: { id: countryId },
+      include: {
+        taxBrackets: {
+          where: { status: 'published' },
+          orderBy: { effectiveFrom: 'desc' },
+        },
+        countryRules: {
+          where: { status: 'published' },
+          orderBy: { effectiveFrom: 'desc' },
+        },
+      },
+    });
+
+    if (!country) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Country not found',
+      });
+    }
+
+    const missingCategories: string[] = [];
+    const categories: CountryConfigCategoryStatus[] = [];
+
+    for (const req of REQUIRED_CATEGORIES) {
+      let complete = false;
+      let ruleCount = 0;
+      let latestEffectiveFrom: string | null = null;
+
+      if (req.category === 'tax') {
+        const taxRules = country.countryRules.filter((r) => r.ruleType === 'tax');
+        ruleCount = taxRules.length + country.taxBrackets.length;
+        complete = ruleCount > 0;
+        const latestBracket = country.taxBrackets[0]?.effectiveFrom;
+        const latestRule = taxRules[0]?.effectiveFrom;
+        const latest =
+          latestBracket && latestRule
+            ? latestBracket > latestRule
+              ? latestBracket
+              : latestRule
+            : latestBracket ?? latestRule;
+        latestEffectiveFrom = latest ? latest.toISOString().slice(0, 10) : null;
+      } else {
+        const rules = country.countryRules.filter(
+          (r) => r.ruleType === (req.category as CountryRuleType),
+        );
+        ruleCount = rules.length;
+        complete = ruleCount > 0;
+        latestEffectiveFrom = rules[0]?.effectiveFrom
+          ? rules[0].effectiveFrom.toISOString().slice(0, 10)
+          : null;
+      }
+
+      if (!complete) {
+        missingCategories.push(req.category);
+      }
+
+      categories.push({
+        category: req.category,
+        label: req.label,
+        required: true,
+        complete,
+        ruleCount,
+        latestEffectiveFrom,
+        status: complete ? 'published' : undefined,
+      });
+    }
+
+    for (const opt of OPTIONAL_CATEGORIES) {
+      const rules = country.countryRules.filter(
+        (r) => r.ruleType === (opt.category as CountryRuleType),
+      );
+      const ruleCount = rules.length;
+      categories.push({
+        category: opt.category,
+        label: opt.label,
+        required: false,
+        complete: ruleCount > 0,
+        ruleCount,
+        latestEffectiveFrom: rules[0]?.effectiveFrom
+          ? rules[0].effectiveFrom.toISOString().slice(0, 10)
+          : null,
+        status: ruleCount > 0 ? 'published' : undefined,
+      });
+    }
+
+    return {
+      countryId: country.id,
+      countryName: country.name,
+      isoCode: country.isoCode,
+      status: country.status,
+      isReadyForActivation: missingCategories.length === 0,
+      missingCategories,
+      categories,
+    };
+  }
+
   async createCountry(dto: CreateCountryDto): Promise<CountrySummary> {
     const isoCode = dto.isoCode.trim().toUpperCase();
+
+    if (dto.status === 'active') {
+      throw new BadRequestException({
+        code: 'CANNOT_ACTIVATE_INCOMPLETE_COUNTRY',
+        message:
+          'A new country cannot be set to active immediately: all required rule categories (tax, leave, overtime/working hours, public holidays, employment rules) must have at least one published rule version first.',
+        missingCategories: REQUIRED_CATEGORIES.map((c) => c.category),
+      });
+    }
 
     try {
       const country = await this.prisma.unscoped.country.create({
@@ -86,6 +246,9 @@ export class CountriesService {
           timezone: dto.timezone.trim(),
           dateFormat: dto.dateFormat.trim(),
           numberFormat: dto.numberFormat?.trim() ?? '1,234.56',
+          defaultFinancialYearStart: dto.defaultFinancialYearStart?.trim() ?? '01-01',
+          defaultPayFrequency: dto.defaultPayFrequency?.trim() ?? 'monthly',
+          status: dto.status ?? 'draft',
         },
       });
 
@@ -95,10 +258,21 @@ export class CountriesService {
         isoCode: country.isoCode,
         currency: country.currency,
         timezone: country.timezone,
+        defaultTimezone: country.timezone,
         dateFormat: country.dateFormat,
         numberFormat: country.numberFormat,
+        defaultFinancialYearStart: country.defaultFinancialYearStart,
+        defaultPayFrequency: country.defaultPayFrequency,
+        status: country.status,
         tenantCount: 0,
+        statesCount: 0,
         lastRuleUpdate: null,
+        configStatus: {
+          isReadyForActivation: false,
+          completedRequiredCount: 0,
+          totalRequiredCount: REQUIRED_CATEGORIES.length,
+          missingCategories: REQUIRED_CATEGORIES.map((c) => c.category),
+        },
       };
     } catch (error) {
       if (
@@ -120,6 +294,17 @@ export class CountriesService {
   ): Promise<CountrySummary> {
     await this.assertCountryExists(countryId);
 
+    if (dto.status === 'active') {
+      const configStatus = await this.getCountryConfigStatus(countryId);
+      if (!configStatus.isReadyForActivation) {
+        throw new BadRequestException({
+          code: 'CANNOT_ACTIVATE_INCOMPLETE_COUNTRY',
+          message: `Country cannot be set to active: missing published rule version for required categories: ${configStatus.missingCategories.join(', ')}`,
+          missingCategories: configStatus.missingCategories,
+        });
+      }
+    }
+
     const country = await this.prisma.unscoped.country.update({
       where: { id: countryId },
       data: {
@@ -132,18 +317,24 @@ export class CountriesService {
         ...(dto.numberFormat != null
           ? { numberFormat: dto.numberFormat.trim() }
           : {}),
+        ...(dto.defaultFinancialYearStart != null
+          ? { defaultFinancialYearStart: dto.defaultFinancialYearStart.trim() }
+          : {}),
+        ...(dto.defaultPayFrequency != null
+          ? { defaultPayFrequency: dto.defaultPayFrequency.trim() }
+          : {}),
+        ...(dto.status != null ? { status: dto.status } : {}),
       },
       include: {
         companies: { select: { tenantId: true } },
+        statesProvinces: { select: { id: true } },
         countryRules: {
-          select: { updatedAt: true },
+          select: { ruleType: true, status: true, updatedAt: true, effectiveFrom: true },
           orderBy: { updatedAt: 'desc' },
-          take: 1,
         },
         taxBrackets: {
-          select: { updatedAt: true },
+          select: { status: true, updatedAt: true, effectiveFrom: true },
           orderBy: { updatedAt: 'desc' },
-          take: 1,
         },
       },
     });
@@ -151,17 +342,50 @@ export class CountriesService {
     const latestRule = country.countryRules[0]?.updatedAt ?? null;
     const latestTax = country.taxBrackets[0]?.updatedAt ?? null;
 
+    const publishedRules = country.countryRules.filter((r) => r.status === 'published');
+    const publishedTaxBrackets = country.taxBrackets.filter((tb) => tb.status === 'published');
+
+    const missingCategories: string[] = [];
+    let completedRequiredCount = 0;
+
+    for (const req of REQUIRED_CATEGORIES) {
+      let complete = false;
+      if (req.category === 'tax') {
+        complete =
+          publishedTaxBrackets.length > 0 ||
+          publishedRules.some((r) => r.ruleType === 'tax');
+      } else {
+        complete = publishedRules.some((r) => r.ruleType === (req.category as CountryRuleType));
+      }
+
+      if (complete) {
+        completedRequiredCount++;
+      } else {
+        missingCategories.push(req.category);
+      }
+    }
+
     return {
       id: country.id,
       name: country.name,
       isoCode: country.isoCode,
       currency: country.currency,
       timezone: country.timezone,
+      defaultTimezone: country.timezone,
       dateFormat: country.dateFormat,
       numberFormat: country.numberFormat,
-      tenantCount: new Set(country.companies.map((company) => company.tenantId))
-        .size,
+      defaultFinancialYearStart: country.defaultFinancialYearStart,
+      defaultPayFrequency: country.defaultPayFrequency,
+      status: country.status,
+      tenantCount: new Set(country.companies.map((company) => company.tenantId)).size,
+      statesCount: country.statesProvinces.length,
       lastRuleUpdate: (latestRule ?? latestTax)?.toISOString() ?? null,
+      configStatus: {
+        isReadyForActivation: missingCategories.length === 0,
+        completedRequiredCount,
+        totalRequiredCount: REQUIRED_CATEGORIES.length,
+        missingCategories,
+      },
     };
   }
 
@@ -169,6 +393,7 @@ export class CountriesService {
     const country = await this.prisma.unscoped.country.findUnique({
       where: { id: countryId },
       include: {
+        statesProvinces: { orderBy: { name: 'asc' } },
         taxBrackets: { orderBy: [{ taxYear: 'desc' }, { effectiveFrom: 'desc' }] },
         countryRules: {
           where: {
@@ -186,6 +411,8 @@ export class CountriesService {
       });
     }
 
+    const configStatus = await this.getCountryConfigStatus(countryId);
+
     return {
       country: {
         id: country.id,
@@ -193,13 +420,104 @@ export class CountriesService {
         isoCode: country.isoCode,
         currency: country.currency,
         timezone: country.timezone,
+        defaultTimezone: country.timezone,
         dateFormat: country.dateFormat,
         numberFormat: country.numberFormat,
+        defaultFinancialYearStart: country.defaultFinancialYearStart,
+        defaultPayFrequency: country.defaultPayFrequency,
+        status: country.status,
       },
+      states: country.statesProvinces.map((s) => ({
+        id: s.id,
+        countryId: s.countryId,
+        name: s.name,
+        code: s.code,
+        createdAt: s.createdAt.toISOString(),
+        updatedAt: s.updatedAt.toISOString(),
+      })),
       taxBrackets: country.taxBrackets.map((row) => this.toTaxBracket(row)),
       rules: country.countryRules.map((row) => this.toCountryRule(row)),
+      configStatus,
     };
   }
+
+  // --- States / Provinces Management ---
+
+  async listStates(countryId: string): Promise<StateProvinceView[]> {
+    await this.assertCountryExists(countryId);
+    const states = await this.prisma.unscoped.stateProvince.findMany({
+      where: { countryId },
+      orderBy: { name: 'asc' },
+    });
+
+    return states.map((s) => ({
+      id: s.id,
+      countryId: s.countryId,
+      name: s.name,
+      code: s.code,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+    }));
+  }
+
+  async createState(
+    countryId: string,
+    dto: CreateStateProvinceDto,
+  ): Promise<StateProvinceView> {
+    await this.assertCountryExists(countryId);
+    const code = dto.code.trim().toUpperCase();
+    const name = dto.name.trim();
+
+    try {
+      const created = await this.prisma.unscoped.stateProvince.create({
+        data: {
+          countryId,
+          name,
+          code,
+        },
+      });
+
+      return {
+        id: created.id,
+        countryId: created.countryId,
+        name: created.name,
+        code: created.code,
+        createdAt: created.createdAt.toISOString(),
+        updatedAt: created.updatedAt.toISOString(),
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `State/province with code ${code} already exists for this country`,
+        });
+      }
+      throw error;
+    }
+  }
+
+  async deleteState(countryId: string, stateId: string): Promise<void> {
+    await this.assertCountryExists(countryId);
+    const state = await this.prisma.unscoped.stateProvince.findFirst({
+      where: { id: stateId, countryId },
+    });
+
+    if (!state) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'State/province not found',
+      });
+    }
+
+    await this.prisma.unscoped.stateProvince.delete({
+      where: { id: stateId },
+    });
+  }
+
+  // --- Tax Brackets & Rules ---
 
   async createTaxBracket(
     countryId: string,
@@ -219,6 +537,7 @@ export class CountriesService {
         effectiveTo: dto.effectiveTo
           ? this.parseDateOnly(dto.effectiveTo)
           : null,
+        status: dto.status ?? 'published',
       },
     });
 
@@ -241,6 +560,7 @@ export class CountriesService {
         effectiveTo: dto.effectiveTo
           ? this.parseDateOnly(dto.effectiveTo)
           : null,
+        ...(dto.status != null ? { status: dto.status } : {}),
       },
     });
 
@@ -268,6 +588,7 @@ export class CountriesService {
         effectiveTo: dto.effectiveTo
           ? this.parseDateOnly(dto.effectiveTo)
           : null,
+        status: dto.status ?? 'published',
       },
     });
 
@@ -281,6 +602,7 @@ export class CountriesService {
       payload?: Record<string, unknown>;
       effectiveFrom?: string;
       effectiveTo?: string | null;
+      status?: RuleVersionStatus;
     },
   ): Promise<CountryRuleRecord> {
     const existing = await this.assertCountryRuleOwned(countryId, ruleId);
@@ -301,6 +623,7 @@ export class CountriesService {
                 : null,
             }
           : {}),
+        ...(dto.status != null ? { status: dto.status } : {}),
       },
     });
 
@@ -431,6 +754,7 @@ export class CountriesService {
     bracketJson: unknown;
     effectiveFrom: Date;
     effectiveTo: Date | null;
+    status?: RuleVersionStatus;
   }): TaxBracketRecord {
     return {
       id: row.id,
@@ -439,6 +763,7 @@ export class CountriesService {
       bracketJson: row.bracketJson as Record<string, unknown>,
       effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
       effectiveTo: row.effectiveTo?.toISOString().slice(0, 10) ?? null,
+      status: row.status ?? 'published',
     };
   }
 
@@ -449,6 +774,7 @@ export class CountriesService {
     payload: unknown;
     effectiveFrom: Date;
     effectiveTo: Date | null;
+    status?: RuleVersionStatus;
   }): CountryRuleRecord {
     return {
       id: row.id,
@@ -457,6 +783,7 @@ export class CountriesService {
       payload: row.payload as Record<string, unknown>,
       effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
       effectiveTo: row.effectiveTo?.toISOString().slice(0, 10) ?? null,
+      status: row.status ?? 'published',
     };
   }
 }

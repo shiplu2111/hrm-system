@@ -3,14 +3,18 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsObject,
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
-import type { CountryRuleKind } from '@hrm/shared-types';
+import type {
+  CountryRuleKind,
+  CountryStatus,
+  RuleVersionStatus,
+} from '@hrm/shared-types';
 
 export class CreateCountryDto {
   @IsString()
@@ -37,6 +41,22 @@ export class CreateCountryDto {
   @IsString()
   @IsNotEmpty()
   numberFormat?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}-\d{2}$/, {
+    message: 'defaultFinancialYearStart must be MM-DD format, e.g. 01-01 or 07-01',
+  })
+  defaultFinancialYearStart?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['weekly', 'bi-weekly', 'semi-monthly', 'monthly', 'four-weekly'])
+  defaultPayFrequency?: string;
+
+  @IsOptional()
+  @IsIn(['draft', 'active', 'retired'])
+  status?: CountryStatus;
 }
 
 export class UpdateCountryDto {
@@ -64,6 +84,44 @@ export class UpdateCountryDto {
   @IsString()
   @IsNotEmpty()
   numberFormat?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}-\d{2}$/, {
+    message: 'defaultFinancialYearStart must be MM-DD format, e.g. 01-01 or 07-01',
+  })
+  defaultFinancialYearStart?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['weekly', 'bi-weekly', 'semi-monthly', 'monthly', 'four-weekly'])
+  defaultPayFrequency?: string;
+
+  @IsOptional()
+  @IsIn(['draft', 'active', 'retired'])
+  status?: CountryStatus;
+}
+
+export class CreateStateProvinceDto {
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @Length(1, 16)
+  code!: string;
+}
+
+export class UpdateStateProvinceDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 16)
+  code?: string;
 }
 
 export class UpsertTaxBracketDto {
@@ -72,7 +130,6 @@ export class UpsertTaxBracketDto {
   @Max(2200)
   taxYear!: number;
 
-  @IsObject()
   bracketJson!: Record<string, unknown>;
 
   @IsDateString()
@@ -81,14 +138,25 @@ export class UpsertTaxBracketDto {
   @IsOptional()
   @IsDateString()
   effectiveTo?: string;
+
+  @IsOptional()
+  @IsIn(['draft', 'published', 'archived'])
+  status?: RuleVersionStatus;
 }
 
 export class UpsertCountryRuleDto {
   @IsString()
-  @IsIn(['leave', 'ot', 'social_security', 'public_holiday', 'health_safety'])
+  @IsIn([
+    'tax',
+    'leave',
+    'ot',
+    'social_security',
+    'public_holiday',
+    'health_safety',
+    'employment_rules',
+  ])
   ruleType!: CountryRuleKind;
 
-  @IsObject()
   payload!: Record<string, unknown>;
 
   @IsDateString()
@@ -97,13 +165,15 @@ export class UpsertCountryRuleDto {
   @IsOptional()
   @IsDateString()
   effectiveTo?: string;
+
+  @IsOptional()
+  @IsIn(['draft', 'published', 'archived'])
+  status?: RuleVersionStatus;
 }
 
 export class UpdateTaxBracketDto extends UpsertTaxBracketDto {}
 
 export class UpdateCountryRuleDto {
-  @IsOptional()
-  @IsObject()
   payload?: Record<string, unknown>;
 
   @IsOptional()
@@ -113,4 +183,8 @@ export class UpdateCountryRuleDto {
   @IsOptional()
   @IsDateString()
   effectiveTo?: string | null;
+
+  @IsOptional()
+  @IsIn(['draft', 'published', 'archived'])
+  status?: RuleVersionStatus;
 }

@@ -44,8 +44,25 @@ enum CountryRuleType {
   social_security
   public_holiday
   health_safety
+  employment_rules
 
   @@map("country_rule_type")
+}
+
+enum CountryStatus {
+  draft
+  active
+  retired
+
+  @@map("country_status")
+}
+
+enum RuleVersionStatus {
+  draft
+  published
+  archived
+
+  @@map("rule_version_status")
 }
 
 model Tenant {
@@ -181,34 +198,54 @@ model Tenant {
 }
 
 model Country {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  isoCode      String   @unique @map("iso_code") @db.VarChar(3)
-  currency     String   @db.VarChar(3)
-  timezone     String
-  dateFormat   String   @map("date_format")
-  numberFormat String   @default("1,234.56") @map("number_format")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                        String        @id @default(uuid()) @db.Uuid
+  name                      String
+  isoCode                   String        @unique @map("iso_code") @db.VarChar(3)
+  currency                  String        @db.VarChar(3)
+  timezone                  String        @map("timezone")
+  dateFormat                String        @map("date_format")
+  numberFormat              String        @default("1,234.56") @map("number_format")
+  defaultFinancialYearStart String        @default("01-01") @map("default_financial_year_start") @db.VarChar(5)
+  defaultPayFrequency       String        @default("monthly") @map("default_pay_frequency") @db.VarChar(32)
+  status                    CountryStatus @default(draft) @map("status")
+  createdAt                 DateTime      @default(now()) @map("created_at")
+  updatedAt                 DateTime      @updatedAt @map("updated_at")
 
-  countryRules CountryRule[]
-  companies    Company[]
-  payrollRules PayrollRule[]
-  taxBrackets  TaxBracket[]
+  countryRules       CountryRule[]
+  companies          Company[]
+  payrollRules       PayrollRule[]
+  taxBrackets        TaxBracket[]
   stateProvinceRules StateProvinceRule[]
+  statesProvinces    StateProvince[]
 
   @@map("countries")
 }
 
+model StateProvince {
+  id        String   @id @default(uuid()) @db.Uuid
+  countryId String   @map("country_id") @db.Uuid
+  name      String
+  code      String   @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([countryId, code])
+  @@index([countryId])
+  @@map("states_provinces")
+}
+
 model CountryRule {
-  id            String          @id @default(uuid()) @db.Uuid
-  countryId     String          @map("country_id") @db.Uuid
-  ruleType      CountryRuleType @map("rule_type")
+  id            String            @id @default(uuid()) @db.Uuid
+  countryId     String            @map("country_id") @db.Uuid
+  ruleType      CountryRuleType   @map("rule_type")
   payload       Json
-  effectiveFrom DateTime        @map("effective_from") @db.Date
-  effectiveTo   DateTime?       @map("effective_to") @db.Date
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+  effectiveFrom DateTime          @map("effective_from") @db.Date
+  effectiveTo   DateTime?         @map("effective_to") @db.Date
+  status        RuleVersionStatus @default(published) @map("status")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
 
@@ -2761,14 +2798,15 @@ model PaymentBatchItem {
 // ---------------------------------------------------------------------------
 
 model TaxBracket {
-  id            String    @id @default(uuid()) @db.Uuid
-  countryId     String    @map("country_id") @db.Uuid
-  taxYear       Int       @map("tax_year")
-  bracketJson   Json      @map("bracket_json")
-  effectiveFrom DateTime  @map("effective_from") @db.Date
-  effectiveTo   DateTime? @map("effective_to") @db.Date
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id            String            @id @default(uuid()) @db.Uuid
+  countryId     String            @map("country_id") @db.Uuid
+  taxYear       Int               @map("tax_year")
+  bracketJson   Json              @map("bracket_json")
+  effectiveFrom DateTime          @map("effective_from") @db.Date
+  effectiveTo   DateTime?         @map("effective_to") @db.Date
+  status        RuleVersionStatus @default(published) @map("status")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
 

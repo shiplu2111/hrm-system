@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -15,9 +16,11 @@ import {
 } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
+  CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleRecord,
   CountrySummary,
+  StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
@@ -27,6 +30,7 @@ import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.gu
 import { CountriesService } from './countries.service';
 import {
   CreateCountryDto,
+  CreateStateProvinceDto,
   UpdateCountryDto,
   UpdateCountryRuleDto,
   UpsertCountryRuleDto,
@@ -58,6 +62,19 @@ export class CountriesController {
     return { data: await this.countriesService.createCountry(dto) };
   }
 
+  @Get(':countryId/config-status')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'Check readiness and completion of country rule categories',
+  })
+  async getCountryConfigStatus(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+  ): Promise<ApiEnvelope<CountryConfigStatusView>> {
+    return {
+      data: await this.countriesService.getCountryConfigStatus(countryId),
+    };
+  }
+
   @Get(':countryId/configuration')
   @RequirePlatformPermission('country', 'view')
   @ApiOperation({
@@ -78,6 +95,40 @@ export class CountriesController {
   ): Promise<ApiEnvelope<CountrySummary>> {
     return { data: await this.countriesService.updateCountry(countryId, dto) };
   }
+
+  // --- States / Provinces ---
+
+  @Get(':countryId/states')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'List states and provinces for a country' })
+  async listStates(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+  ): Promise<ApiEnvelope<StateProvinceView[]>> {
+    return { data: await this.countriesService.listStates(countryId) };
+  }
+
+  @Post(':countryId/states')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Add a state/province to a country' })
+  async createState(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Body() dto: CreateStateProvinceDto,
+  ): Promise<ApiEnvelope<StateProvinceView>> {
+    return { data: await this.countriesService.createState(countryId, dto) };
+  }
+
+  @Delete(':countryId/states/:stateId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Remove a state/province' })
+  async deleteState(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('stateId', ParseUUIDPipe) stateId: string,
+  ): Promise<ApiEnvelope<{ success: boolean }>> {
+    await this.countriesService.deleteState(countryId, stateId);
+    return { data: { success: true } };
+  }
+
+  // --- Tax Brackets ---
 
   @Post(':countryId/tax-brackets')
   @RequirePlatformPermission('country', 'edit')
@@ -108,10 +159,12 @@ export class CountriesController {
     };
   }
 
+  // --- Country Rules ---
+
   @Post(':countryId/rules')
   @RequirePlatformPermission('country', 'edit')
   @ApiOperation({
-    summary: 'Create leave / OT / social security / public holiday rule version',
+    summary: 'Create leave / OT / social security / public holiday / employment rule version',
   })
   async createCountryRule(
     @Param('countryId', ParseUUIDPipe) countryId: string,
@@ -139,4 +192,3 @@ export class CountriesController {
     };
   }
 }
-

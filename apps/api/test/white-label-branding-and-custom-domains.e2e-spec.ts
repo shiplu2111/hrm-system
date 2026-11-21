@@ -4,6 +4,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
+import { closeRedisConnection } from '../src/queue/redis.connection';
 
 describe('White-Label Branding & Custom Domain Support (E2E Integration)', () => {
   let app: INestApplication;
@@ -115,6 +116,7 @@ describe('White-Label Branding & Custom Domain Support (E2E Integration)', () =>
       }).catch(() => null);
     }
     await app.close();
+    await closeRedisConnection();
   });
 
   describe('1. Tenant Branding (Logo, Colors, Email Sender Name & Address)', () => {
