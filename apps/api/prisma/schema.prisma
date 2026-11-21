@@ -45,6 +45,11 @@ enum CountryRuleType {
   public_holiday
   health_safety
   employment_rules
+  pension
+  working_hours
+  payroll
+  termination
+  compliance
 
   @@map("country_rule_type")
 }
@@ -59,7 +64,9 @@ enum CountryStatus {
 
 enum RuleVersionStatus {
   draft
+  pending_approval
   published
+  superseded
   archived
 
   @@map("rule_version_status")
@@ -237,9 +244,10 @@ model StateProvince {
   createdAt DateTime            @default(now()) @map("created_at")
   updatedAt DateTime            @updatedAt @map("updated_at")
 
-  country   Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  companies Company[]
-  locations Location[]
+  country      Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  companies    Company[]
+  locations    Location[]
+  countryRules CountryRule[]
 
   @@unique([countryId, code])
   @@index([countryId])
@@ -247,19 +255,28 @@ model StateProvince {
 }
 
 model CountryRule {
-  id            String            @id @default(uuid()) @db.Uuid
-  countryId     String            @map("country_id") @db.Uuid
-  ruleType      CountryRuleType   @map("rule_type")
-  payload       Json
-  effectiveFrom DateTime          @map("effective_from") @db.Date
-  effectiveTo   DateTime?         @map("effective_to") @db.Date
-  status        RuleVersionStatus @default(published) @map("status")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
+  id              String            @id @default(uuid()) @db.Uuid
+  countryId       String            @map("country_id") @db.Uuid
+  stateProvinceId String?           @map("state_province_id") @db.Uuid
+  ruleType        CountryRuleType   @map("rule_type")
+  version         Int               @default(1) @map("version")
+  payload         Json
+  effectiveFrom   DateTime          @map("effective_from") @db.Date
+  effectiveTo     DateTime?         @map("effective_to") @db.Date
+  status          RuleVersionStatus @default(draft) @map("status")
+  sourceReference String            @default("") @map("source_reference")
+  changeNote      String            @default("") @map("change_note")
+  createdBy       String            @default("system") @map("created_by")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  country       Country        @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  stateProvince StateProvince? @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)
 
   @@index([countryId])
+  @@index([stateProvinceId])
+  @@index([countryId, ruleType, status])
+  @@index([countryId, stateProvinceId, ruleType, status])
   @@index([countryId, ruleType, effectiveFrom])
   @@map("country_rules")
 }
@@ -2814,15 +2831,19 @@ model PaymentBatchItem {
 // ---------------------------------------------------------------------------
 
 model TaxBracket {
-  id            String            @id @default(uuid()) @db.Uuid
-  countryId     String            @map("country_id") @db.Uuid
-  taxYear       Int               @map("tax_year")
-  bracketJson   Json              @map("bracket_json")
-  effectiveFrom DateTime          @map("effective_from") @db.Date
-  effectiveTo   DateTime?         @map("effective_to") @db.Date
-  status        RuleVersionStatus @default(published) @map("status")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
+  id              String            @id @default(uuid()) @db.Uuid
+  countryId       String            @map("country_id") @db.Uuid
+  taxYear         Int               @map("tax_year")
+  bracketJson     Json              @map("bracket_json")
+  effectiveFrom   DateTime          @map("effective_from") @db.Date
+  effectiveTo     DateTime?         @map("effective_to") @db.Date
+  status          RuleVersionStatus @default(published) @map("status")
+  sourceReference String            @default("") @map("source_reference")
+  changeNote      String            @default("") @map("change_note")
+  createdBy       String            @default("system") @map("created_by")
+  version         Int               @default(1) @map("version")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
 

@@ -61,6 +61,7 @@ import type {
   UpdateStateProvinceInput,
 } from '@hrm/shared-types';
 import { Modal } from '@/components/ui/Modal';
+import { RuleVersionEditor } from '../rules/RuleVersionEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -130,6 +131,7 @@ export const ALL_TABS: {
     key: 'Pension',
     label: 'Pension',
     icon: Landmark,
+    categoryKind: 'pension',
     isRequired: false,
     stageCode: 'Stage C.03',
     stageName: 'Superannuation & Statutory Pension Schemes',
@@ -149,6 +151,7 @@ export const ALL_TABS: {
     key: 'Working Hours',
     label: 'Working Hours',
     icon: Clock,
+    categoryKind: 'working_hours',
     isRequired: true,
     stageCode: 'Stage C.05',
     stageName: 'Standard Working Hours & Break Regulations',
@@ -178,6 +181,7 @@ export const ALL_TABS: {
     key: 'Payroll',
     label: 'Payroll',
     icon: CreditCard,
+    categoryKind: 'payroll',
     isRequired: true,
     stageCode: 'Stage C.08',
     stageName: 'Statutory Payroll Processing & Cycle Rules',
@@ -197,6 +201,7 @@ export const ALL_TABS: {
     key: 'Termination',
     label: 'Termination',
     icon: UserMinus,
+    categoryKind: 'termination',
     isRequired: true,
     stageCode: 'Stage C.10',
     stageName: 'Termination, Notice Periods & Severance Schemes',
@@ -206,7 +211,7 @@ export const ALL_TABS: {
     key: 'Compliance',
     label: 'Compliance',
     icon: Scale,
-    categoryKind: 'health_safety',
+    categoryKind: 'compliance',
     isRequired: false,
     stageCode: 'Stage C.11',
     stageName: 'Jurisdictional Regulatory Audits & Workplace Safety',
@@ -1632,8 +1637,6 @@ function LinkedStageTabPanel({
   country,
   configuration,
   completeness,
-  onSaveRule,
-  onSaveTaxBracket,
   onRefresh,
 }: {
   tab: (typeof ALL_TABS)[number];
@@ -1655,59 +1658,21 @@ function LinkedStageTabPanel({
   onRefresh: () => Promise<void>;
 }) {
   const Icon = tab.icon;
-  const [jsonText, setJsonText] = useState('');
-  const [effectiveFrom, setEffectiveFrom] = useState('2024-07-01');
-  const [savingRule, setSavingRule] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Find relevant rule or tax bracket
-  const relevantRule = useMemo(() => {
-    if (!configuration || !tab.categoryKind) return null;
-    return configuration.rules.find((r) => r.ruleType === tab.categoryKind) || null;
-  }, [configuration, tab.categoryKind]);
-
-  const relevantTaxBracket = useMemo(() => {
-    if (!configuration || tab.key !== 'Tax') return null;
-    return configuration.taxBrackets[0] || null;
-  }, [configuration, tab.key]);
-
-  useEffect(() => {
-    if (tab.key === 'Tax') {
-      if (relevantTaxBracket) {
-        setJsonText(JSON.stringify(relevantTaxBracket.bracketJson, null, 2));
-        setEffectiveFrom(relevantTaxBracket.effectiveFrom.slice(0, 10));
-      } else {
-        setJsonText(
-          JSON.stringify(
-            {
-              currency: country.currency,
-              taxYear: new Date().getFullYear(),
-              brackets: [
-                { threshold: 0, rate: 0.0, baseAmount: 0 },
-                { threshold: 18200, rate: 0.16, baseAmount: 0 },
-                { threshold: 45000, rate: 0.3, baseAmount: 4288 },
-                { threshold: 135000, rate: 0.37, baseAmount: 31288 },
-                { threshold: 190000, rate: 0.45, baseAmount: 51638 },
-              ],
-            },
-            null,
-            2,
-          ),
-        );
-      }
-    } else if (relevantRule) {
-      setJsonText(JSON.stringify(relevantRule.payload, null, 2));
-      setEffectiveFrom(relevantRule.effectiveFrom.slice(0, 10));
-    } else {
-      // Default sample payload based on tab
-      const sample = getDefaultPayloadForTab(tab.key);
-      setJsonText(JSON.stringify(sample, null, 2));
-    }
-  }, [tab.key, relevantRule, relevantTaxBracket, country.currency]);
 
   function getDefaultPayloadForTab(key: CountryDetailTab): Record<string, unknown> {
     switch (key) {
+      case 'Tax':
+        return {
+          currency: country.currency,
+          taxYear: new Date().getFullYear(),
+          brackets: [
+            { threshold: 0, rate: 0.0, baseAmount: 0 },
+            { threshold: 18200, rate: 0.16, baseAmount: 0 },
+            { threshold: 45000, rate: 0.3, baseAmount: 4288 },
+            { threshold: 135000, rate: 0.37, baseAmount: 31288 },
+            { threshold: 190000, rate: 0.45, baseAmount: 51638 },
+          ],
+        };
       case 'Leave':
         return {
           annual_leave_days: 20,
@@ -1771,32 +1736,6 @@ function LinkedStageTabPanel({
         return { configured: true };
     }
   }
-
-  const handleSave = async () => {
-    setSaveError(null);
-    try {
-      setSavingRule(true);
-      const parsed = JSON.parse(jsonText);
-
-      if (tab.key === 'Tax' && onSaveTaxBracket) {
-        await onSaveTaxBracket({
-          taxYear: new Date().getFullYear(),
-          bracketJson: parsed,
-          effectiveFrom,
-        });
-      } else if (tab.categoryKind && onSaveRule) {
-        await onSaveRule(tab.categoryKind, parsed, effectiveFrom);
-      }
-
-      setSaveSuccess(true);
-      await onRefresh();
-      setTimeout(() => setSaveSuccess(false), 2500);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Failed to parse JSON or save rule.');
-    } finally {
-      setSavingRule(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -1869,76 +1808,16 @@ function LinkedStageTabPanel({
         </div>
       </div>
 
-      {/* Rule Payload & Version Configuration */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Effective Rule Definition & Version Parameters
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Statutory parameters stored in PostgreSQL and resolved at calculation time based on pay period dates.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-bold text-slate-600 dark:text-slate-400">
-              Effective From:
-            </label>
-            <input
-              type="date"
-              value={effectiveFrom}
-              onChange={(e) => setEffectiveFrom(e.target.value)}
-              className="h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 text-xs font-mono font-bold focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {saveSuccess && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <span>Rule version updated successfully!</span>
-          </div>
-        )}
-
-        {saveError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-600 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300 flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 shrink-0" />
-            <span>{saveError}</span>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-            Rule Payload (JSON Schema Definition)
-          </label>
-          <textarea
-            rows={10}
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-950 p-3 font-mono text-xs text-emerald-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
-
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-[11px] text-slate-400">
-            {tab.isRequired ? (
-              <span className="text-amber-500 font-semibold">⚠️ Mandatory statutory rule required for country activation.</span>
-            ) : (
-              <span>Optional jurisdiction module. Default fallback rules applied if omitted.</span>
-            )}
-          </span>
-
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={savingRule}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition disabled:opacity-60"
-          >
-            {savingRule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            Save & Publish Rule Version
-          </button>
-        </div>
-      </div>
+      {/* Reusable RuleVersion Framework Engine */}
+      <RuleVersionEditor
+        countryId={country.id}
+        countryName={country.name}
+        ruleType={tab.categoryKind || 'tax'}
+        ruleTitle={tab.stageName}
+        ruleDescription={tab.description}
+        defaultPayloadTemplate={getDefaultPayloadForTab(tab.key)}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 }

@@ -4,7 +4,12 @@ export type CountryStatus = 'draft' | 'active' | 'retired';
 
 export type StateProvinceStatus = 'active' | 'retired';
 
-export type RuleVersionStatus = 'draft' | 'published' | 'archived';
+export type RuleVersionStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'published'
+  | 'superseded'
+  | 'archived';
 
 export type CountryRuleKind =
   | 'tax'
@@ -13,7 +18,80 @@ export type CountryRuleKind =
   | 'social_security'
   | 'public_holiday'
   | 'health_safety'
-  | 'employment_rules';
+  | 'employment_rules'
+  | 'pension'
+  | 'working_hours'
+  | 'payroll'
+  | 'termination'
+  | 'compliance';
+
+export interface RuleVersionView {
+  id: string;
+  countryId: string;
+  stateProvinceId?: string | null;
+  stateProvinceCode?: string | null;
+  ruleType: string;
+  version: number;
+  status: RuleVersionStatus;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  sourceReference: string;
+  changeNote: string;
+  createdBy: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRuleVersionInput {
+  ruleType: string;
+  stateProvinceId?: string | null;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  sourceReference: string;
+  changeNote: string;
+  payload: Record<string, unknown>;
+  status?: RuleVersionStatus;
+}
+
+export interface UpdateRuleVersionInput {
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+  sourceReference?: string;
+  changeNote?: string;
+  payload?: Record<string, unknown>;
+  status?: RuleVersionStatus;
+}
+
+export interface RuleVersionMetadataDiff {
+  field: string;
+  label: string;
+  baseValue: string | null;
+  compareValue: string | null;
+  hasChanged: boolean;
+}
+
+export interface RuleVersionPayloadFieldDiff {
+  path: string;
+  type: 'added' | 'removed' | 'modified' | 'unchanged';
+  baseValue?: unknown;
+  compareValue?: unknown;
+}
+
+export interface RuleVersionDiffResult {
+  baseVersion: RuleVersionView;
+  compareVersion: RuleVersionView;
+  metadataDiff: RuleVersionMetadataDiff[];
+  payloadDiff: RuleVersionPayloadFieldDiff[];
+  stats: {
+    added: number;
+    removed: number;
+    modified: number;
+    unchanged: number;
+  };
+  rawBaseJson: string;
+  rawCompareJson: string;
+}
 
 export interface StateProvinceView {
   id: string;
@@ -114,11 +192,18 @@ export interface TaxBracketRecord {
 export interface CountryRuleRecord {
   id: string;
   countryId: string;
+  stateProvinceId?: string | null;
   ruleType: CountryRuleKind;
+  version?: number;
   payload: Record<string, unknown>;
   effectiveFrom: string;
   effectiveTo: string | null;
   status?: RuleVersionStatus;
+  sourceReference?: string;
+  changeNote?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CountryConfiguration {

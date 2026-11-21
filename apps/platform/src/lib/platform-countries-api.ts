@@ -7,9 +7,14 @@ import type {
   CountryRuleRecord,
   CountryStatus,
   CountrySummary,
+  CreateRuleVersionInput,
   CreateStateProvinceInput,
+  RuleVersionDiffResult,
+  RuleVersionStatus,
+  RuleVersionView,
   StateProvinceView,
   TaxBracketRecord,
+  UpdateRuleVersionInput,
   UpdateStateProvinceInput,
 } from '@hrm/shared-types';
 import { apiRequest } from './api-client';
@@ -198,5 +203,103 @@ export function updateCountryRule(
       method: 'PATCH',
       body: JSON.stringify(input),
     },
+  );
+}
+
+// --- RuleVersion Framework API ---
+
+export function listRuleVersions(
+  countryId: string,
+  query?: {
+    ruleType?: string;
+    stateProvinceId?: string | null;
+    status?: RuleVersionStatus;
+  },
+): Promise<RuleVersionView[]> {
+  const params = new URLSearchParams();
+  if (query?.ruleType) params.set('ruleType', query.ruleType);
+  if (query?.stateProvinceId !== undefined) {
+    params.set(
+      'stateProvinceId',
+      query.stateProvinceId === null ? '' : query.stateProvinceId,
+    );
+  }
+  if (query?.status) params.set('status', query.status);
+
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest<RuleVersionView[]>(
+    `/platform/countries/${countryId}/rule-versions${qs}`,
+  );
+}
+
+export function getRuleVersion(
+  countryId: string,
+  versionId: string,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}`,
+  );
+}
+
+export function createRuleVersion(
+  countryId: string,
+  input: CreateRuleVersionInput,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateRuleVersion(
+  countryId: string,
+  versionId: string,
+  input: UpdateRuleVersionInput,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function publishRuleVersion(
+  countryId: string,
+  versionId: string,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}/publish`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+export function deleteRuleVersion(
+  countryId: string,
+  versionId: string,
+): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export function compareRuleVersions(
+  countryId: string,
+  baseVersionId: string,
+  compareVersionId: string,
+): Promise<RuleVersionDiffResult> {
+  return apiRequest<RuleVersionDiffResult>(
+    `/platform/countries/${countryId}/rule-versions/diff?baseVersionId=${encodeURIComponent(
+      baseVersionId,
+    )}&compareVersionId=${encodeURIComponent(compareVersionId)}`,
   );
 }

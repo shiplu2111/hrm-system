@@ -7,6 +7,8 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,6 +16,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
   BulkImportStatesResult,
@@ -21,6 +24,8 @@ import type {
   CountryConfiguration,
   CountryRuleRecord,
   CountrySummary,
+  RuleVersionDiffResult,
+  RuleVersionView,
   StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
@@ -29,6 +34,7 @@ import { RequirePlatformPermission } from '../auth/decorators/require-platform-p
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import { CountriesService } from './countries.service';
+import { RuleVersionsService } from './rule-versions.service';
 import {
   BulkImportStatesDto,
   CreateCountryDto,
@@ -39,6 +45,11 @@ import {
   UpsertCountryRuleDto,
   UpsertTaxBracketDto,
 } from './dto/country-config.dto';
+import {
+  CreateRuleVersionDto,
+  QueryRuleVersionsDto,
+  UpdateRuleVersionDto,
+} from './dto/rule-version.dto';
 
 /** Super Admin country rule configuration — NAVIGATION.md §4, ARCHITECTURE.md §3 */
 @ApiTags('platform-countries')
@@ -47,7 +58,10 @@ import {
 @UseGuards(PlatformAuthGuard, PlatformPermissionsGuard)
 @Controller('platform/countries')
 export class CountriesController {
-  constructor(private readonly countriesService: CountriesService) {}
+  constructor(
+    private readonly countriesService: CountriesService,
+    private readonly ruleVersionsService: RuleVersionsService,
+  ) {}
 
   @Get()
   @RequirePlatformPermission('country', 'view')
@@ -218,5 +232,147 @@ export class CountriesController {
         dto,
       ),
     };
+  }
+
+  // --- RuleVersion Framework Endpoints ---
+
+  @Get(':countryId/rule-versions')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'List all rule versions for a rule set and scope',
+  })
+  async listRuleVersions(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Query() query: QueryRuleVersionsDto,
+  ): Promise<ApiEnvelope<RuleVersionView[]>> {
+    return {
+      data: await this.ruleVersionsService.listVersions(countryId, query),
+    };
+  }
+
+  @Get(':countryId/rule-versions/diff')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'Compare two rule versions and produce side-by-side diff',
+  })
+  async compareRuleVersions(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Query('baseVersionId', ParseUUIDPipe) baseVersionId: string,
+    @Query('compareVersionId', ParseUUIDPipe) compareVersionId: string,
+  ): Promise<ApiEnvelope<RuleVersionDiffResult>> {
+    return {
+      data: await this.ruleVersionsService.compareVersions(
+        countryId,
+        baseVersionId,
+        compareVersionId,
+      ),
+    };
+  }
+
+  @Get(':countryId/rule-versions/:versionId')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'Get a specific rule version by ID' })
+  async getRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    return {
+      data: await this.ruleVersionsService.getVersion(countryId, versionId),
+    };
+  }
+
+  @Post(':countryId/rule-versions')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Create a new rule version with source reference and change note',
+  })
+  async createRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Body() dto: CreateRuleVersionDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    const actorId =
+      (req as any).platformUser?.id ??
+      (req as any).user?.id ??
+      (req as any).user?.email ??
+      'system';
+
+    return {
+      data: await this.ruleVersionsService.createVersion(
+        countryId,
+        dto,
+        actorId,
+      ),
+    };
+  }
+
+  @Patch(':countryId/rule-versions/:versionId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Update an existing rule version (immutability enforced on published)',
+  })
+  async updateRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Body() dto: UpdateRuleVersionDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    const actorId =
+      (req as any).platformUser?.id ??
+      (req as any).user?.id ??
+      (req as any).user?.email ??
+      'system';
+
+    return {
+      data: await this.ruleVersionsService.updateVersion(
+        countryId,
+        versionId,
+        dto,
+        actorId,
+      ),
+    };
+  }
+
+  @Post(':countryId/rule-versions/:versionId/publish')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Publish a draft rule version (validates non-overlapping dates)',
+  })
+  async publishRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    const actorId =
+      (req as any).platformUser?.id ??
+      (req as any).user?.id ??
+      (req as any).user?.email ??
+      'system';
+
+    return {
+      data: await this.ruleVersionsService.publishVersion(
+        countryId,
+        versionId,
+        actorId,
+      ),
+    };
+  }
+
+  @Delete(':countryId/rule-versions/:versionId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Delete a draft rule version' })
+  async deleteRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<{ success: boolean }>> {
+    const actorId =
+      (req as any).platformUser?.id ??
+      (req as any).user?.id ??
+      (req as any).user?.email ??
+      'system';
+
+    await this.ruleVersionsService.deleteVersion(countryId, versionId, actorId);
+    return { data: { success: true } };
   }
 }
