@@ -4,6 +4,7 @@ import { PlatformAuthModule } from './auth/platform-auth.module';
 import { CountriesModule } from './countries/countries.module';
 import { PlatformDashboardModule } from './dashboard/platform-dashboard.module';
 import { PlatformInvoicesModule } from './invoices/platform-invoices.module';
+import { PlatformPaymentsModule } from './payments/platform-payments.module';
 import { PlatformPlansModule } from './plans/platform-plans.module';
 import { PlatformStaffModule } from './staff/platform-staff.module';
 import { PlatformSubscriptionsModule } from './subscriptions/platform-subscriptions.module';
@@ -17,6 +18,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformDashboardModule,
     PlatformInvoicesModule,
+    PlatformPaymentsModule,
     PlatformPlansModule,
     PlatformStaffModule,
     PlatformSubscriptionsModule,
@@ -29,6 +31,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformDashboardModule,
     PlatformInvoicesModule,
+    PlatformPaymentsModule,
     PlatformPlansModule,
     PlatformStaffModule,
     PlatformSubscriptionsModule,

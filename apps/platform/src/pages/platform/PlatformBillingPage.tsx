@@ -28,6 +28,7 @@ import { PlanEditorModal } from '@/components/plans/PlanEditorModal';
 import { FeatureMatrixGrid } from '@/components/plans/FeatureMatrixGrid';
 import { SubscriptionsList } from '@/components/subscriptions/SubscriptionsList';
 import { InvoicesList } from '@/components/invoices/InvoicesList';
+import { PaymentsList } from '@/components/payments/PaymentsList';
 
 type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue' | 'Failed';
 
@@ -72,7 +73,7 @@ export function PlatformBillingPage() {
   const canCreateBilling = usePermission('billing', 'create');
 
   // Active Tab state
-  const [activeTab, setActiveTab] = useState<'subscriptions' | 'plans' | 'matrix' | 'invoices'>('subscriptions');
+  const [activeTab, setActiveTab] = useState<'subscriptions' | 'plans' | 'matrix' | 'invoices' | 'payments'>('subscriptions');
 
   // Live Plans state
   const [plans, setPlans] = useState<PlatformPlanDetailView[]>([]);
@@ -86,8 +87,6 @@ export function PlatformBillingPage() {
   // Invoices & Payment recovery state
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'All' | InvoiceStatus>('All');
-  const [retrying, setRetrying] = useState(false);
-  const [failureResolved, setFailureResolved] = useState(false);
 
   const loadPlans = async () => {
     try {
@@ -142,14 +141,6 @@ export function PlatformBillingPage() {
     link.download = 'platform-invoices.csv';
     link.click();
     URL.revokeObjectURL(url);
-  };
-
-  const retryPayment = () => {
-    setRetrying(true);
-    window.setTimeout(() => {
-      setRetrying(false);
-      setFailureResolved(true);
-    }, 900);
   };
 
   return (
@@ -272,7 +263,19 @@ export function PlatformBillingPage() {
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
           }`}
         >
-          <CreditCard className="h-4 w-4" /> Invoices & Dunning
+          <CreditCard className="h-4 w-4" /> Invoices Directory
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('payments')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition -mb-px ${
+            activeTab === 'payments'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <Coins className="h-4 w-4" /> Payments & Dunning Recovery
         </button>
       </div>
 
@@ -459,57 +462,14 @@ export function PlatformBillingPage() {
         </section>
       )}
 
-      {/* Tab 4: Invoices & Payment Recovery */}
+      {/* Tab 4: Invoices Directory */}
       {activeTab === 'invoices' && (
-        <div className="space-y-6">
-      {!failureResolved ? (
-        <section className="overflow-hidden rounded-2xl border border-red-200 bg-red-50 shadow-sm dark:border-red-900 dark:bg-red-950/30">
-          <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="flex gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="font-extrabold text-red-900 dark:text-red-100">
-                  Payment recovery in progress
-                </div>
-                <p className="mt-1 text-xs text-red-700 dark:text-red-300">
-                  Globex Industries · $5,950 · Visa •••• 1842 · 2 automated retries failed
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold">
-                  <span className="rounded-lg border border-red-200 bg-white/70 px-2.5 py-1.5 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
-                    <Clock className="mr-1 inline h-3.5 w-3.5" /> Retry in 04:18:32
-                  </span>
-                  <span className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300">
-                    Grace period: 3 days left
-                  </span>
-                </div>
-                <div className="mt-3 h-1.5 max-w-md overflow-hidden rounded-full bg-red-200 dark:bg-red-950">
-                  <div className="h-full w-[72%] rounded-full bg-gradient-to-r from-orange-500 to-red-600" />
-                </div>
-              </div>
-            </div>
-            <PermissionGate module="billing" action="edit">
-              <button
-                onClick={retryPayment}
-                disabled={retrying}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-60 transition"
-              >
-                <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />{' '}
-                {retrying ? 'Retrying…' : 'Retry now'}
-              </button>
-            </PermissionGate>
-          </div>
-        </section>
-      ) : (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
-          <Check className="h-4 w-4" /> Payment retry succeeded and the tenant is back in good standing.
-        </div>
+        <InvoicesList />
       )}
 
-      {/* Section 4: Cross-Tenant Invoices */}
-      <InvoicesList />
-        </div>
+      {/* Tab 5: Payments & Dunning Recovery */}
+      {activeTab === 'payments' && (
+        <PaymentsList selectedTenantId={selectedTenant?.id} />
       )}
 
       {/* Plan Editor & Creator Modal */}

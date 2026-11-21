@@ -137,7 +137,8 @@ export type PaymentStatus =
   | 'pending'
   | 'succeeded'
   | 'failed'
-  | 'refunded';
+  | 'refunded'
+  | 'partially_refunded';
 
 export interface SubscriptionRecordView {
   id: string;
@@ -432,6 +433,115 @@ export interface QueryInvoicesFilter {
   page?: number;
   limit?: number;
 }
+
+export interface PaymentRefundView {
+  id: string;
+  paymentId: string;
+  tenantId: string;
+  amount: number;
+  currency: string;
+  reason: string;
+  refundedBy: string;
+  status: string;
+  providerRefundId?: string | null;
+  createdAt: string;
+}
+
+export interface PlatformPaymentListItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSubdomain: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  subscriptionId?: string | null;
+  provider: string;
+  providerPaymentId?: string | null;
+  idempotencyKey?: string | null;
+  amount: number;
+  amountRefunded: number;
+  currency: string;
+  status: PaymentStatus;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  paymentMethod?: string | null;
+  refundReason?: string | null;
+  refundedAt?: string | null;
+  retryCount: number;
+  lastRetryAt?: string | null;
+  paidAt?: string | null;
+  createdAt: string;
+  refundsCount: number;
+}
+
+export interface PlatformPaymentDetailView extends PlatformPaymentListItem {
+  refunds: PaymentRefundView[];
+  invoice?: {
+    id: string;
+    invoiceNumber: string;
+    total: number;
+    amountPaid: number;
+    amountDue: number;
+    status: InvoiceStatus;
+    billingReason: string;
+  } | null;
+}
+
+export interface RefundPaymentRequest {
+  amount?: number;
+  reason: string;
+  refundType: 'full' | 'partial';
+}
+
+export interface RetryPaymentRequest {
+  simulateFailure?: boolean;
+  failureReason?: string;
+}
+
+export interface QueryPaymentsFilter {
+  tenantId?: string;
+  search?: string;
+  status?: PaymentStatus;
+  provider?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface DunningTenantView {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  subscriptionId: string;
+  planId: string;
+  planName: string;
+  planTier: string;
+  billingCycle: string;
+  subscriptionStatus: string;
+  dunningStep: number;
+  dunningStage: 'stage_1' | 'stage_2' | 'stage_3' | 'stage_4' | 'suspended';
+  dunningStageLabel: string;
+  dunningDescription: string;
+  lastDunningAt?: string | null;
+  nextRetryAt?: string | null;
+  daysOverdue: number;
+  gracePeriodEndsAt?: string | null;
+  isSuspended: boolean;
+  suspensionMode?: string | null;
+  totalOutstandingAmount: number;
+  currency: string;
+  unpaidInvoicesCount: number;
+  latestFailedPayment?: {
+    id: string;
+    amount: number;
+    currency: string;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    failedAt: string;
+  } | null;
+}
+
 
 
 

@@ -173,6 +173,7 @@ model Tenant {
   invoiceLines                InvoiceLine[]
   payments                    Payment[]
   creditNotes                 CreditNote[]
+  paymentRefunds              PaymentRefund[]
 
   @@map("tenants")
 }
@@ -5828,6 +5829,7 @@ enum PaymentStatus {
   succeeded
   failed
   refunded
+  partially_refunded
 
   @@map("payment_status")
 }
@@ -5958,31 +5960,58 @@ model InvoiceLine {
 }
 
 model Payment {
-  id                String        @id @default(uuid()) @db.Uuid
-  tenantId          String        @map("tenant_id") @db.Uuid
-  invoiceId         String?       @map("invoice_id") @db.Uuid
-  subscriptionId    String?       @map("subscription_id") @db.Uuid
-  provider          String        @default("stripe")
-  providerPaymentId String?       @map("provider_payment_id")
-  idempotencyKey    String?       @unique @map("idempotency_key")
-  amount            Decimal       @db.Decimal(14, 2)
-  currency          String        @db.VarChar(3)
-  status            PaymentStatus @default(pending)
-  errorCode         String?       @map("error_code")
-  errorMessage      String?       @map("error_message")
-  paidAt            DateTime?     @map("paid_at")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  invoiceId         String?         @map("invoice_id") @db.Uuid
+  subscriptionId    String?         @map("subscription_id") @db.Uuid
+  provider          String          @default("stripe")
+  providerPaymentId String?         @map("provider_payment_id")
+  idempotencyKey    String?         @unique @map("idempotency_key")
+  amount            Decimal         @db.Decimal(14, 2)
+  amountRefunded    Decimal         @default(0.00) @map("amount_refunded") @db.Decimal(14, 2)
+  currency          String          @db.VarChar(3)
+  status            PaymentStatus   @default(pending)
+  errorCode         String?         @map("error_code")
+  errorMessage      String?         @map("error_message")
+  refundReason      String?         @map("refund_reason") @db.Text
+  refundedAt        DateTime?       @map("refunded_at")
+  paymentMethod     String?         @map("payment_method") @db.VarChar(50)
+  retryCount        Int             @default(0) @map("retry_count")
+  lastRetryAt       DateTime?       @map("last_retry_at")
+  paidAt            DateTime?       @map("paid_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invoice      Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice      Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  subscription Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  refunds      PaymentRefund[]
 
   @@index([tenantId])
   @@index([invoiceId])
   @@index([subscriptionId])
   @@index([status])
   @@map("payments")
+}
+
+model PaymentRefund {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  paymentId        String   @map("payment_id") @db.Uuid
+  amount           Decimal  @db.Decimal(14, 2)
+  currency         String   @default("USD") @db.VarChar(3)
+  reason           String   @db.Text
+  refundedBy       String   @map("refunded_by") @db.VarChar(255)
+  status           String   @default("succeeded") @db.VarChar(50)
+  providerRefundId String?  @map("provider_refund_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([paymentId])
+  @@map("payment_refunds")
 }
 
 model PaymentEvent {
