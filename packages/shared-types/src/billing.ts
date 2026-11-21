@@ -542,6 +542,120 @@ export interface DunningTenantView {
   } | null;
 }
 
+export interface MonthlyRevenueMovement {
+  month: string;
+  monthLabel: string;
+  startingMrr: number;
+  newRevenue: number;
+  expansionRevenue: number;
+  contractionRevenue: number;
+  churnedRevenue: number;
+  netNewRevenue: number;
+  endingMrr: number;
+  activeSubscriptionsCount: number;
+  newSubscriptionsCount: number;
+  churnedSubscriptionsCount: number;
+}
+
+export interface RevenueByPlanItem {
+  planId: string;
+  planName: string;
+  planCode: string;
+  planTier: string;
+  activeSubscriptionsCount: number;
+  totalMrr: number;
+  percentage: number;
+}
+
+export interface RevenueByCountryItem {
+  countryCode: string;
+  countryName: string;
+  activeSubscriptionsCount: number;
+  totalMrr: number;
+  percentage: number;
+}
+
+export interface PlatformRevenueReportView {
+  asOf: string;
+  currency: string;
+  currentMrr: number;
+  currentArr: number;
+  netNewMrrThisMonth: number;
+  growthRatePercent: number;
+  customerChurnRate: number;
+  revenueChurnRate: number;
+  totalActiveSubscriptions: number;
+  monthlyMovements: MonthlyRevenueMovement[];
+  revenueByPlan: RevenueByPlanItem[];
+  revenueByCountry: RevenueByCountryItem[];
+}
+
+export interface PlatformFeatureFlagView {
+  id: string;
+  key: string;
+  description: string | null;
+  defaultState: boolean;
+  rolloutPercentage: number;
+  metadata?: Record<string, any> | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePlatformFeatureFlagRequest {
+  key: string;
+  description?: string;
+  defaultState?: boolean;
+  rolloutPercentage?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface UpdatePlatformFeatureFlagRequest {
+  description?: string;
+  defaultState?: boolean;
+  rolloutPercentage?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface TenantFeatureOverrideView {
+  id: string;
+  tenantId: string;
+  key: string;
+  value: boolean;
+  reason?: string | null;
+  expiresAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isExpired: boolean;
+}
+
+export interface SetTenantFeatureOverrideRequest {
+  key: string;
+  value: boolean;
+  reason?: string;
+  expiresAt?: string | null;
+}
+
+export type FeatureEvaluationSource =
+  | 'tenant_override'
+  | 'flag_rollout'
+  | 'flag_default'
+  | 'setting_override'
+  | 'plan_default';
+
+export interface FeatureEvaluationResult {
+  key: string;
+  enabled: boolean;
+  source: FeatureEvaluationSource;
+  reason?: string | null;
+  bucket?: number;
+  rolloutPercentage?: number;
+  planCode?: string;
+}
+
+
+
 
 
 

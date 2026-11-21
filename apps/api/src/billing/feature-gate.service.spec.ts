@@ -1,21 +1,35 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { PrismaService } from '../database/prisma.service';
-import { FeatureGateService } from './feature-gate.service';
+import { FeatureGateService, computeRolloutBucket } from './feature-gate.service';
 
 describe('FeatureGateService', () => {
   let service: FeatureGateService;
   let mockPrisma: any;
+  let mockAudit: any;
 
   beforeEach(() => {
+    mockAudit = {
+      log: jest.fn().mockResolvedValue(undefined),
+    };
+
     mockPrisma = {
       unscoped: {
         tenantFeatureOverride: {
           findUnique: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
           upsert: jest.fn(),
           deleteMany: jest.fn(),
         },
+        platformFeatureFlag: {
+          findUnique: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
+          create: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
+        },
         tenantLimitOverride: {
           findUnique: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
           upsert: jest.fn(),
           deleteMany: jest.fn(),
         },
@@ -55,7 +69,10 @@ describe('FeatureGateService', () => {
       },
     };
 
-    service = new FeatureGateService(mockPrisma as unknown as PrismaService);
+    service = new FeatureGateService(
+      mockPrisma as unknown as PrismaService,
+      mockAudit,
+    );
   });
 
   describe('hasFeature', () => {
@@ -338,8 +355,15 @@ describe('FeatureGateService', () => {
   });
 
   describe('Stage G Overrides Management', () => {
-    it('sets feature override', async () => {
-      await service.setFeatureOverride('t1', 'api_access', true, 'Pilot VIP cohort', 'staff-1');
+    it('sets feature override and logs to platform_audit_logs', async () => {
+      await service.setFeatureOverride(
+        't1',
+        'api_access',
+        true,
+        'Pilot VIP cohort',
+        'staff-1',
+        '2026-12-31T23:59:59.000Z',
+      );
       expect(mockPrisma.unscoped.tenantFeatureOverride.upsert).toHaveBeenCalledWith({
         where: { tenantId_featureKey: { tenantId: 't1', featureKey: 'api_access' } },
         create: {
@@ -347,14 +371,23 @@ describe('FeatureGateService', () => {
           featureKey: 'api_access',
           enabled: true,
           reason: 'Pilot VIP cohort',
+          expiresAt: new Date('2026-12-31T23:59:59.000Z'),
           createdBy: 'staff-1',
         },
         update: {
           enabled: true,
           reason: 'Pilot VIP cohort',
+          expiresAt: new Date('2026-12-31T23:59:59.000Z'),
           createdBy: 'staff-1',
         },
       });
+      expect(mockAudit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'tenant_feature_override.set',
+          module: 'feature_gates',
+          recordId: 't1:api_access',
+        }),
+      );
     });
 
     it('sets limit override', async () => {
@@ -376,11 +409,24 @@ describe('FeatureGateService', () => {
       });
     });
 
-    it('removes feature override', async () => {
-      await service.removeFeatureOverride('t1', 'api_access');
+    it('removes feature override and logs to platform_audit_logs', async () => {
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue({
+        tenantId: 't1',
+        featureKey: 'api_access',
+        enabled: true,
+      });
+
+      await service.removeFeatureOverride('t1', 'api_access', 'user-1', 'Test remove');
       expect(mockPrisma.unscoped.tenantFeatureOverride.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: 't1', featureKey: 'api_access' },
       });
+      expect(mockAudit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'tenant_feature_override.remove',
+          module: 'feature_gates',
+          recordId: 't1:api_access',
+        }),
+      );
     });
 
     it('removes limit override', async () => {
@@ -388,6 +434,100 @@ describe('FeatureGateService', () => {
       expect(mockPrisma.unscoped.tenantLimitOverride.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: 't1', limitKey: 'employees' },
       });
+    });
+  });
+
+  describe('Strict Evaluation Order: Tenant Override -> Flag Rollout -> Plan Default', () => {
+    it('Order 1: active tenant override wins over flag rollout and plan default', async () => {
+      // Override = false
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue({
+        tenantId: 't1',
+        featureKey: 'roster',
+        enabled: false,
+        expiresAt: null,
+      });
+      // Flag exists with 100% rollout
+      mockPrisma.unscoped.platformFeatureFlag.findUnique.mockResolvedValue({
+        key: 'roster',
+        defaultState: true,
+        rolloutPercentage: 100,
+      });
+
+      const res = await service.evaluateFeature('t1', 'roster');
+      expect(res.enabled).toBe(false);
+      expect(res.source).toBe('tenant_override');
+    });
+
+    it('Order 1: ignores expired tenant override and falls through to flag rollout', async () => {
+      // Expired yesterday
+      const yesterday = new Date(Date.now() - 86400000);
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue({
+        tenantId: 't1',
+        featureKey: 'beta_ai',
+        enabled: true,
+        expiresAt: yesterday,
+      });
+      // Flag rollout 100%
+      mockPrisma.unscoped.platformFeatureFlag.findUnique.mockResolvedValue({
+        key: 'beta_ai',
+        defaultState: false,
+        rolloutPercentage: 100,
+      });
+
+      const res = await service.evaluateFeature('t1', 'beta_ai');
+      expect(res.enabled).toBe(true);
+      expect(res.source).toBe('flag_rollout');
+    });
+
+    it('Order 2: flag gradual rollout enables feature when tenant bucket is within percentage', async () => {
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue(null);
+
+      // Determine bucket for deterministic test
+      const bucket = computeRolloutBucket('tenant-vip', 'beta_feature');
+      mockPrisma.unscoped.platformFeatureFlag.findUnique.mockResolvedValue({
+        key: 'beta_feature',
+        defaultState: false,
+        rolloutPercentage: bucket + 1, // Enrolled!
+      });
+
+      const res = await service.evaluateFeature('tenant-vip', 'beta_feature');
+      expect(res.enabled).toBe(true);
+      expect(res.source).toBe('flag_rollout');
+      expect(res.bucket).toBe(bucket);
+    });
+
+    it('Order 2: flag rollout disables feature when tenant bucket is outside percentage', async () => {
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue(null);
+
+      const bucket = computeRolloutBucket('tenant-regular', 'beta_feature');
+      mockPrisma.unscoped.platformFeatureFlag.findUnique.mockResolvedValue({
+        key: 'beta_feature',
+        defaultState: false,
+        rolloutPercentage: Math.max(0, bucket - 1), // Not enrolled!
+      });
+
+      const res = await service.evaluateFeature('tenant-regular', 'beta_feature');
+      expect(res.enabled).toBe(false);
+      expect(res.source).toBe('flag_default');
+    });
+
+    it('Order 3: falls through to plan default when no override and no platform flag exist', async () => {
+      mockPrisma.unscoped.tenantFeatureOverride.findUnique.mockResolvedValue(null);
+      mockPrisma.unscoped.platformFeatureFlag.findUnique.mockResolvedValue(null);
+      mockPrisma.unscoped.tenant.findUnique.mockResolvedValue({
+        id: 't-business',
+        planId: 'business',
+        status: 'active',
+      });
+      mockPrisma.unscoped.plan.findFirst.mockResolvedValue({
+        id: 'plan-biz',
+        code: 'business',
+        features: [{ featureKey: 'roster', enabled: true }],
+      });
+
+      const res = await service.evaluateFeature('t-business', 'roster');
+      expect(res.enabled).toBe(true);
+      expect(res.source).toBe('plan_default');
     });
   });
 });

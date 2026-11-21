@@ -308,12 +308,39 @@ export class PlatformDashboardService {
       );
     });
 
-    // MRR and ARR from subscriptions (returns zeros until Stage F exists per prompt)
-    const mrr = 0;
-    const arr = 0;
+    // MRR and ARR calculated from active and past_due subscriptions
+    const activeSubs = await this.prisma.unscoped.subscription.findMany({
+      where: {
+        status: { in: ['active', 'past_due'] },
+      },
+      include: {
+        plan: {
+          include: {
+            prices: true,
+          },
+        },
+      },
+    });
 
-    // Failed payments count (returns zero until Stage F billing webhook sync exists)
-    const failedPaymentsCount = 0;
+    let computedMrr = 0;
+    for (const sub of activeSubs) {
+      if (sub.plan && sub.plan.prices && sub.plan.prices.length > 0) {
+        const price =
+          sub.plan.prices.find((p: any) => p.billingCycle === sub.billingCycle) ||
+          sub.plan.prices[0];
+        const base = Number(price.amount);
+        const monthly = sub.billingCycle === 'annual' ? base / 12 : base;
+        const discount = sub.discountPercent ? Number(sub.discountPercent) : 0;
+        computedMrr += Math.max(0, monthly * (1 - discount / 100));
+      }
+    }
+    const mrr = Number(computedMrr.toFixed(2));
+    const arr = Number((mrr * 12).toFixed(2));
+
+    // Failed payments count from live payments table
+    const failedPaymentsCount = await this.prisma.unscoped.payment.count({
+      where: { status: 'failed' },
+    });
 
     return {
       asOf: now.toISOString(),

@@ -1,7 +1,10 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { EmploymentStatus } from '@prisma/client';
 import type {
   EnterpriseFeature,
+  FeatureEvaluationResult,
+  FeatureEvaluationSource,
   PlanDefinition,
   PlanFeatureKey,
   PlanLimitKey,
@@ -11,6 +14,7 @@ import type {
   TenantSubscriptionView,
 } from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
+import { PlatformAuditService } from '../platform/audit/platform-audit.service';
 import {
   DEFAULT_PLAN,
   nextPlanId,
@@ -31,8 +35,11 @@ import {
 export interface EffectiveFeatureInfo {
   featureKey: string;
   enabled: boolean;
-  source: 'tenant_override' | 'setting_override' | 'plan_default';
+  source: FeatureEvaluationSource | 'setting_override';
   planCode: string;
+  expiresAt?: string | null;
+  rolloutPercentage?: number;
+  bucket?: number;
 }
 
 export interface EffectiveLimitInfo {
@@ -56,36 +63,93 @@ const isUuid = (val?: string | null): val is string =>
   typeof val === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
+/**
+ * Deterministically computes a rollout bucket (0 to 99) for a tenant and feature flag.
+ * Consistent across invocations for identical tenantId + featureKey.
+ */
+export function computeRolloutBucket(tenantId: string, featureKey: string): number {
+  if (!tenantId || !featureKey) return 0;
+  const hash = crypto.createHash('sha256').update(`${tenantId}:${featureKey}`).digest('hex');
+  const intVal = parseInt(hash.substring(0, 8), 16);
+  return intVal % 100;
+}
+
 @Injectable()
 export class FeatureGateService {
   private readonly logger = new Logger(FeatureGateService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly platformAuditService?: PlatformAuditService,
+  ) {}
 
   /**
-   * Evaluates if a tenant has a specific feature enabled.
-   * Resolution chain (Stage G):
-   * 1. TenantFeatureOverride (explicit per-tenant grant/block)
-   * 2. TenantSetting (category: 'feature_flag')
-   * 3. PlanFeature (plan defaults loaded from database `plans` + `plan_features`)
-   * 4. Static fallback (PLAN_FEATURES in constants)
+   * Evaluates feature status for a tenant following the strict evaluation order:
+   * 1. Tenant Override (active, unexpired tenant_feature_overrides record)
+   * 2. Flag Rollout (platform_feature_flags rollout percentage or default state)
+   * 3. Plan Default (database PlanFeature or static constants fallback)
    */
-  async hasFeature(tenantId: string, featureKey: string): Promise<boolean> {
-    if (!tenantId) return false;
+  async evaluateFeature(tenantId: string, featureKey: string): Promise<FeatureEvaluationResult> {
+    if (!tenantId || !featureKey) {
+      return {
+        key: featureKey,
+        enabled: false,
+        source: 'plan_default',
+      };
+    }
 
-    // 1. Check explicit TenantFeatureOverride
+    // 1. Check explicit TenantFeatureOverride (non-expired)
     try {
       const override = await (this.prisma.unscoped as any).tenantFeatureOverride?.findUnique({
         where: { tenantId_featureKey: { tenantId, featureKey } },
       });
       if (override) {
-        return override.enabled;
+        const isExpired = override.expiresAt && new Date(override.expiresAt) <= new Date();
+        if (!isExpired) {
+          return {
+            key: featureKey,
+            enabled: Boolean(override.enabled),
+            source: 'tenant_override',
+            reason: override.reason ?? null,
+          };
+        }
       }
     } catch (err) {
       this.logger.debug(`Could not query tenantFeatureOverride: ${err}`);
     }
 
-    // 2. Check TenantSetting with category 'feature_flag'
+    // 2. Check Platform Feature Flag with Gradual Rollout
+    try {
+      const flag = await (this.prisma.unscoped as any).platformFeatureFlag?.findUnique({
+        where: { key: featureKey },
+      });
+      if (flag) {
+        const bucket = computeRolloutBucket(tenantId, featureKey);
+        const rolloutPct = Number(flag.rolloutPercentage ?? 0);
+        if (rolloutPct > 0 && bucket < rolloutPct) {
+          return {
+            key: featureKey,
+            enabled: true,
+            source: 'flag_rollout',
+            bucket,
+            rolloutPercentage: rolloutPct,
+            reason: `Enrolled via ${rolloutPct}% gradual rollout (bucket ${bucket})`,
+          };
+        }
+        return {
+          key: featureKey,
+          enabled: Boolean(flag.defaultState),
+          source: 'flag_default',
+          bucket,
+          rolloutPercentage: rolloutPct,
+          reason: `Resolved via platform flag default state (${flag.defaultState ? 'enabled' : 'disabled'})`,
+        };
+      }
+    } catch (err) {
+      this.logger.debug(`Could not query platformFeatureFlag: ${err}`);
+    }
+
+    // 2.5 Check TenantSetting with category 'feature_flag' (legacy/tenant setting fallback)
     try {
       const setting = await (this.prisma.unscoped as any).tenantSetting?.findUnique({
         where: {
@@ -98,26 +162,34 @@ export class FeatureGateService {
       });
       if (setting && setting.value !== undefined && setting.value !== null) {
         const val = setting.value;
-        if (typeof val === 'boolean') return val;
-        if (typeof val === 'object' && val !== null && 'enabled' in val) {
-          return Boolean((val as any).enabled);
-        }
-        if (typeof val === 'string') return val === 'true';
+        let isEnabled = false;
+        if (typeof val === 'boolean') isEnabled = val;
+        else if (typeof val === 'object' && val !== null && 'enabled' in val) {
+          isEnabled = Boolean((val as any).enabled);
+        } else if (typeof val === 'string') isEnabled = val === 'true';
+
+        return {
+          key: featureKey,
+          enabled: isEnabled,
+          source: 'setting_override',
+        };
       }
     } catch {
-      // continue to plan resolution
+      // continue to plan default resolution
     }
 
-    // 3. Resolve Tenant's Plan
+    // 3. Resolve Tenant's Plan Default
     const tenant = await (this.prisma.unscoped as any).tenant?.findUnique({
       where: { id: tenantId },
       select: { planId: true, status: true, isSandbox: true },
     });
-    if (!tenant) return false;
+    if (!tenant) {
+      return { key: featureKey, enabled: false, source: 'plan_default' };
+    }
 
     // Inactive/Suspended full-block check
     if (tenant.status === 'deleted' || tenant.status === 'pending_deletion') {
-      return false;
+      return { key: featureKey, enabled: false, source: 'plan_default', reason: 'Tenant deleted' };
     }
 
     const planCode = normalizePlanId(tenant.planId);
@@ -135,15 +207,36 @@ export class FeatureGateService {
       if (plan && plan.features && plan.features.length > 0) {
         const feat = plan.features.find((f: any) => f.featureKey === featureKey);
         if (feat) {
-          return feat.enabled;
+          return {
+            key: featureKey,
+            enabled: Boolean(feat.enabled),
+            source: 'plan_default',
+            planCode,
+          };
         }
       }
     } catch (err) {
       this.logger.debug(`Database plan lookup fallback: ${err}`);
     }
 
-    // 4. Static fallback for unit test mocks / bootstrap
-    return tenantHasFeature(planCode, featureKey as EnterpriseFeature);
+    // Static fallback for unit test mocks / bootstrap
+    const staticDefault = tenantHasFeature(planCode, featureKey as EnterpriseFeature);
+    return {
+      key: featureKey,
+      enabled: staticDefault,
+      source: 'plan_default',
+      planCode,
+    };
+  }
+
+  /**
+   * Evaluates if a tenant has a specific feature enabled.
+   * Resolves in order: 1. Tenant Override -> 2. Flag Rollout -> 3. Plan Default.
+   */
+  async hasFeature(tenantId: string, featureKey: string): Promise<boolean> {
+    if (!tenantId) return false;
+    const result = await this.evaluateFeature(tenantId, featureKey);
+    return result.enabled;
   }
 
   /**
@@ -412,7 +505,7 @@ export class FeatureGateService {
     const planCode = normalizePlanId(tenant.planId);
     const planName = planCode.charAt(0).toUpperCase() + planCode.slice(1);
 
-    const [dbPlan, featureOverrides, limitOverrides, usedEmployees, usedCompanies] =
+    const [dbPlan, featureOverrides, platformFlags, limitOverrides, usedEmployees, usedCompanies] =
       await Promise.all([
         (this.prisma.unscoped as any).plan?.findFirst({
           where: isUuid(tenant.planId)
@@ -423,6 +516,7 @@ export class FeatureGateService {
         (this.prisma.unscoped as any).tenantFeatureOverride?.findMany({
           where: { tenantId },
         }) ?? [],
+        (this.prisma.unscoped as any).platformFeatureFlag?.findMany() ?? [],
         (this.prisma.unscoped as any).tenantLimitOverride?.findMany({
           where: { tenantId },
         }) ?? [],
@@ -430,15 +524,24 @@ export class FeatureGateService {
         this.getCurrentUsage(tenantId, 'companies'),
       ]);
 
-    const overrideFeatureMap = new Map<string, boolean>(
-      featureOverrides.map((o: any) => [o.featureKey, o.enabled]),
-    );
-    const overrideLimitMap = new Map<string, number | null>(
-      limitOverrides.map((o: any) => [o.limitKey, o.value]),
+    const activeOverridesMap = new Map<string, any>();
+    for (const ov of featureOverrides) {
+      const isExpired = ov.expiresAt && new Date(ov.expiresAt) <= new Date();
+      if (!isExpired) {
+        activeOverridesMap.set(ov.featureKey, ov);
+      }
+    }
+
+    const flagMap = new Map<string, any>(
+      platformFlags.map((f: any) => [f.key, f]),
     );
 
-    // Compile features
-    const allFeatureKeys: PlanFeatureKey[] = [
+    const overrideLimitMap = new Map<string, number | null>(
+      limitOverrides.map((l: any) => [l.limitKey, l.value]),
+    );
+
+    // Compile features (include static plan features + any registered platform flags)
+    const baseFeatureKeys: PlanFeatureKey[] = [
       'core_hr',
       'attendance',
       'leave',
@@ -452,20 +555,58 @@ export class FeatureGateService {
       'advanced_workflow',
     ];
 
-    const features: EffectiveFeatureInfo[] = allFeatureKeys.map((key) => {
-      if (overrideFeatureMap.has(key)) {
+    const allKeysSet = new Set<string>(baseFeatureKeys);
+    for (const flag of platformFlags) {
+      allKeysSet.add(flag.key);
+    }
+    for (const ov of activeOverridesMap.values()) {
+      allKeysSet.add(ov.featureKey);
+    }
+
+    const features: EffectiveFeatureInfo[] = Array.from(allKeysSet).map((key) => {
+      // 1. Tenant Override (non-expired)
+      if (activeOverridesMap.has(key)) {
+        const ov = activeOverridesMap.get(key)!;
         return {
           featureKey: key,
-          enabled: overrideFeatureMap.get(key)!,
+          enabled: Boolean(ov.enabled),
           source: 'tenant_override',
           planCode,
+          expiresAt: ov.expiresAt ? new Date(ov.expiresAt).toISOString() : null,
         };
       }
+
+      // 2. Platform Feature Flag Rollout
+      if (flagMap.has(key)) {
+        const flag = flagMap.get(key)!;
+        const bucket = computeRolloutBucket(tenantId, key);
+        const rolloutPct = Number(flag.rolloutPercentage ?? 0);
+        if (rolloutPct > 0 && bucket < rolloutPct) {
+          return {
+            featureKey: key,
+            enabled: true,
+            source: 'flag_rollout',
+            planCode,
+            rolloutPercentage: rolloutPct,
+            bucket,
+          };
+        }
+        return {
+          featureKey: key,
+          enabled: Boolean(flag.defaultState),
+          source: 'flag_default',
+          planCode,
+          rolloutPercentage: rolloutPct,
+          bucket,
+        };
+      }
+
+      // 3. Plan Default
       const dbFeat = dbPlan?.features?.find((f: any) => f.featureKey === key);
       if (dbFeat) {
         return {
           featureKey: key,
-          enabled: dbFeat.enabled,
+          enabled: Boolean(dbFeat.enabled),
           source: 'plan_default',
           planCode,
         };
@@ -525,7 +666,8 @@ export class FeatureGateService {
   }
 
   /**
-   * Sets or clears a tenant feature override (Stage G).
+   * Sets or updates a tenant feature override (Stage G).
+   * Every change writes to platform_audit_logs.
    */
   async setFeatureOverride(
     tenantId: string,
@@ -533,7 +675,21 @@ export class FeatureGateService {
     enabled: boolean,
     reason?: string,
     createdBy?: string,
+    expiresAt?: Date | string | null,
+    actorEmail?: string,
   ): Promise<void> {
+    const expiresDate = expiresAt ? new Date(expiresAt) : null;
+
+    // Capture previous state for audit log
+    let prev: any = null;
+    try {
+      prev = await (this.prisma.unscoped as any).tenantFeatureOverride?.findUnique({
+        where: { tenantId_featureKey: { tenantId, featureKey } },
+      });
+    } catch {
+      prev = null;
+    }
+
     await (this.prisma.unscoped as any).tenantFeatureOverride.upsert({
       where: { tenantId_featureKey: { tenantId, featureKey } },
       create: {
@@ -541,14 +697,38 @@ export class FeatureGateService {
         featureKey,
         enabled,
         reason,
+        expiresAt: expiresDate,
         createdBy,
       },
       update: {
         enabled,
         reason,
+        expiresAt: expiresDate,
         createdBy,
       },
     });
+
+    if (this.platformAuditService) {
+      await this.platformAuditService.log({
+        userId: createdBy ?? null,
+        action: 'tenant_feature_override.set',
+        module: 'feature_gates',
+        recordId: `${tenantId}:${featureKey}`,
+        reason: reason ?? 'Tenant feature override set',
+        oldValue: prev
+          ? { enabled: prev.enabled, reason: prev.reason, expiresAt: prev.expiresAt }
+          : null,
+        newValue: {
+          tenantId,
+          featureKey,
+          enabled,
+          reason,
+          expiresAt: expiresDate ? expiresDate.toISOString() : null,
+          createdBy,
+          actorEmail,
+        },
+      });
+    }
   }
 
   /**
@@ -580,11 +760,38 @@ export class FeatureGateService {
 
   /**
    * Removes a tenant feature override.
+   * Every change writes to platform_audit_logs.
    */
-  async removeFeatureOverride(tenantId: string, featureKey: string): Promise<void> {
+  async removeFeatureOverride(
+    tenantId: string,
+    featureKey: string,
+    actorUserId?: string,
+    reason?: string,
+  ): Promise<void> {
+    let prev: any = null;
+    try {
+      prev = await (this.prisma.unscoped as any).tenantFeatureOverride?.findUnique({
+        where: { tenantId_featureKey: { tenantId, featureKey } },
+      });
+    } catch {
+      prev = null;
+    }
+
     await (this.prisma.unscoped as any).tenantFeatureOverride.deleteMany({
       where: { tenantId, featureKey },
     });
+
+    if (this.platformAuditService && prev) {
+      await this.platformAuditService.log({
+        userId: actorUserId ?? null,
+        action: 'tenant_feature_override.remove',
+        module: 'feature_gates',
+        recordId: `${tenantId}:${featureKey}`,
+        reason: reason ?? 'Tenant feature override removed',
+        oldValue: { enabled: prev.enabled, reason: prev.reason, expiresAt: prev.expiresAt },
+        newValue: null,
+      });
+    }
   }
 
   /**

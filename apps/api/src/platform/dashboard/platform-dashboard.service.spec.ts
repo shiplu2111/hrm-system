@@ -85,6 +85,21 @@ describe('PlatformDashboardService', () => {
             return Promise.resolve(100);
           }),
         },
+        subscription: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'sub-1',
+              billingCycle: 'monthly',
+              discountPercent: null,
+              plan: {
+                prices: [{ billingCycle: 'monthly', amount: 150.0 }],
+              },
+            },
+          ]),
+        },
+        payment: {
+          count: jest.fn().mockResolvedValue(2),
+        },
       },
     };
 
@@ -125,10 +140,11 @@ describe('PlatformDashboardService', () => {
       });
     });
 
-    it('returns 0 for MRR and ARR until Stage F exists', async () => {
+    it('returns calculated MRR and ARR from active subscriptions', async () => {
       const { data } = await service.getDashboardAggregates(true);
-      expect(data.mrr).toBe(0);
-      expect(data.arr).toBe(0);
+      expect(data.mrr).toBe(150);
+      expect(data.arr).toBe(1800);
+      expect(data.failedPaymentsCount).toBe(2);
     });
 
     it('returns exactly 12 weekly cohorts for new tenants', async () => {
@@ -156,9 +172,9 @@ describe('PlatformDashboardService', () => {
       expect(data.tenantsApproachingLimits[1].usagePercentage).toBe(84);
     });
 
-    it('returns 0 for failed payments count until Stage F exists', async () => {
+    it('returns calculated failed payments count from payments table', async () => {
       const { data } = await service.getDashboardAggregates(true);
-      expect(data.failedPaymentsCount).toBe(0);
+      expect(data.failedPaymentsCount).toBe(2);
     });
 
     it('returns open support tickets count', async () => {
