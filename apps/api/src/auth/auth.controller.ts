@@ -3,9 +3,11 @@ import {
   Controller,
   Delete,
   Get,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -37,6 +39,7 @@ import {
   SwitchTenantDto,
 } from './dto/auth-swagger.dto';
 import { parseDurationToMs } from './auth.utils';
+import { BrandingService } from '../settings/branding.service';
 
 @ApiTags('auth')
 @SelfService()
@@ -45,7 +48,10 @@ export class AuthController {
   private readonly refreshCookieMaxAge: number;
   private readonly isProduction: boolean;
 
-  constructor(private readonly authService: AuthService) {
+  constructor(
+    private readonly authService: AuthService,
+    @Optional() private readonly brandingService?: BrandingService,
+  ) {
     this.refreshCookieMaxAge = parseDurationToMs(
       process.env.JWT_REFRESH_EXPIRY ?? '30d',
     );
@@ -95,6 +101,22 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiEnvelope<AuthLoginResponse>> {
+    // Auto-detect custom domain from headers if omitted in body
+    if (!dto.tenantSubdomain && !dto.tenantId && !dto.customDomain) {
+      const headerDomain =
+        (req.headers['x-custom-domain'] as string) ||
+        (req.headers['x-forwarded-host'] as string) ||
+        req.headers.host;
+      if (
+        headerDomain &&
+        !headerDomain.includes('localhost') &&
+        !headerDomain.includes('127.0.0.1') &&
+        !headerDomain.includes('cmsnbd.com')
+      ) {
+        dto.customDomain = headerDomain.split(':')[0].trim().toLowerCase();
+      }
+    }
+
     const tokens = await this.authService.login(dto, this.extractContext(req));
     this.setRefreshCookie(res, tokens.refreshToken);
 
@@ -106,6 +128,45 @@ export class AuthController {
         user: tokens.user,
       },
     };
+  }
+
+  @Public()
+  @Get('resolve-tenant')
+  @ApiOperation({
+    summary: 'Resolve tenant & branding from subdomain or custom domain (AUTH_FLOW.md §5)',
+    description:
+      'Given a subdomain or custom domain, returns the active tenant and its white-label branding configuration.',
+  })
+  async resolveTenant(
+    @Query('subdomain') subdomain?: string,
+    @Query('domain') domain?: string,
+    @Req() req?: Request,
+  ) {
+    if (!this.brandingService) {
+      throw new UnauthorizedException({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Branding service not available',
+      });
+    }
+
+    const headerDomain =
+      (req?.headers['x-custom-domain'] as string) ||
+      (req?.headers['x-forwarded-host'] as string) ||
+      req?.headers.host;
+
+    const resolvedDomain =
+      domain ||
+      (headerDomain &&
+      !headerDomain.includes('localhost') &&
+      !headerDomain.includes('127.0.0.1')
+        ? headerDomain.split(':')[0].trim().toLowerCase()
+        : undefined);
+
+    const data = await this.brandingService.resolvePublicTenant(
+      subdomain,
+      resolvedDomain,
+    );
+    return { data };
   }
 
   @Public()

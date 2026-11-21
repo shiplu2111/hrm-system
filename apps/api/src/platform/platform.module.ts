@@ -4,7 +4,6 @@ import { PlatformAuthModule } from './auth/platform-auth.module';
 import { PlatformBrandingModule } from './branding/platform-branding.module';
 import { CountriesModule } from './countries/countries.module';
 import { PlatformDashboardModule } from './dashboard/platform-dashboard.module';
-import { PlatformFeatureFlagsModule } from './feature-flags/platform-feature-flags.module';
 import { PlatformInvoicesModule } from './invoices/platform-invoices.module';
 import { PlatformPaymentsModule } from './payments/platform-payments.module';
 import { PlatformPlansModule } from './plans/platform-plans.module';
@@ -21,7 +20,6 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
-    PlatformFeatureFlagsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -37,7 +35,6 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
-    PlatformFeatureFlagsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -48,5 +45,5 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformTenantsModule,
   ],
 })
-export class PlatformModule {}
+export class PlatformModule { }
 

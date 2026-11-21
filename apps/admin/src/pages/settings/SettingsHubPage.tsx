@@ -38,6 +38,8 @@ import { Toggle, Avatar } from '@/components/ui/Toggle';
 import { NotificationSettingsScreen } from '@/components/settings/notifications/NotificationSettingsScreen';
 import { ApiAccessSettingsPanel } from '@/components/settings/ApiAccessSettingsPanel';
 import { SupportAccessSettingsPanel } from '@/components/settings/SupportAccessSettingsPanel';
+import { BrandingSettingsPanel } from '@/components/settings/BrandingSettingsPanel';
+import { CustomDomainsSettingsPanel } from '@/components/settings/CustomDomainsSettingsPanel';
 import {
   loginHistory,
   apiKeys,
@@ -55,6 +57,7 @@ import { useTenant } from '@/context/TenantContext';
 import { updateCompany, updateCurrentTenant } from '@/lib/organization-api';
 
 type SettingsGroup =
+  | 'branding'
   | 'general'
   | 'notifications'
   | 'workflows'
@@ -168,6 +171,7 @@ export function SettingsHubPage() {
   };
 
   const allSettingsNavItems = [
+    { key: 'branding' as const, label: 'Branding & Custom Domain', icon: Globe, badge: 'White-Label', desc: 'Logo, theme color, custom domain & TLS', page: 'settings-general' as const },
     { key: 'notifications' as const, label: 'Notifications & Email', icon: Bell, badge: 'SMTP', desc: 'Event channels, live delivery & SMTP', page: 'settings-notifications' as const },
     { key: 'workflows' as const, label: 'Approval Workflows', icon: GitBranch, desc: 'Who approves claims, timesheets & offers', page: 'settings-workflows' as const },
     { key: 'security' as const, label: 'Security & Audit Logs', icon: ShieldCheck, badge: 'SOC2', desc: '2FA, SSO, Login Audit & Code Diff', page: 'settings-security' as const },
@@ -202,7 +206,10 @@ export function SettingsHubPage() {
               return (
                 <button
                   key={item.key}
-                  onClick={() => navigate(item.page)}
+                  onClick={() => {
+                    setActiveGroup(item.key);
+                    navigate(item.page);
+                  }}
                   className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${
                     isActive
                       ? 'bg-accent-50 dark:bg-accent-950/40 border border-accent-500/40 text-accent-700 dark:text-accent-300 shadow-sm'
@@ -237,6 +244,14 @@ export function SettingsHubPage() {
 
         {/* RIGHT MAIN CONTENT AREA (9 cols on desktop) */}
         <main className="lg:col-span-9 space-y-6">
+          {/* ================= GROUP 0: WHITE-LABELING & CUSTOM DOMAINS (MODULE 01) ================= */}
+          {activeGroup === 'branding' && (
+            <div className="space-y-6">
+              <BrandingSettingsPanel />
+              <CustomDomainsSettingsPanel />
+            </div>
+          )}
+
           {/* ================= GROUP 1: NOTIFICATION ENGINE (MODULE 34) ================= */}
           {activeGroup === 'notifications' && (
             <div className="space-y-6">

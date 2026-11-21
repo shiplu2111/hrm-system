@@ -470,10 +470,11 @@ export class AuthService {
       role: { include: { permissions: true } },
     } as const;
 
-    if (dto.tenantSubdomain || dto.tenantId) {
+    if (dto.tenantSubdomain || dto.tenantId || dto.customDomain) {
       const tenant = await this.resolveTenantOrThrow(
         dto.tenantSubdomain,
         dto.tenantId,
+        dto.customDomain,
       );
       this.assertTenantActive(tenant.status, tenant.suspensionMode);
 
@@ -521,8 +522,9 @@ export class AuthService {
   private async resolveTenantOrThrow(
     tenantSubdomain?: string,
     tenantId?: string,
+    customDomain?: string,
   ) {
-    const tenant = await this.resolveTenant(tenantSubdomain, tenantId);
+    const tenant = await this.resolveTenant(tenantSubdomain, tenantId, customDomain);
     if (!tenant) {
       throw new UnauthorizedException({
         code: AUTH_ERROR_CODES.TENANT_NOT_FOUND,
@@ -535,7 +537,26 @@ export class AuthService {
   private async resolveTenant(
     tenantSubdomain?: string,
     tenantId?: string,
+    customDomain?: string,
   ) {
+    if (customDomain) {
+      const normalizedDomain = customDomain.trim().toLowerCase();
+      const domainRecord = await (this.prisma.unscoped as any).tenantCustomDomain.findFirst({
+        where: {
+          domain: normalizedDomain,
+          status: 'active',
+        },
+        include: { tenant: true },
+      });
+      if (!domainRecord || !domainRecord.tenant) {
+        throw new UnauthorizedException({
+          code: AUTH_ERROR_CODES.TENANT_NOT_FOUND,
+          message: `Custom domain '${customDomain}' is not registered or not active`,
+        });
+      }
+      return domainRecord.tenant;
+    }
+
     if (tenantSubdomain) {
       const tenant = await this.prisma.unscoped.tenant.findUnique({
         where: { subdomain: tenantSubdomain },

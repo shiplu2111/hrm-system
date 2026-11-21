@@ -26,6 +26,7 @@ import { PlatformModule } from './platform/platform.module';
 import { RosterModule } from './roster/roster.module';
 import { RuleResolverModule } from './rule-resolver/rule-resolver.module';
 import { SettingsModule } from './settings/settings.module';
+import { CustomDomainsModule } from './custom-domains/custom-domains.module';
 import { StorageModule } from './storage/storage.module';
 import { SyncModule } from './sync/sync.module';
 import { TenantModule } from './tenant/tenant.module';
@@ -85,6 +86,7 @@ import { ContractorsModule } from './contractors/contractors.module';
     RuleResolverModule,
     PlatformModule,
     SettingsModule,
+    CustomDomainsModule,
     NotificationsModule,
     DashboardModule,
     ReportsModule,

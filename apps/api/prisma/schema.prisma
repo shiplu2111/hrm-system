@@ -174,6 +174,8 @@ model Tenant {
   payments                    Payment[]
   creditNotes                 CreditNote[]
   paymentRefunds              PaymentRefund[]
+  brandings                   TenantBranding?
+  customDomains               TenantCustomDomain[]
 
   @@map("tenants")
 }
@@ -6067,6 +6069,81 @@ model CreditNote {
   @@index([invoiceId])
   @@index([creditNoteNumber])
   @@map("credit_notes")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant White-Labeling & Custom Domains (MODULES.md §01 & AUTH_FLOW.md §5)
+// ---------------------------------------------------------------------------
+
+model TenantBranding {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @unique @map("tenant_id") @db.Uuid
+  logoUrl            String?  @map("logo_url")
+  faviconUrl         String?  @map("favicon_url")
+  primaryColor       String   @default("#2563EB") @map("primary_color")
+  secondaryColor     String?  @map("secondary_color")
+  companyDisplayName String?  @map("company_display_name")
+  senderName         String?  @map("sender_name")
+  senderEmail        String?  @map("sender_email")
+  emailHeaderLogoUrl String?  @map("email_header_logo_url")
+  emailFooterText    String?  @map("email_footer_text")
+  customCss          String?  @map("custom_css")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("tenant_brandings")
+}
+
+enum CustomDomainStatus {
+  pending_verification
+  verified
+  dns_failed
+  provisioning_tls
+  active
+  failed
+  disabled
+
+  @@map("custom_domain_status")
+}
+
+enum TlsCertificateStatus {
+  pending
+  provisioning
+  active
+  failed
+  expired
+
+  @@map("tls_certificate_status")
+}
+
+model TenantCustomDomain {
+  id                String               @id @default(uuid()) @db.Uuid
+  tenantId          String               @map("tenant_id") @db.Uuid
+  domain            String               @unique
+  status            CustomDomainStatus   @default(pending_verification)
+  verificationToken String               @map("verification_token")
+  dnsRecords        Json                 @map("dns_records")
+  sslStatus         TlsCertificateStatus @default(pending) @map("ssl_status")
+  sslCertificateId  String?              @map("ssl_certificate_id")
+  sslIssuedAt       DateTime?            @map("ssl_issued_at")
+  sslExpiresAt      DateTime?            @map("ssl_expires_at")
+  sslDetails        Json?                @map("ssl_details")
+  verifiedAt        DateTime?            @map("verified_at")
+  lastCheckedAt     DateTime?            @map("last_checked_at")
+  errorMessage      String?              @map("error_message")
+  createdBy         String?              @map("created_by") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([domain])
+  @@map("tenant_custom_domains")
 }
 
 

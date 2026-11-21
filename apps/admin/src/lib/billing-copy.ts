@@ -124,6 +124,8 @@ export const billingCopy = {
     sso: { label: 'Single sign-on', description: 'Sign in through your identity provider' },
     advanced_workflow: { label: 'Advanced workflows', description: 'Multi-step, conditional approval chains' },
     custom_payroll_rules: { label: 'Custom payroll rules', description: 'Company-specific pay formulas and rules' },
+    custom_domains: { label: 'Custom domains', description: 'Connect custom domains with automatic TLS certificates' },
+    white_label: { label: 'White-labeling', description: 'Custom logo, theme colors and email sender identity' },
   } satisfies Record<PlanFeatureKey, { label: string; description: string }>,
 } as const;
 

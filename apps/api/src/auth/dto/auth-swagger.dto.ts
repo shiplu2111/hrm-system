@@ -28,6 +28,15 @@ export class LoginDto {
   @IsOptional()
   @IsUUID()
   tenantId?: string;
+
+  @ApiPropertyOptional({
+    example: 'hr.acmepayroll.com',
+    description:
+      'Custom domain (AUTH_FLOW.md §5 & MODULES.md §01). Resolves tenant by active custom domain.',
+  })
+  @IsOptional()
+  @IsString()
+  customDomain?: string;
 }
 
 export class RefreshTokenDto {
