@@ -16,7 +16,9 @@ import {
   type RuleVersionMetadataDiff,
   type RuleVersionPayloadFieldDiff,
   type RuleVersionView,
+  type SocialSecurityRulePayload,
   type TaxBracketRow,
+  validateSocialSecurityPayload,
   validateTaxBrackets,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
@@ -136,6 +138,13 @@ export class RuleVersionsService {
     if (ruleType === 'tax' && dto.payload) {
       this.validateTaxPayload(dto.payload);
     }
+    // Validate social security / pension rule structure
+    if (
+      (ruleType === 'social_security' || ruleType === 'pension') &&
+      dto.payload
+    ) {
+      this.validateSocialSecurityPayload(dto.payload);
+    }
 
     // Calculate incremental version number
     const maxVersionRecord = await this.prisma.unscoped.countryRule.findFirst({
@@ -242,6 +251,13 @@ export class RuleVersionsService {
 
     if (existing.ruleType === 'tax' && dto.payload) {
       this.validateTaxPayload(dto.payload);
+    }
+    if (
+      (existing.ruleType === 'social_security' ||
+        existing.ruleType === 'pension') &&
+      dto.payload
+    ) {
+      this.validateSocialSecurityPayload(dto.payload);
     }
 
     const effectiveFrom = dto.effectiveFrom
@@ -700,6 +716,39 @@ export class RuleVersionsService {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Inline validation for Social Security / Pension Rules (MODULES.md §21 & PAYROLL_LOGIC.md §4):
+   * Employee and employer rates, wage ceilings/floors, contribution frequency, and fund details.
+   */
+  private validateSocialSecurityPayload(
+    payload: Record<string, unknown>,
+  ): void {
+    if (!payload || typeof payload !== 'object') return;
+
+    const typedPayload =
+      payload as unknown as Partial<SocialSecurityRulePayload>;
+    const employerRate =
+      typedPayload.employerContributionRate ?? typedPayload.employerRate;
+    const employeeRate =
+      typedPayload.employeeContributionRate ?? typedPayload.employeeRate;
+
+    const res = validateSocialSecurityPayload({
+      ...typedPayload,
+      employerContributionRate: employerRate,
+      employeeContributionRate: employeeRate,
+    });
+
+    if (!res.isValid) {
+      throw new BadRequestException({
+        code: 'INVALID_SOCIAL_SECURITY_RULES',
+        message:
+          res.summaryError ||
+          'Invalid social security or pension rules configuration.',
+        details: res.errors,
+      });
     }
   }
 

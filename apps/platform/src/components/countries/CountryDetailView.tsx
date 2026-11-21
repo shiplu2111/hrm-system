@@ -63,6 +63,7 @@ import type {
 import { Modal } from '@/components/ui/Modal';
 import { RuleVersionEditor } from '../rules/RuleVersionEditor';
 import { TaxRulesEditor } from '../tax/TaxRulesEditor';
+import { SocialSecurityRulesEditor } from '../social-security/SocialSecurityRulesEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -1302,18 +1303,34 @@ export function CountryDetailView({
         />
       )}
 
-      {/* 4 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
-      {activeTab !== 'General' && activeTab !== 'Currency' && activeTab !== 'Tax' && (
-        <LinkedStageTabPanel
-          tab={ALL_TABS.find((t) => t.key === activeTab)!}
+      {/* 4. SOCIAL SECURITY & PENSION RULES EDITOR (STAGE C.02 & STAGE C.03) */}
+      {(activeTab === 'Social Security' || activeTab === 'Pension') && (
+        <SocialSecurityRulesEditor
           country={country}
+          states={states}
           configuration={configuration}
           completeness={tabCompleteness[activeTab]}
-          onSaveRule={onSaveRule}
-          onSaveTaxBracket={onSaveTaxBracket}
           onRefresh={onRefresh}
+          defaultRuleType={activeTab === 'Pension' ? 'pension' : 'social_security'}
         />
       )}
+
+      {/* 5 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {activeTab !== 'General' &&
+        activeTab !== 'Currency' &&
+        activeTab !== 'Tax' &&
+        activeTab !== 'Social Security' &&
+        activeTab !== 'Pension' && (
+          <LinkedStageTabPanel
+            tab={ALL_TABS.find((t) => t.key === activeTab)!}
+            country={country}
+            configuration={configuration}
+            completeness={tabCompleteness[activeTab]}
+            onSaveRule={onSaveRule}
+            onSaveTaxBracket={onSaveTaxBracket}
+            onRefresh={onRefresh}
+          />
+        )}
 
       {/* Add State / Province Modal */}
       <Modal

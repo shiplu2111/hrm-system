@@ -840,4 +840,183 @@ describe('RuleVersionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('Social Security and Pension Rules inline validation', () => {
+    it('should reject social security rule when schemeName is missing', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'social_security',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Social Security Act',
+            changeNote: 'Missing scheme name',
+            payload: {
+              schemeName: '',
+              employerContributionRate: 6.2,
+              employeeContributionRate: 6.2,
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject social security rule when employerContributionRate is out of range', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'social_security',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Social Security Act',
+            changeNote: 'Invalid rate > 100',
+            payload: {
+              schemeName: 'Statutory Pension',
+              employerContributionRate: 105,
+              employeeContributionRate: 5,
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject social security rule when wageCeiling is less than wageFloor', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'social_security',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Social Security Act',
+            changeNote: 'Ceiling < Floor',
+            payload: {
+              schemeName: 'National Social Insurance',
+              employerContributionRate: 8.0,
+              employeeContributionRate: 4.0,
+              wageFloor: 5000,
+              wageCeiling: 3000, // Invalid: ceiling < floor
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject social security rule when contributionFrequency is invalid', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'social_security',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Social Security Act',
+            changeNote: 'Invalid frequency',
+            payload: {
+              schemeName: 'National Social Insurance',
+              employerContributionRate: 8.0,
+              employeeContributionRate: 4.0,
+              contributionFrequency: 'every_other_decade' as any,
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid social security and pension rule with rates, wage ceiling, floor, and fund details', async () => {
+      prisma.unscoped.countryRule.findFirst.mockResolvedValue(null);
+      prisma.unscoped.countryRule.findMany.mockResolvedValue([]);
+      prisma.unscoped.countryRule.create.mockResolvedValue({
+        id: 'rule-soc-1',
+        countryId: mockCountryId,
+        stateProvinceId: null,
+        ruleType: 'social_security',
+        version: 1,
+        status: 'published',
+        effectiveFrom: new Date('2025-07-01'),
+        effectiveTo: null,
+        sourceReference: 'Superannuation Guarantee (Administration) Act 1992',
+        changeNote: 'AU Super Guarantee rate indexing to 11.5%',
+        payload: {
+          schemeName: 'Superannuation Guarantee',
+          fundCode: 'SUPER_AU',
+          administratorName: 'Australian Taxation Office (ATO)',
+          contributionFrequency: 'monthly',
+          contributionBase: 'gross',
+          employerContributionRate: 11.5,
+          employeeContributionRate: 0,
+          wageFloor: 450,
+          wageCeiling: 62270,
+          voluntaryContributionAllowed: true,
+          voluntaryContributionMaxRate: 15,
+        },
+        createdBy: mockUserId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        stateProvince: null,
+      });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'social_security',
+          status: 'published',
+          effectiveFrom: '2025-07-01',
+          sourceReference: 'Superannuation Guarantee (Administration) Act 1992',
+          changeNote: 'AU Super Guarantee rate indexing to 11.5%',
+          payload: {
+            schemeName: 'Superannuation Guarantee',
+            fundCode: 'SUPER_AU',
+            administratorName: 'Australian Taxation Office (ATO)',
+            contributionFrequency: 'monthly',
+            contributionBase: 'gross',
+            employerContributionRate: 11.5,
+            employeeContributionRate: 0,
+            wageFloor: 450,
+            wageCeiling: 62270,
+            voluntaryContributionAllowed: true,
+            voluntaryContributionMaxRate: 15,
+          },
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+    });
+
+    it('should validate statutory sub-funds array within pension or social security rules', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'pension',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Pension Act',
+            changeNote: 'Fund with invalid rate',
+            payload: {
+              schemeName: 'State Pension System',
+              employerContributionRate: 10,
+              employeeContributionRate: 5,
+              funds: [
+                {
+                  id: 'f-1',
+                  name: 'Retirement Fund',
+                  code: 'RET',
+                  category: 'pension',
+                  employerRate: 120, // Invalid: > 100
+                  employeeRate: 5,
+                  contributionBase: 'gross',
+                  preTax: true,
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

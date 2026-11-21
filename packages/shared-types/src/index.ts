@@ -15,6 +15,7 @@ export * from './country-config';
 export {
   validateTaxBrackets,
   calculateCumulativeFixedAmounts,
+  validateSocialSecurityPayload,
 } from './country-config';
 export * from './settings';
 export * from './notifications';

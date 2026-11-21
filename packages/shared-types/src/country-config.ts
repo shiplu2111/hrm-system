@@ -404,6 +404,204 @@ export function calculateCumulativeFixedAmounts(
   });
 }
 
+export type SocialSecurityContributionFrequency =
+  | 'monthly'
+  | 'per_pay_period'
+  | 'quarterly'
+  | 'annual'
+  | 'weekly'
+  | 'biweekly';
+
+export type StatutoryFundCategory =
+  | 'pension'
+  | 'health'
+  | 'unemployment'
+  | 'disability'
+  | 'accident'
+  | 'maternity'
+  | 'provident'
+  | 'other';
+
+export interface StatutoryFundItem {
+  id: string;
+  name: string;
+  code: string;
+  category: StatutoryFundCategory;
+  employeeRate: number;
+  employerRate: number;
+  wageFloor?: number | null;
+  wageCeiling?: number | null;
+  contributionBase: 'gross' | 'basic';
+  preTax: boolean;
+  administratorName?: string;
+  description?: string;
+}
+
+export interface SocialSecurityRulePayload {
+  schemeName: string;
+  fundCode?: string;
+  administratorName?: string;
+  registrationNumber?: string;
+  contributionFrequency: SocialSecurityContributionFrequency;
+  contributionBase: 'gross' | 'basic';
+  employerContributionRate: number;
+  employeeContributionRate: number;
+  employerRate?: number;
+  employeeRate?: number;
+  superannuationGuaranteeRate?: number;
+  wageFloor?: number | null;
+  wageCeiling?: number | null;
+  exemptBelowFloor?: boolean;
+  preTax?: boolean;
+  voluntaryContributionAllowed?: boolean;
+  voluntaryContributionMaxRate?: number | null;
+  hasSubFunds?: boolean;
+  funds?: StatutoryFundItem[];
+  notes?: string;
+}
+
+export function validateSocialSecurityPayload(
+  payload: Partial<SocialSecurityRulePayload>,
+): {
+  isValid: boolean;
+  errors: string[];
+  summaryError?: string;
+} {
+  const errors: string[] = [];
+
+  if (!payload.schemeName || !payload.schemeName.trim()) {
+    errors.push('Statutory scheme / fund name is required.');
+  }
+
+  if (
+    typeof payload.employerContributionRate !== 'number' ||
+    isNaN(payload.employerContributionRate) ||
+    payload.employerContributionRate < 0 ||
+    payload.employerContributionRate > 100
+  ) {
+    errors.push('Employer contribution rate must be a percentage between 0% and 100%.');
+  }
+
+  if (
+    typeof payload.employeeContributionRate !== 'number' ||
+    isNaN(payload.employeeContributionRate) ||
+    payload.employeeContributionRate < 0 ||
+    payload.employeeContributionRate > 100
+  ) {
+    errors.push('Employee contribution rate must be a percentage between 0% and 100%.');
+  }
+
+  if (
+    payload.contributionBase &&
+    payload.contributionBase !== 'gross' &&
+    payload.contributionBase !== 'basic'
+  ) {
+    errors.push("Contribution base must be either 'gross' or 'basic'.");
+  }
+
+  const validFrequencies: SocialSecurityContributionFrequency[] = [
+    'monthly',
+    'per_pay_period',
+    'quarterly',
+    'annual',
+    'weekly',
+    'biweekly',
+  ];
+  if (
+    payload.contributionFrequency &&
+    !validFrequencies.includes(payload.contributionFrequency)
+  ) {
+    errors.push(
+      `Contribution frequency must be one of: ${validFrequencies.join(', ')}.`,
+    );
+  }
+
+  if (payload.wageFloor !== null && payload.wageFloor !== undefined) {
+    if (isNaN(payload.wageFloor) || payload.wageFloor < 0) {
+      errors.push('Wage floor must be 0 or a positive monetary threshold.');
+    }
+  }
+
+  if (payload.wageCeiling !== null && payload.wageCeiling !== undefined) {
+    if (isNaN(payload.wageCeiling) || payload.wageCeiling <= 0) {
+      errors.push('Wage ceiling must be a positive monetary threshold.');
+    }
+  }
+
+  if (
+    payload.wageFloor !== null &&
+    payload.wageFloor !== undefined &&
+    payload.wageCeiling !== null &&
+    payload.wageCeiling !== undefined
+  ) {
+    if (payload.wageCeiling < payload.wageFloor) {
+      errors.push(
+        `Wage ceiling (${payload.wageCeiling}) cannot be less than wage floor (${payload.wageFloor}).`,
+      );
+    }
+  }
+
+  if (
+    payload.voluntaryContributionAllowed &&
+    payload.voluntaryContributionMaxRate !== null &&
+    payload.voluntaryContributionMaxRate !== undefined
+  ) {
+    if (
+      isNaN(payload.voluntaryContributionMaxRate) ||
+      payload.voluntaryContributionMaxRate < 0 ||
+      payload.voluntaryContributionMaxRate > 100
+    ) {
+      errors.push(
+        'Voluntary contribution maximum rate must be between 0% and 100%.',
+      );
+    }
+  }
+
+  if (Array.isArray(payload.funds)) {
+    payload.funds.forEach((fund, idx) => {
+      if (!fund.name || !fund.name.trim()) {
+        errors.push(`Fund #${idx + 1}: Name is required.`);
+      }
+      if (!fund.code || !fund.code.trim()) {
+        errors.push(`Fund #${idx + 1}: Code is required.`);
+      }
+      if (
+        typeof fund.employeeRate !== 'number' ||
+        isNaN(fund.employeeRate) ||
+        fund.employeeRate < 0 ||
+        fund.employeeRate > 100
+      ) {
+        errors.push(`Fund #${idx + 1} (${fund.name || 'unnamed'}): Employee rate must be 0%–100%.`);
+      }
+      if (
+        typeof fund.employerRate !== 'number' ||
+        isNaN(fund.employerRate) ||
+        fund.employerRate < 0 ||
+        fund.employerRate > 100
+      ) {
+        errors.push(`Fund #${idx + 1} (${fund.name || 'unnamed'}): Employer rate must be 0%–100%.`);
+      }
+      if (
+        fund.wageFloor !== null &&
+        fund.wageFloor !== undefined &&
+        fund.wageCeiling !== null &&
+        fund.wageCeiling !== undefined &&
+        fund.wageCeiling < fund.wageFloor
+      ) {
+        errors.push(
+          `Fund #${idx + 1} (${fund.name || 'unnamed'}): Ceiling (${fund.wageCeiling}) cannot be less than floor (${fund.wageFloor}).`,
+        );
+      }
+    });
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    summaryError: errors[0],
+  };
+}
+
 export interface CountryRuleRecord {
   id: string;
   countryId: string;
