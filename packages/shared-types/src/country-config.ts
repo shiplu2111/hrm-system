@@ -1,4 +1,5 @@
 /** Country configuration types — platform admin / Rule Resolver (ARCHITECTURE.md §3, DATABASE_SCHEMA.md §1) */
+import type { LeaveAccrualType } from './leave';
 
 export type CountryStatus = 'draft' | 'active' | 'retired';
 
@@ -633,4 +634,522 @@ export interface PublicHolidayEntry {
   observed?: string | null;
   recurring?: boolean;
   notes?: string;
+}
+
+// ============================================================================
+// STATUTORY LEAVE RULES (STAGE C.04 - LEGISLATED LEGAL MINIMUMS)
+// ============================================================================
+
+export type StatutoryLeaveCategory =
+  | 'annual'
+  | 'sick'
+  | 'maternity'
+  | 'paternity'
+  | 'compassionate'
+  | 'unpaid'
+  | 'study'
+  | 'other';
+
+export interface StatutoryLeaveRuleItem {
+  id: string;
+  category: StatutoryLeaveCategory;
+  leaveType: string; // identifier/code e.g. 'annual', 'sick', 'maternity'
+  name: string; // e.g. 'Annual Leave', 'Personal & Carer\'s Leave'
+  isPaid: boolean;
+  minimumEntitlementDays: number; // e.g. 20 for annual, 10 for sick
+  accrualMethod: LeaveAccrualType; // 'monthly' | 'yearly' | 'on_hire'
+  carryForwardAllowed: boolean;
+  maxCarryForwardDays: number | null; // null = uncapped
+  carryForwardExpiryMonths: number | null; // null = does not expire
+  encashmentAllowed: boolean;
+  maxEncashmentDays: number | null; // null = uncapped or not applicable
+  proRataApplicable: boolean;
+  notes?: string;
+}
+
+export interface LeaveRulePayload {
+  statutoryLeaves: StatutoryLeaveRuleItem[];
+  probationEntitlementRestricted?: boolean;
+  allowNegativeBalance?: boolean;
+  legalJurisdictionBaseline?: string; // e.g. "Fair Work Act 2009 (NES)"
+  notes?: string;
+}
+
+export interface CompanyStatutoryLeaveMinimums {
+  countryIso: string;
+  countryName: string;
+  stateCode?: string | null;
+  stateName?: string | null;
+  statutoryLeaves: StatutoryLeaveRuleItem[];
+  baselineReference?: string;
+}
+
+/**
+ * Validate statutory leave rule payload.
+ * Ensures non-negative entitlements, valid accrual methods, and valid statutory sub-rules.
+ */
+export function validateLeaveRulePayload(payload: unknown): {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  summaryError?: string;
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!payload || typeof payload !== 'object') {
+    return {
+      isValid: false,
+      errors: ['Leave rules payload must be an object.'],
+      warnings: [],
+      summaryError: 'Leave rules payload must be an object.',
+    };
+  }
+
+  const p = payload as Partial<LeaveRulePayload> & Record<string, unknown>;
+
+  let leaves = p.statutoryLeaves;
+  if (!Array.isArray(leaves) || leaves.length === 0) {
+    if (
+      typeof p.annual_leave_days === 'number' ||
+      typeof p.annualLeaveDays === 'number' ||
+      typeof p.sick_leave_days === 'number' ||
+      typeof p.sickLeaveDays === 'number'
+    ) {
+      leaves = normalizeLegacyLeavePayload(p, 'GEN');
+    }
+  }
+
+  if (!Array.isArray(leaves) || leaves.length === 0) {
+    errors.push('At least one statutory leave type must be configured.');
+    return {
+      isValid: false,
+      errors,
+      warnings,
+      summaryError: errors[0],
+    };
+  }
+
+  const validCategories: StatutoryLeaveCategory[] = [
+    'annual',
+    'sick',
+    'maternity',
+    'paternity',
+    'compassionate',
+    'unpaid',
+    'study',
+    'other',
+  ];
+
+  const validAccrualMethods: LeaveAccrualType[] = ['monthly', 'yearly', 'on_hire'];
+
+  leaves.forEach((leave, idx) => {
+    const label = leave.name ? `"${leave.name}"` : `Leave type #${idx + 1}`;
+
+    if (!leave.name || !leave.name.trim()) {
+      errors.push(`${label}: Name is required.`);
+    }
+
+    if (!leave.category || !validCategories.includes(leave.category)) {
+      errors.push(`${label}: Valid statutory category is required.`);
+    }
+
+    if (
+      typeof leave.minimumEntitlementDays !== 'number' ||
+      isNaN(leave.minimumEntitlementDays) ||
+      leave.minimumEntitlementDays < 0
+    ) {
+      errors.push(`${label}: Minimum entitlement must be 0 or more days.`);
+    }
+
+    if (!leave.accrualMethod || !validAccrualMethods.includes(leave.accrualMethod)) {
+      errors.push(`${label}: Accrual method must be 'monthly', 'yearly', or 'on_hire'.`);
+    }
+
+    if (
+      leave.maxCarryForwardDays !== null &&
+      leave.maxCarryForwardDays !== undefined &&
+      (typeof leave.maxCarryForwardDays !== 'number' ||
+        isNaN(leave.maxCarryForwardDays) ||
+        leave.maxCarryForwardDays < 0)
+    ) {
+      errors.push(`${label}: Maximum carry forward days cannot be negative.`);
+    }
+
+    if (
+      leave.carryForwardExpiryMonths !== null &&
+      leave.carryForwardExpiryMonths !== undefined &&
+      (typeof leave.carryForwardExpiryMonths !== 'number' ||
+        isNaN(leave.carryForwardExpiryMonths) ||
+        leave.carryForwardExpiryMonths < 1)
+    ) {
+      errors.push(`${label}: Carry forward expiry months must be at least 1 month.`);
+    }
+
+    if (
+      leave.maxEncashmentDays !== null &&
+      leave.maxEncashmentDays !== undefined &&
+      (typeof leave.maxEncashmentDays !== 'number' ||
+        isNaN(leave.maxEncashmentDays) ||
+        leave.maxEncashmentDays < 0)
+    ) {
+      errors.push(`${label}: Maximum encashment days cannot be negative.`);
+    }
+  });
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    summaryError: errors[0],
+  };
+}
+
+/**
+ * Default statutory leaves for recognized countries (e.g. Australia Fair Work NES).
+ */
+export function getDefaultStatutoryLeavesForCountry(countryIso: string): StatutoryLeaveRuleItem[] {
+  if (countryIso === 'AUS') {
+    return [
+      {
+        id: 'stat-aus-annual',
+        category: 'annual',
+        leaveType: 'annual',
+        name: 'Annual Leave',
+        isPaid: true,
+        minimumEntitlementDays: 20, // 4 weeks
+        accrualMethod: 'monthly',
+        carryForwardAllowed: true,
+        maxCarryForwardDays: null,
+        carryForwardExpiryMonths: null,
+        encashmentAllowed: true,
+        maxEncashmentDays: 10,
+        proRataApplicable: true,
+        notes: 'Fair Work Act 2009 (NES) §87: 4 weeks paid annual leave for full-time employees.',
+      },
+      {
+        id: 'stat-aus-sick',
+        category: 'sick',
+        leaveType: 'sick',
+        name: 'Sick & Carer\'s Leave',
+        isPaid: true,
+        minimumEntitlementDays: 10, // 10 days
+        accrualMethod: 'monthly',
+        carryForwardAllowed: true,
+        maxCarryForwardDays: null,
+        carryForwardExpiryMonths: null,
+        encashmentAllowed: false,
+        maxEncashmentDays: null,
+        proRataApplicable: true,
+        notes: 'Fair Work Act 2009 (NES) §96: 10 days paid personal/carer\'s leave. Cashing out prohibited unless permitted by modern award.',
+      },
+      {
+        id: 'stat-aus-maternity',
+        category: 'maternity',
+        leaveType: 'maternity',
+        name: 'Maternity Leave',
+        isPaid: true,
+        minimumEntitlementDays: 84, // 12 weeks
+        accrualMethod: 'on_hire',
+        carryForwardAllowed: false,
+        maxCarryForwardDays: null,
+        carryForwardExpiryMonths: null,
+        encashmentAllowed: false,
+        maxEncashmentDays: null,
+        proRataApplicable: false,
+        notes: 'Fair Work Act 2009 (NES) §70: Parental leave entitlement (up to 52 weeks statutory leave entitlement).',
+      },
+      {
+        id: 'stat-aus-paternity',
+        category: 'paternity',
+        leaveType: 'paternity',
+        name: 'Paternity / Partner Leave',
+        isPaid: true,
+        minimumEntitlementDays: 10, // 2 weeks
+        accrualMethod: 'on_hire',
+        carryForwardAllowed: false,
+        maxCarryForwardDays: null,
+        carryForwardExpiryMonths: null,
+        encashmentAllowed: false,
+        maxEncashmentDays: null,
+        proRataApplicable: false,
+        notes: 'Fair Work Act 2009 (NES) §70 & Australian Government Paid Parental Leave scheme.',
+      },
+      {
+        id: 'stat-aus-compassionate',
+        category: 'compassionate',
+        leaveType: 'compassionate',
+        name: 'Compassionate Leave',
+        isPaid: true,
+        minimumEntitlementDays: 2, // 2 days per occasion
+        accrualMethod: 'on_hire',
+        carryForwardAllowed: false,
+        maxCarryForwardDays: null,
+        carryForwardExpiryMonths: null,
+        encashmentAllowed: false,
+        maxEncashmentDays: null,
+        proRataApplicable: false,
+        notes: 'Fair Work Act 2009 (NES) §104: 2 days paid compassionate leave per permissible occasion.',
+      },
+    ];
+  }
+
+  // Standard generic statutory baseline
+  return [
+    {
+      id: 'stat-gen-annual',
+      category: 'annual',
+      leaveType: 'annual',
+      name: 'Annual Leave',
+      isPaid: true,
+      minimumEntitlementDays: 14,
+      accrualMethod: 'monthly',
+      carryForwardAllowed: true,
+      maxCarryForwardDays: 5,
+      carryForwardExpiryMonths: 12,
+      encashmentAllowed: false,
+      maxEncashmentDays: null,
+      proRataApplicable: true,
+      notes: 'Standard statutory vacation leave baseline.',
+    },
+    {
+      id: 'stat-gen-sick',
+      category: 'sick',
+      leaveType: 'sick',
+      name: 'Sick Leave',
+      isPaid: true,
+      minimumEntitlementDays: 7,
+      accrualMethod: 'monthly',
+      carryForwardAllowed: false,
+      maxCarryForwardDays: null,
+      carryForwardExpiryMonths: null,
+      encashmentAllowed: false,
+      maxEncashmentDays: null,
+      proRataApplicable: true,
+      notes: 'Standard statutory medical sick leave.',
+    },
+    {
+      id: 'stat-gen-maternity',
+      category: 'maternity',
+      leaveType: 'maternity',
+      name: 'Maternity Leave',
+      isPaid: true,
+      minimumEntitlementDays: 60,
+      accrualMethod: 'on_hire',
+      carryForwardAllowed: false,
+      maxCarryForwardDays: null,
+      carryForwardExpiryMonths: null,
+      encashmentAllowed: false,
+      maxEncashmentDays: null,
+      proRataApplicable: false,
+      notes: 'Statutory maternity leave protection.',
+    },
+    {
+      id: 'stat-gen-paternity',
+      category: 'paternity',
+      leaveType: 'paternity',
+      name: 'Paternity Leave',
+      isPaid: true,
+      minimumEntitlementDays: 5,
+      accrualMethod: 'on_hire',
+      carryForwardAllowed: false,
+      maxCarryForwardDays: null,
+      carryForwardExpiryMonths: null,
+      encashmentAllowed: false,
+      maxEncashmentDays: null,
+      proRataApplicable: false,
+      notes: 'Statutory paternity leave.',
+    },
+    {
+      id: 'stat-gen-compassionate',
+      category: 'compassionate',
+      leaveType: 'compassionate',
+      name: 'Compassionate Leave',
+      isPaid: true,
+      minimumEntitlementDays: 2,
+      accrualMethod: 'on_hire',
+      carryForwardAllowed: false,
+      maxCarryForwardDays: null,
+      carryForwardExpiryMonths: null,
+      encashmentAllowed: false,
+      maxEncashmentDays: null,
+      proRataApplicable: false,
+      notes: 'Statutory bereavement / compassionate leave.',
+    },
+  ];
+}
+
+/**
+ * Gracefully normalizes legacy leave rule payloads to the structured StatutoryLeaveRuleItem format.
+ */
+export function normalizeLegacyLeavePayload(
+  rawPayload: Record<string, unknown>,
+  countryIso: string,
+): StatutoryLeaveRuleItem[] {
+  if (Array.isArray(rawPayload.statutoryLeaves) && rawPayload.statutoryLeaves.length > 0) {
+    return rawPayload.statutoryLeaves as StatutoryLeaveRuleItem[];
+  }
+
+  const defaults = getDefaultStatutoryLeavesForCountry(countryIso);
+
+  const annualDays =
+    typeof rawPayload.annual_leave_days === 'number'
+      ? rawPayload.annual_leave_days
+      : typeof rawPayload.annualLeaveDays === 'number'
+      ? rawPayload.annualLeaveDays
+      : null;
+
+  const sickDays =
+    typeof rawPayload.sick_leave_days === 'number'
+      ? rawPayload.sick_leave_days
+      : typeof rawPayload.sickLeaveDays === 'number'
+      ? rawPayload.sickLeaveDays
+      : null;
+
+  const parentalWeeks =
+    typeof rawPayload.parental_leave_weeks === 'number'
+      ? rawPayload.parental_leave_weeks
+      : typeof rawPayload.parentalLeaveWeeks === 'number'
+      ? rawPayload.parentalLeaveWeeks
+      : null;
+
+  return defaults.map((item) => {
+    if (item.category === 'annual' && annualDays !== null) {
+      return { ...item, minimumEntitlementDays: annualDays };
+    }
+    if (item.category === 'sick' && sickDays !== null) {
+      return { ...item, minimumEntitlementDays: sickDays };
+    }
+    if (item.category === 'maternity' && parentalWeeks !== null) {
+      return { ...item, minimumEntitlementDays: parentalWeeks * 7 };
+    }
+    return item;
+  });
+}
+
+/**
+ * Fuzzy matches a company leave type name (e.g. "Annual Leave", "Personal/Carer", "Vacation")
+ * to a standard statutory leave category.
+ */
+export function matchLeaveTypeToCategory(typeName: string): StatutoryLeaveCategory | null {
+  const norm = typeName.trim().toLowerCase();
+  if (
+    norm.includes('annual') ||
+    norm.includes('vacation') ||
+    norm.includes('holiday') ||
+    norm.includes('recreational')
+  ) {
+    return 'annual';
+  }
+  if (
+    norm.includes('sick') ||
+    norm.includes('carer') ||
+    norm.includes('personal') ||
+    norm.includes('medical') ||
+    norm.includes('illness')
+  ) {
+    return 'sick';
+  }
+  if (norm.includes('maternity')) {
+    return 'maternity';
+  }
+  if (norm.includes('paternity') || norm.includes('parental') || norm.includes('partner')) {
+    return 'paternity';
+  }
+  if (
+    norm.includes('compassionate') ||
+    norm.includes('bereavement') ||
+    norm.includes('mourning') ||
+    norm.includes('funeral')
+  ) {
+    return 'compassionate';
+  }
+  if (norm.includes('unpaid') || norm.includes('lwop')) {
+    return 'unpaid';
+  }
+  if (norm.includes('study') || norm.includes('exam') || norm.includes('training')) {
+    return 'study';
+  }
+  return null;
+}
+
+export interface LeavePolicyComplianceViolation {
+  field: 'entitlementDays' | 'carryForward' | 'encashment';
+  severity: 'warning' | 'error';
+  message: string;
+  statutoryRuleName: string;
+  statutoryMinimum: string | number | boolean;
+  tenantConfigured: string | number | boolean;
+}
+
+export interface LeavePolicyComplianceResult {
+  isCompliant: boolean;
+  matchedStatutoryRule?: StatutoryLeaveRuleItem;
+  violations: LeavePolicyComplianceViolation[];
+}
+
+/**
+ * Evaluates a tenant company's leave policy against the statutory minimum baseline.
+ * Tenants may exceed statutory minimums, but warning flags are raised when falling below.
+ */
+export function evaluateLeavePolicyCompliance(
+  policy: {
+    entitlementDays: number;
+    carryForwardEnabled?: boolean;
+    carryForwardMax?: number | null;
+    encashmentAllowed?: boolean;
+  },
+  statutoryRule?: StatutoryLeaveRuleItem,
+): LeavePolicyComplianceResult {
+  if (!statutoryRule) {
+    return { isCompliant: true, violations: [] };
+  }
+
+  const violations: LeavePolicyComplianceViolation[] = [];
+
+  // 1. Legal Minimum Entitlement Check (Tenants may exceed, but not go below)
+  if (policy.entitlementDays < statutoryRule.minimumEntitlementDays) {
+    violations.push({
+      field: 'entitlementDays',
+      severity: 'warning',
+      message: `Configured entitlement of ${policy.entitlementDays} days is below the statutory legal minimum of ${statutoryRule.minimumEntitlementDays} days for ${statutoryRule.name}.`,
+      statutoryRuleName: statutoryRule.name,
+      statutoryMinimum: statutoryRule.minimumEntitlementDays,
+      tenantConfigured: policy.entitlementDays,
+    });
+  }
+
+  // 2. Mandatory Carry-Forward Check
+  if (
+    statutoryRule.carryForwardAllowed &&
+    policy.carryForwardEnabled === false &&
+    statutoryRule.minimumEntitlementDays > 0
+  ) {
+    violations.push({
+      field: 'carryForward',
+      severity: 'warning',
+      message: `${statutoryRule.name} legally entitles employees to carry-forward unused balances, but carry-forward is currently disabled in this policy.`,
+      statutoryRuleName: statutoryRule.name,
+      statutoryMinimum: true,
+      tenantConfigured: false,
+    });
+  }
+
+  // 3. Encashment Prohibition Check
+  if (!statutoryRule.encashmentAllowed && policy.encashmentAllowed) {
+    violations.push({
+      field: 'encashment',
+      severity: 'warning',
+      message: `Statutory regulation strictly prohibits cashing out / encashment of ${statutoryRule.name}.`,
+      statutoryRuleName: statutoryRule.name,
+      statutoryMinimum: false,
+      tenantConfigured: true,
+    });
+  }
+
+  return {
+    isCompliant: violations.length === 0,
+    matchedStatutoryRule: statutoryRule,
+    violations,
+  };
 }

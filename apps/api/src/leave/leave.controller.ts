@@ -86,6 +86,13 @@ export class LeaveTypesController {
 export class LeavePoliciesController {
   constructor(private readonly leavePoliciesService: LeavePoliciesService) {}
 
+  @Get('statutory-minimums')
+  @RequirePermission('leave', 'view')
+  @ApiOperation({ summary: 'Resolve statutory leave minimums for company jurisdiction' })
+  async getStatutoryMinimums(@Param('companyId', ParseUUIDPipe) companyId: string) {
+    return { data: await this.leavePoliciesService.getStatutoryMinimums(companyId) };
+  }
+
   @Get()
   @RequirePermission('leave', 'view')
   async list(

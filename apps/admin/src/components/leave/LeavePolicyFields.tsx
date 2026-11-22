@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
-import { ArrowUp, Plus, X } from 'lucide-react';
-import type { LeaveAccrualType, YearlyAccrualAnchor } from '@hrm/shared-types';
+import { AlertTriangle, ArrowUp, Plus, Scale, ShieldAlert, ShieldCheck, X } from 'lucide-react';
+import {
+  evaluateLeavePolicyCompliance,
+  type LeaveAccrualType,
+  type StatutoryLeaveRuleItem,
+  type YearlyAccrualAnchor,
+} from '@hrm/shared-types';
 import { FieldError } from '@/components/ui/FieldError';
 import { Input, Label, Select } from '@/components/ui/Form';
 import { Toggle } from '@/components/ui/Toggle';
@@ -20,6 +25,8 @@ export interface LeavePolicyFieldsProps {
   roleNames: string[];
   /** Unpaid types rarely need an entitlement; the hint changes accordingly. */
   isPaid: boolean;
+  /** Optional statutory legal baseline rule for this leave type */
+  statutoryRule?: StatutoryLeaveRuleItem;
 }
 
 export function PolicySection({
@@ -76,8 +83,25 @@ export function LeavePolicyFields({
   showError,
   roleNames,
   isPaid,
+  statutoryRule,
 }: LeavePolicyFieldsProps) {
   const entitlement = Number(values.entitlementDays);
+
+  const compliance = statutoryRule
+    ? evaluateLeavePolicyCompliance(
+        {
+          entitlementDays: Number(values.entitlementDays) || 0,
+          carryForwardEnabled: values.carryForwardEnabled,
+          carryForwardMax:
+            values.carryForwardEnabled && values.carryForwardMax
+              ? Number(values.carryForwardMax)
+              : null,
+          encashmentAllowed: values.encashmentAllowed,
+        },
+        statutoryRule,
+      )
+    : null;
+
   const approverOptions = [
     ...REPORTING_LINE_APPROVERS,
     ...roleNames
@@ -151,6 +175,44 @@ export function LeavePolicyFields({
                   : 'Full entitlement credited when the employee joins.'}
             </p>
           </div>
+
+          {/* Statutory Legal Minimum Compliance Alert */}
+          {compliance && !compliance.isCompliant && (
+            <div className="sm:col-span-2 rounded-xl border border-amber-300 bg-amber-50/90 dark:border-amber-800 dark:bg-amber-950/40 p-3.5 text-xs text-amber-900 dark:text-amber-200 space-y-2 shadow-2xs">
+              <div className="flex items-center gap-2 font-bold text-amber-950 dark:text-amber-100">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>Statutory Minimum Warning ({statutoryRule?.name}):</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-[11px] leading-relaxed text-amber-900 dark:text-amber-200">
+                {compliance.violations.map((v, i) => (
+                  <li key={i}>{v.message}</li>
+                ))}
+              </ul>
+              {statutoryRule && Number(values.entitlementDays) < statutoryRule.minimumEntitlementDays && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setField('entitlementDays', String(statutoryRule.minimumEntitlementDays));
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-2xs transition"
+                  >
+                    <Scale className="h-3.5 w-3.5" />
+                    <span>Apply Statutory Legal Minimum ({statutoryRule.minimumEntitlementDays} days)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {statutoryRule && compliance && compliance.isCompliant && (
+            <div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/40 dark:bg-emerald-950/20 p-2.5 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="text-[11px]">
+                Complies with {statutoryRule.name} statutory legal baseline ({statutoryRule.minimumEntitlementDays} days/year).
+              </span>
+            </div>
+          )}
           {values.accrualType === 'yearly' ? (
             <div className="sm:col-span-2">
               <Label htmlFor="policy-anchor">Credit on</Label>

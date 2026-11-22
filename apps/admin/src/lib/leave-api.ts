@@ -1,4 +1,5 @@
 import type {
+  CompanyStatutoryLeaveMinimums,
   CreateLeavePolicyInput,
   LeaveBalanceRecord,
   LeavePolicyRecord,
@@ -75,6 +76,14 @@ export function updateLeavePolicy(
   return tenantApiRequest<LeavePolicyRecord>(
     `/companies/${companyId}/leave-policies/${policyId}`,
     { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function getStatutoryLeaveMinimums(
+  companyId: string,
+): Promise<CompanyStatutoryLeaveMinimums> {
+  return tenantApiRequest<CompanyStatutoryLeaveMinimums>(
+    `/companies/${companyId}/leave-policies/statutory-minimums`,
   );
 }
 

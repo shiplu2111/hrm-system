@@ -1019,4 +1019,225 @@ describe('RuleVersionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('Statutory Leave Rules inline validation', () => {
+    it('should reject leave rule when statutoryLeaves is missing or empty', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'leave',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Employment Act',
+            changeNote: 'Empty statutory leaves',
+            payload: {
+              statutoryLeaves: [],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject leave rule when minimumEntitlementDays is negative', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'leave',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Employment Act',
+            changeNote: 'Negative leave days',
+            payload: {
+              statutoryLeaves: [
+                {
+                  id: 'leave-1',
+                  category: 'annual',
+                  leaveType: 'annual',
+                  name: 'Annual Leave',
+                  isPaid: true,
+                  minimumEntitlementDays: -5, // Invalid negative
+                  accrualMethod: 'monthly',
+                  carryForwardAllowed: true,
+                  maxCarryForwardDays: null,
+                  carryForwardExpiryMonths: null,
+                  encashmentAllowed: false,
+                  maxEncashmentDays: null,
+                  proRataApplicable: true,
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject leave rule when accrualMethod is invalid', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'leave',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Employment Act',
+            changeNote: 'Invalid accrual method',
+            payload: {
+              statutoryLeaves: [
+                {
+                  id: 'leave-1',
+                  category: 'annual',
+                  leaveType: 'annual',
+                  name: 'Annual Leave',
+                  isPaid: true,
+                  minimumEntitlementDays: 20,
+                  accrualMethod: 'biweekly_random' as any, // Invalid
+                  carryForwardAllowed: true,
+                  maxCarryForwardDays: null,
+                  carryForwardExpiryMonths: null,
+                  encashmentAllowed: false,
+                  maxEncashmentDays: null,
+                  proRataApplicable: true,
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid statutory leave rules with annual, sick, maternity, paternity, and compassionate', async () => {
+      prisma.unscoped.countryRule.findFirst.mockResolvedValueOnce(null);
+      prisma.unscoped.countryRule.create.mockResolvedValueOnce({
+        id: 'leave-rule-1',
+        countryId: mockCountryId,
+        stateProvinceId: null,
+        ruleType: 'leave',
+        version: 1,
+        status: 'published',
+        effectiveFrom: new Date('2025-01-01'),
+        effectiveTo: null,
+        sourceReference: 'Fair Work Act 2009 (NES)',
+        changeNote: 'Australian National Employment Standards statutory leave baseline',
+        payload: {
+          statutoryLeaves: [
+            {
+              id: 'aus-annual',
+              category: 'annual',
+              leaveType: 'annual',
+              name: 'Annual Leave',
+              isPaid: true,
+              minimumEntitlementDays: 20,
+              accrualMethod: 'monthly',
+              carryForwardAllowed: true,
+              maxCarryForwardDays: null,
+              carryForwardExpiryMonths: null,
+              encashmentAllowed: true,
+              maxEncashmentDays: 10,
+              proRataApplicable: true,
+            },
+            {
+              id: 'aus-sick',
+              category: 'sick',
+              leaveType: 'sick',
+              name: 'Sick & Carer Leave',
+              isPaid: true,
+              minimumEntitlementDays: 10,
+              accrualMethod: 'monthly',
+              carryForwardAllowed: true,
+              maxCarryForwardDays: null,
+              carryForwardExpiryMonths: null,
+              encashmentAllowed: false,
+              maxEncashmentDays: null,
+              proRataApplicable: true,
+            },
+            {
+              id: 'aus-maternity',
+              category: 'maternity',
+              leaveType: 'maternity',
+              name: 'Maternity Leave',
+              isPaid: true,
+              minimumEntitlementDays: 84,
+              accrualMethod: 'on_hire',
+              carryForwardAllowed: false,
+              maxCarryForwardDays: null,
+              carryForwardExpiryMonths: null,
+              encashmentAllowed: false,
+              maxEncashmentDays: null,
+              proRataApplicable: false,
+            },
+            {
+              id: 'aus-paternity',
+              category: 'paternity',
+              leaveType: 'paternity',
+              name: 'Paternity Leave',
+              isPaid: true,
+              minimumEntitlementDays: 10,
+              accrualMethod: 'on_hire',
+              carryForwardAllowed: false,
+              maxCarryForwardDays: null,
+              carryForwardExpiryMonths: null,
+              encashmentAllowed: false,
+              maxEncashmentDays: null,
+              proRataApplicable: false,
+            },
+            {
+              id: 'aus-compassionate',
+              category: 'compassionate',
+              leaveType: 'compassionate',
+              name: 'Compassionate Leave',
+              isPaid: true,
+              minimumEntitlementDays: 2,
+              accrualMethod: 'on_hire',
+              carryForwardAllowed: false,
+              maxCarryForwardDays: null,
+              carryForwardExpiryMonths: null,
+              encashmentAllowed: false,
+              maxEncashmentDays: null,
+              proRataApplicable: false,
+            },
+          ],
+        },
+        createdBy: mockUserId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        stateProvince: null,
+      });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'leave',
+          status: 'published',
+          effectiveFrom: '2025-01-01',
+          sourceReference: 'Fair Work Act 2009 (NES)',
+          changeNote: 'Australian National Employment Standards statutory leave baseline',
+          payload: {
+            statutoryLeaves: [
+              {
+                id: 'aus-annual',
+                category: 'annual',
+                leaveType: 'annual',
+                name: 'Annual Leave',
+                isPaid: true,
+                minimumEntitlementDays: 20,
+                accrualMethod: 'monthly',
+                carryForwardAllowed: true,
+                maxCarryForwardDays: null,
+                carryForwardExpiryMonths: null,
+                encashmentAllowed: true,
+                maxEncashmentDays: 10,
+                proRataApplicable: true,
+              },
+            ],
+          },
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+    });
+  });
 });

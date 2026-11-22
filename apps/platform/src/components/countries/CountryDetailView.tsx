@@ -64,6 +64,7 @@ import { Modal } from '@/components/ui/Modal';
 import { RuleVersionEditor } from '../rules/RuleVersionEditor';
 import { TaxRulesEditor } from '../tax/TaxRulesEditor';
 import { SocialSecurityRulesEditor } from '../social-security/SocialSecurityRulesEditor';
+import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -91,135 +92,135 @@ export const ALL_TABS: {
   stageCode: string;
   description: string;
 }[] = [
-  {
-    key: 'General',
-    label: 'General',
-    icon: Sliders,
-    isRequired: true,
-    stageCode: 'Stage C.00',
-    stageName: 'General Jurisdiction Metadata',
-    description: 'Core country naming, timezone, date conventions, and state/province subdivisions.',
-  },
-  {
-    key: 'Currency',
-    label: 'Currency',
-    icon: Coins,
-    isRequired: true,
-    stageCode: 'Stage C.00',
-    stageName: 'Monetary Representation & Currency',
-    description: 'ISO 4217 currency specification, symbol positioning, and deterministic minor-unit storage.',
-  },
-  {
-    key: 'Tax',
-    label: 'Tax',
-    icon: Receipt,
-    categoryKind: 'tax',
-    isRequired: true,
-    stageCode: 'Stage C.01',
-    stageName: 'Progressive Tax Engine & Statutory Brackets',
-    description: 'Income tax brackets, marginal rate tiers, withholding calculations, and statutory exemptions.',
-  },
-  {
-    key: 'Social Security',
-    label: 'Social Security',
-    icon: ShieldCheck,
-    categoryKind: 'social_security',
-    isRequired: false,
-    stageCode: 'Stage C.02',
-    stageName: 'Social Security & Statutory Contributions',
-    description: 'Employer and employee mandatory statutory insurance, FICA/NIC, and social safety nets.',
-  },
-  {
-    key: 'Pension',
-    label: 'Pension',
-    icon: Landmark,
-    categoryKind: 'pension',
-    isRequired: false,
-    stageCode: 'Stage C.03',
-    stageName: 'Superannuation & Statutory Pension Schemes',
-    description: 'Mandatory superannuation guarantee (AU), workplace pension (UK), or statutory provident funds.',
-  },
-  {
-    key: 'Leave',
-    label: 'Leave',
-    icon: CalendarDays,
-    categoryKind: 'leave',
-    isRequired: true,
-    stageCode: 'Stage C.04',
-    stageName: 'Statutory Leave Entitlements & Policies',
-    description: 'Annual leave accrual baselines, statutory sick leave, maternity/paternity, and bereavement.',
-  },
-  {
-    key: 'Working Hours',
-    label: 'Working Hours',
-    icon: Clock,
-    categoryKind: 'working_hours',
-    isRequired: true,
-    stageCode: 'Stage C.05',
-    stageName: 'Standard Working Hours & Break Regulations',
-    description: 'Standard daily and weekly working ceilings, rest break intervals, and maximum daily spread.',
-  },
-  {
-    key: 'Overtime',
-    label: 'Overtime',
-    icon: Zap,
-    categoryKind: 'ot',
-    isRequired: true,
-    stageCode: 'Stage C.06',
-    stageName: 'Overtime Thresholds & Statutory Multipliers',
-    description: 'Tier 1 (1.5x) and Tier 2 (2.0x) multiplier caps, weekend rates, and statutory overtime ceilings.',
-  },
-  {
-    key: 'Public Holidays',
-    label: 'Public Holidays',
-    icon: CalendarCheck,
-    categoryKind: 'public_holiday',
-    isRequired: true,
-    stageCode: 'Stage C.07',
-    stageName: 'Official Public & Bank Holidays Calendar',
-    description: 'Statutory national and bank holidays with observance dates and penalty rate schedules.',
-  },
-  {
-    key: 'Payroll',
-    label: 'Payroll',
-    icon: CreditCard,
-    categoryKind: 'payroll',
-    isRequired: true,
-    stageCode: 'Stage C.08',
-    stageName: 'Statutory Payroll Processing & Cycle Rules',
-    description: 'Pay frequencies allowed, cutoffs, financial year boundaries, and retroactive adjustments.',
-  },
-  {
-    key: 'Employment',
-    label: 'Employment',
-    icon: Briefcase,
-    categoryKind: 'employment_rules',
-    isRequired: true,
-    stageCode: 'Stage C.09',
-    stageName: 'Employment Contracts & Minimum Wage Baselines',
-    description: 'Statutory probation ceilings, statutory minimum wage, and standard employment contract terms.',
-  },
-  {
-    key: 'Termination',
-    label: 'Termination',
-    icon: UserMinus,
-    categoryKind: 'termination',
-    isRequired: true,
-    stageCode: 'Stage C.10',
-    stageName: 'Termination, Notice Periods & Severance Schemes',
-    description: 'Statutory notice periods mapped to tenure, redundancy formulas, and severance entitlements.',
-  },
-  {
-    key: 'Compliance',
-    label: 'Compliance',
-    icon: Scale,
-    categoryKind: 'compliance',
-    isRequired: false,
-    stageCode: 'Stage C.11',
-    stageName: 'Jurisdictional Regulatory Audits & Workplace Safety',
-    description: 'Statutory labor agency filings, mandatory health and safety standards, and compliance audits.',
-  },
-];
+    {
+      key: 'General',
+      label: 'General',
+      icon: Sliders,
+      isRequired: true,
+      stageCode: 'Stage C.00',
+      stageName: 'General Jurisdiction Metadata',
+      description: 'Core country naming, timezone, date conventions, and state/province subdivisions.',
+    },
+    {
+      key: 'Currency',
+      label: 'Currency',
+      icon: Coins,
+      isRequired: true,
+      stageCode: 'Stage C.00',
+      stageName: 'Monetary Representation & Currency',
+      description: 'ISO 4217 currency specification, symbol positioning, and deterministic minor-unit storage.',
+    },
+    {
+      key: 'Tax',
+      label: 'Tax',
+      icon: Receipt,
+      categoryKind: 'tax',
+      isRequired: true,
+      stageCode: 'Stage C.01',
+      stageName: 'Progressive Tax Engine & Statutory Brackets',
+      description: 'Income tax brackets, marginal rate tiers, withholding calculations, and statutory exemptions.',
+    },
+    {
+      key: 'Social Security',
+      label: 'Social Security',
+      icon: ShieldCheck,
+      categoryKind: 'social_security',
+      isRequired: false,
+      stageCode: 'Stage C.02',
+      stageName: 'Social Security & Statutory Contributions',
+      description: 'Employer and employee mandatory statutory insurance, FICA/NIC, and social safety nets.',
+    },
+    {
+      key: 'Pension',
+      label: 'Pension',
+      icon: Landmark,
+      categoryKind: 'pension',
+      isRequired: false,
+      stageCode: 'Stage C.03',
+      stageName: 'Superannuation & Statutory Pension Schemes',
+      description: 'Mandatory superannuation guarantee (AU), workplace pension (UK), or statutory provident funds.',
+    },
+    {
+      key: 'Leave',
+      label: 'Leave',
+      icon: CalendarDays,
+      categoryKind: 'leave',
+      isRequired: true,
+      stageCode: 'Stage C.04',
+      stageName: 'Statutory Leave Entitlements & Policies',
+      description: 'Annual leave accrual baselines, statutory sick leave, maternity/paternity, and bereavement.',
+    },
+    {
+      key: 'Working Hours',
+      label: 'Working Hours',
+      icon: Clock,
+      categoryKind: 'working_hours',
+      isRequired: true,
+      stageCode: 'Stage C.05',
+      stageName: 'Standard Working Hours & Break Regulations',
+      description: 'Standard daily and weekly working ceilings, rest break intervals, and maximum daily spread.',
+    },
+    {
+      key: 'Overtime',
+      label: 'Overtime',
+      icon: Zap,
+      categoryKind: 'ot',
+      isRequired: true,
+      stageCode: 'Stage C.06',
+      stageName: 'Overtime Thresholds & Statutory Multipliers',
+      description: 'Tier 1 (1.5x) and Tier 2 (2.0x) multiplier caps, weekend rates, and statutory overtime ceilings.',
+    },
+    {
+      key: 'Public Holidays',
+      label: 'Public Holidays',
+      icon: CalendarCheck,
+      categoryKind: 'public_holiday',
+      isRequired: true,
+      stageCode: 'Stage C.07',
+      stageName: 'Official Public & Bank Holidays Calendar',
+      description: 'Statutory national and bank holidays with observance dates and penalty rate schedules.',
+    },
+    {
+      key: 'Payroll',
+      label: 'Payroll',
+      icon: CreditCard,
+      categoryKind: 'payroll',
+      isRequired: true,
+      stageCode: 'Stage C.08',
+      stageName: 'Statutory Payroll Processing & Cycle Rules',
+      description: 'Pay frequencies allowed, cutoffs, financial year boundaries, and retroactive adjustments.',
+    },
+    {
+      key: 'Employment',
+      label: 'Employment',
+      icon: Briefcase,
+      categoryKind: 'employment_rules',
+      isRequired: true,
+      stageCode: 'Stage C.09',
+      stageName: 'Employment Contracts & Minimum Wage Baselines',
+      description: 'Statutory probation ceilings, statutory minimum wage, and standard employment contract terms.',
+    },
+    {
+      key: 'Termination',
+      label: 'Termination',
+      icon: UserMinus,
+      categoryKind: 'termination',
+      isRequired: true,
+      stageCode: 'Stage C.10',
+      stageName: 'Termination, Notice Periods & Severance Schemes',
+      description: 'Statutory notice periods mapped to tenure, redundancy formulas, and severance entitlements.',
+    },
+    {
+      key: 'Compliance',
+      label: 'Compliance',
+      icon: Scale,
+      categoryKind: 'compliance',
+      isRequired: false,
+      stageCode: 'Stage C.11',
+      stageName: 'Jurisdictional Regulatory Audits & Workplace Safety',
+      description: 'Statutory labor agency filings, mandatory health and safety standards, and compliance audits.',
+    },
+  ];
 
 interface CountryDetailViewProps {
   country: CountrySummary;
@@ -701,15 +702,14 @@ export function CountryDetailView({
                     type="button"
                     onClick={() => handleStatusChange(st)}
                     disabled={saving}
-                    className={`px-3 py-1.5 rounded-lg font-bold capitalize transition ${
-                      isActive
-                        ? st === 'active'
-                          ? 'bg-emerald-500 text-white shadow-sm'
-                          : st === 'draft'
+                    className={`px-3 py-1.5 rounded-lg font-bold capitalize transition ${isActive
+                      ? st === 'active'
+                        ? 'bg-emerald-500 text-white shadow-sm'
+                        : st === 'draft'
                           ? 'bg-amber-500 text-white shadow-sm'
                           : 'bg-slate-600 text-white shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
                   >
                     {st}
                   </button>
@@ -787,26 +787,24 @@ export function CountryDetailView({
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shrink-0 ${
-                  isCurrent
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
+                className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shrink-0 ${isCurrent
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
               >
                 <Icon className={`h-4 w-4 ${isCurrent ? 'text-white' : 'text-slate-400'}`} />
                 <span>{tab.label}</span>
 
                 {/* Completeness Badge on Tab */}
                 <span
-                  className={`ml-1 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full border ${
-                    isCurrent
-                      ? 'bg-white/20 text-white border-white/30'
-                      : status.tone === 'green'
+                  className={`ml-1 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full border ${isCurrent
+                    ? 'bg-white/20 text-white border-white/30'
+                    : status.tone === 'green'
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                       : status.tone === 'amber'
-                      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
-                  }`}
+                        ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                        : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                    }`}
                 >
                   {status.label}
                 </span>
@@ -1056,11 +1054,10 @@ export function CountryDetailView({
                           </span>
                         </div>
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
-                            st.status === 'active'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
-                              : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600'
-                          }`}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${st.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600'
+                            }`}
                         >
                           {st.status}
                         </span>
@@ -1089,11 +1086,10 @@ export function CountryDetailView({
                       <button
                         type="button"
                         onClick={() => handleToggleStateStatus(st)}
-                        className={`text-[11px] font-semibold px-2 py-1 rounded-lg transition ${
-                          st.status === 'active'
-                            ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40'
-                            : 'text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
-                        }`}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded-lg transition ${st.status === 'active'
+                          ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40'
+                          : 'text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
+                          }`}
                       >
                         {st.status === 'active' ? 'Retire State' : 'Re-activate'}
                       </button>
@@ -1315,12 +1311,24 @@ export function CountryDetailView({
         />
       )}
 
-      {/* 5 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {/* 5. STATUTORY LEAVE RULES EDITOR (STAGE C.04) */}
+      {activeTab === 'Leave' && (
+        <LeaveRulesEditor
+          country={country}
+          states={states}
+          configuration={configuration}
+          completeness={tabCompleteness['Leave']}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* 6 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
         activeTab !== 'Tax' &&
         activeTab !== 'Social Security' &&
-        activeTab !== 'Pension' && (
+        activeTab !== 'Pension' &&
+        activeTab !== 'Leave' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}
             country={country}
@@ -1794,13 +1802,12 @@ function LinkedStageTabPanel({
           <div className="flex items-center gap-3">
             {/* Completeness Badge */}
             <div
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
-                completeness.tone === 'green'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                  : completeness.tone === 'amber'
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border ${completeness.tone === 'green'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                : completeness.tone === 'amber'
                   ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                   : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
-              }`}
+                }`}
             >
               {completeness.tone === 'green' ? (
                 <CheckCircle2 className="h-4 w-4" />

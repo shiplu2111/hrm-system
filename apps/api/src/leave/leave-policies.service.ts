@@ -5,7 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { LeavePolicyRecord } from '@hrm/shared-types';
+import {
+  type CompanyStatutoryLeaveMinimums,
+  type LeavePolicyRecord,
+  type StatutoryLeaveRuleItem,
+  getDefaultStatutoryLeavesForCountry,
+  normalizeLegacyLeavePayload,
+} from '@hrm/shared-types';
 import { PrismaService } from '../database/prisma.service';
 import { CompanyScopeService } from '../organization/company-scope.service';
 import type { CreateLeavePolicyDto, UpdateLeavePolicyDto } from './dto/leave.dto';
@@ -28,6 +34,88 @@ export class LeavePoliciesService {
       orderBy: [{ leaveTypeId: 'asc' }, { effectiveFrom: 'desc' }],
     });
     return rows.map((row) => this.toRecord(row));
+  }
+
+  /**
+   * Resolves the country and regional statutory leave minimums for a company's jurisdiction.
+   */
+  async getStatutoryMinimums(
+    companyId: string,
+  ): Promise<CompanyStatutoryLeaveMinimums> {
+    await this.companyScope.assertCompanyInTenant(companyId);
+    const company = await this.prisma.unscoped.company.findUnique({
+      where: { id: companyId },
+      include: { country: true, stateProvince: true },
+    });
+    if (!company) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Company not found',
+      });
+    }
+
+    const now = new Date();
+    // 1. Check state-specific statutory rule first if company has stateProvinceId
+    let rule = null;
+    if (company.stateProvinceId) {
+      rule = await this.prisma.unscoped.countryRule.findFirst({
+        where: {
+          countryId: company.countryId,
+          stateProvinceId: company.stateProvinceId,
+          ruleType: 'leave',
+          status: 'published',
+          effectiveFrom: { lte: now },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        },
+        orderBy: { effectiveFrom: 'desc' },
+      });
+    }
+
+    // 2. Fall back to national rule
+    if (!rule) {
+      rule = await this.prisma.unscoped.countryRule.findFirst({
+        where: {
+          countryId: company.countryId,
+          stateProvinceId: null,
+          ruleType: 'leave',
+          status: 'published',
+          effectiveFrom: { lte: now },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        },
+        orderBy: { effectiveFrom: 'desc' },
+      });
+    }
+
+    let statutoryLeaves: StatutoryLeaveRuleItem[] = [];
+    const baselineReference = rule?.sourceReference || 'Statutory Baseline';
+
+    if (rule?.payload) {
+      const payload = rule.payload as Record<string, unknown>;
+      if (
+        Array.isArray(payload.statutoryLeaves) &&
+        payload.statutoryLeaves.length > 0
+      ) {
+        statutoryLeaves = payload.statutoryLeaves as StatutoryLeaveRuleItem[];
+      } else {
+        statutoryLeaves = normalizeLegacyLeavePayload(
+          payload,
+          company.country.isoCode,
+        );
+      }
+    } else {
+      statutoryLeaves = getDefaultStatutoryLeavesForCountry(
+        company.country.isoCode,
+      );
+    }
+
+    return {
+      countryIso: company.country.isoCode,
+      countryName: company.country.name,
+      stateCode: company.stateProvince?.code || null,
+      stateName: company.stateProvince?.name || null,
+      statutoryLeaves,
+      baselineReference,
+    };
   }
 
   /**

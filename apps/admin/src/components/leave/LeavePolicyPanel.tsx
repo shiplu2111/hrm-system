@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Info, Plus } from 'lucide-react';
-import type { LeavePolicyRecord, LeaveTypeRecord } from '@hrm/shared-types';
+import {
+  matchLeaveTypeToCategory,
+  type LeavePolicyRecord,
+  type LeaveTypeRecord,
+  type StatutoryLeaveRuleItem,
+} from '@hrm/shared-types';
 import { SidePanel } from '@/components/ui/SidePanel';
 import { Button } from '@/components/ui/Button';
 import { FieldError } from '@/components/ui/FieldError';
@@ -71,6 +76,7 @@ export function LeavePolicyPanel({
   companyId,
   leaveTypes,
   roleNames,
+  statutoryLeaves,
   onClose,
   onSaved,
 }: {
@@ -79,6 +85,7 @@ export function LeavePolicyPanel({
   companyId: string;
   leaveTypes: LeaveTypeRecord[];
   roleNames: string[];
+  statutoryLeaves?: StatutoryLeaveRuleItem[];
   onClose: () => void;
   onSaved: (leaveTypeId: string) => void;
 }) {
@@ -269,14 +276,22 @@ export function LeavePolicyPanel({
           </PolicySection>
         ) : null}
 
-        <LeavePolicyFields
-          values={form.values}
-          setField={form.setField as LeavePolicyFieldsProps['setField']}
-          touch={form.touch}
-          showError={form.showError}
-          roleNames={roleNames}
-          isPaid={form.values.isPaid}
-        />
+        {(() => {
+          const currentName = mode.kind === 'create-type' ? form.values.name : mode.leaveType.name;
+          const matchingCategory = matchLeaveTypeToCategory(currentName);
+          const matchingStatutoryRule = statutoryLeaves?.find((s) => s.category === matchingCategory);
+          return (
+            <LeavePolicyFields
+              values={form.values}
+              setField={form.setField as LeavePolicyFieldsProps['setField']}
+              touch={form.touch}
+              showError={form.showError}
+              roleNames={roleNames}
+              isPaid={form.values.isPaid}
+              statutoryRule={matchingStatutoryRule}
+            />
+          );
+        })()}
       </form>
     </SidePanel>
   );

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarPlus, Eye, Palmtree, Plus } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, Eye, Palmtree, Plus, Scale } from 'lucide-react';
 import { PermissionGate, usePermission } from '@hrm/portal-ui';
 import {
+  evaluateLeavePolicyCompliance,
   findEffectiveLeavePolicy,
+  matchLeaveTypeToCategory,
+  type CompanyStatutoryLeaveMinimums,
   type LeavePolicyRecord,
   type LeaveTypeRecord,
 } from '@hrm/shared-types';
@@ -29,7 +32,7 @@ import { LeavePolicyPanel, type LeavePolicyPanelMode } from '@/components/leave/
 import { LeaveTypeDetailPanel } from '@/components/leave/LeaveTypeDetailPanel';
 import { useCompany } from '@/context/CompanyContext';
 import { useOrgForm } from '@/hooks/useOrgForm';
-import { deleteLeaveType, listLeavePolicies, listLeaveTypes, updateLeaveType } from '@/lib/leave-api';
+import { deleteLeaveType, getStatutoryLeaveMinimums, listLeavePolicies, listLeaveTypes, updateLeaveType } from '@/lib/leave-api';
 import {
   accrualSummary,
   carryForwardSummary,
@@ -78,6 +81,7 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
   const canEdit = usePermission('settings', 'edit');
   const [types, setTypes] = useState<LeaveTypeRecord[]>([]);
   const [policies, setPolicies] = useState<LeavePolicyRecord[]>([]);
+  const [statutoryMinimums, setStatutoryMinimums] = useState<CompanyStatutoryLeaveMinimums | null>(null);
   const [roleNames, setRoleNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -93,12 +97,14 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [typeRows, policyRows] = await Promise.all([
+      const [typeRows, policyRows, statMins] = await Promise.all([
         listLeaveTypes(companyId),
         listLeavePolicies(companyId),
+        getStatutoryLeaveMinimums(companyId).catch(() => null),
       ]);
       setTypes(typeRows);
       setPolicies(policyRows);
+      setStatutoryMinimums(statMins);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Failed to load leave types');
     } finally {
@@ -135,6 +141,27 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
       (max, p) => (max === null || p.effectiveFrom > max ? p.effectiveFrom : max),
       null,
     );
+
+  const nonCompliantTypes = useMemo(() => {
+    if (!statutoryMinimums?.statutoryLeaves?.length) return [];
+    return types.filter((type) => {
+      const cur = findEffectiveLeavePolicy(versionsFor(type.id), type.id, today);
+      if (!cur) return false;
+      const cat = matchLeaveTypeToCategory(type.name);
+      const rule = statutoryMinimums.statutoryLeaves.find((s) => s.category === cat);
+      if (!rule) return false;
+      const comp = evaluateLeavePolicyCompliance(
+        {
+          entitlementDays: Number(cur.entitlementDays) || 0,
+          carryForwardEnabled: cur.carryForwardMax !== null && cur.carryForwardMax !== 0,
+          carryForwardMax: cur.carryForwardMax,
+          encashmentAllowed: cur.encashmentAllowed,
+        },
+        rule,
+      );
+      return comp && !comp.isCompliant;
+    });
+  }, [types, policiesByType, statutoryMinimums, today]);
 
   const openNewVersion = (type: LeaveTypeRecord) => {
     const versions = versionsFor(type.id);
@@ -231,6 +258,21 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
 
       {loadError ? <OrgErrorBanner message={loadError} onRetry={() => void load()} /> : null}
 
+      {nonCompliantTypes.length > 0 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50/90 dark:border-amber-800 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-2xs">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold text-amber-950 dark:text-amber-100 text-sm">
+              {nonCompliantTypes.length} Company Leave {nonCompliantTypes.length === 1 ? 'Policy Falls' : 'Policies Fall'} Below Statutory Minimums
+            </p>
+            <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+              {statutoryMinimums?.countryName ?? 'National'} statutory rules (e.g. Fair Work NES) establish mandatory minimum employee entitlements. Tenants may exceed these standards, but company policies must not provide less than the legal baseline.
+              Non-compliant leave {nonCompliantTypes.length === 1 ? 'type' : 'types'}: <span className="font-bold">{nonCompliantTypes.map((t) => t.name).join(', ')}</span>.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <OrgSearchInput value={search} onChange={setSearch} placeholder="Search leave types" />
@@ -271,6 +313,17 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
                 const nextScheduled = versions
                   .filter((p) => p.effectiveFrom > today)
                   .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[0];
+                const statCat = matchLeaveTypeToCategory(type.name);
+                const statRule = statutoryMinimums?.statutoryLeaves?.find((s) => s.category === statCat);
+                const rowCompliance = current && statRule ? evaluateLeavePolicyCompliance(
+                  {
+                    entitlementDays: Number(current.entitlementDays) || 0,
+                    carryForwardEnabled: current.carryForwardMax !== null && current.carryForwardMax !== 0,
+                    carryForwardMax: current.carryForwardMax,
+                    encashmentAllowed: current.encashmentAllowed,
+                  },
+                  statRule,
+                ) : null;
                 return (
                   <tr
                     key={type.id}
@@ -288,7 +341,17 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
                       </div>
                     </td>
                     <td className="px-5 py-3 text-secondary tabular-nums whitespace-nowrap">
-                      {current ? `${formatDays(current.entitlementDays)} / yr` : '—'}
+                      <div>{current ? `${formatDays(current.entitlementDays)} / yr` : '—'}</div>
+                      {rowCompliance && !rowCompliance.isCompliant ? (
+                        <div className="mt-1">
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-700"
+                            title={rowCompliance.violations.map((v) => v.message).join('; ')}
+                          >
+                            <AlertTriangle className="h-3 w-3 shrink-0" /> Below min ({statRule?.minimumEntitlementDays}d req)
+                          </span>
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3 text-secondary hidden md:table-cell">
                       {current ? accrualSummary(current) : '—'}
@@ -372,6 +435,7 @@ function LeaveTypesScreen({ companyId }: { companyId: string }) {
           companyId={companyId}
           leaveTypes={types}
           roleNames={roleNames}
+          statutoryLeaves={statutoryMinimums?.statutoryLeaves}
           onClose={closePolicyPanel}
           onSaved={(typeId) => {
             setPolicyPanel(null);

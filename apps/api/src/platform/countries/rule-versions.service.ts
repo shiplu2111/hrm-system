@@ -18,6 +18,7 @@ import {
   type RuleVersionView,
   type SocialSecurityRulePayload,
   type TaxBracketRow,
+  validateLeaveRulePayload,
   validateSocialSecurityPayload,
   validateTaxBrackets,
 } from '@hrm/shared-types';
@@ -34,7 +35,7 @@ export class RuleVersionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: PlatformAuditService,
-  ) {}
+  ) { }
 
   /**
    * List all versions for a rule set and scope.
@@ -144,6 +145,10 @@ export class RuleVersionsService {
       dto.payload
     ) {
       this.validateSocialSecurityPayload(dto.payload);
+    }
+    // Validate statutory leave rule structure
+    if (ruleType === 'leave' && dto.payload) {
+      this.validateLeavePayload(dto.payload);
     }
 
     // Calculate incremental version number
@@ -258,6 +263,9 @@ export class RuleVersionsService {
       dto.payload
     ) {
       this.validateSocialSecurityPayload(dto.payload);
+    }
+    if (existing.ruleType === 'leave' && dto.payload) {
+      this.validateLeavePayload(dto.payload);
     }
 
     const effectiveFrom = dto.effectiveFrom
@@ -747,6 +755,19 @@ export class RuleVersionsService {
         message:
           res.summaryError ||
           'Invalid social security or pension rules configuration.',
+        details: res.errors,
+      });
+    }
+  }
+
+  private validateLeavePayload(payload: unknown): void {
+    const res = validateLeaveRulePayload(payload);
+    if (!res.isValid) {
+      throw new BadRequestException({
+        code: 'INVALID_LEAVE_RULE_PAYLOAD',
+        message:
+          res.summaryError ||
+          'Invalid statutory leave rules configuration.',
         details: res.errors,
       });
     }
