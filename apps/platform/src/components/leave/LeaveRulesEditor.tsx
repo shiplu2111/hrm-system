@@ -184,8 +184,8 @@ export function LeaveRulesEditor({
       typeof payload.legalJurisdictionBaseline === 'string'
         ? payload.legalJurisdictionBaseline
         : country.isoCode === 'AUS'
-        ? 'Fair Work Act 2009 — National Employment Standards (NES)'
-        : `${country.name} Statutory Employment Regulations`,
+          ? 'Fair Work Act 2009 — National Employment Standards (NES)'
+          : `${country.name} Statutory Employment Regulations`,
     );
     setProbationEntitlementRestricted(Boolean(payload.probationEntitlementRestricted));
     setAllowNegativeBalance(Boolean(payload.allowNegativeBalance));
@@ -368,11 +368,10 @@ export function LeaveRulesEditor({
 
           <div className="flex items-center gap-2">
             <span
-              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${
-                completeness.tone === 'green'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                  : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-              }`}
+              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${completeness.tone === 'green'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                }`}
             >
               {completeness.label}
             </span>
@@ -497,11 +496,10 @@ export function LeaveRulesEditor({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div
-              className={`p-2.5 rounded-xl border ${
-                validation.isValid
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
-                  : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
-              }`}
+              className={`p-2.5 rounded-xl border ${validation.isValid
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+                : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+                }`}
             >
               <ShieldCheck className="h-5 w-5" />
             </div>
@@ -556,9 +554,8 @@ export function LeaveRulesEditor({
 
           <div className="flex items-center gap-6 pt-5">
             <label
-              className={`flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 ${
-                isPublished ? 'cursor-not-allowed opacity-60' : ''
-              }`}
+              className={`flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 ${isPublished ? 'cursor-not-allowed opacity-60' : ''
+                }`}
             >
               <input
                 type="checkbox"
@@ -571,9 +568,8 @@ export function LeaveRulesEditor({
             </label>
 
             <label
-              className={`flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 ${
-                isPublished ? 'cursor-not-allowed opacity-60' : ''
-              }`}
+              className={`flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 ${isPublished ? 'cursor-not-allowed opacity-60' : ''
+                }`}
             >
               <input
                 type="checkbox"

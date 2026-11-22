@@ -1140,22 +1140,22 @@ export function normalizeLegacyLeavePayload(
     typeof rawPayload.annual_leave_days === 'number'
       ? rawPayload.annual_leave_days
       : typeof rawPayload.annualLeaveDays === 'number'
-      ? rawPayload.annualLeaveDays
-      : null;
+        ? rawPayload.annualLeaveDays
+        : null;
 
   const sickDays =
     typeof rawPayload.sick_leave_days === 'number'
       ? rawPayload.sick_leave_days
       : typeof rawPayload.sickLeaveDays === 'number'
-      ? rawPayload.sickLeaveDays
-      : null;
+        ? rawPayload.sickLeaveDays
+        : null;
 
   const parentalWeeks =
     typeof rawPayload.parental_leave_weeks === 'number'
       ? rawPayload.parental_leave_weeks
       : typeof rawPayload.parentalLeaveWeeks === 'number'
-      ? rawPayload.parentalLeaveWeeks
-      : null;
+        ? rawPayload.parentalLeaveWeeks
+        : null;
 
   return defaults.map((item) => {
     if (item.category === 'annual' && annualDays !== null) {
@@ -1700,73 +1700,73 @@ export function normalizeWorkingHoursOtPayload(
     typeof raw.standardDailyHours === 'number'
       ? raw.standardDailyHours
       : typeof raw.standard_daily_hours === 'number'
-      ? raw.standard_daily_hours
-      : typeof raw.daily_hours === 'number'
-      ? raw.daily_hours
-      : defaults.standardDailyHours;
+        ? raw.standard_daily_hours
+        : typeof raw.daily_hours === 'number'
+          ? raw.daily_hours
+          : defaults.standardDailyHours;
 
   const standardWeekly =
     typeof raw.standardWeeklyHours === 'number'
       ? raw.standardWeeklyHours
       : typeof raw.standard_weekly_hours === 'number'
-      ? raw.standard_weekly_hours
-      : typeof raw.weeklyThresholdHours === 'number'
-      ? raw.weeklyThresholdHours
-      : typeof raw.weekly_hours === 'number'
-      ? raw.weekly_hours
-      : defaults.standardWeeklyHours;
+        ? raw.standard_weekly_hours
+        : typeof raw.weeklyThresholdHours === 'number'
+          ? raw.weeklyThresholdHours
+          : typeof raw.weekly_hours === 'number'
+            ? raw.weekly_hours
+            : defaults.standardWeeklyHours;
 
   const maxDaily =
     typeof raw.maxDailyHours === 'number'
       ? raw.maxDailyHours
       : typeof raw.max_daily_hours === 'number'
-      ? raw.max_daily_hours
-      : typeof raw.maxDailyMinutes === 'number'
-      ? raw.maxDailyMinutes / 60
-      : defaults.maxDailyHours;
+        ? raw.max_daily_hours
+        : typeof raw.maxDailyMinutes === 'number'
+          ? raw.maxDailyMinutes / 60
+          : defaults.maxDailyHours;
 
   const maxWeekly =
     typeof raw.maxWeeklyHours === 'number'
       ? raw.maxWeeklyHours
       : typeof raw.max_weekly_hours === 'number'
-      ? raw.max_weekly_hours
-      : defaults.maxWeeklyHours;
+        ? raw.max_weekly_hours
+        : defaults.maxWeeklyHours;
 
   const weekdayMult =
     typeof raw.weekdayMultiplier === 'number'
       ? raw.weekdayMultiplier
       : typeof rawMultipliers.weekday === 'number'
-      ? rawMultipliers.weekday
-      : typeof raw.overtime_rate_tier1 === 'number'
-      ? raw.overtime_rate_tier1
-      : defaults.weekdayMultiplier;
+        ? rawMultipliers.weekday
+        : typeof raw.overtime_rate_tier1 === 'number'
+          ? raw.overtime_rate_tier1
+          : defaults.weekdayMultiplier;
 
   const weekendMult =
     typeof raw.weekendMultiplier === 'number'
       ? raw.weekendMultiplier
       : typeof rawMultipliers.weekend === 'number'
-      ? rawMultipliers.weekend
-      : typeof raw.weekend_multiplier === 'number'
-      ? raw.weekend_multiplier
-      : defaults.weekendMultiplier;
+        ? rawMultipliers.weekend
+        : typeof raw.weekend_multiplier === 'number'
+          ? raw.weekend_multiplier
+          : defaults.weekendMultiplier;
 
   const holidayMult =
     typeof raw.holidayMultiplier === 'number'
       ? raw.holidayMultiplier
       : typeof rawMultipliers.publicHoliday === 'number'
-      ? rawMultipliers.publicHoliday
-      : typeof raw.holiday_multiplier === 'number'
-      ? raw.holiday_multiplier
-      : defaults.holidayMultiplier;
+        ? rawMultipliers.publicHoliday
+        : typeof raw.holiday_multiplier === 'number'
+          ? raw.holiday_multiplier
+          : defaults.holidayMultiplier;
 
   const nightMult =
     typeof raw.nightMultiplier === 'number'
       ? raw.nightMultiplier
       : typeof rawMultipliers.night === 'number'
-      ? rawMultipliers.night
-      : typeof raw.night_multiplier === 'number'
-      ? raw.night_multiplier
-      : defaults.nightMultiplier;
+        ? rawMultipliers.night
+        : typeof raw.night_multiplier === 'number'
+          ? raw.night_multiplier
+          : defaults.nightMultiplier;
 
   const actionOnBreach: OvertimeCapBreachAction =
     raw.actionOnCapBreach === 'auto_cap' ? 'auto_cap' : 'flag';
@@ -1782,20 +1782,20 @@ export function normalizeWorkingHoursOtPayload(
       typeof raw.restBreakRequiredAfterHours === 'number'
         ? raw.restBreakRequiredAfterHours
         : typeof raw.break_after_hours === 'number'
-        ? raw.break_after_hours
-        : defaults.restBreakRequiredAfterHours,
+          ? raw.break_after_hours
+          : defaults.restBreakRequiredAfterHours,
     minimumRestBreakMinutes:
       typeof raw.minimumRestBreakMinutes === 'number'
         ? raw.minimumRestBreakMinutes
         : typeof raw.min_break_minutes === 'number'
-        ? raw.min_break_minutes
-        : defaults.minimumRestBreakMinutes,
+          ? raw.min_break_minutes
+          : defaults.minimumRestBreakMinutes,
     dailyRestPeriodHours:
       typeof raw.dailyRestPeriodHours === 'number'
         ? raw.dailyRestPeriodHours
         : typeof raw.daily_rest_hours === 'number'
-        ? raw.daily_rest_hours
-        : defaults.dailyRestPeriodHours,
+          ? raw.daily_rest_hours
+          : defaults.dailyRestPeriodHours,
     paidBreakMinutes:
       typeof raw.paidBreakMinutes === 'number'
         ? raw.paidBreakMinutes
@@ -1810,14 +1810,14 @@ export function normalizeWorkingHoursOtPayload(
       typeof raw.weekdayTier1HoursCap === 'number'
         ? raw.weekdayTier1HoursCap
         : typeof raw.overtime_tier1_hours_cap === 'number'
-        ? raw.overtime_tier1_hours_cap
-        : defaults.weekdayTier1HoursCap,
+          ? raw.overtime_tier1_hours_cap
+          : defaults.weekdayTier1HoursCap,
     weekdayTier2Multiplier:
       typeof raw.weekdayTier2Multiplier === 'number'
         ? raw.weekdayTier2Multiplier
         : typeof raw.overtime_rate_tier2 === 'number'
-        ? raw.overtime_rate_tier2
-        : defaults.weekdayTier2Multiplier,
+          ? raw.overtime_rate_tier2
+          : defaults.weekdayTier2Multiplier,
 
     weekendMultiplier: Number(weekendMult) || defaults.weekendMultiplier,
     separateSaturdaySunday:
@@ -2032,15 +2032,15 @@ export type SeveranceAstNode =
   | { type: 'constant'; value: number }
   | { type: 'binary_op'; op: '+' | '-' | '*' | '/' | 'min' | 'max'; left: SeveranceAstNode; right: SeveranceAstNode }
   | {
-      type: 'conditional';
-      condition: {
-        left: SeveranceAstNode;
-        op: '>' | '>=' | '<' | '<=' | '==';
-        right: SeveranceAstNode;
-      };
-      then: SeveranceAstNode;
-      else: SeveranceAstNode;
+    type: 'conditional';
+    condition: {
+      left: SeveranceAstNode;
+      op: '>' | '>=' | '<' | '<=' | '==';
+      right: SeveranceAstNode;
     };
+    then: SeveranceAstNode;
+    else: SeveranceAstNode;
+  };
 
 export interface StructuredSeveranceFormula {
   type: SeveranceFormulaType;

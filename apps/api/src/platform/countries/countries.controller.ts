@@ -86,7 +86,7 @@ export class CountriesController {
     private readonly ruleSandboxService: RuleSandboxService,
     private readonly complianceEventsService: ComplianceEventsService,
     private readonly complianceNoticeJobService: ComplianceNoticeJobService,
-  ) {}
+  ) { }
 
   @Get()
   @RequirePlatformPermission('country', 'view')

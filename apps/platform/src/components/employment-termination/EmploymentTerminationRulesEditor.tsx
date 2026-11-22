@@ -830,13 +830,12 @@ export function EmploymentTerminationRulesEditor({
                     Stage C.09 & C.10 • Fair Work & Redundancy
                   </span>
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      completeness.tone === 'green'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : completeness.tone === 'amber'
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${completeness.tone === 'green'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : completeness.tone === 'amber'
                         ? 'bg-amber-50 text-amber-700 border border-amber-200'
                         : 'bg-slate-100 text-slate-700'
-                    }`}
+                      }`}
                   >
                     {completeness.label}
                   </span>
@@ -890,22 +889,20 @@ export function EmploymentTerminationRulesEditor({
               <button
                 type="button"
                 onClick={() => setSelectedStateId('')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-l-md border transition ${
-                  selectedStateId === ''
-                    ? 'bg-indigo-600 text-white border-indigo-600 font-semibold'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
+                className={`px-3 py-1.5 text-xs font-medium rounded-l-md border transition ${selectedStateId === ''
+                  ? 'bg-indigo-600 text-white border-indigo-600 font-semibold'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
               >
                 National Baseline ({country.isoCode})
               </button>
               <select
                 value={selectedStateId}
                 onChange={(e) => setSelectedStateId(e.target.value)}
-                className={`px-2 py-1.5 text-xs border border-l-0 rounded-r-md transition focus:outline-none ${
-                  selectedStateId !== ''
-                    ? 'bg-indigo-50 border-indigo-400 text-indigo-900 font-medium'
-                    : 'bg-white border-slate-300 text-slate-700'
-                }`}
+                className={`px-2 py-1.5 text-xs border border-l-0 rounded-r-md transition focus:outline-none ${selectedStateId !== ''
+                  ? 'bg-indigo-50 border-indigo-400 text-indigo-900 font-medium'
+                  : 'bg-white border-slate-300 text-slate-700'
+                  }`}
               >
                 <option value="">State / Province Override...</option>
                 {states.map((st) => (
@@ -928,55 +925,50 @@ export function EmploymentTerminationRulesEditor({
             <button
               type="button"
               onClick={() => setActiveSection('probation')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                activeSection === 'probation'
-                  ? 'bg-white text-indigo-700 shadow-sm font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${activeSection === 'probation'
+                ? 'bg-white text-indigo-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Briefcase className="w-3.5 h-3.5" /> Probation & Contracts
             </button>
             <button
               type="button"
               onClick={() => setActiveSection('notice')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                activeSection === 'notice'
-                  ? 'bg-white text-indigo-700 shadow-sm font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${activeSection === 'notice'
+                ? 'bg-white text-indigo-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Clock className="w-3.5 h-3.5" /> Notice Tiers
             </button>
             <button
               type="button"
               onClick={() => setActiveSection('severance')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                activeSection === 'severance'
-                  ? 'bg-white text-indigo-700 shadow-sm font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${activeSection === 'severance'
+                ? 'bg-white text-indigo-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Scale className="w-3.5 h-3.5" /> Severance Formulas
             </button>
             <button
               type="button"
               onClick={() => setActiveSection('settlement')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                activeSection === 'settlement'
-                  ? 'bg-white text-indigo-700 shadow-sm font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${activeSection === 'settlement'
+                ? 'bg-white text-indigo-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Coins className="w-3.5 h-3.5" /> Final Settlement
             </button>
             <button
               type="button"
               onClick={() => setActiveSection('simulator')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                activeSection === 'simulator'
-                  ? 'bg-white text-indigo-700 shadow-sm font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${activeSection === 'simulator'
+                ? 'bg-white text-indigo-700 shadow-sm font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Calculator className="w-3.5 h-3.5" /> Settlement Simulator
             </button>
@@ -1856,11 +1848,10 @@ export function EmploymentTerminationRulesEditor({
               >
                 <div className="flex items-center gap-3">
                   <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                      comp.kind === 'earning'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${comp.kind === 'earning'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-red-100 text-red-800'
+                      }`}
                   >
                     {comp.kind}
                   </span>
