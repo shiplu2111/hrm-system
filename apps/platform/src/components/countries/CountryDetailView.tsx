@@ -66,6 +66,7 @@ import { TaxRulesEditor } from '../tax/TaxRulesEditor';
 import { SocialSecurityRulesEditor } from '../social-security/SocialSecurityRulesEditor';
 import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
 import { WorkingHoursOtRulesEditor } from '../working-hours-ot/WorkingHoursOtRulesEditor';
+import { EmploymentTerminationRulesEditor } from '../employment-termination/EmploymentTerminationRulesEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -1334,6 +1335,18 @@ export function CountryDetailView({
         />
       )}
 
+      {/* 6. EMPLOYMENT & TERMINATION RULES EDITOR (STAGE C.09 & STAGE C.10) */}
+      {(activeTab === 'Employment' || activeTab === 'Termination') && (
+        <EmploymentTerminationRulesEditor
+          country={country}
+          states={states}
+          configuration={configuration}
+          completeness={tabCompleteness[activeTab]}
+          onRefresh={onRefresh}
+          defaultSection={activeTab === 'Termination' ? 'notice' : 'probation'}
+        />
+      )}
+
       {/* 7 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
@@ -1342,7 +1355,9 @@ export function CountryDetailView({
         activeTab !== 'Pension' &&
         activeTab !== 'Leave' &&
         activeTab !== 'Working Hours' &&
-        activeTab !== 'Overtime' && (
+        activeTab !== 'Overtime' &&
+        activeTab !== 'Employment' &&
+        activeTab !== 'Termination' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}
             country={country}

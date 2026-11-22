@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CountryRuleType, RuleVersionStatus } from '@prisma/client';
-import { getDefaultWorkingHoursOtForCountry } from '@hrm/shared-types';
+import { getDefaultWorkingHoursOtForCountry, getDefaultEmploymentTerminationForCountry } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import { RuleVersionsService } from './rule-versions.service';
@@ -1413,6 +1413,147 @@ describe('RuleVersionsService', () => {
             maxWeeklyOvertimeHours: 12,
             actionOnCapBreach: 'flag',
           },
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+    });
+  });
+
+  describe('Employment and Termination Rules inline validation (Stage C.09 & Stage C.10)', () => {
+    it('should reject employment rule when standardProbationMonths is invalid or negative', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'employment_rules',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid probation',
+            payload: {
+              standardProbationMonths: -2,
+              maxProbationMonths: 6,
+              standardNoticeWeeks: 4,
+              contractRequirements: {
+                minAgeOfEmployment: 15,
+                minimumWageHourly: 24.1,
+              },
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject employment rule when maxProbationMonths is less than standardProbationMonths', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'employment_rules',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid max probation',
+            payload: {
+              standardProbationMonths: 6,
+              maxProbationMonths: 3,
+              standardNoticeWeeks: 4,
+              contractRequirements: {
+                minAgeOfEmployment: 15,
+                minimumWageHourly: 24.1,
+              },
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject employment rule when minimumWageHourly is non-positive', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'employment_rules',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid minimum wage',
+            payload: {
+              standardProbationMonths: 6,
+              maxProbationMonths: 6,
+              standardNoticeWeeks: 4,
+              contractRequirements: {
+                minAgeOfEmployment: 15,
+                minimumWageHourly: 0,
+              },
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject employment rule when notice tier upper bound is less than lower bound', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'employment_rules',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid notice tier',
+            payload: {
+              standardProbationMonths: 6,
+              maxProbationMonths: 6,
+              standardNoticeWeeks: 4,
+              noticeTiers: [
+                { minTenureMonths: 24, maxTenureMonths: 12, noticeWeeks: 2 },
+              ],
+              contractRequirements: {
+                minAgeOfEmployment: 15,
+                minimumWageHourly: 24.1,
+              },
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid employment & termination rule with notice tiers, probation, final settlement, and structured severance', async () => {
+      prisma.unscoped.countryRule.findFirst.mockResolvedValue(null);
+      prisma.unscoped.countryRule.findMany.mockResolvedValue([]);
+
+      const validPayload = getDefaultEmploymentTerminationForCountry('AUS');
+
+      prisma.unscoped.countryRule.create.mockResolvedValue({
+        id: 'rule-emp-1',
+        countryId: mockCountryId,
+        version: 1,
+        ruleType: 'employment_rules',
+        status: 'published',
+        effectiveFrom: new Date('2025-01-01T00:00:00.000Z'),
+        effectiveTo: null,
+        sourceReference: 'Fair Work Act 2009 (NES §117 & §119)',
+        changeNote: 'Australian statutory employment and termination standards',
+        payload: validPayload,
+        createdBy: mockUserId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        stateProvince: null,
+      });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'employment_rules',
+          status: 'published',
+          effectiveFrom: '2025-01-01',
+          sourceReference: 'Fair Work Act 2009 (NES §117 & §119)',
+          changeNote: 'Australian statutory employment and termination standards',
+          payload: validPayload as unknown as Record<string, unknown>,
         },
         mockUserId,
       );

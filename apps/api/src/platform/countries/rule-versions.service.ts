@@ -22,6 +22,7 @@ import {
   validateSocialSecurityPayload,
   validateTaxBrackets,
   validateWorkingHoursOtPayload,
+  validateEmploymentTerminationPayload,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
@@ -158,6 +159,10 @@ export class RuleVersionsService {
     ) {
       this.validateWorkingHoursOtPayload(dto.payload);
     }
+    // Validate employment & termination rule structure
+    if (ruleType === 'employment_rules' && dto.payload) {
+      this.validateEmploymentTerminationPayload(dto.payload);
+    }
 
     // Calculate incremental version number
     const maxVersionRecord = await this.prisma.unscoped.countryRule.findFirst({
@@ -280,6 +285,9 @@ export class RuleVersionsService {
       dto.payload
     ) {
       this.validateWorkingHoursOtPayload(dto.payload);
+    }
+    if (existing.ruleType === 'employment_rules' && dto.payload) {
+      this.validateEmploymentTerminationPayload(dto.payload);
     }
 
     const effectiveFrom = dto.effectiveFrom
@@ -795,6 +803,19 @@ export class RuleVersionsService {
         message:
           res.summaryError ||
           'Invalid working hours and overtime rules configuration.',
+        details: res.errors,
+      });
+    }
+  }
+
+  private validateEmploymentTerminationPayload(payload: unknown): void {
+    const res = validateEmploymentTerminationPayload(payload);
+    if (!res.isValid) {
+      throw new BadRequestException({
+        code: 'INVALID_EMPLOYMENT_TERMINATION_PAYLOAD',
+        message:
+          res.summaryError ||
+          'Invalid employment and termination rules configuration.',
         details: res.errors,
       });
     }

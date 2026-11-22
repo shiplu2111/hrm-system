@@ -1839,3 +1839,983 @@ export function calculateOvertimePayBreakdown(
     nightRateMultiplier: rules.nightMultiplier,
   };
 }
+
+// ============================================================================
+// EMPLOYMENT & TERMINATION RULES (Stage C.09 & Stage C.10)
+// ATTENDANCE_LOGIC.md, PAYROLL_LOGIC.md §5, MODULES.md §32
+// ============================================================================
+
+export interface NoticePeriodTier {
+  minTenureMonths: number;
+  maxTenureMonths: number | null; // null represents open-ended upper bound (e.g. 5+ years)
+  noticeWeeks: number;
+  noticeDays?: number | null;
+  description?: string;
+}
+
+export type FinalSettlementComponentKind = 'earning' | 'deduction';
+export type FinalSettlementTaxability =
+  | 'fully_taxable'
+  | 'tax_exempt'
+  | 'statutory_concessional'
+  | 'etp'; // Employment Termination Payment concessional caps (e.g. Australia ATO)
+
+export interface FinalSettlementComponentConfig {
+  code: string;
+  name: string;
+  kind: FinalSettlementComponentKind;
+  isMandatory: boolean;
+  taxability: FinalSettlementTaxability;
+  settlementTimelineDays: number;
+  calculationBasis: 'ordinary_hourly' | 'daily_rate' | 'structured_formula' | 'fixed_balance';
+  description?: string;
+}
+
+export type SeveranceFormulaType =
+  | 'statutory_table'     // Graduated schedule by tenure (e.g. Fair Work Act NES §119)
+  | 'multiplier_per_year' // X weeks/days per completed year of service (e.g. Bangladesh Labor Act §26/27)
+  | 'gratuity_statutory'  // Statutory gratuity scheme
+  | 'structured_ast';     // Declarative sandboxed AST formula (never eval)
+
+export interface SeveranceTenureTableTier {
+  minYears: number;
+  maxYears: number | null;
+  severanceWeeks: number;
+}
+
+export type SeveranceAstNode =
+  | { type: 'variable'; name: 'service_years' | 'weekly_rate' | 'daily_rate' | 'basic_salary' | 'gross_salary' }
+  | { type: 'constant'; value: number }
+  | { type: 'binary_op'; op: '+' | '-' | '*' | '/' | 'min' | 'max'; left: SeveranceAstNode; right: SeveranceAstNode }
+  | {
+      type: 'conditional';
+      condition: {
+        left: SeveranceAstNode;
+        op: '>' | '>=' | '<' | '<=' | '==';
+        right: SeveranceAstNode;
+      };
+      then: SeveranceAstNode;
+      else: SeveranceAstNode;
+    };
+
+export interface StructuredSeveranceFormula {
+  type: SeveranceFormulaType;
+  tenureTable?: SeveranceTenureTableTier[];
+  payUnitPerYear?: 'weeks' | 'days' | 'months';
+  payUnitsPerYearNumber?: number; // e.g. 2 weeks per year or 30 days per year
+  proratePartialYears?: boolean;
+  minimumServiceYearsRequired?: number; // e.g. 1 year to qualify for severance
+  maxSeveranceWeeks?: number | null;    // e.g. 16 weeks statutory cap
+  maxSeveranceMonetaryCap?: number | null;
+  astRoot?: SeveranceAstNode;
+  notes?: string;
+}
+
+export type EmploymentTypeKind =
+  | 'full_time'
+  | 'part_time'
+  | 'casual'
+  | 'fixed_term'
+  | 'contractor'
+  | 'apprentice';
+
+export interface StatutoryContractRequirements {
+  writtenContractMandatory: boolean;
+  minAgeOfEmployment: number;
+  allowedEmploymentTypes: EmploymentTypeKind[];
+  casualLoadingPercentage?: number | null; // e.g. 25% for Australian Modern Awards
+  maxFixedTermMonths?: number | null;      // e.g. 24 months cap under Fair Work Closing Loopholes
+  maxFixedTermRenewals?: number | null;    // e.g. 1 renewal max
+  minimumWageHourly: number;               // e.g. 24.10 AUD
+  minimumWageMonthly?: number | null;
+  itemizedPayslipMandatory: boolean;
+  mandatoryTerms: string[];
+}
+
+export interface EmploymentTerminationRulePayload {
+  // 1. Probation limits
+  standardProbationMonths: number;
+  maxProbationMonths: number;
+  probationNoticeDays: number;
+  probationExtensionAllowed: boolean;
+  maxProbationExtensionMonths?: number | null;
+
+  // 2. Minimum notice periods by tenure
+  standardNoticeWeeks: number;
+  employeeNoticeWeeks: number;
+  noticeTiers: NoticePeriodTier[];
+  seniorAgeBonusEnabled: boolean;
+  seniorAgeThreshold?: number | null; // e.g. 45 years
+  seniorAgeAdditionalWeeks?: number | null; // e.g. +1 week extra notice
+  paymentInLieuOfNoticeAllowed: boolean;
+
+  // 3. Severance formulas (structured JSON, never eval)
+  severancePayEligible: boolean;
+  severanceFormula: StructuredSeveranceFormula;
+
+  // 4. Final-settlement components
+  finalSettlementPaymentTimelineDays: number;
+  mandatoryLeaveEncashment: boolean;
+  leaveEncashmentLoadingPercentage?: number | null; // e.g. 17.5% annual leave loading
+  finalSettlementComponents: FinalSettlementComponentConfig[];
+
+  // 5. Statutory contract requirements
+  contractRequirements: StatutoryContractRequirements;
+
+  notes?: string;
+}
+
+export interface EmploymentTerminationValidationResult {
+  isValid: boolean;
+  errors: string[];
+  summaryError?: string;
+}
+
+/**
+ * Sandboxed pure AST formula evaluator without eval() or Function() per PAYROLL_LOGIC.md §5.
+ */
+export function evaluateSeveranceAstNode(
+  node: SeveranceAstNode,
+  variables: Record<string, number>,
+): number {
+  switch (node.type) {
+    case 'constant':
+      return Number(node.value) || 0;
+    case 'variable':
+      return Number(variables[node.name]) || 0;
+    case 'binary_op': {
+      const left = evaluateSeveranceAstNode(node.left, variables);
+      const right = evaluateSeveranceAstNode(node.right, variables);
+      switch (node.op) {
+        case '+': return left + right;
+        case '-': return left - right;
+        case '*': return left * right;
+        case '/': return right !== 0 ? left / right : 0;
+        case 'min': return Math.min(left, right);
+        case 'max': return Math.max(left, right);
+        default: return 0;
+      }
+    }
+    case 'conditional': {
+      const left = evaluateSeveranceAstNode(node.condition.left, variables);
+      const right = evaluateSeveranceAstNode(node.condition.right, variables);
+      let conditionMet = false;
+      switch (node.condition.op) {
+        case '>': conditionMet = left > right; break;
+        case '>=': conditionMet = left >= right; break;
+        case '<': conditionMet = left < right; break;
+        case '<=': conditionMet = left <= right; break;
+        case '==': conditionMet = Math.abs(left - right) < 1e-6; break;
+      }
+      return conditionMet
+        ? evaluateSeveranceAstNode(node.then, variables)
+        : evaluateSeveranceAstNode(node.else, variables);
+    }
+    default:
+      return 0;
+  }
+}
+
+export interface SeveranceCalculationInput {
+  serviceYears: number;
+  weeklyOrdinaryRate: number;
+  dailyOrdinaryRate?: number;
+  basicSalaryMonthly?: number;
+  grossSalaryMonthly?: number;
+  employeeAge?: number;
+}
+
+export interface SeveranceCalculationResult {
+  eligible: boolean;
+  severanceWeeks: number;
+  severancePayAmount: number;
+  formulaDescription: string;
+  isCapped: boolean;
+  capReason?: string;
+}
+
+export function evaluateStructuredSeveranceFormula(
+  formula: StructuredSeveranceFormula,
+  input: SeveranceCalculationInput,
+): SeveranceCalculationResult {
+  const minYears = formula.minimumServiceYearsRequired ?? 1;
+  if (input.serviceYears < minYears) {
+    return {
+      eligible: false,
+      severanceWeeks: 0,
+      severancePayAmount: 0,
+      formulaDescription: `Ineligible: Continuous service (${input.serviceYears.toFixed(1)} years) is below minimum qualification threshold (${minYears} year${minYears > 1 ? 's' : ''}).`,
+      isCapped: false,
+    };
+  }
+
+  let severanceWeeks = 0;
+  let formulaDescription = '';
+
+  if (formula.type === 'statutory_table' && Array.isArray(formula.tenureTable) && formula.tenureTable.length > 0) {
+    const sorted = [...formula.tenureTable].sort((a, b) => a.minYears - b.minYears);
+    let matchedTier: SeveranceTenureTableTier | undefined;
+    for (const tier of sorted) {
+      if (input.serviceYears >= tier.minYears) {
+        if (tier.maxYears === null || tier.maxYears === undefined || input.serviceYears < tier.maxYears) {
+          matchedTier = tier;
+          break;
+        }
+      }
+    }
+    if (matchedTier) {
+      severanceWeeks = matchedTier.severanceWeeks;
+      formulaDescription = `Statutory Tenure Table: ${matchedTier.minYears}–${matchedTier.maxYears ?? '∞'} years of service = ${severanceWeeks} weeks redundancy pay.`;
+    } else {
+      // If above highest tier, use highest tier weeks
+      const highest = sorted[sorted.length - 1];
+      if (input.serviceYears >= highest.minYears) {
+        severanceWeeks = highest.severanceWeeks;
+        formulaDescription = `Statutory Tenure Table: ${highest.minYears}+ years = ${severanceWeeks} weeks redundancy pay.`;
+      }
+    }
+  } else if (formula.type === 'multiplier_per_year' || formula.type === 'gratuity_statutory') {
+    const rateNumber = formula.payUnitsPerYearNumber ?? 2;
+    const unit = formula.payUnitPerYear ?? 'weeks';
+    const effectiveYears = formula.proratePartialYears ? input.serviceYears : Math.floor(input.serviceYears);
+
+    if (unit === 'weeks') {
+      severanceWeeks = effectiveYears * rateNumber;
+    } else if (unit === 'days') {
+      severanceWeeks = (effectiveYears * rateNumber) / 5; // 5 working days per standard week
+    } else if (unit === 'months') {
+      severanceWeeks = (effectiveYears * rateNumber * 52) / 12;
+    }
+    formulaDescription = `${rateNumber} ${unit} pay per completed year of service × ${effectiveYears.toFixed(1)} years = ${severanceWeeks.toFixed(1)} weeks.`;
+  } else if (formula.type === 'structured_ast' && formula.astRoot) {
+    const variables: Record<string, number> = {
+      service_years: input.serviceYears,
+      weekly_rate: input.weeklyOrdinaryRate,
+      daily_rate: input.dailyOrdinaryRate ?? (input.weeklyOrdinaryRate / 5),
+      basic_salary: input.basicSalaryMonthly ?? (input.weeklyOrdinaryRate * 52 / 12),
+      gross_salary: input.grossSalaryMonthly ?? (input.weeklyOrdinaryRate * 52 / 12),
+    };
+    const calculatedPay = evaluateSeveranceAstNode(formula.astRoot, variables);
+    severanceWeeks = input.weeklyOrdinaryRate > 0 ? (calculatedPay / input.weeklyOrdinaryRate) : 0;
+    formulaDescription = `Evaluated structured AST formula = ${severanceWeeks.toFixed(1)} weeks ($${calculatedPay.toFixed(2)}).`;
+  }
+
+  let isCapped = false;
+  let capReason: string | undefined;
+
+  // Apply maximum weeks cap
+  if (formula.maxSeveranceWeeks !== null && formula.maxSeveranceWeeks !== undefined && formula.maxSeveranceWeeks > 0) {
+    if (severanceWeeks > formula.maxSeveranceWeeks) {
+      isCapped = true;
+      capReason = `Severance weeks capped from ${severanceWeeks.toFixed(1)} to statutory ceiling of ${formula.maxSeveranceWeeks} weeks.`;
+      severanceWeeks = formula.maxSeveranceWeeks;
+    }
+  }
+
+  let severancePayAmount = severanceWeeks * input.weeklyOrdinaryRate;
+
+  // Apply maximum monetary cap
+  if (formula.maxSeveranceMonetaryCap !== null && formula.maxSeveranceMonetaryCap !== undefined && formula.maxSeveranceMonetaryCap > 0) {
+    if (severancePayAmount > formula.maxSeveranceMonetaryCap) {
+      isCapped = true;
+      capReason = `Severance pay capped at statutory monetary ceiling of $${formula.maxSeveranceMonetaryCap.toFixed(2)}.`;
+      severancePayAmount = formula.maxSeveranceMonetaryCap;
+    }
+  }
+
+  return {
+    eligible: true,
+    severanceWeeks: Number(severanceWeeks.toFixed(2)),
+    severancePayAmount: Number(severancePayAmount.toFixed(2)),
+    formulaDescription,
+    isCapped,
+    capReason,
+  };
+}
+
+/**
+ * Calculates statutory notice period weeks based on tenure tiers and age bonus.
+ */
+export function calculateNoticePeriod(
+  tenureMonths: number,
+  tiers: NoticePeriodTier[],
+  options?: {
+    employeeAge?: number;
+    seniorAgeBonusEnabled?: boolean;
+    seniorAgeThreshold?: number | null;
+    seniorAgeAdditionalWeeks?: number | null;
+    fallbackStandardNoticeWeeks?: number;
+  },
+): {
+  noticeWeeks: number;
+  seniorBonusApplied: boolean;
+  matchedTierDescription: string;
+} {
+  const sorted = [...tiers].sort((a, b) => a.minTenureMonths - b.minTenureMonths);
+  let matchedNoticeWeeks = options?.fallbackStandardNoticeWeeks ?? 4;
+  let matchedTierDescription = 'Default statutory baseline';
+
+  for (const tier of sorted) {
+    if (tenureMonths >= tier.minTenureMonths) {
+      if (tier.maxTenureMonths === null || tier.maxTenureMonths === undefined || tenureMonths < tier.maxTenureMonths) {
+        matchedNoticeWeeks = tier.noticeWeeks;
+        matchedTierDescription = tier.description || `${tier.minTenureMonths}–${tier.maxTenureMonths ?? '∞'} months tenure`;
+        break;
+      }
+    }
+  }
+
+  // Check senior age bonus (e.g. Fair Work Act: employee aged 45+ with 2+ years [24 months] continuous service gets +1 week)
+  let seniorBonusApplied = false;
+  if (options?.seniorAgeBonusEnabled && options.employeeAge !== undefined) {
+    const ageThreshold = options.seniorAgeThreshold ?? 45;
+    const additionalWeeks = options.seniorAgeAdditionalWeeks ?? 1;
+    if (options.employeeAge >= ageThreshold && tenureMonths >= 24) {
+      matchedNoticeWeeks += additionalWeeks;
+      seniorBonusApplied = true;
+      matchedTierDescription += ` (+${additionalWeeks} week senior age bonus for age ${options.employeeAge} with 2+ years service)`;
+    }
+  }
+
+  return {
+    noticeWeeks: matchedNoticeWeeks,
+    seniorBonusApplied,
+    matchedTierDescription,
+  };
+}
+
+/**
+ * Returns default statutory employment and termination rules for a jurisdiction.
+ */
+export function getDefaultEmploymentTerminationForCountry(
+  countryIso?: string,
+): EmploymentTerminationRulePayload {
+  const iso = (countryIso || '').trim().toUpperCase();
+
+  if (iso === 'AUS') {
+    return {
+      standardProbationMonths: 6,
+      maxProbationMonths: 6,
+      probationNoticeDays: 7,
+      probationExtensionAllowed: false,
+      maxProbationExtensionMonths: null,
+
+      standardNoticeWeeks: 4,
+      employeeNoticeWeeks: 2,
+      noticeTiers: [
+        { minTenureMonths: 0, maxTenureMonths: 12, noticeWeeks: 1, description: 'Not more than 1 year of continuous service' },
+        { minTenureMonths: 12, maxTenureMonths: 36, noticeWeeks: 2, description: 'More than 1 year but not more than 3 years' },
+        { minTenureMonths: 36, maxTenureMonths: 60, noticeWeeks: 3, description: 'More than 3 years but not more than 5 years' },
+        { minTenureMonths: 60, maxTenureMonths: null, noticeWeeks: 4, description: 'More than 5 years of continuous service' },
+      ],
+      seniorAgeBonusEnabled: true,
+      seniorAgeThreshold: 45,
+      seniorAgeAdditionalWeeks: 1,
+      paymentInLieuOfNoticeAllowed: true,
+
+      severancePayEligible: true,
+      severanceFormula: {
+        type: 'statutory_table',
+        minimumServiceYearsRequired: 1,
+        maxSeveranceWeeks: 16,
+        tenureTable: [
+          { minYears: 1, maxYears: 2, severanceWeeks: 4 },
+          { minYears: 2, maxYears: 3, severanceWeeks: 6 },
+          { minYears: 3, maxYears: 4, severanceWeeks: 7 },
+          { minYears: 4, maxYears: 5, severanceWeeks: 8 },
+          { minYears: 5, maxYears: 6, severanceWeeks: 10 },
+          { minYears: 6, maxYears: 7, severanceWeeks: 11 },
+          { minYears: 7, maxYears: 8, severanceWeeks: 13 },
+          { minYears: 8, maxYears: 9, severanceWeeks: 14 },
+          { minYears: 9, maxYears: 10, severanceWeeks: 16 },
+          { minYears: 10, maxYears: null, severanceWeeks: 12 }, // Fair Work NES §119: 10+ years reduces to 12 weeks
+        ],
+        notes: 'Fair Work Act 2009 (NES §119): Redundancy pay graduated schedule. Small businesses (<15 employees) statutory exemption applies.',
+      },
+
+      finalSettlementPaymentTimelineDays: 7,
+      mandatoryLeaveEncashment: true,
+      leaveEncashmentLoadingPercentage: 17.5,
+      finalSettlementComponents: [
+        {
+          code: 'UNPAID_SALARY',
+          name: 'Prorated Salary for Final Pay Period',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'fully_taxable',
+          settlementTimelineDays: 7,
+          calculationBasis: 'daily_rate',
+          description: 'Ordinary hours and wages earned up to last day of employment.',
+        },
+        {
+          code: 'ACC_LEAVE_PAYOUT',
+          name: 'Accrued Unused Annual Leave Encashment',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'statutory_concessional',
+          settlementTimelineDays: 7,
+          calculationBasis: 'ordinary_hourly',
+          description: 'Payment of unused annual leave balance plus 17.5% leave loading if modern award stipulates.',
+        },
+        {
+          code: 'PILON',
+          name: 'Payment in Lieu of Notice (PILON)',
+          kind: 'earning',
+          isMandatory: false,
+          taxability: 'etp',
+          settlementTimelineDays: 7,
+          calculationBasis: 'structured_formula',
+          description: 'Lump-sum payment in lieu of notice where unworked, taxed as an Employment Termination Payment (ETP).',
+        },
+        {
+          code: 'REDUNDANCY_PAY',
+          name: 'Statutory Redundancy / Severance Pay',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'statutory_concessional',
+          settlementTimelineDays: 7,
+          calculationBasis: 'structured_formula',
+          description: 'NES §119 redundancy severance pay exempt from tax up to statutory tax-free limit.',
+        },
+        {
+          code: 'COMPANY_RECOVERY',
+          name: 'Authorized Loans & Equipment Deductions',
+          kind: 'deduction',
+          isMandatory: false,
+          taxability: 'tax_exempt',
+          settlementTimelineDays: 7,
+          calculationBasis: 'fixed_balance',
+          description: 'Lawful deduction for unreturned assets or pre-authorized employee loan repayments.',
+        },
+      ],
+
+      contractRequirements: {
+        writtenContractMandatory: true,
+        minAgeOfEmployment: 15,
+        allowedEmploymentTypes: ['full_time', 'part_time', 'casual', 'fixed_term', 'apprentice'],
+        casualLoadingPercentage: 25.0,
+        maxFixedTermMonths: 24,
+        maxFixedTermRenewals: 1,
+        minimumWageHourly: 24.10,
+        minimumWageMonthly: 3663.20,
+        itemizedPayslipMandatory: true,
+        mandatoryTerms: [
+          'Employment Classification & Modern Award reference',
+          'Ordinary Hours of Work & Roster Patterns',
+          'Hourly / Annual Base Compensation Rate',
+          'Superannuation Contribution Guarantee compliance',
+          'Notice Period and Termination Terms',
+          'Fair Work Information Statement delivery confirmation',
+        ],
+      },
+      notes: 'Australia Fair Work Act 2009 (NES): Strict notice tiers (§117), redundancy pay scale (§119), casual loading 25%, and 24-month fixed-term contract ceiling.',
+    };
+  }
+
+  if (iso === 'BGD') {
+    return {
+      standardProbationMonths: 6,
+      maxProbationMonths: 6,
+      probationNoticeDays: 14,
+      probationExtensionAllowed: true,
+      maxProbationExtensionMonths: 3,
+
+      standardNoticeWeeks: 4,
+      employeeNoticeWeeks: 4,
+      noticeTiers: [
+        { minTenureMonths: 0, maxTenureMonths: 6, noticeWeeks: 2, noticeDays: 14, description: 'Probationary / temporary period' },
+        { minTenureMonths: 6, maxTenureMonths: null, noticeWeeks: 17, noticeDays: 120, description: 'Permanent worker (120 days employer notice or wages in lieu)' },
+      ],
+      seniorAgeBonusEnabled: false,
+      seniorAgeThreshold: null,
+      seniorAgeAdditionalWeeks: null,
+      paymentInLieuOfNoticeAllowed: true,
+
+      severancePayEligible: true,
+      severanceFormula: {
+        type: 'multiplier_per_year',
+        payUnitPerYear: 'days',
+        payUnitsPerYearNumber: 30,
+        proratePartialYears: true,
+        minimumServiceYearsRequired: 1,
+        maxSeveranceWeeks: 52,
+        notes: 'Bangladesh Labor Act 2006 (§26/§27): 30 days basic wage compensation for each completed year of service, or 45 days if tenure exceeds 10 years.',
+      },
+
+      finalSettlementPaymentTimelineDays: 30,
+      mandatoryLeaveEncashment: true,
+      leaveEncashmentLoadingPercentage: null,
+      finalSettlementComponents: [
+        {
+          code: 'UNPAID_SALARY',
+          name: 'Wages for Worked Days in Final Month',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'fully_taxable',
+          settlementTimelineDays: 30,
+          calculationBasis: 'daily_rate',
+          description: 'Basic wages plus statutory allowances up to last working day.',
+        },
+        {
+          code: 'ACC_LEAVE_PAYOUT',
+          name: 'Annual Leave Encashment (Earned Leave Balance)',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'fully_taxable',
+          settlementTimelineDays: 30,
+          calculationBasis: 'daily_rate',
+          description: 'Unutilized earned leave balance encashment at daily basic rate.',
+        },
+        {
+          code: 'RETRENCHMENT_COMP',
+          name: 'Retrenchment / Severance Compensation (§20/§26)',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'statutory_concessional',
+          settlementTimelineDays: 30,
+          calculationBasis: 'structured_formula',
+          description: '30 days wages per completed year of service.',
+        },
+        {
+          code: 'GRATUITY',
+          name: 'Statutory Gratuity Payout',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'statutory_concessional',
+          settlementTimelineDays: 30,
+          calculationBasis: 'structured_formula',
+          description: 'Statutory gratuity for employees completing at least 5 years continuous service.',
+        },
+      ],
+
+      contractRequirements: {
+        writtenContractMandatory: true,
+        minAgeOfEmployment: 14,
+        allowedEmploymentTypes: ['full_time', 'part_time', 'casual', 'fixed_term', 'apprentice'],
+        casualLoadingPercentage: null,
+        maxFixedTermMonths: null,
+        maxFixedTermRenewals: null,
+        minimumWageHourly: 60.0,
+        minimumWageMonthly: 12500.0,
+        itemizedPayslipMandatory: true,
+        mandatoryTerms: [
+          'Appointment Letter & Form 34 Service Book details',
+          'Job Title & Nature of Work',
+          'Probation Period & Confirmation Terms',
+          'Basic Wage, House Rent, Medical Allowance breakdown',
+          'Festival Bonus and Statutory Benefits',
+        ],
+      },
+      notes: 'Bangladesh Labor Act 2006: 120-day notice for permanent worker termination, 30-day wage severance per year, 30 days final settlement timeline.',
+    };
+  }
+
+  if (iso === 'USA') {
+    return {
+      standardProbationMonths: 3,
+      maxProbationMonths: 6,
+      probationNoticeDays: 0,
+      probationExtensionAllowed: true,
+      maxProbationExtensionMonths: 3,
+
+      standardNoticeWeeks: 2,
+      employeeNoticeWeeks: 2,
+      noticeTiers: [
+        { minTenureMonths: 0, maxTenureMonths: null, noticeWeeks: 2, description: 'At-will employment baseline (customary 2 weeks notice)' },
+      ],
+      seniorAgeBonusEnabled: false,
+      seniorAgeThreshold: null,
+      seniorAgeAdditionalWeeks: null,
+      paymentInLieuOfNoticeAllowed: true,
+
+      severancePayEligible: false,
+      severanceFormula: {
+        type: 'multiplier_per_year',
+        payUnitPerYear: 'weeks',
+        payUnitsPerYearNumber: 1,
+        proratePartialYears: false,
+        minimumServiceYearsRequired: 1,
+        maxSeveranceWeeks: 26,
+        notes: 'US At-Will Baseline: Severance is discretionary / policy-driven unless triggered by federal WARN Act (60-day notice for qualifying mass layoffs).',
+      },
+
+      finalSettlementPaymentTimelineDays: 3,
+      mandatoryLeaveEncashment: true,
+      leaveEncashmentLoadingPercentage: null,
+      finalSettlementComponents: [
+        {
+          code: 'UNPAID_SALARY',
+          name: 'Final Wages for Worked Days',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'fully_taxable',
+          settlementTimelineDays: 3,
+          calculationBasis: 'daily_rate',
+          description: 'Payment of all earned hours through final day (state final pay law compliant).',
+        },
+        {
+          code: 'ACC_PTO_PAYOUT',
+          name: 'Accrued Paid Time Off (PTO) Payout',
+          kind: 'earning',
+          isMandatory: true,
+          taxability: 'fully_taxable',
+          settlementTimelineDays: 3,
+          calculationBasis: 'ordinary_hourly',
+          description: 'Mandatory accrued PTO payout in states like CA, IL, NY, CO.',
+        },
+      ],
+
+      contractRequirements: {
+        writtenContractMandatory: false,
+        minAgeOfEmployment: 16,
+        allowedEmploymentTypes: ['full_time', 'part_time', 'casual', 'fixed_term', 'contractor'],
+        casualLoadingPercentage: null,
+        maxFixedTermMonths: null,
+        maxFixedTermRenewals: null,
+        minimumWageHourly: 7.25,
+        minimumWageMonthly: null,
+        itemizedPayslipMandatory: true,
+        mandatoryTerms: [
+          'At-will employment acknowledgment',
+          'FLSA exempt / non-exempt status',
+          'Compensation and payroll frequency',
+        ],
+      },
+      notes: 'US Fair Labor Standards Act (FLSA) & state final wage rules (e.g. CA Labor Code §201 immediate pay upon discharge).',
+    };
+  }
+
+  // International statutory baseline
+  return {
+    standardProbationMonths: 6,
+    maxProbationMonths: 6,
+    probationNoticeDays: 7,
+    probationExtensionAllowed: true,
+    maxProbationExtensionMonths: 3,
+
+    standardNoticeWeeks: 4,
+    employeeNoticeWeeks: 2,
+    noticeTiers: [
+      { minTenureMonths: 0, maxTenureMonths: 12, noticeWeeks: 1, description: 'Up to 1 year of service' },
+      { minTenureMonths: 12, maxTenureMonths: 36, noticeWeeks: 2, description: '1 to 3 years of service' },
+      { minTenureMonths: 36, maxTenureMonths: 60, noticeWeeks: 3, description: '3 to 5 years of service' },
+      { minTenureMonths: 60, maxTenureMonths: null, noticeWeeks: 4, description: 'Over 5 years of service' },
+    ],
+    seniorAgeBonusEnabled: false,
+    seniorAgeThreshold: null,
+    seniorAgeAdditionalWeeks: null,
+    paymentInLieuOfNoticeAllowed: true,
+
+    severancePayEligible: true,
+    severanceFormula: {
+      type: 'multiplier_per_year',
+      payUnitPerYear: 'weeks',
+      payUnitsPerYearNumber: 2,
+      proratePartialYears: true,
+      minimumServiceYearsRequired: 1,
+      maxSeveranceWeeks: 26,
+      notes: 'Standard statutory baseline: 2 weeks ordinary pay per completed year of service.',
+    },
+
+    finalSettlementPaymentTimelineDays: 14,
+    mandatoryLeaveEncashment: true,
+    leaveEncashmentLoadingPercentage: null,
+    finalSettlementComponents: [
+      {
+        code: 'UNPAID_SALARY',
+        name: 'Final Wages for Worked Days',
+        kind: 'earning',
+        isMandatory: true,
+        taxability: 'fully_taxable',
+        settlementTimelineDays: 14,
+        calculationBasis: 'daily_rate',
+        description: 'Earned wages for final payroll cycle.',
+      },
+      {
+        code: 'ACC_LEAVE_PAYOUT',
+        name: 'Accrued Unused Annual Leave Encashment',
+        kind: 'earning',
+        isMandatory: true,
+        taxability: 'statutory_concessional',
+        settlementTimelineDays: 14,
+        calculationBasis: 'ordinary_hourly',
+        description: 'Mandatory payout of all earned but unused statutory leave.',
+      },
+      {
+        code: 'SEVERANCE_PAY',
+        name: 'Statutory Severance Pay',
+        kind: 'earning',
+        isMandatory: true,
+        taxability: 'statutory_concessional',
+        settlementTimelineDays: 14,
+        calculationBasis: 'structured_formula',
+        description: 'Statutory severance payment based on years of continuous service.',
+      },
+    ],
+
+    contractRequirements: {
+      writtenContractMandatory: true,
+      minAgeOfEmployment: 16,
+      allowedEmploymentTypes: ['full_time', 'part_time', 'casual', 'fixed_term', 'contractor'],
+      casualLoadingPercentage: null,
+      maxFixedTermMonths: 36,
+      maxFixedTermRenewals: 2,
+      minimumWageHourly: 15.0,
+      minimumWageMonthly: 2500.0,
+      itemizedPayslipMandatory: true,
+      mandatoryTerms: [
+        'Written employment contract',
+        'Job title & duties',
+        'Remuneration and pay intervals',
+        'Working hours and rest intervals',
+        'Notice and termination conditions',
+      ],
+    },
+    notes: 'International baseline employment and termination regulations.',
+  };
+}
+
+/**
+ * Normalizes legacy and loosely-structured payloads into the strict EmploymentTerminationRulePayload format.
+ */
+export function normalizeEmploymentTerminationPayload(
+  raw: Record<string, unknown> | null | undefined,
+  countryIso?: string,
+): EmploymentTerminationRulePayload {
+  const defaults = getDefaultEmploymentTerminationForCountry(countryIso);
+  if (!raw || typeof raw !== 'object') {
+    return defaults;
+  }
+
+  // Support legacy keys: minimum_wage_hourly, standard_notice_weeks, standard_probation_months, severance_pay_formula
+  const legacyMinWage = typeof raw.minimum_wage_hourly === 'number' ? raw.minimum_wage_hourly : undefined;
+  const legacyNoticeWeeks = typeof raw.standard_notice_weeks === 'number' ? raw.standard_notice_weeks : undefined;
+  const legacyProbationMonths = typeof raw.standard_probation_months === 'number' ? raw.standard_probation_months : undefined;
+
+  const standardProbation =
+    typeof raw.standardProbationMonths === 'number'
+      ? raw.standardProbationMonths
+      : legacyProbationMonths ?? defaults.standardProbationMonths;
+
+  const maxProbation =
+    typeof raw.maxProbationMonths === 'number'
+      ? raw.maxProbationMonths
+      : Math.max(standardProbation, defaults.maxProbationMonths);
+
+  const standardNotice =
+    typeof raw.standardNoticeWeeks === 'number'
+      ? raw.standardNoticeWeeks
+      : legacyNoticeWeeks ?? defaults.standardNoticeWeeks;
+
+  const rawNoticeTiers = Array.isArray(raw.noticeTiers) && raw.noticeTiers.length > 0
+    ? (raw.noticeTiers as NoticePeriodTier[])
+    : defaults.noticeTiers;
+
+  const rawFormula = (raw.severanceFormula as StructuredSeveranceFormula) || defaults.severanceFormula;
+
+  const rawSettlementComponents = Array.isArray(raw.finalSettlementComponents) && raw.finalSettlementComponents.length > 0
+    ? (raw.finalSettlementComponents as FinalSettlementComponentConfig[])
+    : defaults.finalSettlementComponents;
+
+  const rawContractReqs = (raw.contractRequirements as StatutoryContractRequirements) || defaults.contractRequirements;
+
+  const minWageHourly =
+    typeof rawContractReqs.minimumWageHourly === 'number'
+      ? rawContractReqs.minimumWageHourly
+      : legacyMinWage ?? defaults.contractRequirements.minimumWageHourly;
+
+  return {
+    standardProbationMonths: Number(standardProbation) || defaults.standardProbationMonths,
+    maxProbationMonths: Number(maxProbation) || defaults.maxProbationMonths,
+    probationNoticeDays: typeof raw.probationNoticeDays === 'number' ? raw.probationNoticeDays : defaults.probationNoticeDays,
+    probationExtensionAllowed: typeof raw.probationExtensionAllowed === 'boolean' ? raw.probationExtensionAllowed : defaults.probationExtensionAllowed,
+    maxProbationExtensionMonths: typeof raw.maxProbationExtensionMonths === 'number' ? raw.maxProbationExtensionMonths : defaults.maxProbationExtensionMonths,
+
+    standardNoticeWeeks: Number(standardNotice) || defaults.standardNoticeWeeks,
+    employeeNoticeWeeks: typeof raw.employeeNoticeWeeks === 'number' ? raw.employeeNoticeWeeks : defaults.employeeNoticeWeeks,
+    noticeTiers: rawNoticeTiers,
+    seniorAgeBonusEnabled: typeof raw.seniorAgeBonusEnabled === 'boolean' ? raw.seniorAgeBonusEnabled : defaults.seniorAgeBonusEnabled,
+    seniorAgeThreshold: typeof raw.seniorAgeThreshold === 'number' ? raw.seniorAgeThreshold : defaults.seniorAgeThreshold,
+    seniorAgeAdditionalWeeks: typeof raw.seniorAgeAdditionalWeeks === 'number' ? raw.seniorAgeAdditionalWeeks : defaults.seniorAgeAdditionalWeeks,
+    paymentInLieuOfNoticeAllowed: typeof raw.paymentInLieuOfNoticeAllowed === 'boolean' ? raw.paymentInLieuOfNoticeAllowed : defaults.paymentInLieuOfNoticeAllowed,
+
+    severancePayEligible: typeof raw.severancePayEligible === 'boolean' ? raw.severancePayEligible : defaults.severancePayEligible,
+    severanceFormula: {
+      type: rawFormula.type || defaults.severanceFormula.type,
+      tenureTable: rawFormula.tenureTable || defaults.severanceFormula.tenureTable,
+      payUnitPerYear: rawFormula.payUnitPerYear || defaults.severanceFormula.payUnitPerYear,
+      payUnitsPerYearNumber: typeof rawFormula.payUnitsPerYearNumber === 'number' ? rawFormula.payUnitsPerYearNumber : defaults.severanceFormula.payUnitsPerYearNumber,
+      proratePartialYears: typeof rawFormula.proratePartialYears === 'boolean' ? rawFormula.proratePartialYears : defaults.severanceFormula.proratePartialYears,
+      minimumServiceYearsRequired: typeof rawFormula.minimumServiceYearsRequired === 'number' ? rawFormula.minimumServiceYearsRequired : defaults.severanceFormula.minimumServiceYearsRequired,
+      maxSeveranceWeeks: typeof rawFormula.maxSeveranceWeeks === 'number' ? rawFormula.maxSeveranceWeeks : defaults.severanceFormula.maxSeveranceWeeks,
+      maxSeveranceMonetaryCap: typeof rawFormula.maxSeveranceMonetaryCap === 'number' ? rawFormula.maxSeveranceMonetaryCap : defaults.severanceFormula.maxSeveranceMonetaryCap,
+      astRoot: rawFormula.astRoot || defaults.severanceFormula.astRoot,
+      notes: typeof rawFormula.notes === 'string' ? rawFormula.notes : defaults.severanceFormula.notes,
+    },
+
+    finalSettlementPaymentTimelineDays: typeof raw.finalSettlementPaymentTimelineDays === 'number' ? raw.finalSettlementPaymentTimelineDays : defaults.finalSettlementPaymentTimelineDays,
+    mandatoryLeaveEncashment: typeof raw.mandatoryLeaveEncashment === 'boolean' ? raw.mandatoryLeaveEncashment : defaults.mandatoryLeaveEncashment,
+    leaveEncashmentLoadingPercentage: typeof raw.leaveEncashmentLoadingPercentage === 'number' ? raw.leaveEncashmentLoadingPercentage : defaults.leaveEncashmentLoadingPercentage,
+    finalSettlementComponents: rawSettlementComponents,
+
+    contractRequirements: {
+      writtenContractMandatory: typeof rawContractReqs.writtenContractMandatory === 'boolean' ? rawContractReqs.writtenContractMandatory : defaults.contractRequirements.writtenContractMandatory,
+      minAgeOfEmployment: typeof rawContractReqs.minAgeOfEmployment === 'number' ? rawContractReqs.minAgeOfEmployment : defaults.contractRequirements.minAgeOfEmployment,
+      allowedEmploymentTypes: Array.isArray(rawContractReqs.allowedEmploymentTypes) ? rawContractReqs.allowedEmploymentTypes : defaults.contractRequirements.allowedEmploymentTypes,
+      casualLoadingPercentage: typeof rawContractReqs.casualLoadingPercentage === 'number' ? rawContractReqs.casualLoadingPercentage : defaults.contractRequirements.casualLoadingPercentage,
+      maxFixedTermMonths: typeof rawContractReqs.maxFixedTermMonths === 'number' ? rawContractReqs.maxFixedTermMonths : defaults.contractRequirements.maxFixedTermMonths,
+      maxFixedTermRenewals: typeof rawContractReqs.maxFixedTermRenewals === 'number' ? rawContractReqs.maxFixedTermRenewals : defaults.contractRequirements.maxFixedTermRenewals,
+      minimumWageHourly: Number(minWageHourly) || defaults.contractRequirements.minimumWageHourly,
+      minimumWageMonthly: typeof rawContractReqs.minimumWageMonthly === 'number' ? rawContractReqs.minimumWageMonthly : defaults.contractRequirements.minimumWageMonthly,
+      itemizedPayslipMandatory: typeof rawContractReqs.itemizedPayslipMandatory === 'boolean' ? rawContractReqs.itemizedPayslipMandatory : defaults.contractRequirements.itemizedPayslipMandatory,
+      mandatoryTerms: Array.isArray(rawContractReqs.mandatoryTerms) ? rawContractReqs.mandatoryTerms : defaults.contractRequirements.mandatoryTerms,
+    },
+
+    notes: typeof raw.notes === 'string' ? raw.notes : defaults.notes,
+  };
+}
+
+/**
+ * Validates an Employment & Termination rule payload with strict validation rules.
+ */
+export function validateEmploymentTerminationPayload(
+  payload: unknown,
+): EmploymentTerminationValidationResult {
+  const errors: string[] = [];
+
+  if (!payload || typeof payload !== 'object') {
+    return {
+      isValid: false,
+      errors: ['Employment and termination rules payload must be a non-empty object.'],
+      summaryError: 'Employment and termination rules payload must be a non-empty object.',
+    };
+  }
+
+  const p = payload as Partial<EmploymentTerminationRulePayload>;
+
+  // 1. Probation validation
+  if (p.standardProbationMonths === undefined || p.standardProbationMonths === null || typeof p.standardProbationMonths !== 'number' || isNaN(p.standardProbationMonths)) {
+    errors.push('Standard probation months is required and must be a valid number.');
+  } else if (p.standardProbationMonths < 0 || p.standardProbationMonths > 24) {
+    errors.push('Standard probation duration must be between 0 and 24 months.');
+  }
+
+  if (p.maxProbationMonths === undefined || p.maxProbationMonths === null || typeof p.maxProbationMonths !== 'number' || isNaN(p.maxProbationMonths)) {
+    errors.push('Maximum statutory probation months is required and must be a valid number.');
+  } else if (p.maxProbationMonths < (p.standardProbationMonths ?? 0)) {
+    errors.push(`Maximum probation (${p.maxProbationMonths}m) cannot be less than standard probation (${p.standardProbationMonths}m).`);
+  }
+
+  if (p.probationNoticeDays !== undefined && p.probationNoticeDays !== null) {
+    if (typeof p.probationNoticeDays !== 'number' || p.probationNoticeDays < 0) {
+      errors.push('Probation notice days cannot be negative.');
+    }
+  }
+
+  // 2. Notice period validation
+  if (p.standardNoticeWeeks === undefined || p.standardNoticeWeeks === null || typeof p.standardNoticeWeeks !== 'number' || isNaN(p.standardNoticeWeeks)) {
+    errors.push('Standard notice weeks is required and must be a valid number.');
+  } else if (p.standardNoticeWeeks < 0 || p.standardNoticeWeeks > 52) {
+    errors.push('Standard notice weeks must be between 0 and 52 weeks.');
+  }
+
+  if (p.employeeNoticeWeeks !== undefined && p.employeeNoticeWeeks !== null) {
+    if (typeof p.employeeNoticeWeeks !== 'number' || p.employeeNoticeWeeks < 0 || p.employeeNoticeWeeks > 52) {
+      errors.push('Employee notice weeks must be between 0 and 52 weeks.');
+    }
+  }
+
+  if (Array.isArray(p.noticeTiers)) {
+    p.noticeTiers.forEach((tier, idx) => {
+      if (typeof tier.minTenureMonths !== 'number' || tier.minTenureMonths < 0) {
+        errors.push(`Notice tier #${idx + 1}: Minimum tenure months must be 0 or greater.`);
+      }
+      if (tier.maxTenureMonths !== null && tier.maxTenureMonths !== undefined) {
+        if (typeof tier.maxTenureMonths !== 'number' || tier.maxTenureMonths <= tier.minTenureMonths) {
+          errors.push(`Notice tier #${idx + 1}: Maximum tenure (${tier.maxTenureMonths}m) must be greater than minimum tenure (${tier.minTenureMonths}m).`);
+        }
+      }
+      if (typeof tier.noticeWeeks !== 'number' || tier.noticeWeeks < 0) {
+        errors.push(`Notice tier #${idx + 1}: Notice weeks must be 0 or greater.`);
+      }
+    });
+  }
+
+  // 3. Severance formula validation
+  if (p.severancePayEligible && p.severanceFormula) {
+    const f = p.severanceFormula;
+    if (!['statutory_table', 'multiplier_per_year', 'gratuity_statutory', 'structured_ast'].includes(f.type)) {
+      errors.push("Severance formula type must be one of: 'statutory_table', 'multiplier_per_year', 'gratuity_statutory', 'structured_ast'.");
+    }
+
+    if (f.type === 'statutory_table') {
+      if (!Array.isArray(f.tenureTable) || f.tenureTable.length === 0) {
+        errors.push('Statutory severance table must contain at least one tenure tier.');
+      } else {
+        f.tenureTable.forEach((tier, idx) => {
+          if (typeof tier.minYears !== 'number' || tier.minYears < 0) {
+            errors.push(`Severance table tier #${idx + 1}: Minimum service years must be non-negative.`);
+          }
+          if (tier.maxYears !== null && tier.maxYears !== undefined) {
+            if (typeof tier.maxYears !== 'number' || tier.maxYears <= tier.minYears) {
+              errors.push(`Severance table tier #${idx + 1}: Maximum years (${tier.maxYears}) must be greater than min years (${tier.minYears}).`);
+            }
+          }
+          if (typeof tier.severanceWeeks !== 'number' || tier.severanceWeeks < 0) {
+            errors.push(`Severance table tier #${idx + 1}: Severance weeks cannot be negative.`);
+          }
+        });
+      }
+    }
+
+    if (f.type === 'multiplier_per_year' || f.type === 'gratuity_statutory') {
+      if (typeof f.payUnitsPerYearNumber !== 'number' || f.payUnitsPerYearNumber <= 0) {
+        errors.push('Pay units per year number must be greater than 0.');
+      }
+    }
+  }
+
+  // 4. Final settlement components
+  if (p.finalSettlementPaymentTimelineDays !== undefined && p.finalSettlementPaymentTimelineDays !== null) {
+    if (typeof p.finalSettlementPaymentTimelineDays !== 'number' || p.finalSettlementPaymentTimelineDays < 0 || p.finalSettlementPaymentTimelineDays > 365) {
+      errors.push('Final settlement payment timeline must be between 0 and 365 days.');
+    }
+  }
+
+  if (Array.isArray(p.finalSettlementComponents)) {
+    p.finalSettlementComponents.forEach((comp, idx) => {
+      if (!comp.code || !comp.code.trim()) {
+        errors.push(`Final settlement component #${idx + 1}: Code is required.`);
+      }
+      if (!comp.name || !comp.name.trim()) {
+        errors.push(`Final settlement component #${idx + 1}: Name is required.`);
+      }
+      if (comp.kind !== 'earning' && comp.kind !== 'deduction') {
+        errors.push(`Final settlement component #${idx + 1}: Kind must be 'earning' or 'deduction'.`);
+      }
+    });
+  }
+
+  // 5. Contract requirements validation
+  if (p.contractRequirements) {
+    const c = p.contractRequirements;
+    if (typeof c.minAgeOfEmployment !== 'number' || c.minAgeOfEmployment < 10 || c.minAgeOfEmployment > 30) {
+      errors.push('Minimum age of employment must be between 10 and 30 years.');
+    }
+    if (typeof c.minimumWageHourly !== 'number' || isNaN(c.minimumWageHourly) || c.minimumWageHourly <= 0) {
+      errors.push('Statutory minimum hourly wage is required and must be greater than 0.');
+    }
+    if (c.casualLoadingPercentage !== undefined && c.casualLoadingPercentage !== null) {
+      if (typeof c.casualLoadingPercentage !== 'number' || c.casualLoadingPercentage < 0 || c.casualLoadingPercentage > 100) {
+        errors.push('Casual loading percentage must be between 0% and 100%.');
+      }
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    summaryError: errors[0],
+  };
+}
+

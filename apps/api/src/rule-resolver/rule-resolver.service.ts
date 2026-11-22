@@ -1,11 +1,13 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   normalizeWorkingHoursOtPayload,
+  normalizeEmploymentTerminationPayload,
   type EffectiveDatedRule,
   type ResolvedRule,
   type RuleLayer,
   type RuleResolutionContext,
   type WorkingHoursOtRulePayload,
+  type EmploymentTerminationRulePayload,
 } from '@hrm/shared-types';
 import { selectEffectiveRule } from './effective-date.utils';
 import { mergeRulePayloads } from './rule-merge.utils';
@@ -223,6 +225,69 @@ export class RuleResolverService {
     }
 
     return this.resolveWorkingHoursAndOvertime({
+      tenantId: employee.tenantId,
+      companyId: employee.companyId,
+      employeeId: employee.employeeId,
+      countryId: employee.countryId,
+      stateCode: overrides?.stateCode ?? employee.stateCode,
+      calculationDate: overrides?.calculationDate ?? calculationDate,
+    });
+  }
+
+  /**
+   * Resolves Employment & Termination rules across the resolution chain:
+   * Global -> Country -> State -> Company -> Employee Contract.
+   * Merges and normalizes the payload into EmploymentTerminationRulePayload.
+   * Conforms to PAYROLL_LOGIC.md §5 and MODULES.md §32.
+   */
+  async resolveEmploymentAndTermination(
+    context: RuleResolutionContext,
+  ): Promise<{ resolved: ResolvedRule; config: EmploymentTerminationRulePayload }> {
+    const resolved = await this.resolve(context, 'employment_rules');
+    const config = normalizeEmploymentTerminationPayload(resolved.payload);
+    return {
+      resolved,
+      config,
+    };
+  }
+
+  async resolveEmploymentAndTerminationForCompany(
+    companyId: string,
+    calculationDate: Date,
+    options?: { stateCode?: string | null },
+  ): Promise<{ resolved: ResolvedRule; config: EmploymentTerminationRulePayload }> {
+    const company = await this.employeeContext.loadCompanyContext(companyId);
+    if (!company) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Company not found',
+      });
+    }
+
+    return this.resolveEmploymentAndTermination({
+      tenantId: company.tenantId,
+      companyId: company.companyId,
+      employeeId: null,
+      countryId: company.countryId,
+      stateCode: options?.stateCode ?? null,
+      calculationDate,
+    });
+  }
+
+  async resolveEmploymentAndTerminationForEmployee(
+    employeeId: string,
+    calculationDate: Date,
+    overrides?: Partial<Pick<RuleResolutionContext, 'stateCode' | 'calculationDate'>>,
+  ): Promise<{ resolved: ResolvedRule; config: EmploymentTerminationRulePayload }> {
+    const employee = await this.employeeContext.loadEmployeeContext(employeeId);
+    if (!employee) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Employee not found',
+      });
+    }
+
+    return this.resolveEmploymentAndTermination({
       tenantId: employee.tenantId,
       companyId: employee.companyId,
       employeeId: employee.employeeId,
