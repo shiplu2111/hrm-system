@@ -14,7 +14,8 @@ export type NotificationEventType =
   | 'certification.expiring'
   | 'kudos.received'
   | 'safety.incident.reported'
-  | 'interview.scheduled';
+  | 'interview.scheduled'
+  | 'compliance.deadline.upcoming';
 
 export type NotificationRecipientRole =
   | 'subject_employee'

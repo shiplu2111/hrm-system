@@ -70,6 +70,7 @@ import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
 import { WorkingHoursOtRulesEditor } from '../working-hours-ot/WorkingHoursOtRulesEditor';
 import { EmploymentTerminationRulesEditor } from '../employment-termination/EmploymentTerminationRulesEditor';
 import { PublicHolidaysEditor } from '../public-holidays/PublicHolidaysEditor';
+import { ComplianceCalendarEditor } from '../compliance-calendar/ComplianceCalendarEditor';
 import { RuleVersionTimeline } from '../rules/RuleVersionTimeline';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
@@ -1432,7 +1433,17 @@ export function CountryDetailView({
         </div>
       )}
 
-      {/* 9 to 14. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {/* 9. COMPLIANCE CALENDAR & NOTICES ENGINE (MODULES.MD §02) */}
+      {activeTab === 'Compliance' && (
+        <ComplianceCalendarEditor
+          country={country}
+          states={states}
+          completeness={tabCompleteness['Compliance']}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* 10 to 14. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
         activeTab !== 'Tax' &&
@@ -1444,6 +1455,7 @@ export function CountryDetailView({
         activeTab !== 'Employment' &&
         activeTab !== 'Termination' &&
         activeTab !== 'Public Holidays' &&
+        activeTab !== 'Compliance' &&
         activeTab !== 'Timeline' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}

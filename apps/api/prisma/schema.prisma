@@ -80,6 +80,34 @@ enum StateProvinceStatus {
   @@map("state_province_status")
 }
 
+enum ComplianceRecurrence {
+  monthly
+  quarterly
+  yearly
+  fixed_date
+
+  @@map("compliance_recurrence")
+}
+
+enum ComplianceEventCategory {
+  tax_filing
+  statutory_reporting
+  social_security_remittance
+  license_renewal
+  labor_audit
+  general
+
+  @@map("compliance_event_category")
+}
+
+enum ComplianceEventStatus {
+  active
+  inactive
+  archived
+
+  @@map("compliance_event_status")
+}
+
 model Tenant {
   id                  String                @id @default(uuid()) @db.Uuid
   name                String
@@ -208,6 +236,7 @@ model Tenant {
   paymentRefunds              PaymentRefund[]
   brandings                   TenantBranding?
   customDomains               TenantCustomDomain[]
+  complianceEventNotices      ComplianceEventNotice[]
 
   @@map("tenants")
 }
@@ -232,6 +261,7 @@ model Country {
   taxBrackets        TaxBracket[]
   stateProvinceRules StateProvinceRule[]
   statesProvinces    StateProvince[]
+  complianceEvents   ComplianceEvent[]
 
   @@map("countries")
 }
@@ -245,11 +275,12 @@ model StateProvince {
   createdAt DateTime            @default(now()) @map("created_at")
   updatedAt DateTime            @updatedAt @map("updated_at")
 
-  country      Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  companies    Company[]
-  locations    Location[]
-  countryRules CountryRule[]
-  taxBrackets  TaxBracket[]
+  country          Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  companies        Company[]
+  locations        Location[]
+  countryRules     CountryRule[]
+  taxBrackets      TaxBracket[]
+  complianceEvents ComplianceEvent[]
 
   @@unique([countryId, code])
   @@index([countryId])
@@ -362,6 +393,61 @@ model EmployeeContractRule {
   @@map("employee_contract_rules")
 }
 
+model ComplianceEvent {
+  id               String                    @id @default(uuid()) @db.Uuid
+  countryId        String                    @map("country_id") @db.Uuid
+  stateProvinceId  String?                   @map("state_province_id") @db.Uuid
+  title            String
+  description      String?                   @db.Text
+  category         ComplianceEventCategory   @default(tax_filing) @map("category")
+  recurrence       ComplianceRecurrence      @map("recurrence")
+  dueDateRule      Json                      @map("due_date_rule")
+  applicablePlans  String[]                  @default([]) @map("applicable_plans")
+  companyType      String?                   @map("company_type")
+  sourceReference  String?                   @map("source_reference")
+  noticeDaysBefore Int                       @default(7) @map("notice_days_before")
+  penaltiesSummary String?                   @map("penalties_summary")
+  filingPortalUrl  String?                   @map("filing_portal_url")
+  actionRequired   String?                   @map("action_required")
+  status           ComplianceEventStatus     @default(active) @map("status")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+
+  country          Country                   @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  stateProvince    StateProvince?            @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)
+  notices          ComplianceEventNotice[]
+
+  @@index([countryId, status])
+  @@index([countryId, stateProvinceId])
+  @@map("compliance_events")
+}
+
+model ComplianceEventNotice {
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  companyId          String          @map("company_id") @db.Uuid
+  complianceEventId  String          @map("compliance_event_id") @db.Uuid
+  dueDate            DateTime        @map("due_date") @db.Date
+  noticeDate         DateTime        @map("notice_date") @db.Date
+  daysRemaining      Int             @map("days_remaining")
+  status             String          @default("sent")
+  completedAt        DateTime?       @map("completed_at")
+  completedBy        String?         @map("completed_by")
+  sentAt             DateTime        @default(now()) @map("sent_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  complianceEvent    ComplianceEvent @relation(fields: [complianceEventId], references: [id], onDelete: Cascade)
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, complianceEventId, dueDate])
+  @@index([tenantId, status])
+  @@index([companyId, dueDate])
+  @@index([complianceEventId, dueDate])
+  @@map("compliance_event_notices")
+}
+
 model Company {
   id                String   @id @default(uuid()) @db.Uuid
   tenantId          String   @map("tenant_id") @db.Uuid
@@ -460,6 +546,7 @@ model Company {
   contractorPaymentBatches      ContractorPaymentBatch[]
   contractorContractMilestones  ContractorContractMilestone[]
   contractorJournalExports      ContractorJournalExport[]
+  complianceEventNotices        ComplianceEventNotice[]
 
   @@index([tenantId])
   @@index([countryId])

@@ -1,6 +1,6 @@
 import type { NotificationChannelKey, NotificationEventType, NotificationRecipientRole } from '@hrm/shared-types';
 
-export type NotificationEventGroup = 'time' | 'approvals' | 'pay' | 'contracts' | 'people' | 'safety';
+export type NotificationEventGroup = 'time' | 'approvals' | 'pay' | 'contracts' | 'people' | 'safety' | 'compliance';
 
 /**
  * User-facing strings for the notification & SMTP settings screen.
@@ -130,6 +130,7 @@ export const notificationSettingsCopy = {
     contracts: 'Contracts & certifications',
     people: 'People & engagement',
     safety: 'Health & safety',
+    compliance: 'Statutory compliance',
   } satisfies Record<NotificationEventGroup, string>,
 
   eventMeta: {
@@ -159,6 +160,11 @@ export const notificationSettingsCopy = {
       group: 'safety',
       label: 'Safety incident reported',
       description: 'A workplace incident is reported.',
+    },
+    'compliance.deadline.upcoming': {
+      group: 'compliance',
+      label: 'Compliance deadline upcoming',
+      description: 'A statutory tax, filing, or regulatory deadline is approaching.',
     },
   } satisfies Record<NotificationEventType, { group: NotificationEventGroup; label: string; description: string }>,
 

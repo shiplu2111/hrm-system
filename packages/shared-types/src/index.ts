@@ -55,3 +55,4 @@ export * from './contractors';
 export * from './audit';
 export * from './support-access';
 export * from './branding';
+export * from './compliance-calendar';

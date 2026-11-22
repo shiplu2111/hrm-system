@@ -181,3 +181,19 @@ export function buildExpenseOutcomeVariables(input: {
     category_name: input.categoryName,
   };
 }
+
+export function buildComplianceDeadlineVariables(input: {
+  eventTitle: string;
+  dueDate: string;
+  daysRemaining: string | number;
+  actionRequired?: string;
+  sourceReference?: string;
+}): NotificationEmitInput['variables'] {
+  return {
+    event_title: input.eventTitle,
+    due_date: input.dueDate,
+    days_remaining: String(input.daysRemaining),
+    action_required: input.actionRequired || 'Review statutory filing guidelines and prepare submission.',
+    source_reference: input.sourceReference || '',
+  };
+}

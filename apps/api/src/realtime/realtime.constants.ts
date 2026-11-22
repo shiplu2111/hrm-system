@@ -32,6 +32,7 @@ export const DEFAULT_REALTIME_BROADCAST: RealtimeBroadcastMap = {
   'kudos.received': true,
   'safety.incident.reported': true,
   'interview.scheduled': true,
+  'compliance.deadline.upcoming': true,
 };
 
 export const DEFAULT_REALTIME_NOTIFICATION_SETTINGS: StoredRealtimeNotificationSettings =
@@ -109,6 +110,7 @@ export const REALTIME_NOTIFICATION_EVENT_LABELS: Record<
   'kudos.received': 'Kudos received',
   'safety.incident.reported': 'Safety incident reported',
   'interview.scheduled': 'Interview scheduled',
+  'compliance.deadline.upcoming': 'Compliance deadline reminder',
 };
 
 export const REALTIME_USER_ROOM_PREFIX = 'user:';

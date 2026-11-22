@@ -1,12 +1,16 @@
 import type {
   BulkImportStatesInput,
   BulkImportStatesResult,
+  ComplianceEventView,
+  ComplianceNoticeJobRunInput,
+  ComplianceNoticeJobRunResult,
   CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleKind,
   CountryRuleRecord,
   CountryStatus,
   CountrySummary,
+  CreateComplianceEventInput,
   CreateRuleVersionInput,
   CreateStateProvinceInput,
   InheritingTenantsResponse,
@@ -24,6 +28,7 @@ import type {
   StateProvinceView,
   SubmitRuleVersionInput,
   TaxBracketRecord,
+  UpdateComplianceEventInput,
   UpdateRuleVersionInput,
   UpdateStateProvinceInput,
 } from '@hrm/shared-types';
@@ -409,4 +414,74 @@ export function getRuleSandboxDraftCandidates(
     `/platform/countries/${countryId}/rule-sandbox/draft-candidates${qs}`,
   );
 }
+
+export function listComplianceEvents(
+  countryId: string,
+  stateProvinceId?: string | null,
+): Promise<ComplianceEventView[]> {
+  const params = new URLSearchParams();
+  if (stateProvinceId) params.set('stateProvinceId', stateProvinceId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest<ComplianceEventView[]>(
+    `/platform/countries/${countryId}/compliance-events${qs}`,
+  );
+}
+
+export function getComplianceEvent(
+  eventId: string,
+): Promise<ComplianceEventView> {
+  return apiRequest<ComplianceEventView>(
+    `/platform/countries/compliance-events/${eventId}`,
+  );
+}
+
+export function createComplianceEvent(
+  countryId: string,
+  input: CreateComplianceEventInput,
+): Promise<ComplianceEventView> {
+  return apiRequest<ComplianceEventView>(
+    `/platform/countries/${countryId}/compliance-events`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateComplianceEvent(
+  eventId: string,
+  input: UpdateComplianceEventInput,
+): Promise<ComplianceEventView> {
+  return apiRequest<ComplianceEventView>(
+    `/platform/countries/compliance-events/${eventId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteComplianceEvent(
+  eventId: string,
+): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>(
+    `/platform/countries/compliance-events/${eventId}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export function runComplianceNoticeJob(
+  input: ComplianceNoticeJobRunInput,
+): Promise<ComplianceNoticeJobRunResult> {
+  return apiRequest<ComplianceNoticeJobRunResult>(
+    '/platform/countries/compliance-events/run-notice-job',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 

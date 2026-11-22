@@ -87,6 +87,11 @@ export const DEFAULT_NOTIFICATION_RULES: NotificationRulesMap = {
     channels: { inApp: true, email: true, push: true },
     recipients: ['subject_employee'],
   },
+  'compliance.deadline.upcoming': {
+    enabled: true,
+    channels: { inApp: true, email: true, push: true },
+    recipients: ['hr_admin'],
+  },
 };
 
 export interface NotificationTemplateSet {
@@ -173,6 +178,11 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<
     title: 'Interview scheduled',
     body: 'You are interviewing {candidate_name} for {requisition_title} ({round_name} round) on {scheduled_at}.{location_note}',
     emailSubject: 'Interview: {candidate_name} — {round_name} round, {scheduled_at}',
+  },
+  'compliance.deadline.upcoming': {
+    title: 'Statutory compliance deadline approaching: {event_title}',
+    body: '{event_title} is due on {due_date} ({days_remaining} day(s) remaining). {action_required}',
+    emailSubject: '[Compliance Deadline] {event_title} due on {due_date}',
   },
 };
 

@@ -20,6 +20,8 @@ import type { Request } from 'express';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
   BulkImportStatesResult,
+  ComplianceEventView,
+  ComplianceNoticeJobRunResult,
   CountryConfigStatusView,
   CountryConfiguration,
   CountryRuleRecord,
@@ -42,7 +44,14 @@ import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.gu
 import { CountriesService } from './countries.service';
 import { RuleVersionsService } from './rule-versions.service';
 import { RuleSandboxService } from './rule-sandbox.service';
+import { ComplianceEventsService } from './compliance-events.service';
+import { ComplianceNoticeJobService } from './compliance-notice-job.service';
 import { RuleSandboxSimulationDto } from './dto/rule-sandbox.dto';
+import {
+  CreateComplianceEventDto,
+  RunComplianceNoticeJobDto,
+  UpdateComplianceEventDto,
+} from './dto/compliance-events.dto';
 import {
   BulkImportStatesDto,
   CreateCountryDto,
@@ -75,6 +84,8 @@ export class CountriesController {
     private readonly countriesService: CountriesService,
     private readonly ruleVersionsService: RuleVersionsService,
     private readonly ruleSandboxService: RuleSandboxService,
+    private readonly complianceEventsService: ComplianceEventsService,
+    private readonly complianceNoticeJobService: ComplianceNoticeJobService,
   ) {}
 
   @Get()
@@ -539,5 +550,90 @@ export class CountriesController {
 
     await this.ruleVersionsService.deleteVersion(countryId, versionId, actorId);
     return { data: { success: true } };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Compliance Calendar & Events (MODULES.md §02)
+  // ---------------------------------------------------------------------------
+
+  @Get(':countryId/compliance-events')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'List compliance events for a country' })
+  async listComplianceEvents(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Query('stateProvinceId') stateProvinceId?: string,
+    @Query('asOfDate') asOfDate?: string,
+  ): Promise<ApiEnvelope<ComplianceEventView[]>> {
+    return {
+      data: await this.complianceEventsService.listComplianceEvents(
+        countryId,
+        stateProvinceId,
+        asOfDate,
+      ),
+    };
+  }
+
+  @Post(':countryId/compliance-events')
+  @RequirePlatformPermission('country', 'create')
+  @ApiOperation({ summary: 'Create a compliance event for a country' })
+  async createComplianceEvent(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Body() dto: CreateComplianceEventDto,
+  ): Promise<ApiEnvelope<ComplianceEventView>> {
+    return {
+      data: await this.complianceEventsService.createComplianceEvent({
+        ...dto,
+        countryId,
+      }),
+    };
+  }
+
+  @Get('compliance-events/:eventId')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'Get single compliance event by ID' })
+  async getComplianceEvent(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Query('asOfDate') asOfDate?: string,
+  ): Promise<ApiEnvelope<ComplianceEventView>> {
+    return {
+      data: await this.complianceEventsService.getComplianceEvent(eventId, asOfDate),
+    };
+  }
+
+  @Patch('compliance-events/:eventId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Update a compliance event' })
+  async updateComplianceEvent(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Body() dto: UpdateComplianceEventDto,
+  ): Promise<ApiEnvelope<ComplianceEventView>> {
+    return {
+      data: await this.complianceEventsService.updateComplianceEvent(eventId, dto),
+    };
+  }
+
+  @Delete('compliance-events/:eventId')
+  @RequirePlatformPermission('country', 'delete')
+  @ApiOperation({ summary: 'Delete a compliance event' })
+  async deleteComplianceEvent(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+  ): Promise<ApiEnvelope<{ success: boolean; id: string }>> {
+    return {
+      data: await this.complianceEventsService.deleteComplianceEvent(eventId),
+    };
+  }
+
+  @Post('compliance-events/run-notice-job')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary:
+      'Trigger upcoming compliance calendar notice generation job for tenants',
+  })
+  async runComplianceNoticeJob(
+    @Body() dto: RunComplianceNoticeJobDto,
+  ): Promise<ApiEnvelope<ComplianceNoticeJobRunResult>> {
+    return {
+      data: await this.complianceNoticeJobService.runNoticeJob(dto),
+    };
   }
 }
