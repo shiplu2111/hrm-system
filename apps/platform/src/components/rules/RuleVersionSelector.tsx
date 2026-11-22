@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Clock,
   GitCompare,
+  History,
   Lock,
   Plus,
   Send,
@@ -30,6 +31,7 @@ import {
 import { BackdatedPayrollImpactModal } from './BackdatedPayrollImpactModal';
 import { RejectRuleVersionModal } from './RejectRuleVersionModal';
 import { RuleVersionStatusPill } from './RuleVersionStatusPill';
+import { RuleVersionTimelineModal } from './RuleVersionTimelineModal';
 import { SubmitForApprovalModal } from './SubmitForApprovalModal';
 
 export interface RuleVersionSelectorProps {
@@ -68,6 +70,7 @@ export function RuleVersionSelector({
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [isBackdatedModalOpen, setIsBackdatedModalOpen] = useState(false);
+  const [isTimelineModalOpen, setIsTimelineModalOpen] = useState(false);
   const [payrollImpact, setPayrollImpact] = useState<RuleVersionPayrollImpact | null>(null);
   const [loadingImpact, setLoadingImpact] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -222,6 +225,19 @@ export function RuleVersionSelector({
             >
               <GitCompare className="h-3.5 w-3.5 text-indigo-500" />
               <span>Compare Versions</span>
+            </button>
+          )}
+
+          {/* Version Timeline Button */}
+          {countryId && currentVersion && (
+            <button
+              type="button"
+              onClick={() => setIsTimelineModalOpen(true)}
+              className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-xs"
+              title="View full statutory version timeline and audit trail"
+            >
+              <History className="h-3.5 w-3.5 text-amber-500" />
+              <span>Timeline</span>
             </button>
           )}
 
@@ -414,6 +430,17 @@ export function RuleVersionSelector({
             }
           }}
           loading={isPublishing}
+        />
+      )}
+
+      {countryId && currentVersion && isTimelineModalOpen && (
+        <RuleVersionTimelineModal
+          open={isTimelineModalOpen}
+          onClose={() => setIsTimelineModalOpen(false)}
+          countryId={countryId}
+          ruleType={currentVersion.ruleType}
+          stateProvinceId={currentVersion.stateProvinceId}
+          onSelectVersion={onSelectVersion}
         />
       )}
     </div>

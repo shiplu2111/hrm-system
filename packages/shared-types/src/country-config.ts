@@ -144,6 +144,100 @@ export interface RuleVersionDiffResult {
   rawCompareJson: string;
 }
 
+export interface PendingRuleVersionView {
+  id: string;
+  countryId: string;
+  countryName: string;
+  countryCode: string;
+  flagEmoji: string;
+  stateProvinceId?: string | null;
+  stateProvinceCode?: string | null;
+  stateProvinceName?: string | null;
+  ruleType: string;
+  ruleTypeLabel: string;
+  version: number;
+  status: RuleVersionStatus;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  isBackdated: boolean;
+  sourceReference: string;
+  changeNote: string;
+  submittedBy?: string | null;
+  submittedByName?: string | null;
+  submittedByEmail?: string | null;
+  submittedAt?: string | null;
+  submissionNote?: string | null;
+  currentPublishedVersion?: {
+    id: string;
+    version: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    sourceReference: string;
+    changeNote: string;
+  } | null;
+  diffAgainstPublished?: RuleVersionDiffResult | null;
+}
+
+export interface RuleVersionTimelineEntry {
+  id: string;
+  version: number;
+  status: RuleVersionStatus;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  isCurrentPublished: boolean;
+  isBackdated: boolean;
+  sourceReference: string;
+  changeNote: string;
+  payload: Record<string, unknown>;
+  creator: {
+    id: string;
+    name: string;
+    email?: string;
+    at: string;
+  };
+  submitter?: {
+    id: string;
+    name: string;
+    email?: string;
+    at: string;
+    note?: string | null;
+  } | null;
+  approver?: {
+    id: string;
+    name: string;
+    email?: string;
+    at: string;
+  } | null;
+  rejecter?: {
+    id: string;
+    name: string;
+    email?: string;
+    at: string;
+    reason?: string | null;
+  } | null;
+  diffSummary?: {
+    fieldsAdded: number;
+    fieldsRemoved: number;
+    fieldsModified: number;
+    totalChanges: number;
+  } | null;
+}
+
+export interface RuleVersionTimelineResponse {
+  countryId: string;
+  countryName: string;
+  countryCode: string;
+  flagEmoji: string;
+  ruleType: string;
+  ruleTypeLabel: string;
+  stateProvinceId?: string | null;
+  stateProvinceCode?: string | null;
+  currentPublishedVersionId?: string | null;
+  currentPublishedVersionNumber?: number | null;
+  totalVersions: number;
+  versions: RuleVersionTimelineEntry[];
+}
+
 export interface StateProvinceView {
   id: string;
   countryId: string;

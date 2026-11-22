@@ -37,6 +37,9 @@ describe('RuleVersionsService', () => {
         findMany: jest.Mock;
         update: jest.Mock;
       };
+      platformUser: {
+        findMany: jest.Mock;
+      };
     };
   };
   let auditService: {
@@ -75,6 +78,28 @@ describe('RuleVersionsService', () => {
         payrollRun: {
           findMany: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockResolvedValue({}),
+        },
+        platformUser: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'compliance-admin-id',
+              firstName: 'Compliance',
+              lastName: 'Admin',
+              email: 'compliance.admin@cmsnbd.com',
+            },
+            {
+              id: 'platform-owner-id',
+              firstName: 'Platform',
+              lastName: 'Owner',
+              email: 'platform.owner@cmsnbd.com',
+            },
+            {
+              id: 'platform-admin-id',
+              firstName: 'Platform',
+              lastName: 'Admin',
+              email: 'platform.admin@cmsnbd.com',
+            },
+          ]),
         },
       },
     };
@@ -2096,6 +2121,135 @@ describe('RuleVersionsService', () => {
             userId: platformAdminActor.id,
           }),
         );
+      });
+    });
+
+    describe('Rule Version Timeline and Approvals Inbox', () => {
+      it('should return pending approvals across countries with submitter details and diff against current published', async () => {
+        const mockPending = {
+          id: 'pending-v3-id',
+          countryId: mockCountryId,
+          country: { id: mockCountryId, name: 'Australia', isoCode: 'AUS' },
+          stateProvinceId: null,
+          stateProvince: null,
+          ruleType: 'public_holiday' as CountryRuleType,
+          version: 3,
+          payload: { holidays: [{ name: 'New Year', date: '2026-01-01' }] },
+          effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+          effectiveTo: null,
+          status: 'pending_approval' as RuleVersionStatus,
+          sourceReference: 'FWC Holiday Schedule 2026',
+          changeNote: 'Annual statutory update',
+          submittedBy: 'compliance-admin-id',
+          submittedAt: new Date('2026-11-20T10:00:00.000Z'),
+          submissionNote: 'Please review gazette update',
+          createdAt: new Date('2026-11-20T09:00:00.000Z'),
+          updatedAt: new Date('2026-11-20T10:00:00.000Z'),
+        };
+
+        const mockPublishedV2 = {
+          id: 'published-v2-id',
+          countryId: mockCountryId,
+          stateProvinceId: null,
+          ruleType: 'public_holiday' as CountryRuleType,
+          version: 2,
+          payload: { holidays: [] },
+          effectiveFrom: new Date('2025-01-01T00:00:00.000Z'),
+          effectiveTo: new Date('2025-12-31T00:00:00.000Z'),
+          status: 'published' as RuleVersionStatus,
+          sourceReference: 'FWC Holiday Schedule 2025',
+          changeNote: '2025 schedule',
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+        };
+
+        prisma.unscoped.countryRule.findMany.mockResolvedValue([mockPending]);
+        prisma.unscoped.countryRule.findFirst
+          .mockResolvedValueOnce(mockPublishedV2) // for currentPublished
+          .mockResolvedValueOnce(mockPublishedV2) // for compare baseRecord
+          .mockResolvedValueOnce(mockPending); // for compare compareRecord
+
+        const result = await service.getPendingApprovals();
+
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('pending-v3-id');
+        expect(result[0].countryName).toBe('Australia');
+        expect(result[0].flagEmoji).toBe('🇦🇺');
+        expect(result[0].submittedByName).toBe('Compliance Admin');
+        expect(result[0].currentPublishedVersion).toBeDefined();
+        expect(result[0].currentPublishedVersion?.version).toBe(2);
+        expect(result[0].diffAgainstPublished).toBeDefined();
+        expect(result[0].isBackdated).toBe(true);
+      });
+
+      it('should return chronological timeline with creators, approvers, rejecters, and diff summaries', async () => {
+        const v1 = {
+          id: 'v1-id',
+          countryId: mockCountryId,
+          stateProvinceId: null,
+          ruleType: 'public_holiday' as CountryRuleType,
+          version: 1,
+          payload: { holidays: [] },
+          effectiveFrom: new Date('2024-01-01T00:00:00.000Z'),
+          effectiveTo: new Date('2024-12-31T00:00:00.000Z'),
+          status: 'published' as RuleVersionStatus,
+          sourceReference: 'Ref 1',
+          changeNote: 'Initial baseline',
+          createdBy: 'system',
+          approvedBy: 'platform-owner-id',
+          approvedAt: new Date('2024-01-01T00:00:00.000Z'),
+          createdAt: new Date('2024-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+        };
+
+        const v2 = {
+          id: 'v2-id',
+          countryId: mockCountryId,
+          stateProvinceId: null,
+          ruleType: 'public_holiday' as CountryRuleType,
+          version: 2,
+          payload: { holidays: [{ name: 'Christmas', date: '2025-12-25' }] },
+          effectiveFrom: new Date('2025-01-01T00:00:00.000Z'),
+          effectiveTo: null,
+          status: 'published' as RuleVersionStatus,
+          sourceReference: 'Ref 2',
+          changeNote: 'Add Christmas',
+          createdBy: 'compliance-admin-id',
+          submittedBy: 'compliance-admin-id',
+          submittedAt: new Date('2025-01-02T00:00:00.000Z'),
+          approvedBy: 'platform-admin-id',
+          approvedAt: new Date('2025-01-03T00:00:00.000Z'),
+          createdAt: new Date('2025-01-02T00:00:00.000Z'),
+          updatedAt: new Date('2025-01-03T00:00:00.000Z'),
+        };
+
+        prisma.unscoped.country.findUnique.mockResolvedValue({
+          id: mockCountryId,
+          name: 'Australia',
+          isoCode: 'AUS',
+        });
+        prisma.unscoped.countryRule.findMany.mockResolvedValue([v1, v2]);
+        prisma.unscoped.countryRule.findFirst
+          .mockResolvedValueOnce(v1)
+          .mockResolvedValueOnce(v2);
+
+        const timeline = await service.getTimeline(mockCountryId, 'public_holiday');
+
+        expect(timeline.countryName).toBe('Australia');
+        expect(timeline.totalVersions).toBe(2);
+        expect(timeline.versions[0].creator.name).toBe('System Seeder');
+        expect(timeline.versions[0].approver?.name).toBe('Platform Owner');
+        expect(timeline.versions[1].creator.name).toBe('Compliance Admin');
+        expect(timeline.versions[1].approver?.name).toBe('Platform Admin');
+        expect(timeline.versions[1].diffSummary).toBeDefined();
+      });
+
+      it('should throw NotFoundException if country does not exist when fetching timeline', async () => {
+        prisma.unscoped.country.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.getTimeline('non-existent-id', 'public_holiday'),
+        ).rejects.toThrow(NotFoundException);
       });
     });
   });

@@ -25,8 +25,10 @@ import type {
   CountryRuleRecord,
   CountrySummary,
   InheritingTenantsResponse,
+  PendingRuleVersionView,
   RuleVersionDiffResult,
   RuleVersionPayrollImpact,
+  RuleVersionTimelineResponse,
   RuleVersionView,
   StateProvinceView,
   TaxBracketRecord,
@@ -50,7 +52,9 @@ import {
 import {
   CreateRuleVersionDto,
   PublishRuleVersionDto,
+  QueryPendingApprovalsDto,
   QueryRuleVersionsDto,
+  QueryRuleVersionTimelineDto,
   RejectRuleVersionDto,
   SubmitRuleVersionDto,
   UpdateRuleVersionDto,
@@ -251,6 +255,37 @@ export class CountriesController {
   }
 
   // --- RuleVersion Framework Endpoints ---
+
+  @Get('rule-versions/pending')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'List all pending rule versions awaiting approval across countries',
+  })
+  async getPendingRuleApprovals(
+    @Query() query: QueryPendingApprovalsDto,
+  ): Promise<ApiEnvelope<PendingRuleVersionView[]>> {
+    return {
+      data: await this.ruleVersionsService.getPendingApprovals(query),
+    };
+  }
+
+  @Get(':countryId/rule-versions/timeline')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'Get chronological version timeline for a country and rule category',
+  })
+  async getRuleVersionTimeline(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Query() query: QueryRuleVersionTimelineDto,
+  ): Promise<ApiEnvelope<RuleVersionTimelineResponse>> {
+    return {
+      data: await this.ruleVersionsService.getTimeline(
+        countryId,
+        query.ruleType,
+        query.stateProvinceId,
+      ),
+    };
+  }
 
   @Get(':countryId/rule-versions')
   @RequirePlatformPermission('country', 'view')

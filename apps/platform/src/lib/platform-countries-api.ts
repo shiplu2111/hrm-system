@@ -10,11 +10,13 @@ import type {
   CreateRuleVersionInput,
   CreateStateProvinceInput,
   InheritingTenantsResponse,
+  PendingRuleVersionView,
   PublishRuleVersionInput,
   RejectRuleVersionInput,
   RuleVersionDiffResult,
   RuleVersionPayrollImpact,
   RuleVersionStatus,
+  RuleVersionTimelineResponse,
   RuleVersionView,
   StateProvinceView,
   SubmitRuleVersionInput,
@@ -353,5 +355,30 @@ export function getInheritingTenants(
 ): Promise<InheritingTenantsResponse> {
   return apiRequest<InheritingTenantsResponse>(
     `/platform/countries/${countryId}/inheriting-tenants`,
+  );
+}
+
+export function getPendingRuleApprovals(query?: {
+  countryId?: string;
+  ruleType?: string;
+}): Promise<PendingRuleVersionView[]> {
+  const params = new URLSearchParams();
+  if (query?.countryId) params.set('countryId', query.countryId);
+  if (query?.ruleType) params.set('ruleType', query.ruleType);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest<PendingRuleVersionView[]>(
+    `/platform/countries/rule-versions/pending${qs}`,
+  );
+}
+
+export function getRuleVersionTimeline(
+  countryId: string,
+  ruleType: string,
+  stateProvinceId?: string | null,
+): Promise<RuleVersionTimelineResponse> {
+  const params = new URLSearchParams({ ruleType });
+  if (stateProvinceId) params.set('stateProvinceId', stateProvinceId);
+  return apiRequest<RuleVersionTimelineResponse>(
+    `/platform/countries/${countryId}/rule-versions/timeline?${params.toString()}`,
   );
 }

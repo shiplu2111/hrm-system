@@ -23,6 +23,7 @@ import {
   FileText,
   Globe2,
   HelpCircle,
+  History,
   Info,
   Landmark,
   Layers,
@@ -68,6 +69,7 @@ import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
 import { WorkingHoursOtRulesEditor } from '../working-hours-ot/WorkingHoursOtRulesEditor';
 import { EmploymentTerminationRulesEditor } from '../employment-termination/EmploymentTerminationRulesEditor';
 import { PublicHolidaysEditor } from '../public-holidays/PublicHolidaysEditor';
+import { RuleVersionTimeline } from '../rules/RuleVersionTimeline';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -83,7 +85,8 @@ export type CountryDetailTab =
   | 'Payroll'
   | 'Employment'
   | 'Termination'
-  | 'Compliance';
+  | 'Compliance'
+  | 'Timeline';
 
 export const ALL_TABS: {
   key: CountryDetailTab;
@@ -223,6 +226,15 @@ export const ALL_TABS: {
       stageName: 'Jurisdictional Regulatory Audits & Workplace Safety',
       description: 'Statutory labor agency filings, mandatory health and safety standards, and compliance audits.',
     },
+    {
+      key: 'Timeline',
+      label: 'Rule Timeline',
+      icon: History,
+      isRequired: false,
+      stageCode: 'Timeline & Audit',
+      stageName: 'Statutory Rule Version Timeline & Governance Audit',
+      description: 'Historical audit trail of every statutory rule version, author, submitter, and approver.',
+    },
   ];
 
 interface CountryDetailViewProps {
@@ -319,6 +331,7 @@ export function CountryDetailView({
   statesLoading = false,
 }: CountryDetailViewProps) {
   const [activeTab, setActiveTab] = useState<CountryDetailTab>('General');
+  const [timelineRuleType, setTimelineRuleType] = useState<string>('public_holiday');
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -474,6 +487,11 @@ export function CountryDetailView({
         isComplete: rules.some((r) => r.ruleType === 'health_safety'),
         label: rules.some((r) => r.ruleType === 'health_safety') ? 'Configured' : 'Optional',
         tone: rules.some((r) => r.ruleType === 'health_safety') ? 'green' : 'slate',
+      },
+      Timeline: {
+        isComplete: true,
+        label: 'Audit Log',
+        tone: 'green',
       },
     };
 
@@ -1359,7 +1377,48 @@ export function CountryDetailView({
         />
       )}
 
-      {/* 8 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {/* 8. RULE VERSION TIMELINE & LIFECYCLE AUDIT TAB */}
+      {activeTab === 'Timeline' && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <History className="w-5 h-5 text-amber-500" />
+                  <span>Statutory Rule Version Timeline & Audit</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Chronological lifecycle audit showing who created, submitted, and approved or rejected every statutory rule version for {country.name}.
+                </p>
+              </div>
+
+              {/* Category Dropdown Picker */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-semibold text-slate-500">Category:</span>
+                <select
+                  value={timelineRuleType}
+                  onChange={(e) => setTimelineRuleType(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="public_holiday">Public Holidays</option>
+                  <option value="tax">Tax & Brackets</option>
+                  <option value="social_security">Social Security</option>
+                  <option value="pension">Pension</option>
+                  <option value="leave">Statutory Leave</option>
+                  <option value="working_hours">Working Hours</option>
+                  <option value="ot">Overtime</option>
+                  <option value="employment_rules">Employment Standards</option>
+                  <option value="termination">Termination & Severance</option>
+                </select>
+              </div>
+            </div>
+
+            <RuleVersionTimeline countryId={country.id} ruleType={timelineRuleType} />
+          </div>
+        </div>
+      )}
+
+      {/* 9 to 14. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
         activeTab !== 'Tax' &&
@@ -1370,7 +1429,8 @@ export function CountryDetailView({
         activeTab !== 'Overtime' &&
         activeTab !== 'Employment' &&
         activeTab !== 'Termination' &&
-        activeTab !== 'Public Holidays' && (
+        activeTab !== 'Public Holidays' &&
+        activeTab !== 'Timeline' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}
             country={country}

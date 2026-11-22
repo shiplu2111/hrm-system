@@ -11,6 +11,7 @@ import {
   FlaskConical,
   Globe2,
   Headphones,
+  Inbox,
   LayoutDashboard,
   Palette,
   PlusCircle,
@@ -34,6 +35,7 @@ export type PlatformViewKey =
   | 'billing'
   | 'billing-invoices'
   | 'country-compliance'
+  | 'rule-approvals'
   | 'statutory-rules'
   | 'feature-flags'
   | 'platform-audit'
@@ -168,6 +170,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: Globe2,
         badge: 'Live',
         badgeTone: 'emerald',
+        permission: { module: 'country', action: 'view' },
+      },
+      {
+        key: 'rule-approvals',
+        label: 'Rule Approvals Inbox',
+        description: 'Four-Eyes compliance review queue for pending rule versions across all countries',
+        icon: Inbox,
+        badge: 'Inbox',
+        badgeTone: 'amber',
         permission: { module: 'country', action: 'view' },
       },
       {

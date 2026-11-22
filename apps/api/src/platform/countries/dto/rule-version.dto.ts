@@ -154,3 +154,27 @@ export class RejectRuleVersionDto implements RejectRuleVersionInput {
   @IsNotEmpty({ message: 'A rejection reason is mandatory' })
   reason: string;
 }
+
+export class QueryPendingApprovalsDto {
+  @ApiPropertyOptional({ description: 'Filter pending versions by country ID' })
+  @IsOptional()
+  @IsUUID()
+  countryId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter pending versions by rule category' })
+  @IsOptional()
+  @IsString()
+  ruleType?: string;
+}
+
+export class QueryRuleVersionTimelineDto {
+  @ApiProperty({ description: 'Rule category to generate timeline for (e.g. tax, leave, public_holiday)' })
+  @IsString()
+  @IsNotEmpty()
+  ruleType: string;
+
+  @ApiPropertyOptional({ description: 'Optional State/Province subdivision ID' })
+  @IsOptional()
+  @IsString()
+  stateProvinceId?: string;
+}

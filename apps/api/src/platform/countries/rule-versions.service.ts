@@ -15,12 +15,15 @@ import {
   type AffectedPayrollTenantCompanySummary,
   type AffectedPayrollTenantSummary,
   type FilingStatusTaxConfig,
+  type PendingRuleVersionView,
   type PublishRuleVersionInput,
   type RejectRuleVersionInput,
   type RuleVersionDiffResult,
   type RuleVersionMetadataDiff,
   type RuleVersionPayloadFieldDiff,
   type RuleVersionPayrollImpact,
+  type RuleVersionTimelineEntry,
+  type RuleVersionTimelineResponse,
   type RuleVersionView,
   type SocialSecurityRulePayload,
   type SubmitRuleVersionInput,
@@ -37,11 +40,49 @@ import { PlatformAuditService } from '../audit/platform-audit.service';
 import {
   CreateRuleVersionDto,
   PublishRuleVersionDto,
+  QueryPendingApprovalsDto,
   QueryRuleVersionsDto,
+  QueryRuleVersionTimelineDto,
   RejectRuleVersionDto,
   SubmitRuleVersionDto,
   UpdateRuleVersionDto,
 } from './dto/rule-version.dto';
+
+const RULE_TYPE_LABELS: Record<string, string> = {
+  tax: 'Tax & Brackets',
+  social_security: 'Social Security',
+  leave: 'Statutory Leave',
+  working_hours: 'Working Hours',
+  ot: 'Overtime Multipliers & Caps',
+  employment_rules: 'Employment Standards',
+  termination: 'Termination & Severance',
+  public_holiday: 'Public Holidays',
+  pension: 'Pension & Superannuation',
+  payroll: 'Payroll Frequency & Currency',
+  health_safety: 'Health & Safety',
+  compliance: 'Statutory Compliance',
+};
+
+function getCountryFlagEmoji(isoCode: string): string {
+  if (!isoCode) return '🌐';
+  const code2Map: Record<string, string> = {
+    AUS: 'AU',
+    BGD: 'BD',
+    USA: 'US',
+    GBR: 'GB',
+    CAN: 'CA',
+    IND: 'IN',
+    SGP: 'SG',
+    DEU: 'DE',
+    FRA: 'FR',
+    NZL: 'NZ',
+    ARE: 'AE',
+    JPN: 'JP',
+  };
+  const code2 = code2Map[isoCode.toUpperCase()] || isoCode.slice(0, 2).toUpperCase();
+  if (code2.length !== 2) return '🌐';
+  return String.fromCodePoint(...[...code2].map((c) => 127397 + c.charCodeAt(0)));
+}
 
 @Injectable()
 export class RuleVersionsService {
@@ -730,7 +771,7 @@ export class RuleVersionsService {
     // 4. Overlap validation & automatic sunsetting / bounding of versions
     let boundedEffectiveTo = existing.effectiveTo;
     if (existing.effectiveFrom) {
-      // 4a. Sunset preceding versions
+      // 4a. Sunset preceding or superseded versions
       const publishedOlder = await this.prisma.unscoped.countryRule.findMany({
         where: {
           countryId,
@@ -738,7 +779,7 @@ export class RuleVersionsService {
           ruleType: existing.ruleType,
           status: 'published',
           id: { not: existing.id },
-          effectiveFrom: { lt: existing.effectiveFrom },
+          effectiveFrom: { lte: existing.effectiveFrom },
           OR: [
             { effectiveTo: null },
             { effectiveTo: { gte: existing.effectiveFrom } },
@@ -747,14 +788,22 @@ export class RuleVersionsService {
       });
 
       for (const older of publishedOlder) {
-        const fromDate = new Date(existing.effectiveFrom);
-        fromDate.setUTCDate(fromDate.getUTCDate() - 1);
-        await this.prisma.unscoped.countryRule.update({
-          where: { id: older.id },
-          data: {
-            effectiveTo: fromDate,
-          },
-        });
+        if (older.effectiveFrom.getTime() === existing.effectiveFrom.getTime()) {
+          // Exact same effective start date -> superseded by newly published version
+          await this.prisma.unscoped.countryRule.update({
+            where: { id: older.id },
+            data: { status: 'superseded' },
+          });
+        } else {
+          const fromDate = new Date(existing.effectiveFrom);
+          fromDate.setUTCDate(fromDate.getUTCDate() - 1);
+          await this.prisma.unscoped.countryRule.update({
+            where: { id: older.id },
+            data: {
+              effectiveTo: fromDate,
+            },
+          });
+        }
       }
 
       // 4b. If this version is open-ended (effectiveTo is null), check if a subsequent published version exists.
@@ -1160,6 +1209,318 @@ export class RuleVersionsService {
       stats: { added, removed, modified, unchanged },
       rawBaseJson: JSON.stringify(basePayload, null, 2),
       rawCompareJson: JSON.stringify(comparePayload, null, 2),
+    };
+  }
+
+  /**
+   * Helper to resolve platform staff user identities for audit tracking and timeline display.
+   */
+  private async resolvePlatformUsersMap(
+    userIds: string[],
+  ): Promise<Map<string, { id: string; name: string; email?: string }>> {
+    const map = new Map<string, { id: string; name: string; email?: string }>();
+    const cleanIds = Array.from(new Set(userIds.filter((id) => id && id !== 'system')));
+
+    if (userIds.includes('system')) {
+      map.set('system', { id: 'system', name: 'System Seeder', email: 'system@platform.local' });
+    }
+
+    if (cleanIds.length === 0) return map;
+
+    const users = await this.prisma.unscoped.platformUser.findMany({
+      where: { id: { in: cleanIds } },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+
+    for (const u of users) {
+      const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+      map.set(u.id, {
+        id: u.id,
+        name: fullName || u.email,
+        email: u.email,
+      });
+    }
+
+    return map;
+  }
+
+  /**
+   * Get all pending rule versions awaiting compliance approval across countries.
+   * Includes diff against the currently published active version.
+   */
+  async getPendingApprovals(
+    filters?: QueryPendingApprovalsDto,
+  ): Promise<PendingRuleVersionView[]> {
+    const where: Prisma.CountryRuleWhereInput = {
+      status: 'pending_approval',
+    };
+    if (filters?.countryId) {
+      where.countryId = filters.countryId;
+    }
+    if (filters?.ruleType) {
+      where.ruleType = filters.ruleType as CountryRuleType;
+    }
+
+    const pendingRules = await this.prisma.unscoped.countryRule.findMany({
+      where,
+      include: {
+        country: { select: { id: true, name: true, isoCode: true } },
+        stateProvince: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ submittedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (pendingRules.length === 0) return [];
+
+    // Collect submitter user IDs
+    const submitterIds = pendingRules
+      .map((r) => r.submittedBy || r.createdBy)
+      .filter(Boolean) as string[];
+    const userMap = await this.resolvePlatformUsersMap(submitterIds);
+
+    const now = new Date();
+    const todayUtc = now.toISOString().slice(0, 10);
+
+    const results: PendingRuleVersionView[] = [];
+
+    for (const rule of pendingRules) {
+      const submitter =
+        (rule.submittedBy ? userMap.get(rule.submittedBy) : null) ||
+        (rule.createdBy ? userMap.get(rule.createdBy) : null) ||
+        null;
+
+      // Find current published version for this country/state/ruleType
+      const currentPublished = await this.prisma.unscoped.countryRule.findFirst({
+        where: {
+          countryId: rule.countryId,
+          stateProvinceId: rule.stateProvinceId,
+          ruleType: rule.ruleType,
+          status: 'published',
+        },
+        orderBy: [{ effectiveFrom: 'desc' }, { version: 'desc' }],
+        include: { stateProvince: { select: { code: true } } },
+      });
+
+      let diffAgainstPublished: RuleVersionDiffResult | null = null;
+      if (currentPublished) {
+        try {
+          diffAgainstPublished = await this.compareVersions(
+            rule.countryId,
+            currentPublished.id,
+            rule.id,
+          );
+        } catch {
+          diffAgainstPublished = null;
+        }
+      }
+
+      const effectiveFromStr = rule.effectiveFrom.toISOString().slice(0, 10);
+      const isBackdated = effectiveFromStr < todayUtc;
+
+      results.push({
+        id: rule.id,
+        countryId: rule.countryId,
+        countryName: rule.country.name,
+        countryCode: rule.country.isoCode,
+        flagEmoji: getCountryFlagEmoji(rule.country.isoCode),
+        stateProvinceId: rule.stateProvinceId,
+        stateProvinceCode: rule.stateProvince?.code || null,
+        stateProvinceName: rule.stateProvince?.name || null,
+        ruleType: rule.ruleType,
+        ruleTypeLabel: RULE_TYPE_LABELS[rule.ruleType] || rule.ruleType,
+        version: rule.version,
+        status: rule.status as RuleVersionStatus,
+        effectiveFrom: effectiveFromStr,
+        effectiveTo: rule.effectiveTo
+          ? rule.effectiveTo.toISOString().slice(0, 10)
+          : null,
+        isBackdated,
+        sourceReference: rule.sourceReference,
+        changeNote: rule.changeNote,
+        submittedBy: rule.submittedBy,
+        submittedByName: submitter ? submitter.name : rule.submittedBy || 'Compliance Author',
+        submittedByEmail: submitter?.email,
+        submittedAt: rule.submittedAt ? rule.submittedAt.toISOString() : null,
+        submissionNote: rule.submissionNote,
+        currentPublishedVersion: currentPublished
+          ? {
+              id: currentPublished.id,
+              version: currentPublished.version,
+              effectiveFrom: currentPublished.effectiveFrom.toISOString().slice(0, 10),
+              effectiveTo: currentPublished.effectiveTo
+                ? currentPublished.effectiveTo.toISOString().slice(0, 10)
+                : null,
+              sourceReference: currentPublished.sourceReference,
+              changeNote: currentPublished.changeNote,
+            }
+          : null,
+        diffAgainstPublished,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get chronological timeline of all rule versions for a country and rule category.
+   * Details creator, submitter, approver, rejecter, effective dates, and changes.
+   */
+  async getTimeline(
+    countryId: string,
+    ruleType: string,
+    stateProvinceId?: string | null,
+  ): Promise<RuleVersionTimelineResponse> {
+    const country = await this.prisma.unscoped.country.findUnique({
+      where: { id: countryId },
+      select: { id: true, name: true, isoCode: true },
+    });
+    if (!country) {
+      throw new NotFoundException({
+        code: 'COUNTRY_NOT_FOUND',
+        message: 'Country jurisdiction not found',
+      });
+    }
+
+    const stateProvince = stateProvinceId
+      ? await this.prisma.unscoped.stateProvince.findFirst({
+          where: { id: stateProvinceId, countryId },
+          select: { id: true, code: true, name: true },
+        })
+      : null;
+
+    const where: Prisma.CountryRuleWhereInput = {
+      countryId,
+      ruleType: ruleType as CountryRuleType,
+      stateProvinceId: stateProvinceId ? stateProvinceId : null,
+    };
+
+    const rules = await this.prisma.unscoped.countryRule.findMany({
+      where,
+      orderBy: [{ version: 'asc' }],
+      include: {
+        stateProvince: { select: { code: true } },
+      },
+    });
+
+    const now = new Date();
+    const todayUtc = now.toISOString().slice(0, 10);
+
+    // Identify current active published version
+    let currentPublishedVersion = rules
+      .filter((r) => r.status === 'published')
+      .find((r) => {
+        const from = r.effectiveFrom.toISOString().slice(0, 10);
+        const to = r.effectiveTo ? r.effectiveTo.toISOString().slice(0, 10) : null;
+        return from <= todayUtc && (!to || to >= todayUtc);
+      });
+    if (!currentPublishedVersion) {
+      const allPublished = rules.filter((r) => r.status === 'published');
+      currentPublishedVersion = allPublished[allPublished.length - 1];
+    }
+
+    // Collect all involved user IDs
+    const userIds: string[] = [];
+    for (const r of rules) {
+      if (r.createdBy) userIds.push(r.createdBy);
+      if (r.submittedBy) userIds.push(r.submittedBy);
+      if (r.approvedBy) userIds.push(r.approvedBy);
+      if (r.rejectedBy) userIds.push(r.rejectedBy);
+    }
+    const userMap = await this.resolvePlatformUsersMap(userIds);
+
+    const timelineEntries: RuleVersionTimelineEntry[] = [];
+
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      const prevRule = i > 0 ? rules[i - 1] : null;
+
+      const effectiveFromStr = r.effectiveFrom.toISOString().slice(0, 10);
+      const isBackdated = effectiveFromStr < todayUtc;
+      const isCurrentPublished = currentPublishedVersion?.id === r.id;
+
+      const creatorUser = userMap.get(r.createdBy) || {
+        id: r.createdBy,
+        name: r.createdBy === 'system' ? 'System Seeder' : 'Staff Author',
+      };
+      const submitterUser = r.submittedBy ? userMap.get(r.submittedBy) : null;
+      const approverUser = r.approvedBy ? userMap.get(r.approvedBy) : null;
+      const rejecterUser = r.rejectedBy ? userMap.get(r.rejectedBy) : null;
+
+      let diffSummary: RuleVersionTimelineEntry['diffSummary'] = null;
+      if (prevRule) {
+        try {
+          const diff = await this.compareVersions(countryId, prevRule.id, r.id);
+          diffSummary = {
+            fieldsAdded: diff.stats.added,
+            fieldsRemoved: diff.stats.removed,
+            fieldsModified: diff.stats.modified,
+            totalChanges: diff.stats.added + diff.stats.removed + diff.stats.modified,
+          };
+        } catch {
+          diffSummary = null;
+        }
+      }
+
+      timelineEntries.push({
+        id: r.id,
+        version: r.version,
+        status: r.status as RuleVersionStatus,
+        effectiveFrom: effectiveFromStr,
+        effectiveTo: r.effectiveTo ? r.effectiveTo.toISOString().slice(0, 10) : null,
+        isCurrentPublished,
+        isBackdated,
+        sourceReference: r.sourceReference,
+        changeNote: r.changeNote,
+        payload: (r.payload as Record<string, unknown>) || {},
+        creator: {
+          id: creatorUser.id,
+          name: creatorUser.name,
+          email: creatorUser.email,
+          at: r.createdAt.toISOString(),
+        },
+        submitter: r.submittedBy
+          ? {
+              id: r.submittedBy,
+              name: submitterUser ? submitterUser.name : r.submittedBy,
+              email: submitterUser?.email,
+              at: r.submittedAt ? r.submittedAt.toISOString() : r.updatedAt.toISOString(),
+              note: r.submissionNote,
+            }
+          : null,
+        approver: r.approvedBy
+          ? {
+              id: r.approvedBy,
+              name: approverUser ? approverUser.name : r.approvedBy,
+              email: approverUser?.email,
+              at: r.approvedAt ? r.approvedAt.toISOString() : r.updatedAt.toISOString(),
+            }
+          : null,
+        rejecter: r.rejectedBy
+          ? {
+              id: r.rejectedBy,
+              name: rejecterUser ? rejecterUser.name : r.rejectedBy,
+              email: rejecterUser?.email,
+              at: r.rejectedAt ? r.rejectedAt.toISOString() : r.updatedAt.toISOString(),
+              reason: r.rejectionReason,
+            }
+          : null,
+        diffSummary,
+      });
+    }
+
+    return {
+      countryId: country.id,
+      countryName: country.name,
+      countryCode: country.isoCode,
+      flagEmoji: getCountryFlagEmoji(country.isoCode),
+      ruleType,
+      ruleTypeLabel: RULE_TYPE_LABELS[ruleType] || ruleType,
+      stateProvinceId: stateProvince?.id || null,
+      stateProvinceCode: stateProvince?.code || null,
+      currentPublishedVersionId: currentPublishedVersion?.id || null,
+      currentPublishedVersionNumber: currentPublishedVersion?.version || null,
+      totalVersions: timelineEntries.length,
+      versions: timelineEntries,
     };
   }
 
