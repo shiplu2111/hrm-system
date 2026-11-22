@@ -21,6 +21,7 @@ import {
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  FlaskConical,
   Globe2,
   HelpCircle,
   History,
@@ -737,6 +738,19 @@ export function CountryDetailView({
                 );
               })}
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                window.location.hash = `#/rule-sandbox?countryId=${country.id}`;
+                window.dispatchEvent(new CustomEvent('hrm:platform-navigate', { detail: 'rule-sandbox' }));
+              }}
+              className="h-9 px-3 flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition"
+              title="Test rules and payroll calculation in Rule Sandbox"
+            >
+              <FlaskConical className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              Test in Sandbox
+            </button>
 
             <button
               type="button"

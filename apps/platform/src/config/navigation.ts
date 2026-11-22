@@ -36,6 +36,7 @@ export type PlatformViewKey =
   | 'billing-invoices'
   | 'country-compliance'
   | 'rule-approvals'
+  | 'rule-sandbox'
   | 'statutory-rules'
   | 'feature-flags'
   | 'platform-audit'
@@ -179,6 +180,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: Inbox,
         badge: 'Inbox',
         badgeTone: 'amber',
+        permission: { module: 'country', action: 'view' },
+      },
+      {
+        key: 'rule-sandbox',
+        label: 'Rule Test Sandbox',
+        description: 'Dry-run Rule Resolver and payroll calculations with sample profiles or draft rule overrides',
+        icon: FlaskConical,
+        badge: 'Simulator',
+        badgeTone: 'indigo',
         permission: { module: 'country', action: 'view' },
       },
       {

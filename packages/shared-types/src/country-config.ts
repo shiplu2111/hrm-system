@@ -3780,3 +3780,209 @@ export function getDefaultPublicHolidaysForCountry(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rule Test Sandbox Types (PAYROLL_LOGIC.md §2, §8, §9, §10 & RULES.md)
+// ---------------------------------------------------------------------------
+
+export interface RuleSandboxOvertimeInput {
+  weekdayHours?: number;
+  weekendHours?: number;
+  holidayHours?: number;
+  nightHours?: number;
+}
+
+export interface RuleSandboxLeaveInput {
+  paidLeaveDays?: number;
+  unpaidLeaveDays?: number;
+  unpaidLeaveHours?: number;
+  sickLeaveDays?: number;
+}
+
+export interface RuleSandboxEmployeeProfile {
+  baseSalary: number;
+  payFrequency?: 'monthly' | 'biweekly' | 'weekly' | 'annual';
+  standardHoursWorked?: number;
+  overtime?: RuleSandboxOvertimeInput;
+  leave?: RuleSandboxLeaveInput;
+  filingStatus?: string | null;
+  voluntaryPensionRate?: number | null;
+  isNonResident?: boolean;
+}
+
+export interface RuleSandboxSimulationInput {
+  countryId: string;
+  stateProvinceId?: string | null;
+  calculationDate: string; // YYYY-MM-DD
+  draftRuleVersionId?: string | null; // specific draft version to test
+  employeeProfile: RuleSandboxEmployeeProfile;
+}
+
+export interface RuleSandboxResolvedLayer {
+  layer: 'global' | 'country' | 'state' | 'company' | 'employee_contract';
+  layerLabel: string;
+  ruleType: string;
+  applied: boolean;
+  version?: number | null;
+  status?: string | null;
+  isDraftOverride?: boolean;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  sourceReference?: string | null;
+  changeNote?: string | null;
+  notes?: string;
+}
+
+export interface RuleSandboxResolvedCategory {
+  ruleType: CountryRuleKind | string;
+  ruleTypeLabel: string;
+  resolvedVersionNumber: number | null;
+  resolvedStatus: string | null;
+  isDraftOverride: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  sourceReference: string | null;
+  changeNote: string | null;
+  resolutionChain: RuleSandboxResolvedLayer[];
+  mergedPayload: Record<string, unknown>;
+}
+
+export interface RuleSandboxOvertimeLine {
+  category: 'weekday' | 'weekend' | 'holiday' | 'night';
+  label: string;
+  hours: number;
+  multiplier: number;
+  rate: number;
+  amount: number;
+}
+
+export interface RuleSandboxLeaveDeductionLine {
+  leaveType: string;
+  daysOrHours: string;
+  amount: number;
+}
+
+export interface RuleSandboxOvertimeCapBreach {
+  breached: boolean;
+  capHours: number;
+  actualHours: number;
+  action: 'flag' | 'auto_cap';
+  message: string;
+}
+
+export interface RuleSandboxGrossBreakdown {
+  baseSalary: number;
+  hourlyRate: number;
+  standardMonthlyHours: number;
+  overtimeLines: RuleSandboxOvertimeLine[];
+  totalOvertimePay: number;
+  overtimeCapBreach?: RuleSandboxOvertimeCapBreach | null;
+  leaveDeductionLines: RuleSandboxLeaveDeductionLine[];
+  totalLeaveDeductions: number;
+  totalGrossPay: number;
+}
+
+export interface RuleSandboxTaxBracketStep {
+  bracketIndex: number;
+  from: number;
+  to: number | null;
+  rate: number; // percentage
+  fixedAmount: number;
+  taxableAmountInBracket: number;
+  taxAmount: number;
+  explanation: string;
+}
+
+export interface RuleSandboxTaxBreakdown {
+  taxYear: number;
+  filingStatus: string | null;
+  annualTaxableIncome: number;
+  periodTaxableIncome: number;
+  brackets: RuleSandboxTaxBracketStep[];
+  annualGrossTax: number;
+  rebatesApplied: {
+    name: string;
+    code: string;
+    amount: number;
+  }[];
+  totalRebates: number;
+  annualNetTax: number;
+  periodTaxDeduction: number;
+  effectiveTaxRate: number; // percentage
+}
+
+export interface RuleSandboxSubFundContribution {
+  name: string;
+  employeeRate: number;
+  employeeAmount: number;
+  employerRate: number;
+  employerAmount: number;
+}
+
+export interface RuleSandboxContributionItem {
+  name: string;
+  code: string;
+  schemeName: string;
+  contributionBase: 'gross' | 'basic';
+  assessedBase: number;
+  employeeRate: number;
+  employeeAmount: number;
+  employerRate: number;
+  employerAmount: number;
+  isPreTax: boolean;
+  subFunds?: RuleSandboxSubFundContribution[];
+}
+
+export interface RuleSandboxContributionsBreakdown {
+  items: RuleSandboxContributionItem[];
+  totalEmployeeContributions: number;
+  totalEmployerContributions: number;
+  totalPreTaxDeductions: number;
+}
+
+export interface RuleSandboxSummary {
+  grossEarnings: number;
+  totalDeductions: number;
+  netPay: number;
+  totalEmployerContributions: number;
+  totalEmployerCost: number;
+  netToGrossRatio: number;
+  effectiveTaxRate: number;
+}
+
+export interface RuleSandboxSimulationResult {
+  countryId: string;
+  countryName: string;
+  countryCode: string;
+  currency: string;
+  stateProvinceId: string | null;
+  stateProvinceName: string | null;
+  calculationDate: string;
+  testedDraftVersionId: string | null;
+  isDraftTest: boolean;
+  resolvedCategories: Record<string, RuleSandboxResolvedCategory>;
+  resolutionChainOverview: {
+    level: string;
+    status: string;
+    description: string;
+  }[];
+  gross: RuleSandboxGrossBreakdown;
+  tax: RuleSandboxTaxBreakdown;
+  contributions: RuleSandboxContributionsBreakdown;
+  summary: RuleSandboxSummary;
+}
+
+export interface RuleSandboxDraftCandidate {
+  id: string;
+  ruleType: CountryRuleKind;
+  ruleTypeLabel: string;
+  version: number;
+  status: RuleVersionStatus;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  sourceReference: string;
+  changeNote: string;
+  stateProvinceId?: string | null;
+  stateProvinceName?: string | null;
+}
+
+

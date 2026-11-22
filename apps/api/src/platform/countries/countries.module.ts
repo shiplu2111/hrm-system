@@ -5,12 +5,13 @@ import { PlatformAuthModule } from '../auth/platform-auth.module';
 import { CountriesController } from './countries.controller';
 import { CountriesService } from './countries.service';
 import { RuleVersionsService } from './rule-versions.service';
+import { RuleSandboxService } from './rule-sandbox.service';
 
 @Module({
   imports: [PrismaModule, PlatformAuthModule, PlatformAuditModule],
   controllers: [CountriesController],
-  providers: [CountriesService, RuleVersionsService],
-  exports: [CountriesService, RuleVersionsService],
+  providers: [CountriesService, RuleVersionsService, RuleSandboxService],
+  exports: [CountriesService, RuleVersionsService, RuleSandboxService],
 })
 export class CountriesModule {}
 

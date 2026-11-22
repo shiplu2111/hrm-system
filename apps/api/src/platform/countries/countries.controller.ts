@@ -26,6 +26,8 @@ import type {
   CountrySummary,
   InheritingTenantsResponse,
   PendingRuleVersionView,
+  RuleSandboxDraftCandidate,
+  RuleSandboxSimulationResult,
   RuleVersionDiffResult,
   RuleVersionPayrollImpact,
   RuleVersionTimelineResponse,
@@ -39,6 +41,8 @@ import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import { CountriesService } from './countries.service';
 import { RuleVersionsService } from './rule-versions.service';
+import { RuleSandboxService } from './rule-sandbox.service';
+import { RuleSandboxSimulationDto } from './dto/rule-sandbox.dto';
 import {
   BulkImportStatesDto,
   CreateCountryDto,
@@ -70,6 +74,7 @@ export class CountriesController {
   constructor(
     private readonly countriesService: CountriesService,
     private readonly ruleVersionsService: RuleVersionsService,
+    private readonly ruleSandboxService: RuleSandboxService,
   ) {}
 
   @Get()
@@ -266,6 +271,40 @@ export class CountriesController {
   ): Promise<ApiEnvelope<PendingRuleVersionView[]>> {
     return {
       data: await this.ruleVersionsService.getPendingApprovals(query),
+    };
+  }
+
+  // --- Rule Test Sandbox Endpoints (PAYROLL_LOGIC.md §2, §8, §9, §10 & RULES.md) ---
+
+  @Post('rule-sandbox/simulate')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary:
+      'Run full Rule Resolver & payroll calculation sandbox simulation without database mutation',
+  })
+  async simulateRuleSandbox(
+    @Body() dto: RuleSandboxSimulationDto,
+  ): Promise<ApiEnvelope<RuleSandboxSimulationResult>> {
+    return {
+      data: await this.ruleSandboxService.simulate(dto),
+    };
+  }
+
+  @Get(':countryId/rule-sandbox/draft-candidates')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary:
+      'List unpublished draft/pending rule versions eligible for pre-publish sandbox testing',
+  })
+  async getDraftCandidates(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Query('stateProvinceId') stateProvinceId?: string,
+  ): Promise<ApiEnvelope<RuleSandboxDraftCandidate[]>> {
+    return {
+      data: await this.ruleSandboxService.getDraftCandidates(
+        countryId,
+        stateProvinceId,
+      ),
     };
   }
 

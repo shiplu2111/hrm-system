@@ -18,6 +18,9 @@ import type {
   RuleVersionStatus,
   RuleVersionTimelineResponse,
   RuleVersionView,
+  RuleSandboxDraftCandidate,
+  RuleSandboxSimulationInput,
+  RuleSandboxSimulationResult,
   StateProvinceView,
   SubmitRuleVersionInput,
   TaxBracketRecord,
@@ -382,3 +385,28 @@ export function getRuleVersionTimeline(
     `/platform/countries/${countryId}/rule-versions/timeline?${params.toString()}`,
   );
 }
+
+export function simulateRuleSandbox(
+  input: RuleSandboxSimulationInput,
+): Promise<RuleSandboxSimulationResult> {
+  return apiRequest<RuleSandboxSimulationResult>(
+    '/platform/countries/rule-sandbox/simulate',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getRuleSandboxDraftCandidates(
+  countryId: string,
+  stateProvinceId?: string | null,
+): Promise<RuleSandboxDraftCandidate[]> {
+  const params = new URLSearchParams();
+  if (stateProvinceId) params.set('stateProvinceId', stateProvinceId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest<RuleSandboxDraftCandidate[]>(
+    `/platform/countries/${countryId}/rule-sandbox/draft-candidates${qs}`,
+  );
+}
+
