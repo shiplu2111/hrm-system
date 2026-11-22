@@ -4,6 +4,7 @@ import type {
   CountrySummary,
   FilingStatusTaxConfig,
   MinimumTaxConfig,
+  PublishRuleVersionInput,
   RuleVersionView,
   StateProvinceView,
   TaxBracketRow,
@@ -38,6 +39,7 @@ import {
   createRuleVersion,
   listRuleVersions,
   publishRuleVersion,
+  submitRuleVersionForApproval,
   updateRuleVersion,
 } from '@/lib/platform-countries-api';
 import { RuleVersionDiffModal } from '../rules/RuleVersionDiffModal';
@@ -349,7 +351,10 @@ export function TaxRulesEditor({
   };
 
   // Publish active version
-  const handlePublish = async (versionId: string) => {
+  const handlePublish = async (
+    versionId: string,
+    options?: PublishRuleVersionInput,
+  ) => {
     if (!allBracketsValid) {
       setError('Cannot publish tax rules with non-contiguous or overlapping brackets.');
       return;
@@ -360,30 +365,29 @@ export function TaxRulesEditor({
       setError(null);
       setSuccessMessage(null);
 
-      await publishRuleVersion(country.id, versionId);
+      await publishRuleVersion(country.id, versionId, options);
       setSuccessMessage('Tax rule version published successfully! Sync updated to PostgreSQL.');
       await loadVersions();
       await onRefresh();
     } catch (err: any) {
       setError(err?.message || 'Failed to publish tax rule version.');
+      throw err;
     } finally {
       setPublishing(false);
     }
   };
 
   // Submit for approval
-  const handleSubmitForApproval = async (versionId: string) => {
+  const handleSubmitForApproval = async (versionId: string, note?: string) => {
     try {
       setSaving(true);
       setError(null);
-      await updateRuleVersion(country.id, versionId, {
-        status: 'pending_approval',
-      });
+      await submitRuleVersionForApproval(country.id, versionId, { submissionNote: note });
       setSuccessMessage('Tax rule version submitted for compliance review.');
       await loadVersions();
       await onRefresh();
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit for approval.');
+      setError(err?.message || 'Failed to submit tax rule version for approval.');
     } finally {
       setSaving(false);
     }
@@ -562,6 +566,8 @@ export function TaxRulesEditor({
         <RuleVersionSelector
           versions={versions}
           selectedVersionId={selectedVersionId}
+          countryId={country.id}
+          onRefresh={onRefresh}
           onSelectVersion={(vId) => {
             setSelectedVersionId(vId);
             const found = versions.find((v) => v.id === vId);

@@ -10,7 +10,8 @@ export type RuleVersionStatus =
   | 'pending_approval'
   | 'published'
   | 'superseded'
-  | 'archived';
+  | 'archived'
+  | 'rejected';
 
 export type CountryRuleKind =
   | 'tax'
@@ -42,6 +43,55 @@ export interface RuleVersionView {
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  submittedBy?: string | null;
+  submittedAt?: string | null;
+  submissionNote?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+}
+
+export interface SubmitRuleVersionInput {
+  submissionNote?: string;
+}
+
+export interface PublishRuleVersionInput {
+  confirmBackdated?: boolean;
+  backdatedReason?: string;
+  approvalNote?: string;
+}
+
+export interface RejectRuleVersionInput {
+  reason: string;
+}
+
+export interface AffectedPayrollTenantCompanySummary {
+  companyId: string;
+  companyName: string;
+  affectedRunsCount: number;
+  affectedEmployeesCount: number;
+}
+
+export interface AffectedPayrollTenantSummary {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  companies: AffectedPayrollTenantCompanySummary[];
+  totalAffectedRuns: number;
+}
+
+export interface RuleVersionPayrollImpact {
+  isBackdated: boolean;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  calculationDate: string;
+  affectedFinalizedPayrollRunsCount: number;
+  affectedTenantsCount: number;
+  affectedCompaniesCount: number;
+  tenants: AffectedPayrollTenantSummary[];
+  warning: string | null;
 }
 
 export interface CreateRuleVersionInput {

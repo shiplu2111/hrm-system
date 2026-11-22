@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { FieldEncryptionService } from '../../crypto/field-encryption.service';
@@ -126,7 +127,7 @@ export const DEMO_PLATFORM_OWNER = {
 };
 
 @Injectable()
-export class PlatformStaffService {
+export class PlatformStaffService implements OnModuleInit {
   private readonly logger = new Logger(PlatformStaffService.name);
 
   constructor(
@@ -135,6 +136,14 @@ export class PlatformStaffService {
     private readonly totpService: TotpService,
     private readonly auditService: PlatformAuditService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.seedPlatformOwner();
+    } catch (err: any) {
+      this.logger.warn(`Failed to seed platform staff: ${err?.message}`);
+    }
+  }
 
   /**
    * Seeds default platform roles and their granular permissions.
@@ -218,6 +227,66 @@ export class PlatformStaffService {
     this.logger.log(
       `Seeded Platform Owner: ${DEMO_PLATFORM_OWNER.email} (TOTP Secret: ${DEMO_PLATFORM_OWNER.totpSecret})`,
     );
+
+    // Seed Compliance Admin for approval workflow testing & operation
+    const complianceRole = await this.prisma.unscoped.platformRole.findUnique({
+      where: { name: 'Compliance Admin' },
+    });
+    if (complianceRole) {
+      await this.prisma.unscoped.platformUser.upsert({
+        where: { email: 'compliance.admin@cmsnbd.com' },
+        create: {
+          email: 'compliance.admin@cmsnbd.com',
+          passwordHash,
+          firstName: 'Compliance',
+          lastName: 'Admin',
+          roleId: complianceRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+        },
+        update: {
+          passwordHash,
+          roleId: complianceRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+      this.logger.log('Seeded Compliance Admin: compliance.admin@cmsnbd.com');
+    }
+
+    // Seed Platform Admin for independent approval
+    const adminRole = await this.prisma.unscoped.platformRole.findUnique({
+      where: { name: 'Platform Admin' },
+    });
+    if (adminRole) {
+      await this.prisma.unscoped.platformUser.upsert({
+        where: { email: 'platform.admin@cmsnbd.com' },
+        create: {
+          email: 'platform.admin@cmsnbd.com',
+          passwordHash,
+          firstName: 'Platform',
+          lastName: 'Admin',
+          roleId: adminRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+        },
+        update: {
+          passwordHash,
+          roleId: adminRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+      this.logger.log('Seeded Platform Admin: platform.admin@cmsnbd.com');
+    }
   }
 
   async listRoles() {

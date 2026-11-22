@@ -3,6 +3,7 @@ import type {
   CountryConfiguration,
   CountryRuleKind,
   CountrySummary,
+  PublishRuleVersionInput,
   RuleVersionView,
   SocialSecurityContributionFrequency,
   SocialSecurityRulePayload,
@@ -40,6 +41,7 @@ import {
   createRuleVersion,
   listRuleVersions,
   publishRuleVersion,
+  submitRuleVersionForApproval,
   updateRuleVersion,
 } from '@/lib/platform-countries-api';
 import { RuleVersionDiffModal } from '../rules/RuleVersionDiffModal';
@@ -386,7 +388,10 @@ export function SocialSecurityRulesEditor({
   };
 
   // Publish active version
-  const handlePublish = async (versionId: string) => {
+  const handlePublish = async (
+    versionId: string,
+    options?: PublishRuleVersionInput,
+  ) => {
     if (!validation.isValid) {
       setError(`Cannot publish rule version: ${validation.summaryError}`);
       return;
@@ -395,30 +400,29 @@ export function SocialSecurityRulesEditor({
     try {
       setPublishing(true);
       setError(null);
-      await publishRuleVersion(country.id, versionId);
+      await publishRuleVersion(country.id, versionId, options);
       setSuccessMessage('Statutory social security / pension rule version published and locked.');
       await loadVersions(versionId);
       await onRefresh();
     } catch (err: any) {
       setError(err?.message || 'Failed to publish rule version.');
+      throw err;
     } finally {
       setPublishing(false);
     }
   };
 
   // Submit for approval
-  const handleSubmitForApproval = async (versionId: string) => {
+  const handleSubmitForApproval = async (versionId: string, note?: string) => {
     try {
       setSaving(true);
       setError(null);
-      await updateRuleVersion(country.id, versionId, {
-        status: 'pending_approval',
-      });
+      await submitRuleVersionForApproval(country.id, versionId, { submissionNote: note });
       setSuccessMessage('Rule version submitted for compliance review.');
       await loadVersions(versionId);
       await onRefresh();
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit for approval.');
+      setError(err?.message || 'Failed to submit rule version for approval.');
     } finally {
       setSaving(false);
     }
@@ -606,6 +610,8 @@ export function SocialSecurityRulesEditor({
         <RuleVersionSelector
           versions={versions}
           selectedVersionId={selectedVersionId}
+          countryId={country.id}
+          onRefresh={onRefresh}
           onSelectVersion={(vId) => {
             setSelectedVersionId(vId);
             const found = versions.find((v) => v.id === vId);

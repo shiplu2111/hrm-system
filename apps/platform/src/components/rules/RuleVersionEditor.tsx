@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
+  PublishRuleVersionInput,
   RuleVersionStatus,
   RuleVersionView,
 } from '@hrm/shared-types';
@@ -21,6 +22,7 @@ import {
   createRuleVersion,
   listRuleVersions,
   publishRuleVersion,
+  submitRuleVersionForApproval,
   updateRuleVersion,
 } from '@/lib/platform-countries-api';
 import { RuleVersionDiffModal } from './RuleVersionDiffModal';
@@ -171,36 +173,38 @@ export function RuleVersionEditor({
   };
 
   // Publish active version
-  const handlePublish = async (versionId: string) => {
+  const handlePublish = async (
+    versionId: string,
+    options?: PublishRuleVersionInput,
+  ) => {
     try {
       setPublishing(true);
       setError(null);
       setSuccessMessage(null);
 
-      await publishRuleVersion(countryId, versionId);
+      await publishRuleVersion(countryId, versionId, options);
       setSuccessMessage('Rule version published successfully!');
       await loadVersions();
       await onRefresh?.();
     } catch (err: any) {
       setError(err?.message || 'Failed to publish rule version.');
+      throw err;
     } finally {
       setPublishing(false);
     }
   };
 
   // Submit draft for approval
-  const handleSubmitForApproval = async (versionId: string) => {
+  const handleSubmitForApproval = async (versionId: string, note?: string) => {
     try {
       setSaving(true);
       setError(null);
-      await updateRuleVersion(countryId, versionId, {
-        status: 'pending_approval',
-      });
-      setSuccessMessage('Version submitted for review and approval.');
+      await submitRuleVersionForApproval(countryId, versionId, { submissionNote: note });
+      setSuccessMessage('Version submitted for compliance review and approval.');
       await loadVersions();
       await onRefresh?.();
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit for approval.');
+      setError(err?.message || 'Failed to submit rule version for approval.');
     } finally {
       setSaving(false);
     }
@@ -263,6 +267,8 @@ export function RuleVersionEditor({
           <RuleVersionSelector
             versions={versions}
             selectedVersionId={selectedVersionId}
+            countryId={countryId}
+            onRefresh={loadVersions}
             onSelectVersion={handleSelectVersion}
             onCreateNewVersion={() => {
               setNewVersionSourceReference(currentVersion?.sourceReference || '');
@@ -414,15 +420,7 @@ export function RuleVersionEditor({
                     Save Draft
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => currentVersion && handlePublish(currentVersion.id)}
-                    disabled={publishing}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition shadow-xs disabled:opacity-60"
-                  >
-                    {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
-                    Publish Version
-                  </button>
+
                 </div>
               )}
             </div>

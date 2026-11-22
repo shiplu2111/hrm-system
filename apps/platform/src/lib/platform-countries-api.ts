@@ -10,10 +10,14 @@ import type {
   CreateRuleVersionInput,
   CreateStateProvinceInput,
   InheritingTenantsResponse,
+  PublishRuleVersionInput,
+  RejectRuleVersionInput,
   RuleVersionDiffResult,
+  RuleVersionPayrollImpact,
   RuleVersionStatus,
   RuleVersionView,
   StateProvinceView,
+  SubmitRuleVersionInput,
   TaxBracketRecord,
   UpdateRuleVersionInput,
   UpdateStateProvinceInput,
@@ -269,14 +273,53 @@ export function updateRuleVersion(
   );
 }
 
+export function submitRuleVersionForApproval(
+  countryId: string,
+  versionId: string,
+  input?: SubmitRuleVersionInput,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}/submit`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input || {}),
+    },
+  );
+}
+
+export function getRuleVersionPayrollImpact(
+  countryId: string,
+  versionId: string,
+): Promise<RuleVersionPayrollImpact> {
+  return apiRequest<RuleVersionPayrollImpact>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}/payroll-impact`,
+  );
+}
+
 export function publishRuleVersion(
   countryId: string,
   versionId: string,
+  input?: PublishRuleVersionInput,
 ): Promise<RuleVersionView> {
   return apiRequest<RuleVersionView>(
     `/platform/countries/${countryId}/rule-versions/${versionId}/publish`,
     {
       method: 'POST',
+      body: JSON.stringify(input || {}),
+    },
+  );
+}
+
+export function rejectRuleVersion(
+  countryId: string,
+  versionId: string,
+  input: RejectRuleVersionInput,
+): Promise<RuleVersionView> {
+  return apiRequest<RuleVersionView>(
+    `/platform/countries/${countryId}/rule-versions/${versionId}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
     },
   );
 }

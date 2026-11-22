@@ -26,6 +26,7 @@ import type {
   CountrySummary,
   InheritingTenantsResponse,
   RuleVersionDiffResult,
+  RuleVersionPayrollImpact,
   RuleVersionView,
   StateProvinceView,
   TaxBracketRecord,
@@ -48,7 +49,10 @@ import {
 } from './dto/country-config.dto';
 import {
   CreateRuleVersionDto,
+  PublishRuleVersionDto,
   QueryRuleVersionsDto,
+  RejectRuleVersionDto,
+  SubmitRuleVersionDto,
   UpdateRuleVersionDto,
 } from './dto/rule-version.dto';
 
@@ -345,27 +349,102 @@ export class CountriesController {
     };
   }
 
+  @Post(':countryId/rule-versions/:versionId/submit')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Submit a draft rule version for compliance approval',
+  })
+  async submitRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Body() dto: SubmitRuleVersionDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actor = {
+      id: platformUser?.id ?? 'system',
+      roleName: platformUser?.roleName ?? 'Compliance Admin',
+    };
+
+    return {
+      data: await this.ruleVersionsService.submitForApproval(
+        countryId,
+        versionId,
+        actor,
+        dto.submissionNote,
+      ),
+    };
+  }
+
+  @Get(':countryId/rule-versions/:versionId/payroll-impact')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'Assess retroactive backdated payroll impact for a rule version',
+  })
+  async getRuleVersionPayrollImpact(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+  ): Promise<ApiEnvelope<RuleVersionPayrollImpact>> {
+    return {
+      data: await this.ruleVersionsService.getPayrollImpact(
+        countryId,
+        versionId,
+      ),
+    };
+  }
+
   @Post(':countryId/rule-versions/:versionId/publish')
   @RequirePlatformPermission('country', 'edit')
   @ApiOperation({
-    summary: 'Publish a draft rule version (validates non-overlapping dates)',
+    summary:
+      'Publish/Approve a rule version (enforces separation of duties & backdated confirmation)',
   })
   async publishRuleVersion(
     @Param('countryId', ParseUUIDPipe) countryId: string,
     @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Body() dto: PublishRuleVersionDto,
     @Req() req: Request,
   ): Promise<ApiEnvelope<RuleVersionView>> {
-    const actorId =
-      (req as any).platformUser?.id ??
-      (req as any).user?.id ??
-      (req as any).user?.email ??
-      'system';
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actor = {
+      id: platformUser?.id ?? 'system',
+      roleName: platformUser?.roleName ?? 'Platform Owner',
+    };
 
     return {
       data: await this.ruleVersionsService.publishVersion(
         countryId,
         versionId,
-        actorId,
+        actor,
+        dto,
+      ),
+    };
+  }
+
+  @Post(':countryId/rule-versions/:versionId/reject')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary:
+      'Reject a pending rule version (returns to draft with mandatory reason)',
+  })
+  async rejectRuleVersion(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Body() dto: RejectRuleVersionDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<RuleVersionView>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actor = {
+      id: platformUser?.id ?? 'system',
+      roleName: platformUser?.roleName ?? 'Platform Owner',
+    };
+
+    return {
+      data: await this.ruleVersionsService.rejectVersion(
+        countryId,
+        versionId,
+        actor,
+        dto.reason,
       ),
     };
   }

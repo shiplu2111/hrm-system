@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CountryRuleType, RuleVersionStatus } from '@prisma/client';
 import { getDefaultWorkingHoursOtForCountry, getDefaultEmploymentTerminationForCountry } from '@hrm/shared-types';
@@ -29,6 +29,13 @@ describe('RuleVersionsService', () => {
         create: jest.Mock;
         update: jest.Mock;
         deleteMany: jest.Mock;
+      };
+      company: {
+        findMany: jest.Mock;
+      };
+      payrollRun: {
+        findMany: jest.Mock;
+        update: jest.Mock;
       };
     };
   };
@@ -61,6 +68,13 @@ describe('RuleVersionsService', () => {
           create: jest.fn(),
           update: jest.fn(),
           deleteMany: jest.fn(),
+        },
+        company: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        payrollRun: {
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn().mockResolvedValue({}),
         },
       },
     };
@@ -459,7 +473,8 @@ describe('RuleVersionsService', () => {
         ruleType: 'leave',
         stateProvinceId: null,
         version: 2,
-        status: 'draft',
+        status: 'pending_approval',
+        submittedBy: 'another-user-456',
         effectiveFrom: new Date('2025-01-01T00:00:00.000Z'),
         effectiveTo: null,
         sourceReference: 'NES Update 2025',
@@ -495,7 +510,8 @@ describe('RuleVersionsService', () => {
         ruleType: 'leave',
         stateProvinceId: null,
         version: 2,
-        status: 'draft',
+        status: 'pending_approval',
+        submittedBy: 'another-user-456',
         effectiveFrom: new Date('2024-06-01T00:00:00.000Z'),
         effectiveTo: new Date('2024-12-31T00:00:00.000Z'),
         sourceReference: 'NES Mid-Year Update',
@@ -1738,6 +1754,349 @@ describe('RuleVersionsService', () => {
 
       expect(result.version).toBe(1);
       expect(result.status).toBe('published');
+    });
+  });
+
+  describe('Publish Approval Workflow & Backdated Confirmation (RULES.md §3)', () => {
+    const complianceAdminActor = {
+      id: 'compliance-admin-id',
+      email: 'compliance.admin@cmsnbd.com',
+      roleName: 'Compliance Admin',
+      permissions: ['compliance:rules'],
+    };
+
+    const platformOwnerActor = {
+      id: 'platform-owner-id',
+      email: 'platform.owner@cmsnbd.com',
+      roleName: 'Platform Owner',
+      permissions: ['platform:rules:approve'],
+    };
+
+    const platformAdminActor = {
+      id: 'platform-admin-id',
+      email: 'platform.admin@cmsnbd.com',
+      roleName: 'Platform Admin',
+      permissions: ['platform:rules:approve'],
+    };
+
+    const mockDraftRule = {
+      id: 'rule-draft-1',
+      countryId: mockCountryId,
+      stateProvinceId: null,
+      ruleType: 'overtime' as CountryRuleType,
+      version: 2,
+      effectiveFrom: new Date('2024-01-01'), // past date = backdated
+      effectiveTo: null,
+      status: 'draft' as RuleVersionStatus,
+      sourceReference: 'Statutory Fair Work Act',
+      changeNote: 'Draft OT update',
+      payload: getDefaultWorkingHoursOtForCountry('AU'),
+      createdBy: complianceAdminActor.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      submittedBy: null,
+      submittedAt: null,
+      submissionNote: null,
+      approvedBy: null,
+      approvedAt: null,
+      rejectionReason: null,
+      rejectedBy: null,
+      rejectedAt: null,
+      stateProvince: null,
+    };
+
+    describe('submitForApproval', () => {
+      it('should transition draft version to pending_approval and write audit log', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockDraftRule);
+        prisma.unscoped.countryRule.update.mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...mockDraftRule,
+            ...data,
+          }),
+        );
+
+        const result = await service.submitForApproval(
+          mockCountryId,
+          mockDraftRule.id,
+          complianceAdminActor,
+          'Ready for compliance review',
+        );
+
+        expect(result.status).toBe('pending_approval');
+        expect(result.submittedBy).toBe(complianceAdminActor.id);
+        expect(result.submissionNote).toBe('Ready for compliance review');
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'country_rule_version.submit_for_approval',
+            userId: complianceAdminActor.id,
+          }),
+        );
+      });
+
+      it('should reject submission if rule version is already published', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue({
+          ...mockDraftRule,
+          status: 'published',
+        });
+
+        await expect(
+          service.submitForApproval(mockCountryId, mockDraftRule.id, complianceAdminActor),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should reject submission if rule version is already pending_approval', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue({
+          ...mockDraftRule,
+          status: 'pending_approval',
+        });
+
+        await expect(
+          service.submitForApproval(mockCountryId, mockDraftRule.id, complianceAdminActor),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('Separation of Duties & Authorization', () => {
+      const mockPendingRule = {
+        ...mockDraftRule,
+        status: 'pending_approval' as RuleVersionStatus,
+        submittedBy: complianceAdminActor.id,
+        submittedAt: new Date(),
+        submissionNote: 'Please review',
+      };
+
+      it('should reject approval when actor is the submitter (Separation of Duties)', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRule);
+
+        await expect(
+          service.publishVersion(
+            mockCountryId,
+            mockPendingRule.id,
+            complianceAdminActor, // submitter attempting self-approval!
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should reject approval when actor role is not Platform Owner or Platform Admin', async () => {
+        const auditorActor = {
+          id: 'auditor-user-id',
+          email: 'auditor@cmsnbd.com',
+          roleName: 'Compliance Admin', // Not Platform Owner or Platform Admin
+          permissions: ['compliance:rules'],
+        };
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRule);
+
+        await expect(
+          service.publishVersion(mockCountryId, mockPendingRule.id, auditorActor),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should reject approval when rule version is still in draft status', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockDraftRule);
+
+        await expect(
+          service.publishVersion(mockCountryId, mockDraftRule.id, platformOwnerActor),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('Backdated Publishing & Payroll Immutability (RULES.md §3)', () => {
+      const mockPendingRuleBackdated = {
+        ...mockDraftRule,
+        effectiveFrom: new Date('2024-01-01'), // Past date
+        status: 'pending_approval' as RuleVersionStatus,
+        submittedBy: complianceAdminActor.id,
+        submittedAt: new Date(),
+      };
+
+      const mockFinalizedPayrollRuns = [
+        {
+          id: 'pay-run-1',
+          employeeId: 'emp-1',
+          payrollPeriod: {
+            companyId: 'company-1',
+            startDate: new Date('2024-01-01'),
+            endDate: new Date('2024-01-31'),
+          },
+          status: 'finalized',
+          locked: true,
+          grossPay: 500000,
+          netPay: 400000,
+          calculationSnapshot: {
+            grossPay: 500000,
+            netPay: 400000,
+          },
+        },
+      ];
+
+      it('should compute payroll impact correctly for retroactive effective date', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRuleBackdated);
+        prisma.unscoped.company.findMany.mockResolvedValue([
+          {
+            id: 'company-1',
+            tenantId: 'tenant-1',
+            legalName: 'Acme Australia Ltd',
+            tenant: { id: 'tenant-1', name: 'Acme Corp', slug: 'acme' },
+          },
+        ]);
+        prisma.unscoped.payrollRun.findMany.mockResolvedValue(mockFinalizedPayrollRuns);
+
+        const impact = await service.getPayrollImpact(
+          mockCountryId,
+          mockPendingRuleBackdated.id,
+        );
+
+        expect(impact.isBackdated).toBe(true);
+        expect(impact.affectedFinalizedPayrollRunsCount).toBe(1);
+        expect(impact.affectedTenantsCount).toBe(1);
+        expect(impact.tenants[0].tenantName).toBe('Acme Corp');
+        expect(impact.tenants[0].totalAffectedRuns).toBe(1);
+      });
+
+      it('should throw BACKDATED_CONFIRMATION_REQUIRED when publishing without confirmation', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRuleBackdated);
+        prisma.unscoped.company.findMany.mockResolvedValue([
+          {
+            id: 'company-1',
+            tenantId: 'tenant-1',
+            legalName: 'Acme Australia Ltd',
+            tenant: { id: 'tenant-1', name: 'Acme Corp', slug: 'acme' },
+          },
+        ]);
+        prisma.unscoped.payrollRun.findMany.mockResolvedValue(mockFinalizedPayrollRuns);
+
+        await expect(
+          service.publishVersion(
+            mockCountryId,
+            mockPendingRuleBackdated.id,
+            platformOwnerActor,
+            // confirmBackdated is missing!
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should successfully publish with confirmation, flagging runs without mutating locked numbers', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRuleBackdated);
+        prisma.unscoped.countryRule.findMany.mockResolvedValue([]); // No overlapping version
+        prisma.unscoped.company.findMany.mockResolvedValue([
+          {
+            id: 'company-1',
+            tenantId: 'tenant-1',
+            legalName: 'Acme Australia Ltd',
+            tenant: { id: 'tenant-1', name: 'Acme Corp', slug: 'acme' },
+          },
+        ]);
+        prisma.unscoped.payrollRun.findMany.mockResolvedValue(mockFinalizedPayrollRuns);
+        prisma.unscoped.payrollRun.update.mockResolvedValue({});
+        prisma.unscoped.countryRule.update.mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...mockPendingRuleBackdated,
+            ...data,
+          }),
+        );
+
+        const published = await service.publishVersion(
+          mockCountryId,
+          mockPendingRuleBackdated.id,
+          platformOwnerActor,
+          {
+            confirmBackdated: true,
+            backdatedReason: 'Statutory award retroactive adjustment gazetted by Fair Work Commission',
+          },
+        );
+
+        expect(published.status).toBe('published');
+        expect(published.approvedBy).toBe(platformOwnerActor.id);
+
+        // Verify payroll runs were updated to flag compliance review
+        expect(prisma.unscoped.payrollRun.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'pay-run-1' },
+            data: {
+              calculationSnapshot: expect.objectContaining({
+                complianceReviewRequired: true,
+                complianceReviewFlags: expect.arrayContaining([
+                  expect.objectContaining({
+                    flagType: 'backdated_statutory_rule_update',
+                    ruleType: 'overtime',
+                    flaggedBy: platformOwnerActor.id,
+                  }),
+                ]),
+              }),
+            },
+          }),
+        );
+
+        // RULES.md §3 strictly requires that monetary columns (grossPay, netPay) are never touched
+        const updateCall = prisma.unscoped.payrollRun.update.mock.calls[0][0];
+        expect(updateCall.data.grossPay).toBeUndefined();
+        expect(updateCall.data.netPay).toBeUndefined();
+        expect(updateCall.data.totalDeductions).toBeUndefined();
+      });
+    });
+
+    describe('rejectVersion', () => {
+      const mockPendingRule = {
+        ...mockDraftRule,
+        status: 'pending_approval' as RuleVersionStatus,
+        submittedBy: complianceAdminActor.id,
+        submittedAt: new Date(),
+      };
+
+      it('should require a non-empty rejection reason', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRule);
+
+        await expect(
+          service.rejectVersion(
+            mockCountryId,
+            mockPendingRule.id,
+            platformAdminActor,
+            '   ', // blank
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should prevent self-rejection if submitter attempts to reject', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRule);
+
+        await expect(
+          service.rejectVersion(
+            mockCountryId,
+            mockPendingRule.id,
+            complianceAdminActor, // submitter
+            'Need to rework',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should return version to draft with reason and audit log when rejected by Platform Admin', async () => {
+        prisma.unscoped.countryRule.findFirst.mockResolvedValue(mockPendingRule);
+        prisma.unscoped.countryRule.update.mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...mockPendingRule,
+            ...data,
+          }),
+        );
+
+        const result = await service.rejectVersion(
+          mockCountryId,
+          mockPendingRule.id,
+          platformAdminActor,
+          'Overtime cap multiplier exceeds statutory limits for weekend work',
+        );
+
+        expect(result.status).toBe('draft');
+        expect(result.rejectionReason).toBe(
+          'Overtime cap multiplier exceeds statutory limits for weekend work',
+        );
+        expect(result.rejectedBy).toBe(platformAdminActor.id);
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'country_rule_version.reject',
+            userId: platformAdminActor.id,
+          }),
+        );
+      });
     });
   });
 });

@@ -4,6 +4,7 @@ import type {
   CountrySummary,
   OvertimeCalculationResult,
   OvertimeCapBreachAction,
+  PublishRuleVersionInput,
   RuleVersionView,
   StateProvinceView,
   WorkingHoursOtRulePayload,
@@ -538,7 +539,10 @@ export function WorkingHoursOtRulesEditor({
   };
 
   // Publish draft version
-  const handlePublish = async (version: RuleVersionView) => {
+  const handlePublish = async (
+    version: RuleVersionView,
+    options?: PublishRuleVersionInput,
+  ) => {
     if (!validation.isValid) {
       setError(`Cannot publish rule version: ${validation.summaryError}`);
       return;
@@ -561,7 +565,7 @@ export function WorkingHoursOtRulesEditor({
         });
       }
 
-      await publishRuleVersion(country.id, version.id);
+      await publishRuleVersion(country.id, version.id, options);
       setSuccessMessage(
         `Version ${version.version} is now PUBLISHED and effective from ${version.effectiveFrom}.`,
       );
@@ -570,6 +574,7 @@ export function WorkingHoursOtRulesEditor({
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       setError(err?.message || 'Failed to publish overtime rule version.');
+      throw err;
     } finally {
       setPublishing(false);
     }
@@ -786,6 +791,8 @@ export function WorkingHoursOtRulesEditor({
       <RuleVersionSelector
         versions={versions}
         selectedVersionId={selectedVersionId}
+        countryId={country.id}
+        onRefresh={() => loadVersions(selectedVersionId || undefined)}
         onSelectVersion={handleVersionChange}
         onCreateNewVersion={() => {
           setNewVersionEffectiveFrom(`${new Date().getFullYear() + 1}-01-01`);
@@ -795,9 +802,9 @@ export function WorkingHoursOtRulesEditor({
           setIsNewVersionModalOpen(true);
         }}
         onCompareVersions={() => setIsDiffModalOpen(true)}
-        onPublishVersion={(versionId) => {
+        onPublishVersion={(versionId, options) => {
           const v = versions.find((item) => item.id === versionId);
-          if (v) void handlePublish(v);
+          if (v) return handlePublish(v, options);
         }}
         isPublishing={publishing}
       />
@@ -1720,21 +1727,7 @@ export function WorkingHoursOtRulesEditor({
             {isPublished ? 'Update Sunset Date' : 'Save Draft Version'}
           </button>
 
-          {currentVersion && currentVersion.status === 'draft' && (
-            <button
-              type="button"
-              onClick={() => handlePublish(currentVersion)}
-              disabled={publishing || saving || !validation.isValid}
-              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {publishing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <ShieldCheck className="w-4 h-4" />
-              )}
-              Publish Version {currentVersion.version}
-            </button>
-          )}
+
         </div>
       </div>
 

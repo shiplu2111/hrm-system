@@ -3,6 +3,7 @@ import type {
   CountryConfiguration,
   CountrySummary,
   LeaveRulePayload,
+  PublishRuleVersionInput,
   RuleVersionView,
   StateProvinceView,
   StatutoryLeaveRuleItem,
@@ -39,6 +40,7 @@ import {
   createRuleVersion,
   listRuleVersions,
   publishRuleVersion,
+  submitRuleVersionForApproval,
   updateRuleVersion,
 } from '@/lib/platform-countries-api';
 import { RuleVersionDiffModal } from '../rules/RuleVersionDiffModal';
@@ -272,7 +274,10 @@ export function LeaveRulesEditor({
   };
 
   // Publish active version
-  const handlePublish = async (versionId: string) => {
+  const handlePublish = async (
+    versionId: string,
+    options?: PublishRuleVersionInput,
+  ) => {
     if (!validation.isValid) {
       setError(`Cannot publish leave rule version: ${validation.summaryError}`);
       return;
@@ -281,30 +286,29 @@ export function LeaveRulesEditor({
     try {
       setPublishing(true);
       setError(null);
-      await publishRuleVersion(country.id, versionId);
+      await publishRuleVersion(country.id, versionId, options);
       setSuccessMessage('Statutory leave rule version published and locked.');
       await loadVersions(versionId);
       await onRefresh();
     } catch (err: any) {
       setError(err?.message || 'Failed to publish statutory leave rule version.');
+      throw err;
     } finally {
       setPublishing(false);
     }
   };
 
   // Submit for approval
-  const handleSubmitForApproval = async (versionId: string) => {
+  const handleSubmitForApproval = async (versionId: string, note?: string) => {
     try {
       setSaving(true);
       setError(null);
-      await updateRuleVersion(country.id, versionId, {
-        status: 'pending_approval',
-      });
+      await submitRuleVersionForApproval(country.id, versionId, { submissionNote: note });
       setSuccessMessage('Leave rule version submitted for compliance review.');
       await loadVersions(versionId);
       await onRefresh();
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit for approval.');
+      setError(err?.message || 'Failed to submit leave rule version for approval.');
     } finally {
       setSaving(false);
     }
@@ -457,6 +461,8 @@ export function LeaveRulesEditor({
       <RuleVersionSelector
         versions={versions}
         selectedVersionId={selectedVersionId}
+        countryId={country.id}
+        onRefresh={() => loadVersions(selectedVersionId || undefined)}
         onSelectVersion={handleVersionChange}
         onCreateNewVersion={() => {
           setNewVersionEffectiveFrom(`${new Date().getFullYear() + 1}-01-01`);

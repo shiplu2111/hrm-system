@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock,
   FileCheck2,
+  XCircle,
 } from 'lucide-react';
 
 interface RuleVersionStatusPillProps {
@@ -63,6 +64,16 @@ export function RuleVersionStatusPill({
         >
           {showIcon && <Archive className="h-3 w-3 shrink-0 text-slate-500 dark:text-slate-400" />}
           <span>Superseded</span>
+        </span>
+      );
+
+    case 'rejected':
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm text-[11px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 ${className}`}
+        >
+          {showIcon && <XCircle className="h-3 w-3 shrink-0 text-rose-600 dark:text-rose-400" />}
+          <span>Rejected</span>
         </span>
       );
 

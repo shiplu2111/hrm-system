@@ -9,6 +9,7 @@ import type {
   InheritingTenantView,
   PublicHolidayItem,
   PublicHolidayRulePayload,
+  PublishRuleVersionInput,
   RuleVersionView,
   StateProvinceView,
 } from '@hrm/shared-types';
@@ -631,15 +632,14 @@ export function PublicHolidaysEditor({
     }
   };
 
-  const handlePublish = async (targetVersion?: RuleVersionView) => {
+  const handlePublish = async (
+    targetVersion?: RuleVersionView,
+    options?: PublishRuleVersionInput,
+  ) => {
     const vToPublish = targetVersion || selectedVersion;
     if (!vToPublish) return;
     if (!validation.isValid) {
       setError(validation.summaryError || 'Invalid holiday payload.');
-      return;
-    }
-
-    if (!confirm(`Publish Version ${vToPublish.version}? Published versions are locked and will govern attendance and payroll across all tenants.`)) {
       return;
     }
 
@@ -651,32 +651,13 @@ export function PublicHolidaysEditor({
         payload: payload as unknown as Record<string, unknown>,
       });
 
-      // If preceding published versions exist with open-ended or overlapping ranges, sunset them at day-before vToPublish.effectiveFrom
-      if (vToPublish.effectiveFrom) {
-        const publishedOlder = versions.filter(
-          (v) =>
-            v.id !== vToPublish.id &&
-            v.status === 'published' &&
-            (!v.effectiveTo || v.effectiveTo >= vToPublish.effectiveFrom) &&
-            v.effectiveFrom < vToPublish.effectiveFrom
-        );
-        for (const older of publishedOlder) {
-          const fromDate = new Date(vToPublish.effectiveFrom);
-          fromDate.setUTCDate(fromDate.getUTCDate() - 1);
-          const sunsetDate = fromDate.toISOString().slice(0, 10);
-          await updateRuleVersion(country.id, older.id, {
-            effectiveTo: sunsetDate,
-          });
-        }
-      }
-
-      const published = await publishRuleVersion(country.id, vToPublish.id);
+      const published = await publishRuleVersion(country.id, vToPublish.id, options);
       setSuccessMessage(`Published Version ${published.version} successfully!`);
       await loadVersions(published.id);
-      await onRefresh();
-      setTimeout(() => setSuccessMessage(null), 3500);
+      await loadTenantImpact();
     } catch (err: any) {
-      setError(err?.message || 'Failed to publish rule version.');
+      setError(err?.message || 'Failed to publish public holiday rules.');
+      throw err;
     } finally {
       setPublishing(false);
     }
@@ -1017,6 +998,8 @@ export function PublicHolidaysEditor({
       <RuleVersionSelector
         versions={versions}
         selectedVersionId={selectedVersionId}
+        countryId={country.id}
+        onRefresh={() => loadVersions(selectedVersionId || undefined)}
         onSelectVersion={(versionId) => {
           setSelectedVersionId(versionId);
           const v = versions.find((item) => item.id === versionId);
@@ -1033,9 +1016,9 @@ export function PublicHolidaysEditor({
           setIsNewVersionModalOpen(true);
         }}
         onCompareVersions={() => setIsDiffModalOpen(true)}
-        onPublishVersion={(versionId) => {
+        onPublishVersion={(versionId, options) => {
           const v = versions.find((item) => item.id === versionId);
-          if (v) void handlePublish(v);
+          if (v) return handlePublish(v, options);
         }}
         isPublishing={publishing}
       />
@@ -1471,15 +1454,7 @@ export function PublicHolidaysEditor({
             Save Draft Version
           </button>
 
-          <button
-            type="button"
-            disabled={isPublishedLocked || publishing || !validation.isValid}
-            onClick={() => void handlePublish()}
-            className="px-4 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm disabled:opacity-40 transition-colors flex items-center gap-1.5"
-          >
-            {publishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            Publish Version {selectedVersion?.version ?? 1}
-          </button>
+
         </div>
       </div>
 

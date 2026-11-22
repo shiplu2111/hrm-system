@@ -10,7 +10,10 @@ import {
 } from 'class-validator';
 import type {
   CreateRuleVersionInput,
+  PublishRuleVersionInput,
+  RejectRuleVersionInput,
   RuleVersionStatus,
+  SubmitRuleVersionInput,
   UpdateRuleVersionInput,
 } from '@hrm/shared-types';
 
@@ -115,9 +118,39 @@ export class QueryRuleVersionsDto {
 
   @ApiPropertyOptional({
     description: 'Filter by version status',
-    enum: ['draft', 'pending_approval', 'published', 'superseded'],
+    enum: ['draft', 'pending_approval', 'published', 'superseded', 'rejected'],
   })
   @IsOptional()
-  @IsEnum(['draft', 'pending_approval', 'published', 'superseded'])
+  @IsEnum(['draft', 'pending_approval', 'published', 'superseded', 'rejected'])
   status?: RuleVersionStatus;
+}
+
+export class SubmitRuleVersionDto implements SubmitRuleVersionInput {
+  @ApiPropertyOptional({ description: 'Optional submission note explaining the change for reviewer' })
+  @IsOptional()
+  @IsString()
+  submissionNote?: string;
+}
+
+export class PublishRuleVersionDto implements PublishRuleVersionInput {
+  @ApiPropertyOptional({ description: 'Explicit acknowledgment that backdated changes apply and flag payroll for review' })
+  @IsOptional()
+  confirmBackdated?: boolean;
+
+  @ApiPropertyOptional({ description: 'Reason for retroactive statutory publication' })
+  @IsOptional()
+  @IsString()
+  backdatedReason?: string;
+
+  @ApiPropertyOptional({ description: 'Approval note from Platform Owner / Admin' })
+  @IsOptional()
+  @IsString()
+  approvalNote?: string;
+}
+
+export class RejectRuleVersionDto implements RejectRuleVersionInput {
+  @ApiProperty({ description: 'Mandatory reason for rejecting the rule version' })
+  @IsString()
+  @IsNotEmpty({ message: 'A rejection reason is mandatory' })
+  reason: string;
 }

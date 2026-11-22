@@ -68,6 +68,7 @@ enum RuleVersionStatus {
   published
   superseded
   archived
+  rejected
 
   @@map("rule_version_status")
 }
@@ -270,6 +271,14 @@ model CountryRule {
   createdBy       String            @default("system") @map("created_by")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
+  submittedBy     String?           @map("submitted_by")
+  submittedAt     DateTime?         @map("submitted_at")
+  submissionNote  String?           @map("submission_note")
+  approvedBy      String?           @map("approved_by")
+  approvedAt      DateTime?         @map("approved_at")
+  rejectionReason String?           @map("rejection_reason")
+  rejectedBy      String?           @map("rejected_by")
+  rejectedAt      DateTime?         @map("rejected_at")
 
   country       Country        @relation(fields: [countryId], references: [id], onDelete: Restrict)
   stateProvince StateProvince? @relation(fields: [stateProvinceId], references: [id], onDelete: SetNull)

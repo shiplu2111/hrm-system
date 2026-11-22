@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,12 +12,18 @@ import {
   RuleVersionStatus,
 } from '@prisma/client';
 import {
+  type AffectedPayrollTenantCompanySummary,
+  type AffectedPayrollTenantSummary,
   type FilingStatusTaxConfig,
+  type PublishRuleVersionInput,
+  type RejectRuleVersionInput,
   type RuleVersionDiffResult,
   type RuleVersionMetadataDiff,
   type RuleVersionPayloadFieldDiff,
+  type RuleVersionPayrollImpact,
   type RuleVersionView,
   type SocialSecurityRulePayload,
+  type SubmitRuleVersionInput,
   type TaxBracketRow,
   validateLeaveRulePayload,
   validateSocialSecurityPayload,
@@ -29,7 +36,10 @@ import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import {
   CreateRuleVersionDto,
+  PublishRuleVersionDto,
   QueryRuleVersionsDto,
+  RejectRuleVersionDto,
+  SubmitRuleVersionDto,
   UpdateRuleVersionDto,
 } from './dto/rule-version.dto';
 
@@ -375,34 +385,433 @@ export class RuleVersionsService {
   }
 
   /**
-   * Publish a rule version (transition from draft/pending_approval to published).
+   * Submit a rule version for approval (transition from draft/rejected to pending_approval).
+   * Typically initiated by Compliance Admin or authoring staff.
    */
-  async publishVersion(
+  async submitForApproval(
     countryId: string,
     versionId: string,
-    userId: string,
+    actor: { id: string; roleName?: string },
+    submissionNote?: string,
   ): Promise<RuleVersionView> {
     const existing = await this.assertRuleVersionOwned(countryId, versionId);
-    if (existing.status === 'published') {
-      return this.toView(existing);
+
+    if (existing.status === 'published' || existing.status === 'superseded') {
+      throw new BadRequestException({
+        code: 'CANNOT_SUBMIT_PUBLISHED',
+        message: 'Published or superseded rule versions cannot be submitted for approval.',
+      });
     }
 
-    // Overlap validation
-    await this.assertNoPublishedOverlap(
-      countryId,
-      existing.stateProvinceId,
-      existing.ruleType,
-      existing.effectiveFrom,
-      existing.effectiveTo,
-      existing.id,
-    );
+    if (existing.status === 'pending_approval') {
+      throw new BadRequestException({
+        code: 'ALREADY_PENDING_APPROVAL',
+        message: 'This rule version is already pending compliance approval.',
+      });
+    }
+
+    // Validate payload according to rule type before submission
+    if (existing.ruleType === 'tax' && existing.payload) {
+      this.validateTaxPayload(existing.payload as Record<string, unknown>);
+    }
+    if (
+      (existing.ruleType === 'social_security' || existing.ruleType === 'pension') &&
+      existing.payload
+    ) {
+      this.validateSocialSecurityPayload(existing.payload as Record<string, unknown>);
+    }
+    if (existing.ruleType === 'leave' && existing.payload) {
+      this.validateLeavePayload(existing.payload as Record<string, unknown>);
+    }
+    if (
+      (existing.ruleType === 'ot' || existing.ruleType === 'working_hours') &&
+      existing.payload
+    ) {
+      this.validateWorkingHoursOtPayload(existing.payload as Record<string, unknown>);
+    }
+    if (existing.ruleType === 'employment_rules' && existing.payload) {
+      this.validateEmploymentTerminationPayload(existing.payload as Record<string, unknown>);
+    }
+    if (existing.ruleType === 'public_holiday' && existing.payload) {
+      this.validatePublicHolidayPayload(existing.payload as Record<string, unknown>);
+    }
 
     const oldView = this.toView(existing);
 
     const updated = await this.prisma.unscoped.countryRule.update({
       where: { id: versionId },
       data: {
+        status: 'pending_approval',
+        submittedBy: actor.id,
+        submittedAt: new Date(),
+        submissionNote: submissionNote?.trim() || null,
+        rejectionReason: null,
+        rejectedBy: null,
+        rejectedAt: null,
+      },
+      include: {
+        stateProvince: { select: { code: true } },
+      },
+    });
+
+    const newView = this.toView(updated);
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'country_rule_version.submit_for_approval',
+      module: 'country_rules',
+      recordId: updated.id,
+      reason: submissionNote?.trim() || `Submitted version ${updated.version} for compliance approval`,
+      oldValue: oldView,
+      newValue: newView,
+    });
+
+    return newView;
+  }
+
+  /**
+   * Assesses retroactive backdated payroll impact for a rule version.
+   * If effectiveFrom is in the past, lists how many finalized payroll runs across tenants
+   * would fall into the backdated window.
+   */
+  async getPayrollImpact(
+    countryId: string,
+    versionId: string,
+  ): Promise<RuleVersionPayrollImpact> {
+    const rule = await this.assertRuleVersionOwned(countryId, versionId);
+
+    const now = new Date();
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const effectiveFromDate = new Date(rule.effectiveFrom);
+    const isBackdated = effectiveFromDate.getTime() < todayUtc.getTime();
+
+    const effectiveFromStr = rule.effectiveFrom.toISOString().slice(0, 10);
+    const effectiveToStr = rule.effectiveTo ? rule.effectiveTo.toISOString().slice(0, 10) : null;
+    const calculationDateStr = todayUtc.toISOString().slice(0, 10);
+
+    if (!isBackdated) {
+      return {
+        isBackdated: false,
+        effectiveFrom: effectiveFromStr,
+        effectiveTo: effectiveToStr,
+        calculationDate: calculationDateStr,
+        affectedFinalizedPayrollRunsCount: 0,
+        affectedTenantsCount: 0,
+        affectedCompaniesCount: 0,
+        tenants: [],
+        warning: null,
+      };
+    }
+
+    // Find all companies in country (and state, if rule has stateProvinceId)
+    const companies = await this.prisma.unscoped.company.findMany({
+      where: {
+        countryId,
+        ...(rule.stateProvinceId ? { stateProvinceId: rule.stateProvinceId } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        tenantId: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+          },
+        },
+      },
+    });
+
+    if (companies.length === 0) {
+      return {
+        isBackdated: true,
+        effectiveFrom: effectiveFromStr,
+        effectiveTo: effectiveToStr,
+        calculationDate: calculationDateStr,
+        affectedFinalizedPayrollRunsCount: 0,
+        affectedTenantsCount: 0,
+        affectedCompaniesCount: 0,
+        tenants: [],
+        warning: `Rule effective date (${effectiveFromStr}) is backdated before current date (${calculationDateStr}), but no tenant companies are currently registered under this jurisdiction.`,
+      };
+    }
+
+    const companyIds = companies.map((c) => c.id);
+
+    // Find finalized or locked payroll runs overlapping with [rule.effectiveFrom, todayUtc]
+    const finalizedRuns = await this.prisma.unscoped.payrollRun.findMany({
+      where: {
+        payrollPeriod: {
+          companyId: { in: companyIds },
+          startDate: { lte: rule.effectiveTo ?? todayUtc },
+          endDate: { gte: rule.effectiveFrom },
+        },
+        OR: [{ status: 'finalized' }, { locked: true }],
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        payrollPeriod: {
+          select: {
+            companyId: true,
+            startDate: true,
+            endDate: true,
+          },
+        },
+      },
+    });
+
+    // Group by tenant and company
+    const tenantMap = new Map<
+      string,
+      {
+        tenantId: string;
+        tenantName: string;
+        subdomain: string;
+        companyMap: Map<
+          string,
+          {
+            companyId: string;
+            companyName: string;
+            runIds: Set<string>;
+            employeeIds: Set<string>;
+          }
+        >;
+      }
+    >();
+
+    for (const comp of companies) {
+      if (!tenantMap.has(comp.tenantId)) {
+        tenantMap.set(comp.tenantId, {
+          tenantId: comp.tenantId,
+          tenantName: comp.tenant.name,
+          subdomain: comp.tenant.subdomain,
+          companyMap: new Map(),
+        });
+      }
+      const tEntry = tenantMap.get(comp.tenantId)!;
+      if (!tEntry.companyMap.has(comp.id)) {
+        tEntry.companyMap.set(comp.id, {
+          companyId: comp.id,
+          companyName: comp.name,
+          runIds: new Set(),
+          employeeIds: new Set(),
+        });
+      }
+    }
+
+    for (const run of finalizedRuns) {
+      const compId = run.payrollPeriod.companyId;
+      for (const tEntry of tenantMap.values()) {
+        if (tEntry.companyMap.has(compId)) {
+          const cEntry = tEntry.companyMap.get(compId)!;
+          cEntry.runIds.add(run.id);
+          cEntry.employeeIds.add(run.employeeId);
+        }
+      }
+    }
+
+    const tenantSummaries: AffectedPayrollTenantSummary[] = [];
+    let affectedCompaniesCount = 0;
+
+    for (const tEntry of tenantMap.values()) {
+      const companySummaries: AffectedPayrollTenantCompanySummary[] = [];
+      let tenantRunCount = 0;
+
+      for (const cEntry of tEntry.companyMap.values()) {
+        if (cEntry.runIds.size > 0) {
+          companySummaries.push({
+            companyId: cEntry.companyId,
+            companyName: cEntry.companyName,
+            affectedRunsCount: cEntry.runIds.size,
+            affectedEmployeesCount: cEntry.employeeIds.size,
+          });
+          tenantRunCount += cEntry.runIds.size;
+          affectedCompaniesCount++;
+        }
+      }
+
+      if (tenantRunCount > 0) {
+        tenantSummaries.push({
+          tenantId: tEntry.tenantId,
+          tenantName: tEntry.tenantName,
+          subdomain: tEntry.subdomain,
+          companies: companySummaries,
+          totalAffectedRuns: tenantRunCount,
+        });
+      }
+    }
+
+    const warning =
+      finalizedRuns.length > 0
+        ? `WARNING: Backdated statutory rule change effective from ${effectiveFromStr}. There are ${finalizedRuns.length} finalized payroll run(s) across ${tenantSummaries.length} tenant workspace(s) in this period. Under RULES.md §3, finalized payroll rows are immutable and will NOT be modified. Publishing will flag these runs for compliance review.`
+        : `Backdated statutory rule effective from ${effectiveFromStr}, but no finalized payroll runs exist in the backdated interval.`;
+
+    return {
+      isBackdated: true,
+      effectiveFrom: effectiveFromStr,
+      effectiveTo: effectiveToStr,
+      calculationDate: calculationDateStr,
+      affectedFinalizedPayrollRunsCount: finalizedRuns.length,
+      affectedTenantsCount: tenantSummaries.length,
+      affectedCompaniesCount,
+      tenants: tenantSummaries,
+      warning,
+    };
+  }
+
+  /**
+   * Publish a rule version (transition to published).
+   * Enforces:
+   * 1. Approver Role: Must be Platform Owner or Platform Admin.
+   * 2. Separation of Duties: Submitter can NEVER approve their own change.
+   * 3. Backdated Confirmation: If effectiveFrom is in past, requires explicit backdated confirmation.
+   * 4. Payroll Immutability: Never alters finalized payroll data (RULES.md §3); only flags affected runs for review.
+   * 5. Date Interval Overlap Integrity: Rejects overlapping published ranges; sunsets older open-ended versions if needed.
+   */
+  async publishVersion(
+    countryId: string,
+    versionId: string,
+    actorOrUserId: string | { id: string; roleName?: string },
+    options?: PublishRuleVersionInput,
+  ): Promise<RuleVersionView> {
+    const actor =
+      typeof actorOrUserId === 'string'
+        ? { id: actorOrUserId, roleName: 'Platform Owner' }
+        : actorOrUserId;
+
+    const existing = await this.assertRuleVersionOwned(countryId, versionId);
+    if (existing.status === 'published') {
+      return this.toView(existing);
+    }
+
+    if (existing.status !== 'pending_approval') {
+      throw new BadRequestException({
+        code: 'CANNOT_PUBLISH_STATUS',
+        message: `Cannot publish rule version in '${existing.status}' status. Version must be 'pending_approval' before publishing.`,
+      });
+    }
+
+    // 1. Role validation: Must be Platform Owner or Platform Admin
+    if (
+      actor.roleName &&
+      actor.roleName !== 'Platform Owner' &&
+      actor.roleName !== 'Platform Admin'
+    ) {
+      throw new ForbiddenException({
+        code: 'APPROVAL_ROLE_REQUIRED',
+        message:
+          'Separation of duties: Only a Platform Owner or Platform Admin can approve and publish statutory rule versions.',
+      });
+    }
+
+    // 2. Separation of duties: Submitter can NEVER approve their own change
+    if (existing.submittedBy && existing.submittedBy === actor.id) {
+      throw new ForbiddenException({
+        code: 'SELF_APPROVAL_FORBIDDEN',
+        message:
+          'Separation of duties violation: The submitter cannot approve their own rule version change. A different Platform Owner or Platform Admin must review and approve.',
+      });
+    }
+
+    // 3. Backdated Payroll Assessment & Confirmation Requirement
+    const impact = await this.getPayrollImpact(countryId, versionId);
+    if (impact.isBackdated && impact.affectedFinalizedPayrollRunsCount > 0) {
+      if (!options?.confirmBackdated) {
+        throw new BadRequestException({
+          code: 'BACKDATED_CONFIRMATION_REQUIRED',
+          message: `Rule version effective date (${impact.effectiveFrom}) is backdated and affects ${impact.affectedFinalizedPayrollRunsCount} finalized payroll run(s) across ${impact.affectedTenantsCount} tenant(s). An explicit backdated confirmation is required.`,
+          details: impact,
+        });
+      }
+    }
+
+    // 4. Overlap validation & automatic sunsetting / bounding of versions
+    let boundedEffectiveTo = existing.effectiveTo;
+    if (existing.effectiveFrom) {
+      // 4a. Sunset preceding versions
+      const publishedOlder = await this.prisma.unscoped.countryRule.findMany({
+        where: {
+          countryId,
+          stateProvinceId: existing.stateProvinceId ?? null,
+          ruleType: existing.ruleType,
+          status: 'published',
+          id: { not: existing.id },
+          effectiveFrom: { lt: existing.effectiveFrom },
+          OR: [
+            { effectiveTo: null },
+            { effectiveTo: { gte: existing.effectiveFrom } },
+          ],
+        },
+      });
+
+      for (const older of publishedOlder) {
+        const fromDate = new Date(existing.effectiveFrom);
+        fromDate.setUTCDate(fromDate.getUTCDate() - 1);
+        await this.prisma.unscoped.countryRule.update({
+          where: { id: older.id },
+          data: {
+            effectiveTo: fromDate,
+          },
+        });
+      }
+
+      // 4b. If this version is open-ended (effectiveTo is null), check if a subsequent published version exists.
+      // If so, bound this version's effectiveTo to 1 day before the subsequent version starts.
+      if (!boundedEffectiveTo) {
+        const publishedNewer = await this.prisma.unscoped.countryRule.findFirst({
+          where: {
+            countryId,
+            stateProvinceId: existing.stateProvinceId ?? null,
+            ruleType: existing.ruleType,
+            status: 'published',
+            id: { not: existing.id },
+            effectiveFrom: { gt: existing.effectiveFrom },
+          },
+          orderBy: { effectiveFrom: 'asc' },
+        });
+
+        if (publishedNewer) {
+          const nextStart = new Date(publishedNewer.effectiveFrom);
+          nextStart.setUTCDate(nextStart.getUTCDate() - 1);
+          boundedEffectiveTo = nextStart;
+        }
+      }
+    }
+
+    await this.assertNoPublishedOverlap(
+      countryId,
+      existing.stateProvinceId,
+      existing.ruleType,
+      existing.effectiveFrom,
+      boundedEffectiveTo,
+      existing.id,
+    );
+
+    const oldView = this.toView(existing);
+
+    // 5. If backdated, flag affected finalized payroll runs for review (RULES.md §3)
+    if (impact.isBackdated && impact.affectedFinalizedPayrollRunsCount > 0) {
+      await this.flagAffectedPayrollRunsForReview(
+        countryId,
+        { ...existing, effectiveTo: boundedEffectiveTo },
+        actor.id,
+        options?.backdatedReason,
+      );
+    }
+
+    // 6. Transition to Published
+    const updated = await this.prisma.unscoped.countryRule.update({
+      where: { id: versionId },
+      data: {
         status: 'published',
+        effectiveTo: boundedEffectiveTo,
+        approvedBy: actor.id,
+        approvedAt: new Date(),
+        rejectionReason: null,
+        rejectedBy: null,
+        rejectedAt: null,
       },
       include: {
         stateProvince: { select: { code: true } },
@@ -417,16 +826,169 @@ export class RuleVersionsService {
     }
 
     await this.auditService.log({
-      userId,
-      action: 'country_rule_version.publish',
+      userId: actor.id,
+      action:
+        impact.isBackdated && impact.affectedFinalizedPayrollRunsCount > 0
+          ? 'country_rule_version.publish_backdated'
+          : 'country_rule_version.publish',
       module: 'country_rules',
       recordId: updated.id,
-      reason: `Published version ${updated.version} (${updated.effectiveFrom.toISOString().slice(0, 10)})`,
+      reason:
+        options?.approvalNote ||
+        `Approved and published version ${updated.version} (${updated.effectiveFrom.toISOString().slice(0, 10)})`,
       oldValue: oldView,
       newValue: newView,
     });
 
     return newView;
+  }
+
+  /**
+   * Reject a pending rule version (transitions back to draft with mandatory reason).
+   */
+  async rejectVersion(
+    countryId: string,
+    versionId: string,
+    actor: { id: string; roleName?: string },
+    reason: string,
+  ): Promise<RuleVersionView> {
+    const existing = await this.assertRuleVersionOwned(countryId, versionId);
+
+    if (existing.status !== 'pending_approval') {
+      throw new BadRequestException({
+        code: 'INVALID_STATUS_FOR_REJECTION',
+        message: 'Only rule versions pending approval can be rejected.',
+      });
+    }
+
+    // Role check: Must be Platform Owner or Platform Admin
+    if (
+      actor.roleName &&
+      actor.roleName !== 'Platform Owner' &&
+      actor.roleName !== 'Platform Admin'
+    ) {
+      throw new ForbiddenException({
+        code: 'APPROVAL_ROLE_REQUIRED',
+        message: 'Only a Platform Owner or Platform Admin can reject rule version changes.',
+      });
+    }
+
+    // Separation of duties check
+    if (existing.submittedBy && existing.submittedBy === actor.id) {
+      throw new ForbiddenException({
+        code: 'SELF_APPROVAL_FORBIDDEN',
+        message: 'Separation of duties violation: Submitter cannot reject their own submission.',
+      });
+    }
+
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException({
+        code: 'REJECTION_REASON_REQUIRED',
+        message: 'A rejection reason is mandatory when rejecting a rule version.',
+      });
+    }
+
+    const oldView = this.toView(existing);
+
+    const updated = await this.prisma.unscoped.countryRule.update({
+      where: { id: versionId },
+      data: {
+        status: 'draft',
+        rejectionReason: reason.trim(),
+        rejectedBy: actor.id,
+        rejectedAt: new Date(),
+      },
+      include: {
+        stateProvince: { select: { code: true } },
+      },
+    });
+
+    const newView = this.toView(updated);
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'country_rule_version.reject',
+      module: 'country_rules',
+      recordId: updated.id,
+      reason: `Rejected version ${updated.version}: ${reason.trim()}`,
+      oldValue: oldView,
+      newValue: newView,
+    });
+
+    return newView;
+  }
+
+  /**
+   * Flags affected finalized payroll runs for compliance review without modifying financial data (RULES.md §3).
+   */
+  private async flagAffectedPayrollRunsForReview(
+    countryId: string,
+    rule: CountryRule,
+    actorId: string,
+    backdatedReason?: string,
+  ): Promise<number> {
+    const now = new Date();
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const companies = await this.prisma.unscoped.company.findMany({
+      where: {
+        countryId,
+        ...(rule.stateProvinceId ? { stateProvinceId: rule.stateProvinceId } : {}),
+      },
+      select: { id: true },
+    });
+    if (companies.length === 0) return 0;
+
+    const companyIds = companies.map((c) => c.id);
+
+    const runs = await this.prisma.unscoped.payrollRun.findMany({
+      where: {
+        payrollPeriod: {
+          companyId: { in: companyIds },
+          startDate: { lte: rule.effectiveTo ?? todayUtc },
+          endDate: { gte: rule.effectiveFrom },
+        },
+        OR: [{ status: 'finalized' }, { locked: true }],
+      },
+      select: { id: true, calculationSnapshot: true },
+    });
+
+    const effectiveFromStr = rule.effectiveFrom.toISOString().slice(0, 10);
+    const flaggedAt = new Date().toISOString();
+
+    for (const r of runs) {
+      const existingSnapshot = (r.calculationSnapshot as Record<string, any>) || {};
+      const existingFlags = Array.isArray(existingSnapshot.complianceReviewFlags)
+        ? (existingSnapshot.complianceReviewFlags as any[])
+        : [];
+      const newFlag = {
+        flagType: 'backdated_statutory_rule_update',
+        ruleType: rule.ruleType,
+        ruleVersionId: rule.id,
+        ruleVersionNumber: rule.version,
+        ruleEffectiveFrom: effectiveFromStr,
+        flaggedAt,
+        flaggedBy: actorId,
+        reason:
+          backdatedReason ||
+          'Statutory rule revision published with retroactive effective date.',
+        regulatoryNote:
+          'Per RULES.md §3, finalized payroll rows are locked and cannot be mutated. Adjustments must be processed via payroll_adjustments if necessary.',
+      };
+
+      await this.prisma.unscoped.payrollRun.update({
+        where: { id: r.id },
+        data: {
+          calculationSnapshot: {
+            ...existingSnapshot,
+            complianceReviewRequired: true,
+            complianceReviewFlags: [...existingFlags, newFlag],
+          } as any,
+        },
+      });
+    }
+
+    return runs.length;
   }
 
   /**
@@ -718,6 +1280,14 @@ export class RuleVersionsService {
       payload: (record.payload as Record<string, unknown>) || {},
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
+      submittedBy: record.submittedBy ?? null,
+      submittedAt: record.submittedAt ? record.submittedAt.toISOString() : null,
+      submissionNote: record.submissionNote ?? null,
+      approvedBy: record.approvedBy ?? null,
+      approvedAt: record.approvedAt ? record.approvedAt.toISOString() : null,
+      rejectionReason: record.rejectionReason ?? null,
+      rejectedBy: record.rejectedBy ?? null,
+      rejectedAt: record.rejectedAt ? record.rejectedAt.toISOString() : null,
     };
   }
 
