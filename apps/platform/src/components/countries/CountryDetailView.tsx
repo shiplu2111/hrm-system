@@ -67,6 +67,7 @@ import { SocialSecurityRulesEditor } from '../social-security/SocialSecurityRule
 import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
 import { WorkingHoursOtRulesEditor } from '../working-hours-ot/WorkingHoursOtRulesEditor';
 import { EmploymentTerminationRulesEditor } from '../employment-termination/EmploymentTerminationRulesEditor';
+import { PublicHolidaysEditor } from '../public-holidays/PublicHolidaysEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -1347,7 +1348,18 @@ export function CountryDetailView({
         />
       )}
 
-      {/* 7 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {/* 7. PUBLIC HOLIDAYS RULES EDITOR (STAGE C.07) */}
+      {activeTab === 'Public Holidays' && (
+        <PublicHolidaysEditor
+          country={country}
+          states={states}
+          configuration={configuration}
+          completeness={tabCompleteness['Public Holidays']}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* 8 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
         activeTab !== 'Tax' &&
@@ -1357,7 +1369,8 @@ export function CountryDetailView({
         activeTab !== 'Working Hours' &&
         activeTab !== 'Overtime' &&
         activeTab !== 'Employment' &&
-        activeTab !== 'Termination' && (
+        activeTab !== 'Termination' &&
+        activeTab !== 'Public Holidays' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}
             country={country}

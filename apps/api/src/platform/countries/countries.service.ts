@@ -13,6 +13,8 @@ import type {
   CountryRuleKind,
   CountryRuleRecord,
   CountrySummary,
+  InheritingTenantsResponse,
+  InheritingTenantView,
   StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
@@ -435,6 +437,111 @@ export class CountriesService {
       taxBrackets: country.taxBrackets.map((row) => this.toTaxBracket(row)),
       rules: country.countryRules.map((row) => this.toCountryRule(row)),
       configStatus,
+    };
+  }
+
+  /**
+   * Get all tenants and companies operating within a country jurisdiction
+   * with location breakdown and employee headcount.
+   */
+  async getInheritingTenants(countryId: string): Promise<InheritingTenantsResponse> {
+    await this.assertCountryExists(countryId);
+
+    const country = await this.prisma.unscoped.country.findUniqueOrThrow({
+      where: { id: countryId },
+      select: { id: true, name: true, isoCode: true },
+    });
+
+    const companies = await this.prisma.unscoped.company.findMany({
+      where: { countryId },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            planId: true,
+          },
+        },
+        stateProvince: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+        locations: {
+          include: {
+            stateProvince: {
+              select: {
+                id: true,
+                code: true,
+              },
+            },
+            _count: {
+              select: {
+                employees: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            employees: true,
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const tenantMap = new Map<string, InheritingTenantView>();
+
+    for (const comp of companies) {
+      const t = comp.tenant;
+      if (!t) continue;
+
+      if (!tenantMap.has(t.id)) {
+        tenantMap.set(t.id, {
+          tenantId: t.id,
+          tenantName: t.name,
+          subdomain: t.subdomain,
+          plan: t.planId || 'Standard',
+          companies: [],
+          totalEmployeesInCountry: 0,
+        });
+      }
+
+      const tenantEntry = tenantMap.get(t.id)!;
+      const empCount = comp._count?.employees || 0;
+      tenantEntry.totalEmployeesInCountry += empCount;
+
+      tenantEntry.companies.push({
+        id: comp.id,
+        name: comp.name,
+        stateProvinceId: comp.stateProvinceId,
+        stateCode: comp.stateProvince?.code || null,
+        stateName: comp.stateProvince?.name || null,
+        employeeCount: empCount,
+        locations: comp.locations.map((loc) => ({
+          id: loc.id,
+          name: loc.name,
+          stateProvinceId: loc.stateProvinceId,
+          stateCode: loc.stateProvince?.code || null,
+          employeeCount: loc._count?.employees || 0,
+        })),
+      });
+    }
+
+    const tenants = Array.from(tenantMap.values());
+    const totalEmployees = tenants.reduce((acc, t) => acc + t.totalEmployeesInCountry, 0);
+
+    return {
+      countryId: country.id,
+      countryName: country.name,
+      isoCode: country.isoCode,
+      totalTenants: tenants.length,
+      totalEmployees,
+      tenants,
     };
   }
 

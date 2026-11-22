@@ -1562,4 +1562,182 @@ describe('RuleVersionsService', () => {
       expect(result.status).toBe('published');
     });
   });
+
+  describe('Public Holiday Rules inline validation (Stage C.07)', () => {
+    it('should reject public holiday rule when holidays is missing or not an array', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'public_holiday',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Public Holidays Act',
+            changeNote: 'Invalid payload structure',
+            payload: {
+              holidays: 'invalid-not-array',
+            } as any,
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject public holiday rule when a holiday has an empty name', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'public_holiday',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Public Holidays Act',
+            changeNote: 'Missing holiday name',
+            payload: {
+              holidays: [
+                {
+                  name: '',
+                  date: '2025-01-01',
+                  dateType: 'fixed',
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject public holiday rule when a holiday has an invalid date format', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'public_holiday',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Public Holidays Act',
+            changeNote: 'Malformed date',
+            payload: {
+              holidays: [
+                {
+                  name: 'New Year Day',
+                  date: '01/01/2025', // Invalid format
+                  dateType: 'fixed',
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject public holiday rule when moving rule parameters are invalid', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'public_holiday',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'Public Holidays Act',
+            changeNote: 'Invalid moving rule month',
+            payload: {
+              holidays: [
+                {
+                  name: "King's Birthday",
+                  date: '2025-06-09',
+                  dateType: 'moving',
+                  movingRule: {
+                    ruleType: 'nth_weekday_of_month',
+                    month: 13, // Invalid month > 12
+                    weekday: 1,
+                    occurrence: 2,
+                  },
+                },
+              ],
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid public holiday rule with fixed dates, moving dates, and state overrides', async () => {
+      const validHolidaysPayload = {
+        holidays: [
+          {
+            name: "New Year's Day",
+            date: '2025-01-01',
+            observedDate: '2025-01-01',
+            dateType: 'fixed',
+            isHalfDay: false,
+            penaltyMultiplier: 2.5,
+          },
+          {
+            name: 'Good Friday',
+            date: '2025-04-18',
+            observedDate: '2025-04-18',
+            dateType: 'moving',
+            movingRule: {
+              ruleType: 'easter_relative',
+              easterOffsetDays: -2,
+            },
+            isHalfDay: false,
+            penaltyMultiplier: 2.5,
+          },
+          {
+            name: 'Labour Day (NSW)',
+            date: '2025-10-06',
+            observedDate: '2025-10-06',
+            dateType: 'moving',
+            movingRule: {
+              ruleType: 'nth_weekday_of_month',
+              month: 10,
+              weekday: 1,
+              occurrence: 1,
+            },
+            stateCode: 'NSW',
+            isHalfDay: false,
+            penaltyMultiplier: 2.5,
+          },
+        ],
+        defaultPenaltyMultiplier: 2.5,
+        weekendObservationStrategy: 'following_weekday',
+      };
+
+      prisma.unscoped.countryRule.findFirst.mockResolvedValue(null);
+      prisma.unscoped.countryRule.findMany.mockResolvedValue([]);
+      prisma.unscoped.countryRule.create.mockResolvedValue({
+        id: 'mock-holiday-rule-id',
+        countryId: mockCountryId,
+        stateProvinceId: null,
+        ruleType: 'public_holiday',
+        version: 1,
+        effectiveFrom: new Date('2025-01-01'),
+        effectiveTo: null,
+        status: 'published',
+        sourceReference: 'Public Holidays Act 2010 (NSW)',
+        changeNote: 'Statutory 2025 Australian Public Holidays Schedule',
+        payload: validHolidaysPayload,
+        createdBy: mockUserId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        stateProvince: null,
+      });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'public_holiday',
+          status: 'published',
+          effectiveFrom: '2025-01-01',
+          sourceReference: 'Public Holidays Act 2010 (NSW)',
+          changeNote: 'Statutory 2025 Australian Public Holidays Schedule',
+          payload: validHolidaysPayload as unknown as Record<string, unknown>,
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+    });
+  });
 });

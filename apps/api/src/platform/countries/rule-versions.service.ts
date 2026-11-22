@@ -23,6 +23,7 @@ import {
   validateTaxBrackets,
   validateWorkingHoursOtPayload,
   validateEmploymentTerminationPayload,
+  validatePublicHolidayPayload,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
@@ -163,6 +164,10 @@ export class RuleVersionsService {
     if (ruleType === 'employment_rules' && dto.payload) {
       this.validateEmploymentTerminationPayload(dto.payload);
     }
+    // Validate public holiday rule structure
+    if (ruleType === 'public_holiday' && dto.payload) {
+      this.validatePublicHolidayPayload(dto.payload);
+    }
 
     // Calculate incremental version number
     const maxVersionRecord = await this.prisma.unscoped.countryRule.findFirst({
@@ -288,6 +293,9 @@ export class RuleVersionsService {
     }
     if (existing.ruleType === 'employment_rules' && dto.payload) {
       this.validateEmploymentTerminationPayload(dto.payload);
+    }
+    if (existing.ruleType === 'public_holiday' && dto.payload) {
+      this.validatePublicHolidayPayload(dto.payload);
     }
 
     const effectiveFrom = dto.effectiveFrom
@@ -816,6 +824,17 @@ export class RuleVersionsService {
         message:
           res.summaryError ||
           'Invalid employment and termination rules configuration.',
+        details: res.errors,
+      });
+    }
+  }
+
+  private validatePublicHolidayPayload(payload: unknown): void {
+    const res = validatePublicHolidayPayload(payload);
+    if (!res.isValid) {
+      throw new BadRequestException({
+        code: 'INVALID_PUBLIC_HOLIDAY_PAYLOAD',
+        message: res.summaryError || 'Invalid public holiday configuration.',
         details: res.errors,
       });
     }

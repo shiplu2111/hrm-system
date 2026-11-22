@@ -2819,3 +2819,820 @@ export function validateEmploymentTerminationPayload(
   };
 }
 
+// ============================================================================
+// PUBLIC & STATUTORY BANK HOLIDAYS (STAGE C.07 - JURISDICTION CALENDARS)
+// ============================================================================
+
+export type HolidayDateType = 'fixed' | 'moving';
+
+export type HolidayMovingRuleType =
+  | 'nth_weekday_of_month'
+  | 'easter_relative'
+  | 'lunar_hijri'
+  | 'custom_gazette';
+
+export interface HolidayMovingRule {
+  ruleType: HolidayMovingRuleType;
+  month?: number; // 1 - 12
+  weekday?: number; // 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday
+  occurrence?: number; // 1 = 1st, 2 = 2nd, 3 = 3rd, 4 = 4th, -1 = last
+  easterOffsetDays?: number; // -2 for Good Friday, -1 for Holy Saturday, 0 for Easter Sunday, 1 for Easter Monday, etc.
+  description?: string; // human-readable explanation
+}
+
+export interface PublicHolidayItem {
+  id: string;
+  name: string;
+  date: string; // ISO format 'YYYY-MM-DD'
+  observedDate: string | null; // observed date if different from calendar date (weekend rollover)
+  dateType: HolidayDateType; // 'fixed' | 'moving'
+  movingRule?: HolidayMovingRule | null;
+  isHalfDay: boolean;
+  halfDayStartHour?: number | null; // e.g. 19 for 7 PM start
+  penaltyMultiplier?: number | null; // e.g. 2.5x OT rate override
+  stateProvinceId?: string | null; // null = National/Federal; UUID = specific State/Province
+  stateCode?: string | null; // e.g. "NSW", "VIC"
+  notes?: string;
+  gazetteReference?: string;
+  recurring?: boolean;
+}
+
+export interface PublicHolidayRulePayload {
+  holidays: PublicHolidayItem[];
+  defaultPenaltyMultiplier?: number;
+  weekendObservationStrategy?: 'following_weekday' | 'none' | 'closest_weekday';
+  calendarYears?: number[];
+  notes?: string;
+}
+
+export interface PublicHolidayValidationResult {
+  isValid: boolean;
+  errors: string[];
+  summaryError?: string;
+}
+
+export interface InheritingTenantLocationView {
+  id: string;
+  name: string;
+  stateProvinceId: string | null;
+  stateCode: string | null;
+  employeeCount: number;
+}
+
+export interface InheritingTenantCompanyView {
+  id: string;
+  name: string;
+  stateProvinceId: string | null;
+  stateCode: string | null;
+  stateName: string | null;
+  employeeCount: number;
+  locations: InheritingTenantLocationView[];
+}
+
+export interface InheritingTenantView {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  plan: string;
+  companies: InheritingTenantCompanyView[];
+  totalEmployeesInCountry: number;
+}
+
+export interface InheritingTenantsResponse {
+  countryId: string;
+  countryName: string;
+  isoCode: string;
+  totalTenants: number;
+  totalEmployees: number;
+  tenants: InheritingTenantView[];
+}
+
+/**
+ * Deterministically computes Western Easter Sunday for a given year
+ * using the Meeus/Jones/Butcher algorithm (valid for all Gregorian calendar years).
+ */
+export function calculateEasterSunday(year: number): { month: number; day: number; dateStr: string } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { month, day, dateStr };
+}
+
+/**
+ * Calculates a date relative to Easter Sunday (e.g. Good Friday is Easter - 2 days).
+ */
+export function calculateEasterRelativeDate(year: number, offsetDays: number): string {
+  const easter = calculateEasterSunday(year);
+  const date = new Date(Date.UTC(year, easter.month - 1, easter.day));
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Calculates the Nth weekday of a month (e.g. 2nd Monday of June, 1st Monday of October, or last Monday [-1]).
+ * @param targetWeekday 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+ * @param occurrence 1 = 1st, 2 = 2nd, 3 = 3rd, 4 = 4th, -1 = last
+ */
+export function calculateNthWeekdayOfMonth(
+  year: number,
+  month: number,
+  targetWeekday: number,
+  occurrence: number,
+): string {
+  if (occurrence === -1) {
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    for (let day = lastDayOfMonth; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (d.getUTCDay() === targetWeekday) {
+        return d.toISOString().slice(0, 10);
+      }
+    }
+  } else {
+    let count = 0;
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    for (let day = 1; day <= lastDayOfMonth; day++) {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (d.getUTCDay() === targetWeekday) {
+        count++;
+        if (count === occurrence) {
+          return d.toISOString().slice(0, 10);
+        }
+      }
+    }
+  }
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+/**
+ * Calculates the observed public holiday date when a fixed holiday falls on a weekend.
+ */
+export function calculateObservedDate(
+  dateStr: string,
+  strategy: 'following_weekday' | 'none' | 'closest_weekday' = 'following_weekday',
+): string {
+  if (strategy === 'none') {
+    return dateStr;
+  }
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
+    return dateStr;
+  }
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  const dayOfWeek = date.getUTCDay();
+
+  if (dayOfWeek === 6) {
+    // Saturday
+    if (strategy === 'closest_weekday') {
+      date.setUTCDate(date.getUTCDate() - 1); // Friday
+    } else {
+      date.setUTCDate(date.getUTCDate() + 2); // Monday
+    }
+    return date.toISOString().slice(0, 10);
+  }
+  if (dayOfWeek === 0) {
+    // Sunday
+    date.setUTCDate(date.getUTCDate() + 1); // Monday
+    return date.toISOString().slice(0, 10);
+  }
+  return dateStr;
+}
+
+/**
+ * Evaluates moving rule parameters to return the exact calendar date for targetYear.
+ */
+export function calculateMovingHolidayDate(
+  rule: HolidayMovingRule,
+  targetYear: number,
+  observationStrategy: 'following_weekday' | 'none' | 'closest_weekday' = 'following_weekday',
+): { dateStr: string; observedDate: string; description: string } {
+  let dateStr: string;
+  let desc = rule.description || '';
+
+  switch (rule.ruleType) {
+    case 'easter_relative': {
+      const offset = rule.easterOffsetDays ?? 0;
+      dateStr = calculateEasterRelativeDate(targetYear, offset);
+      if (!desc) {
+        if (offset === -2) desc = 'Good Friday (2 days before Easter Sunday)';
+        else if (offset === -1) desc = 'Holy Saturday (1 day before Easter Sunday)';
+        else if (offset === 0) desc = 'Easter Sunday';
+        else if (offset === 1) desc = 'Easter Monday (1 day after Easter Sunday)';
+        else desc = `Easter Sunday + ${offset} days`;
+      }
+      break;
+    }
+    case 'nth_weekday_of_month': {
+      const month = rule.month || 1;
+      const weekday = rule.weekday !== undefined ? rule.weekday : 1;
+      const occurrence = rule.occurrence || 1;
+      dateStr = calculateNthWeekdayOfMonth(targetYear, month, weekday, occurrence);
+      if (!desc) {
+        const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const occNames: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', [-1]: 'Last' };
+        desc = `${occNames[occurrence] || occurrence} ${weekdayNames[weekday]} of ${monthNames[month]}`;
+      }
+      break;
+    }
+    default: {
+      dateStr = `${targetYear}-01-01`;
+      if (!desc) desc = 'Custom moving holiday decree';
+      break;
+    }
+  }
+
+  const observedDate = calculateObservedDate(dateStr, observationStrategy);
+  return { dateStr, observedDate, description: desc };
+}
+
+/**
+ * Rolls forward all holidays from sourceYear to targetYear.
+ * - Fixed holidays keep the same month and day, with recalculated observed date.
+ * - Moving holidays recalculate their dynamic date for the target year.
+ */
+export function copyHolidaysToYear(
+  sourceHolidays: PublicHolidayItem[],
+  targetYear: number,
+  observationStrategy: 'following_weekday' | 'none' | 'closest_weekday' = 'following_weekday',
+): PublicHolidayItem[] {
+  return sourceHolidays.map((h, idx) => {
+    const id = `hol-${targetYear}-${idx + 1}-${Math.random().toString(36).slice(2, 7)}`;
+    if (h.dateType === 'moving' && h.movingRule) {
+      const calc = calculateMovingHolidayDate(h.movingRule, targetYear, observationStrategy);
+      return {
+        ...h,
+        id,
+        date: calc.dateStr,
+        observedDate: calc.observedDate,
+        notes: h.notes || calc.description,
+      };
+    }
+
+    // Fixed date: roll MM-DD to targetYear
+    const mmdd = h.date.slice(5); // e.g. "12-25"
+    const newDate = `${targetYear}-${mmdd}`;
+    const observedDate = calculateObservedDate(newDate, observationStrategy);
+    return {
+      ...h,
+      id,
+      date: newDate,
+      observedDate,
+    };
+  });
+}
+
+/**
+ * Parses raw CSV string into partial PublicHolidayItem records with error reporting.
+ */
+export function parseHolidaysCsv(
+  csvText: string,
+): { holidays: Partial<PublicHolidayItem>[]; errors: string[] } {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length === 0) {
+    return { holidays: [], errors: ['CSV content is empty.'] };
+  }
+
+  const headerLine = lines[0];
+  const headers = headerLine
+    .split(',')
+    .map((h) => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+
+  const nameIdx = headers.findIndex((h) => h === 'name' || h === 'holiday_name' || h === 'holiday');
+  const dateIdx = headers.findIndex((h) => h === 'date' || h === 'holiday_date');
+  const dateTypeIdx = headers.findIndex((h) => h === 'date_type' || h === 'type');
+  const movingRuleIdx = headers.findIndex((h) => h === 'moving_rule' || h === 'rule');
+  const observedIdx = headers.findIndex((h) => h === 'observed_date' || h === 'observed');
+  const isHalfDayIdx = headers.findIndex((h) => h === 'is_half_day' || h === 'half_day');
+  const stateCodeIdx = headers.findIndex((h) => h === 'state_code' || h === 'state');
+  const penaltyIdx = headers.findIndex((h) => h === 'penalty_multiplier' || h === 'multiplier');
+  const notesIdx = headers.findIndex((h) => h === 'notes' || h === 'description');
+
+  if (nameIdx === -1 || dateIdx === -1) {
+    return {
+      holidays: [],
+      errors: ['CSV must contain at least "name" and "date" column headers.'],
+    };
+  }
+
+  const holidays: Partial<PublicHolidayItem>[] = [];
+  const errors: string[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const cells: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let c = 0; c < rawLine.length; c++) {
+      const char = rawLine[c];
+      if (char === '"' || char === "'") {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        cells.push(cur.trim().replace(/^["']|["']$/g, ''));
+        cur = '';
+      } else {
+        cur += char;
+      }
+    }
+    cells.push(cur.trim().replace(/^["']|["']$/g, ''));
+
+    const name = cells[nameIdx];
+    const date = cells[dateIdx];
+
+    if (!name) {
+      errors.push(`Row ${i + 1}: Name is required.`);
+      continue;
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      errors.push(`Row ${i + 1}: Date must be in YYYY-MM-DD format (received "${date}").`);
+      continue;
+    }
+
+    const rawDateType = dateTypeIdx !== -1 ? cells[dateTypeIdx]?.toLowerCase() : 'fixed';
+    const dateType: HolidayDateType = rawDateType === 'moving' ? 'moving' : 'fixed';
+    const observedDate = observedIdx !== -1 && cells[observedIdx] ? cells[observedIdx] : null;
+    const isHalfDay = isHalfDayIdx !== -1 ? cells[isHalfDayIdx]?.toLowerCase() === 'true' || cells[isHalfDayIdx] === '1' : false;
+    const stateCode = stateCodeIdx !== -1 && cells[stateCodeIdx] ? cells[stateCodeIdx].toUpperCase() : null;
+    const penaltyMultiplier = penaltyIdx !== -1 && cells[penaltyIdx] ? parseFloat(cells[penaltyIdx]) : 2.5;
+    const notes = notesIdx !== -1 ? cells[notesIdx] : undefined;
+
+    holidays.push({
+      id: `hol-csv-${i}-${Math.random().toString(36).slice(2, 7)}`,
+      name,
+      date,
+      observedDate,
+      dateType,
+      isHalfDay,
+      stateCode,
+      penaltyMultiplier: !isNaN(penaltyMultiplier) ? penaltyMultiplier : 2.5,
+      notes,
+    });
+  }
+
+  return { holidays, errors };
+}
+
+/**
+ * Normalizes legacy public holiday payloads into the rich PublicHolidayRulePayload structure.
+ */
+export function normalizePublicHolidayPayload(raw: unknown): PublicHolidayRulePayload {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      holidays: [],
+      defaultPenaltyMultiplier: 2.5,
+      weekendObservationStrategy: 'following_weekday',
+      calendarYears: [new Date().getUTCFullYear()],
+    };
+  }
+
+  const p = raw as any;
+  const rawHolidays: any[] = Array.isArray(p.holidays) ? p.holidays : Array.isArray(p) ? p : [];
+
+  const holidays: PublicHolidayItem[] = rawHolidays.map((h, idx) => {
+    const id = typeof h.id === 'string' && h.id ? h.id : `hol-${h.date || 'item'}-${idx + 1}`;
+    const name = typeof h.name === 'string' ? h.name : 'Public Holiday';
+    const date = typeof h.date === 'string' ? h.date : '2025-01-01';
+    const dateType: HolidayDateType = h.dateType === 'moving' ? 'moving' : 'fixed';
+    const observedDate = typeof h.observedDate === 'string' ? h.observedDate : typeof h.observed === 'string' ? h.observed : null;
+    const isHalfDay = Boolean(h.isHalfDay);
+    const halfDayStartHour = typeof h.halfDayStartHour === 'number' ? h.halfDayStartHour : null;
+    const penaltyMultiplier = typeof h.penaltyMultiplier === 'number' ? h.penaltyMultiplier : 2.5;
+    const stateProvinceId = typeof h.stateProvinceId === 'string' ? h.stateProvinceId : null;
+    const stateCode = typeof h.stateCode === 'string' ? h.stateCode : null;
+    const notes = typeof h.notes === 'string' ? h.notes : undefined;
+    const gazetteReference = typeof h.gazetteReference === 'string' ? h.gazetteReference : undefined;
+    const recurring = typeof h.recurring === 'boolean' ? h.recurring : true;
+
+    return {
+      id,
+      name,
+      date,
+      observedDate,
+      dateType,
+      movingRule: h.movingRule || null,
+      isHalfDay,
+      halfDayStartHour,
+      penaltyMultiplier,
+      stateProvinceId,
+      stateCode,
+      notes,
+      gazetteReference,
+      recurring,
+    };
+  });
+
+  const years = Array.from(new Set(holidays.map((h) => parseInt(h.date.slice(0, 4), 10)).filter((y) => !isNaN(y))));
+
+  return {
+    holidays,
+    defaultPenaltyMultiplier: typeof p.defaultPenaltyMultiplier === 'number' ? p.defaultPenaltyMultiplier : 2.5,
+    weekendObservationStrategy: p.weekendObservationStrategy || 'following_weekday',
+    calendarYears: years.length > 0 ? years : [new Date().getUTCFullYear()],
+    notes: p.notes,
+  };
+}
+
+/**
+ * Pure validator for public holiday rule payloads.
+ */
+export function validatePublicHolidayPayload(payload: unknown): PublicHolidayValidationResult {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      isValid: false,
+      errors: ['Public holiday payload must be a non-null object.'],
+      summaryError: 'Public holiday payload must be a non-null object.',
+    };
+  }
+
+  const p = payload as Record<string, any>;
+  const errors: string[] = [];
+
+  if (!Array.isArray(p.holidays)) {
+    errors.push('Holidays property must be an array of holiday entries.');
+    return { isValid: false, errors, summaryError: errors[0] };
+  }
+
+  p.holidays.forEach((h: any, idx: number) => {
+    const rowNum = idx + 1;
+    if (!h.name || typeof h.name !== 'string' || !h.name.trim()) {
+      errors.push(`Holiday #${rowNum}: Name is required.`);
+    }
+    if (!h.date || typeof h.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(h.date)) {
+      errors.push(`Holiday #${rowNum} ("${h.name || 'unnamed'}"): Date is required and must follow YYYY-MM-DD format.`);
+    } else {
+      const parts = h.date.split('-').map(Number);
+      const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      if (d.getUTCFullYear() !== parts[0] || d.getUTCMonth() !== parts[1] - 1 || d.getUTCDate() !== parts[2]) {
+        errors.push(`Holiday #${rowNum}: "${h.date}" is not a valid calendar date.`);
+      }
+    }
+
+    if (h.observedDate && typeof h.observedDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(h.observedDate)) {
+      errors.push(`Holiday #${rowNum}: Observed date must follow YYYY-MM-DD format if provided.`);
+    }
+
+    if (h.dateType && h.dateType !== 'fixed' && h.dateType !== 'moving') {
+      errors.push(`Holiday #${rowNum}: Date type must be either 'fixed' or 'moving'.`);
+    }
+
+    if (h.dateType === 'moving' && h.movingRule) {
+      const mr = h.movingRule;
+      const validRuleTypes: HolidayMovingRuleType[] = [
+        'nth_weekday_of_month',
+        'easter_relative',
+        'lunar_hijri',
+        'custom_gazette',
+      ];
+      if (!validRuleTypes.includes(mr.ruleType)) {
+        errors.push(`Holiday #${rowNum}: Moving rule type must be one of: ${validRuleTypes.join(', ')}.`);
+      }
+      if (mr.ruleType === 'nth_weekday_of_month') {
+        if (typeof mr.month !== 'number' || mr.month < 1 || mr.month > 12) {
+          errors.push(`Holiday #${rowNum}: Nth-weekday rule requires a month between 1 and 12.`);
+        }
+        if (typeof mr.weekday !== 'number' || mr.weekday < 0 || mr.weekday > 6) {
+          errors.push(`Holiday #${rowNum}: Nth-weekday rule requires a weekday between 0 (Sunday) and 6 (Saturday).`);
+        }
+        if (typeof mr.occurrence !== 'number' || (![1, 2, 3, 4, -1].includes(mr.occurrence))) {
+          errors.push(`Holiday #${rowNum}: Occurrence must be 1 (1st), 2 (2nd), 3 (3rd), 4 (4th), or -1 (Last).`);
+        }
+      }
+      if (mr.ruleType === 'easter_relative') {
+        if (typeof mr.easterOffsetDays !== 'number' || isNaN(mr.easterOffsetDays)) {
+          errors.push(`Holiday #${rowNum}: Easter-relative rule requires a numeric easterOffsetDays (e.g. -2 for Good Friday).`);
+        }
+      }
+    }
+
+    if (h.penaltyMultiplier !== undefined && h.penaltyMultiplier !== null) {
+      if (typeof h.penaltyMultiplier !== 'number' || h.penaltyMultiplier < 1.0 || h.penaltyMultiplier > 10.0) {
+        errors.push(`Holiday #${rowNum}: Penalty multiplier must be between 1.0 and 10.0.`);
+      }
+    }
+  });
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    summaryError: errors[0],
+  };
+}
+
+/**
+ * Returns statutory public holiday presets for supported jurisdictions.
+ */
+export function getDefaultPublicHolidaysForCountry(
+  isoCode: string,
+  year: number = 2025,
+): PublicHolidayRulePayload {
+  const normIso = (isoCode || 'AUS').toUpperCase();
+
+  switch (normIso) {
+    case 'AUS': {
+      const goodFriday = calculateEasterRelativeDate(year, -2);
+      const easterMonday = calculateEasterRelativeDate(year, 1);
+      const kingsBirthday = calculateNthWeekdayOfMonth(year, 6, 1, 2); // 2nd Monday of June
+      const labourDayNsw = calculateNthWeekdayOfMonth(year, 10, 1, 1); // 1st Monday of October (NSW/ACT/SA)
+      const melbourneCupVic = calculateNthWeekdayOfMonth(year, 11, 2, 1); // 1st Tuesday of November (VIC)
+
+      const holidays: PublicHolidayItem[] = [
+        {
+          id: `aus-nyd-${year}`,
+          name: "New Year's Day",
+          date: `${year}-01-01`,
+          observedDate: calculateObservedDate(`${year}-01-01`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Public Holiday (Fair Work Act 2009 NES §115)',
+        },
+        {
+          id: `aus-ad-${year}`,
+          name: 'Australia Day',
+          date: `${year}-01-26`,
+          observedDate: calculateObservedDate(`${year}-01-26`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Public Holiday celebrating Australian national heritage',
+        },
+        {
+          id: `aus-gf-${year}`,
+          name: 'Good Friday',
+          date: goodFriday,
+          observedDate: goodFriday,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'easter_relative',
+            easterOffsetDays: -2,
+            description: 'Good Friday (2 days before Easter Sunday)',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Fair Work Public Holiday',
+        },
+        {
+          id: `aus-em-${year}`,
+          name: 'Easter Monday',
+          date: easterMonday,
+          observedDate: easterMonday,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'easter_relative',
+            easterOffsetDays: 1,
+            description: 'Easter Monday (1 day after Easter Sunday)',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Fair Work Public Holiday',
+        },
+        {
+          id: `aus-anzac-${year}`,
+          name: 'Anzac Day',
+          date: `${year}-04-25`,
+          observedDate: `${year}-04-25`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Day of Remembrance',
+        },
+        {
+          id: `aus-kb-${year}`,
+          name: "King's Birthday",
+          date: kingsBirthday,
+          observedDate: kingsBirthday,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'nth_weekday_of_month',
+            month: 6,
+            weekday: 1, // Monday
+            occurrence: 2, // 2nd Monday
+            description: '2nd Monday in June (National except WA/QLD)',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'Federal baseline holiday (proclamation varied in WA/QLD)',
+        },
+        {
+          id: `aus-labour-nsw-${year}`,
+          name: 'Labour Day (NSW / ACT / SA)',
+          date: labourDayNsw,
+          observedDate: labourDayNsw,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'nth_weekday_of_month',
+            month: 10,
+            weekday: 1, // Monday
+            occurrence: 1, // 1st Monday
+            description: '1st Monday in October',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: 'NSW',
+          notes: 'State-specific Public Holiday in New South Wales',
+        },
+        {
+          id: `aus-cup-vic-${year}`,
+          name: 'Melbourne Cup Day (VIC)',
+          date: melbourneCupVic,
+          observedDate: melbourneCupVic,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'nth_weekday_of_month',
+            month: 11,
+            weekday: 2, // Tuesday
+            occurrence: 1, // 1st Tuesday
+            description: '1st Tuesday in November',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: 'VIC',
+          notes: 'State-specific Public Holiday in Victoria',
+        },
+        {
+          id: `aus-xmas-${year}`,
+          name: 'Christmas Day',
+          date: `${year}-12-25`,
+          observedDate: calculateObservedDate(`${year}-12-25`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Fair Work Public Holiday',
+        },
+        {
+          id: `aus-boxing-${year}`,
+          name: 'Boxing Day',
+          date: `${year}-12-26`,
+          observedDate: calculateObservedDate(`${year}-12-26`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.5,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Fair Work Public Holiday',
+        },
+      ];
+
+      return {
+        holidays,
+        defaultPenaltyMultiplier: 2.5,
+        weekendObservationStrategy: 'following_weekday',
+        calendarYears: [year],
+        notes: 'Australia Fair Work Act 2009 NES §115 Public Holidays Baseline',
+      };
+    }
+    case 'BGD': {
+      const holidays: PublicHolidayItem[] = [
+        {
+          id: `bgd-lang-${year}`,
+          name: 'International Mother Language Day',
+          date: `${year}-02-21`,
+          observedDate: `${year}-02-21`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'Shaheed Dibash (Bangladesh Labor Act 2006 §118)',
+        },
+        {
+          id: `bgd-indep-${year}`,
+          name: 'Independence Day',
+          date: `${year}-03-26`,
+          observedDate: `${year}-03-26`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'National Independence Day of Bangladesh',
+        },
+        {
+          id: `bgd-pohela-${year}`,
+          name: 'Bengali New Year (Pohela Boishakh)',
+          date: `${year}-04-14`,
+          observedDate: `${year}-04-14`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'First day of the Bengali calendar',
+        },
+        {
+          id: `bgd-may-${year}`,
+          name: 'May Day (Labor Day)',
+          date: `${year}-05-01`,
+          observedDate: `${year}-05-01`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'International Workers Day',
+        },
+        {
+          id: `bgd-eid1-${year}`,
+          name: 'Eid-ul-Fitr',
+          date: `${year}-03-31`,
+          observedDate: `${year}-03-31`,
+          dateType: 'moving',
+          movingRule: {
+            ruleType: 'lunar_hijri',
+            description: 'Subject to sighting of the moon (1st Shawwal)',
+          },
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'Statutory Islamic Festival (3 days gazetted)',
+        },
+        {
+          id: `bgd-victory-${year}`,
+          name: 'Victory Day (Bijoy Dibosh)',
+          date: `${year}-12-16`,
+          observedDate: `${year}-12-16`,
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+          notes: 'Victory Day commemorating Liberation War victory',
+        },
+      ];
+
+      return {
+        holidays,
+        defaultPenaltyMultiplier: 2.0,
+        weekendObservationStrategy: 'none',
+        calendarYears: [year],
+        notes: 'Bangladesh Labor Act 2006 §118 Statutory Festival Holidays',
+      };
+    }
+    default: {
+      const holidays: PublicHolidayItem[] = [
+        {
+          id: `gen-nyd-${year}`,
+          name: "New Year's Day",
+          date: `${year}-01-01`,
+          observedDate: calculateObservedDate(`${year}-01-01`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+        },
+        {
+          id: `gen-xmas-${year}`,
+          name: 'Christmas Day',
+          date: `${year}-12-25`,
+          observedDate: calculateObservedDate(`${year}-12-25`),
+          dateType: 'fixed',
+          isHalfDay: false,
+          penaltyMultiplier: 2.0,
+          stateProvinceId: null,
+          stateCode: null,
+        },
+      ];
+      return {
+        holidays,
+        defaultPenaltyMultiplier: 2.0,
+        weekendObservationStrategy: 'following_weekday',
+        calendarYears: [year],
+        notes: 'General Statutory Public Holidays Baseline',
+      };
+    }
+  }
+}
+

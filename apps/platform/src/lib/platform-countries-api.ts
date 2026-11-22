@@ -9,6 +9,7 @@ import type {
   CountrySummary,
   CreateRuleVersionInput,
   CreateStateProvinceInput,
+  InheritingTenantsResponse,
   RuleVersionDiffResult,
   RuleVersionStatus,
   RuleVersionView,
@@ -301,5 +302,13 @@ export function compareRuleVersions(
     `/platform/countries/${countryId}/rule-versions/diff?baseVersionId=${encodeURIComponent(
       baseVersionId,
     )}&compareVersionId=${encodeURIComponent(compareVersionId)}`,
+  );
+}
+
+export function getInheritingTenants(
+  countryId: string,
+): Promise<InheritingTenantsResponse> {
+  return apiRequest<InheritingTenantsResponse>(
+    `/platform/countries/${countryId}/inheriting-tenants`,
   );
 }

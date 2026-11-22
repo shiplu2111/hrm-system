@@ -24,6 +24,7 @@ import type {
   CountryConfiguration,
   CountryRuleRecord,
   CountrySummary,
+  InheritingTenantsResponse,
   RuleVersionDiffResult,
   RuleVersionView,
   StateProvinceView,
@@ -101,6 +102,17 @@ export class CountriesController {
     @Param('countryId', ParseUUIDPipe) countryId: string,
   ): Promise<ApiEnvelope<CountryConfiguration>> {
     return { data: await this.countriesService.getConfiguration(countryId) };
+  }
+
+  @Get(':countryId/inheriting-tenants')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'List tenants and companies inheriting public holidays from this country and state',
+  })
+  async getInheritingTenants(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+  ): Promise<ApiEnvelope<InheritingTenantsResponse>> {
+    return { data: await this.countriesService.getInheritingTenants(countryId) };
   }
 
   @Patch(':countryId')

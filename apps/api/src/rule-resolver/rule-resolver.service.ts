@@ -2,12 +2,16 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   normalizeWorkingHoursOtPayload,
   normalizeEmploymentTerminationPayload,
+  normalizePublicHolidayPayload,
+  getDefaultPublicHolidaysForCountry,
   type EffectiveDatedRule,
   type ResolvedRule,
   type RuleLayer,
   type RuleResolutionContext,
   type WorkingHoursOtRulePayload,
   type EmploymentTerminationRulePayload,
+  type PublicHolidayItem,
+  type PublicHolidayRulePayload,
 } from '@hrm/shared-types';
 import { selectEffectiveRule } from './effective-date.utils';
 import { mergeRulePayloads } from './rule-merge.utils';
@@ -295,6 +299,76 @@ export class RuleResolverService {
       stateCode: overrides?.stateCode ?? employee.stateCode,
       calculationDate: overrides?.calculationDate ?? calculationDate,
     });
+  }
+
+  /**
+   * Resolves Public Holiday rules across the resolution chain:
+   * Global -> Country -> State -> Company -> Employee Contract.
+   * Merges and normalizes the payload into PublicHolidayRulePayload.
+   */
+  async resolvePublicHolidays(
+    context: RuleResolutionContext,
+    year?: number,
+  ): Promise<{ resolved: ResolvedRule; config: PublicHolidayRulePayload }> {
+    const resolved = await this.resolve(context, 'public_holiday');
+    const targetYear = year || (context.calculationDate ? context.calculationDate.getFullYear() : new Date().getFullYear());
+    const config = normalizePublicHolidayPayload(resolved.payload);
+    return {
+      resolved,
+      config,
+    };
+  }
+
+  async resolvePublicHolidaysForCompany(
+    companyId: string,
+    calculationDate: Date,
+    options?: { stateCode?: string | null; year?: number },
+  ): Promise<{ resolved: ResolvedRule; config: PublicHolidayRulePayload }> {
+    const company = await this.employeeContext.loadCompanyContext(companyId);
+    if (!company) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Company not found',
+      });
+    }
+
+    return this.resolvePublicHolidays(
+      {
+        tenantId: company.tenantId,
+        companyId: company.companyId,
+        employeeId: null,
+        countryId: company.countryId,
+        stateCode: options?.stateCode ?? null,
+        calculationDate,
+      },
+      options?.year,
+    );
+  }
+
+  async resolvePublicHolidaysForEmployee(
+    employeeId: string,
+    calculationDate: Date,
+    overrides?: Partial<Pick<RuleResolutionContext, 'stateCode' | 'calculationDate'>> & { year?: number },
+  ): Promise<{ resolved: ResolvedRule; config: PublicHolidayRulePayload }> {
+    const employee = await this.employeeContext.loadEmployeeContext(employeeId);
+    if (!employee) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Employee not found',
+      });
+    }
+
+    return this.resolvePublicHolidays(
+      {
+        tenantId: employee.tenantId,
+        companyId: employee.companyId,
+        employeeId: employee.employeeId,
+        countryId: employee.countryId,
+        stateCode: overrides?.stateCode ?? employee.stateCode,
+        calculationDate: overrides?.calculationDate ?? calculationDate,
+      },
+      overrides?.year,
+    );
   }
 }
 
