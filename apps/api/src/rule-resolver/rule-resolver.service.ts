@@ -1,9 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type {
-  EffectiveDatedRule,
-  ResolvedRule,
-  RuleLayer,
-  RuleResolutionContext,
+import {
+  normalizeWorkingHoursOtPayload,
+  type EffectiveDatedRule,
+  type ResolvedRule,
+  type RuleLayer,
+  type RuleResolutionContext,
+  type WorkingHoursOtRulePayload,
 } from '@hrm/shared-types';
 import { selectEffectiveRule } from './effective-date.utils';
 import { mergeRulePayloads } from './rule-merge.utils';
@@ -152,6 +154,82 @@ export class RuleResolverService {
     rules: EffectiveDatedRule[],
   ): ResolvedRule {
     return this.buildResolvedRule(calculationDate, ruleType, rules);
+  }
+
+  /**
+   * Resolves Working Hours & Overtime rules across the resolution chain:
+   * Global -> Country -> State -> Company -> Employee Contract.
+   * Merges and normalizes the payload into WorkingHoursOtRulePayload.
+   * Conforms to ATTENDANCE_LOGIC.md §4 and PAYROLL_LOGIC.md §9.
+   */
+  async resolveWorkingHoursAndOvertime(
+    context: RuleResolutionContext,
+  ): Promise<{ resolved: ResolvedRule; config: WorkingHoursOtRulePayload }> {
+    const otResolved = await this.resolve(context, 'ot');
+    let combinedPayload = { ...otResolved.payload };
+    try {
+      const whResolved = await this.resolve(context, 'working_hours');
+      if (whResolved && Object.keys(whResolved.payload).length > 0) {
+        combinedPayload = { ...whResolved.payload, ...otResolved.payload };
+      }
+    } catch {
+      // Ignore if working_hours doesn't exist
+    }
+
+    const config = normalizeWorkingHoursOtPayload(combinedPayload);
+    return {
+      resolved: {
+        ...otResolved,
+        payload: combinedPayload,
+      },
+      config,
+    };
+  }
+
+  async resolveWorkingHoursAndOvertimeForCompany(
+    companyId: string,
+    calculationDate: Date,
+    options?: { stateCode?: string | null },
+  ): Promise<{ resolved: ResolvedRule; config: WorkingHoursOtRulePayload }> {
+    const company = await this.employeeContext.loadCompanyContext(companyId);
+    if (!company) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Company not found',
+      });
+    }
+
+    return this.resolveWorkingHoursAndOvertime({
+      tenantId: company.tenantId,
+      companyId: company.companyId,
+      employeeId: null,
+      countryId: company.countryId,
+      stateCode: options?.stateCode ?? null,
+      calculationDate,
+    });
+  }
+
+  async resolveWorkingHoursAndOvertimeForEmployee(
+    employeeId: string,
+    calculationDate: Date,
+    overrides?: Partial<Pick<RuleResolutionContext, 'stateCode' | 'calculationDate'>>,
+  ): Promise<{ resolved: ResolvedRule; config: WorkingHoursOtRulePayload }> {
+    const employee = await this.employeeContext.loadEmployeeContext(employeeId);
+    if (!employee) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Employee not found',
+      });
+    }
+
+    return this.resolveWorkingHoursAndOvertime({
+      tenantId: employee.tenantId,
+      companyId: employee.companyId,
+      employeeId: employee.employeeId,
+      countryId: employee.countryId,
+      stateCode: overrides?.stateCode ?? employee.stateCode,
+      calculationDate: overrides?.calculationDate ?? calculationDate,
+    });
   }
 }
 

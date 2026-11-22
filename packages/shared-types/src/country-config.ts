@@ -1153,3 +1153,689 @@ export function evaluateLeavePolicyCompliance(
     violations,
   };
 }
+
+// ---------------------------------------------------------------------------
+// OVERTIME & WORKING HOURS RULES (STAGE C.05 & C.06)
+// ATTENDANCE_LOGIC.md §4 & PAYROLL_LOGIC.md §9
+// ---------------------------------------------------------------------------
+
+/**
+ * Overtime cap breach behavior.
+ * PAYROLL_LOGIC.md §9: "Maximum OT caps are enforced at calculation time and any breach is flagged, not silently capped, unless the company policy explicitly says to auto-cap."
+ */
+export type OvertimeCapBreachAction = 'flag' | 'auto_cap';
+
+/**
+ * Structured Working Hours & Overtime rule payload.
+ * Used by Rule Resolver for ATTENDANCE_LOGIC.md §4 and PAYROLL_LOGIC.md §9.
+ */
+export interface WorkingHoursOtRulePayload {
+  // 1. Standard Working Hours & Ceilings
+  standardDailyHours: number;          // e.g. 7.6 or 8.0
+  standardWeeklyHours: number;         // e.g. 38.0 or 40.0
+  maxDailyHours: number;              // e.g. 10.0 or 12.0
+  maxWeeklyHours: number;             // e.g. 48.0 or 60.0
+  maxConsecutiveDays: number;         // e.g. 6
+
+  // 2. Minimum Break Rules & Rest Periods
+  restBreakRequiredAfterHours: number; // e.g. 5.0
+  minimumRestBreakMinutes: number;     // e.g. 30
+  dailyRestPeriodHours: number;        // e.g. 11.0 (minimum rest between shifts)
+  paidBreakMinutes?: number | null;    // e.g. 10 or 15
+
+  // 3. Overtime Multipliers
+  weekdayMultiplier: number;           // e.g. 1.50
+  enableWeekdayTiers?: boolean;
+  weekdayTier1HoursCap?: number | null;// e.g. 2.0 (hours at tier 1 before tier 2 kicks in)
+  weekdayTier2Multiplier?: number | null; // e.g. 2.00
+
+  weekendMultiplier: number;           // e.g. 2.00
+  separateSaturdaySunday?: boolean;
+  saturdayMultiplier?: number | null;  // e.g. 1.50
+  sundayMultiplier?: number | null;    // e.g. 2.00
+
+  holidayMultiplier: number;           // e.g. 2.50
+
+  nightMultiplier: number;             // e.g. 1.15
+  nightShiftWindowStart: string;       // e.g. "18:00"
+  nightShiftWindowEnd: string;         // e.g. "06:00"
+
+  // 4. Overtime Caps & Breach Handling (PAYROLL_LOGIC.md §9)
+  maxDailyOvertimeHours?: number | null;
+  maxWeeklyOvertimeHours?: number | null;
+  maxMonthlyOvertimeHours?: number | null;
+  actionOnCapBreach: OvertimeCapBreachAction; // 'flag' | 'auto_cap'
+
+  // 5. Governance & General Options
+  requireManagerApproval?: boolean;
+  timeOffInLieuAllowed?: boolean;
+  notes?: string;
+}
+
+export interface WorkingHoursOtValidationResult {
+  isValid: boolean;
+  errors: string[];
+  summaryError?: string;
+}
+
+const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Validates a Working Hours & Overtime rule payload with comprehensive inline rules.
+ */
+export function validateWorkingHoursOtPayload(
+  payload: unknown,
+): WorkingHoursOtValidationResult {
+  const errors: string[] = [];
+
+  if (!payload || typeof payload !== 'object') {
+    return {
+      isValid: false,
+      errors: ['Working hours and overtime payload must be a non-empty object.'],
+      summaryError: 'Working hours and overtime payload must be a non-empty object.',
+    };
+  }
+
+  const p = payload as Partial<WorkingHoursOtRulePayload>;
+
+  // 1. Standard Working Hours
+  if (p.standardDailyHours === undefined || p.standardDailyHours === null || typeof p.standardDailyHours !== 'number' || isNaN(p.standardDailyHours)) {
+    errors.push('Standard daily hours is required and must be a valid number.');
+  } else if (p.standardDailyHours <= 0 || p.standardDailyHours > 24) {
+    errors.push('Standard daily hours must be greater than 0 and at most 24.');
+  }
+
+  if (p.standardWeeklyHours === undefined || p.standardWeeklyHours === null || typeof p.standardWeeklyHours !== 'number' || isNaN(p.standardWeeklyHours)) {
+    errors.push('Standard weekly hours is required and must be a valid number.');
+  } else if (p.standardWeeklyHours <= 0 || p.standardWeeklyHours > 168) {
+    errors.push('Standard weekly hours must be greater than 0 and at most 168.');
+  }
+
+  // Ceilings
+  if (p.maxDailyHours !== undefined && p.maxDailyHours !== null) {
+    if (typeof p.maxDailyHours !== 'number' || isNaN(p.maxDailyHours) || p.maxDailyHours < (p.standardDailyHours ?? 0)) {
+      errors.push(`Maximum daily hours (${p.maxDailyHours}) must be greater than or equal to standard daily hours (${p.standardDailyHours}).`);
+    } else if (p.maxDailyHours > 24) {
+      errors.push('Maximum daily hours cannot exceed 24 hours.');
+    }
+  }
+
+  if (p.maxWeeklyHours !== undefined && p.maxWeeklyHours !== null) {
+    if (typeof p.maxWeeklyHours !== 'number' || isNaN(p.maxWeeklyHours) || p.maxWeeklyHours < (p.standardWeeklyHours ?? 0)) {
+      errors.push(`Maximum weekly hours (${p.maxWeeklyHours}) must be greater than or equal to standard weekly hours (${p.standardWeeklyHours}).`);
+    } else if (p.maxWeeklyHours > 168) {
+      errors.push('Maximum weekly hours cannot exceed 168 hours.');
+    }
+  }
+
+  if (p.maxConsecutiveDays !== undefined && p.maxConsecutiveDays !== null) {
+    if (typeof p.maxConsecutiveDays !== 'number' || p.maxConsecutiveDays < 1 || p.maxConsecutiveDays > 14) {
+      errors.push('Maximum consecutive working days must be between 1 and 14 days.');
+    }
+  }
+
+  // 2. Break Rules
+  if (p.restBreakRequiredAfterHours !== undefined && p.restBreakRequiredAfterHours !== null) {
+    if (typeof p.restBreakRequiredAfterHours !== 'number' || p.restBreakRequiredAfterHours <= 0) {
+      errors.push('Rest break trigger hours must be greater than 0.');
+    } else if (p.standardDailyHours && p.restBreakRequiredAfterHours > p.standardDailyHours) {
+      errors.push(`Rest break required after hours (${p.restBreakRequiredAfterHours}h) cannot exceed standard daily hours (${p.standardDailyHours}h).`);
+    }
+  }
+
+  if (p.minimumRestBreakMinutes !== undefined && p.minimumRestBreakMinutes !== null) {
+    if (typeof p.minimumRestBreakMinutes !== 'number' || p.minimumRestBreakMinutes < 0 || p.minimumRestBreakMinutes > 240) {
+      errors.push('Minimum rest break duration must be between 0 and 240 minutes.');
+    }
+  }
+
+  if (p.dailyRestPeriodHours !== undefined && p.dailyRestPeriodHours !== null) {
+    if (typeof p.dailyRestPeriodHours !== 'number' || p.dailyRestPeriodHours < 0 || p.dailyRestPeriodHours > 24) {
+      errors.push('Daily rest period between shifts must be between 0 and 24 hours.');
+    }
+  }
+
+  // 3. Multipliers
+  if (p.weekdayMultiplier === undefined || p.weekdayMultiplier === null || typeof p.weekdayMultiplier !== 'number' || isNaN(p.weekdayMultiplier)) {
+    errors.push('Weekday overtime multiplier is required and must be a valid number.');
+  } else if (p.weekdayMultiplier < 1.0 || p.weekdayMultiplier > 10.0) {
+    errors.push('Weekday overtime multiplier must be between 1.0× and 10.0×.');
+  }
+
+  if (p.enableWeekdayTiers) {
+    if (p.weekdayTier1HoursCap === undefined || p.weekdayTier1HoursCap === null || p.weekdayTier1HoursCap <= 0) {
+      errors.push('When weekday overtime tiers are enabled, Tier 1 hours cap must be greater than 0.');
+    }
+    if (p.weekdayTier2Multiplier === undefined || p.weekdayTier2Multiplier === null || p.weekdayTier2Multiplier < (p.weekdayMultiplier ?? 1)) {
+      errors.push(`Tier 2 overtime multiplier (${p.weekdayTier2Multiplier}×) must be greater than or equal to Tier 1 multiplier (${p.weekdayMultiplier}×).`);
+    }
+  }
+
+  if (p.weekendMultiplier === undefined || p.weekendMultiplier === null || typeof p.weekendMultiplier !== 'number' || isNaN(p.weekendMultiplier)) {
+    errors.push('Weekend overtime multiplier is required and must be a valid number.');
+  } else if (p.weekendMultiplier < 1.0 || p.weekendMultiplier > 10.0) {
+    errors.push('Weekend overtime multiplier must be between 1.0× and 10.0×.');
+  }
+
+  if (p.separateSaturdaySunday) {
+    if (p.saturdayMultiplier !== undefined && p.saturdayMultiplier !== null && (p.saturdayMultiplier < 1.0 || p.saturdayMultiplier > 10.0)) {
+      errors.push('Saturday overtime multiplier must be between 1.0× and 10.0×.');
+    }
+    if (p.sundayMultiplier !== undefined && p.sundayMultiplier !== null && (p.sundayMultiplier < 1.0 || p.sundayMultiplier > 10.0)) {
+      errors.push('Sunday overtime multiplier must be between 1.0× and 10.0×.');
+    }
+  }
+
+  if (p.holidayMultiplier === undefined || p.holidayMultiplier === null || typeof p.holidayMultiplier !== 'number' || isNaN(p.holidayMultiplier)) {
+    errors.push('Public holiday overtime multiplier is required and must be a valid number.');
+  } else if (p.holidayMultiplier < 1.0 || p.holidayMultiplier > 10.0) {
+    errors.push('Public holiday overtime multiplier must be between 1.0× and 10.0×.');
+  }
+
+  if (p.nightMultiplier === undefined || p.nightMultiplier === null || typeof p.nightMultiplier !== 'number' || isNaN(p.nightMultiplier)) {
+    errors.push('Night shift multiplier is required and must be a valid number.');
+  } else if (p.nightMultiplier < 1.0 || p.nightMultiplier > 10.0) {
+    errors.push('Night shift multiplier must be between 1.0× and 10.0×.');
+  }
+
+  if (p.nightShiftWindowStart && !TIME_REGEX.test(p.nightShiftWindowStart)) {
+    errors.push('Night shift window start must be in HH:mm 24-hour format (e.g. 18:00 or 22:00).');
+  }
+  if (p.nightShiftWindowEnd && !TIME_REGEX.test(p.nightShiftWindowEnd)) {
+    errors.push('Night shift window end must be in HH:mm 24-hour format (e.g. 06:00).');
+  }
+
+  // 4. Overtime Caps
+  if (p.maxDailyOvertimeHours !== undefined && p.maxDailyOvertimeHours !== null && p.maxDailyOvertimeHours < 0) {
+    errors.push('Maximum daily overtime hours cannot be negative.');
+  }
+  if (p.maxWeeklyOvertimeHours !== undefined && p.maxWeeklyOvertimeHours !== null && p.maxWeeklyOvertimeHours < 0) {
+    errors.push('Maximum weekly overtime hours cannot be negative.');
+  }
+  if (p.maxMonthlyOvertimeHours !== undefined && p.maxMonthlyOvertimeHours !== null && p.maxMonthlyOvertimeHours < 0) {
+    errors.push('Maximum monthly overtime hours cannot be negative.');
+  }
+
+  if (p.actionOnCapBreach !== undefined && p.actionOnCapBreach !== 'flag' && p.actionOnCapBreach !== 'auto_cap') {
+    errors.push("Action on cap breach must be either 'flag' or 'auto_cap' (PAYROLL_LOGIC.md §9).");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    summaryError: errors[0],
+  };
+}
+
+/**
+ * Returns default statutory working hours & overtime rules for a specific jurisdiction.
+ */
+export function getDefaultWorkingHoursOtForCountry(countryIso?: string): WorkingHoursOtRulePayload {
+  const iso = (countryIso || '').trim().toUpperCase();
+
+  if (iso === 'AUS') {
+    return {
+      standardDailyHours: 7.6,
+      standardWeeklyHours: 38,
+      maxDailyHours: 10,
+      maxWeeklyHours: 48,
+      maxConsecutiveDays: 6,
+      restBreakRequiredAfterHours: 5,
+      minimumRestBreakMinutes: 30,
+      dailyRestPeriodHours: 11,
+      paidBreakMinutes: 10,
+      weekdayMultiplier: 1.5,
+      enableWeekdayTiers: true,
+      weekdayTier1HoursCap: 2,
+      weekdayTier2Multiplier: 2.0,
+      weekendMultiplier: 2.0,
+      separateSaturdaySunday: true,
+      saturdayMultiplier: 1.5,
+      sundayMultiplier: 2.0,
+      holidayMultiplier: 2.5,
+      nightMultiplier: 1.15,
+      nightShiftWindowStart: '18:00',
+      nightShiftWindowEnd: '06:00',
+      maxDailyOvertimeHours: 4,
+      maxWeeklyOvertimeHours: 12,
+      maxMonthlyOvertimeHours: 50,
+      actionOnCapBreach: 'flag',
+      requireManagerApproval: true,
+      timeOffInLieuAllowed: true,
+      notes: 'Fair Work Act 2009 (NES §62): 38-hour standard week. Modern award baseline: 1.5× first 2 hours overtime, 2.0× thereafter. 2.5× public holidays. 11h minimum rest break between shifts.',
+    };
+  }
+
+  if (iso === 'BGD') {
+    return {
+      standardDailyHours: 8,
+      standardWeeklyHours: 48,
+      maxDailyHours: 10,
+      maxWeeklyHours: 60,
+      maxConsecutiveDays: 6,
+      restBreakRequiredAfterHours: 6,
+      minimumRestBreakMinutes: 60,
+      dailyRestPeriodHours: 11,
+      paidBreakMinutes: 0,
+      weekdayMultiplier: 2.0,
+      enableWeekdayTiers: false,
+      weekdayTier1HoursCap: null,
+      weekdayTier2Multiplier: null,
+      weekendMultiplier: 2.0,
+      separateSaturdaySunday: false,
+      saturdayMultiplier: 2.0,
+      sundayMultiplier: 2.0,
+      holidayMultiplier: 2.5,
+      nightMultiplier: 1.25,
+      nightShiftWindowStart: '20:00',
+      nightShiftWindowEnd: '06:00',
+      maxDailyOvertimeHours: 2,
+      maxWeeklyOvertimeHours: 12,
+      maxMonthlyOvertimeHours: 48,
+      actionOnCapBreach: 'flag',
+      requireManagerApproval: true,
+      timeOffInLieuAllowed: false,
+      notes: 'Bangladesh Labor Act 2006 (§100, §102, §108): 48 hours standard weekly work. Overtime payable at double the ordinary basic wage rate (2.0×). Maximum 60 total weekly hours.',
+    };
+  }
+
+  if (iso === 'USA') {
+    return {
+      standardDailyHours: 8,
+      standardWeeklyHours: 40,
+      maxDailyHours: 12,
+      maxWeeklyHours: 60,
+      maxConsecutiveDays: 6,
+      restBreakRequiredAfterHours: 5,
+      minimumRestBreakMinutes: 30,
+      dailyRestPeriodHours: 8,
+      paidBreakMinutes: 15,
+      weekdayMultiplier: 1.5,
+      enableWeekdayTiers: false,
+      weekdayTier1HoursCap: null,
+      weekdayTier2Multiplier: null,
+      weekendMultiplier: 1.5,
+      separateSaturdaySunday: false,
+      saturdayMultiplier: 1.5,
+      sundayMultiplier: 1.5,
+      holidayMultiplier: 2.0,
+      nightMultiplier: 1.10,
+      nightShiftWindowStart: '22:00',
+      nightShiftWindowEnd: '06:00',
+      maxDailyOvertimeHours: 6,
+      maxWeeklyOvertimeHours: 20,
+      maxMonthlyOvertimeHours: 80,
+      actionOnCapBreach: 'flag',
+      requireManagerApproval: true,
+      timeOffInLieuAllowed: true,
+      notes: 'US Fair Labor Standards Act (FLSA): Overtime at 1.5× for hours exceeding 40 per workweek.',
+    };
+  }
+
+  if (iso === 'GBR') {
+    return {
+      standardDailyHours: 7.5,
+      standardWeeklyHours: 37.5,
+      maxDailyHours: 10,
+      maxWeeklyHours: 48,
+      maxConsecutiveDays: 6,
+      restBreakRequiredAfterHours: 6,
+      minimumRestBreakMinutes: 20,
+      dailyRestPeriodHours: 11,
+      paidBreakMinutes: 0,
+      weekdayMultiplier: 1.5,
+      enableWeekdayTiers: false,
+      weekdayTier1HoursCap: null,
+      weekdayTier2Multiplier: null,
+      weekendMultiplier: 1.5,
+      separateSaturdaySunday: true,
+      saturdayMultiplier: 1.5,
+      sundayMultiplier: 2.0,
+      holidayMultiplier: 2.0,
+      nightMultiplier: 1.20,
+      nightShiftWindowStart: '23:00',
+      nightShiftWindowEnd: '06:00',
+      maxDailyOvertimeHours: 4,
+      maxWeeklyOvertimeHours: 12,
+      maxMonthlyOvertimeHours: 48,
+      actionOnCapBreach: 'flag',
+      requireManagerApproval: true,
+      timeOffInLieuAllowed: true,
+      notes: 'UK Working Time Regulations 1998: Maximum 48-hour average work week, 11 hours consecutive daily rest, 20m in-work rest break for 6+ hour shifts.',
+    };
+  }
+
+  // Default international baseline
+  return {
+    standardDailyHours: 8,
+    standardWeeklyHours: 40,
+    maxDailyHours: 12,
+    maxWeeklyHours: 48,
+    maxConsecutiveDays: 6,
+    restBreakRequiredAfterHours: 5,
+    minimumRestBreakMinutes: 30,
+    dailyRestPeriodHours: 11,
+    paidBreakMinutes: 0,
+    weekdayMultiplier: 1.5,
+    enableWeekdayTiers: false,
+    weekdayTier1HoursCap: null,
+    weekdayTier2Multiplier: null,
+    weekendMultiplier: 2.0,
+    separateSaturdaySunday: false,
+    saturdayMultiplier: 2.0,
+    sundayMultiplier: 2.0,
+    holidayMultiplier: 2.0,
+    nightMultiplier: 1.15,
+    nightShiftWindowStart: '22:00',
+    nightShiftWindowEnd: '06:00',
+    maxDailyOvertimeHours: 4,
+    maxWeeklyOvertimeHours: 16,
+    maxMonthlyOvertimeHours: 60,
+    actionOnCapBreach: 'flag',
+    requireManagerApproval: true,
+    timeOffInLieuAllowed: true,
+    notes: 'Standard statutory baseline: 40h standard week, 1.5× weekday overtime, 2.0× weekend and holiday overtime, action on cap breach flagged.',
+  };
+}
+
+/**
+ * Normalizes legacy and loosely-structured payloads into the strict WorkingHoursOtRulePayload format.
+ */
+export function normalizeWorkingHoursOtPayload(
+  raw: Record<string, unknown> | null | undefined,
+  countryIso?: string,
+): WorkingHoursOtRulePayload {
+  const defaults = getDefaultWorkingHoursOtForCountry(countryIso);
+  if (!raw || typeof raw !== 'object') {
+    return defaults;
+  }
+
+  const rawMultipliers = (raw.multipliers as Record<string, unknown>) || {};
+
+  const standardDaily =
+    typeof raw.standardDailyHours === 'number'
+      ? raw.standardDailyHours
+      : typeof raw.standard_daily_hours === 'number'
+      ? raw.standard_daily_hours
+      : typeof raw.daily_hours === 'number'
+      ? raw.daily_hours
+      : defaults.standardDailyHours;
+
+  const standardWeekly =
+    typeof raw.standardWeeklyHours === 'number'
+      ? raw.standardWeeklyHours
+      : typeof raw.standard_weekly_hours === 'number'
+      ? raw.standard_weekly_hours
+      : typeof raw.weeklyThresholdHours === 'number'
+      ? raw.weeklyThresholdHours
+      : typeof raw.weekly_hours === 'number'
+      ? raw.weekly_hours
+      : defaults.standardWeeklyHours;
+
+  const maxDaily =
+    typeof raw.maxDailyHours === 'number'
+      ? raw.maxDailyHours
+      : typeof raw.max_daily_hours === 'number'
+      ? raw.max_daily_hours
+      : typeof raw.maxDailyMinutes === 'number'
+      ? raw.maxDailyMinutes / 60
+      : defaults.maxDailyHours;
+
+  const maxWeekly =
+    typeof raw.maxWeeklyHours === 'number'
+      ? raw.maxWeeklyHours
+      : typeof raw.max_weekly_hours === 'number'
+      ? raw.max_weekly_hours
+      : defaults.maxWeeklyHours;
+
+  const weekdayMult =
+    typeof raw.weekdayMultiplier === 'number'
+      ? raw.weekdayMultiplier
+      : typeof rawMultipliers.weekday === 'number'
+      ? rawMultipliers.weekday
+      : typeof raw.overtime_rate_tier1 === 'number'
+      ? raw.overtime_rate_tier1
+      : defaults.weekdayMultiplier;
+
+  const weekendMult =
+    typeof raw.weekendMultiplier === 'number'
+      ? raw.weekendMultiplier
+      : typeof rawMultipliers.weekend === 'number'
+      ? rawMultipliers.weekend
+      : typeof raw.weekend_multiplier === 'number'
+      ? raw.weekend_multiplier
+      : defaults.weekendMultiplier;
+
+  const holidayMult =
+    typeof raw.holidayMultiplier === 'number'
+      ? raw.holidayMultiplier
+      : typeof rawMultipliers.publicHoliday === 'number'
+      ? rawMultipliers.publicHoliday
+      : typeof raw.holiday_multiplier === 'number'
+      ? raw.holiday_multiplier
+      : defaults.holidayMultiplier;
+
+  const nightMult =
+    typeof raw.nightMultiplier === 'number'
+      ? raw.nightMultiplier
+      : typeof rawMultipliers.night === 'number'
+      ? rawMultipliers.night
+      : typeof raw.night_multiplier === 'number'
+      ? raw.night_multiplier
+      : defaults.nightMultiplier;
+
+  const actionOnBreach: OvertimeCapBreachAction =
+    raw.actionOnCapBreach === 'auto_cap' ? 'auto_cap' : 'flag';
+
+  return {
+    standardDailyHours: Number(standardDaily) || defaults.standardDailyHours,
+    standardWeeklyHours: Number(standardWeekly) || defaults.standardWeeklyHours,
+    maxDailyHours: Number(maxDaily) || defaults.maxDailyHours,
+    maxWeeklyHours: Number(maxWeekly) || defaults.maxWeeklyHours,
+    maxConsecutiveDays: typeof raw.maxConsecutiveDays === 'number' ? raw.maxConsecutiveDays : defaults.maxConsecutiveDays,
+
+    restBreakRequiredAfterHours:
+      typeof raw.restBreakRequiredAfterHours === 'number'
+        ? raw.restBreakRequiredAfterHours
+        : typeof raw.break_after_hours === 'number'
+        ? raw.break_after_hours
+        : defaults.restBreakRequiredAfterHours,
+    minimumRestBreakMinutes:
+      typeof raw.minimumRestBreakMinutes === 'number'
+        ? raw.minimumRestBreakMinutes
+        : typeof raw.min_break_minutes === 'number'
+        ? raw.min_break_minutes
+        : defaults.minimumRestBreakMinutes,
+    dailyRestPeriodHours:
+      typeof raw.dailyRestPeriodHours === 'number'
+        ? raw.dailyRestPeriodHours
+        : typeof raw.daily_rest_hours === 'number'
+        ? raw.daily_rest_hours
+        : defaults.dailyRestPeriodHours,
+    paidBreakMinutes:
+      typeof raw.paidBreakMinutes === 'number'
+        ? raw.paidBreakMinutes
+        : defaults.paidBreakMinutes,
+
+    weekdayMultiplier: Number(weekdayMult) || defaults.weekdayMultiplier,
+    enableWeekdayTiers:
+      typeof raw.enableWeekdayTiers === 'boolean'
+        ? raw.enableWeekdayTiers
+        : typeof raw.overtime_rate_tier2 === 'number',
+    weekdayTier1HoursCap:
+      typeof raw.weekdayTier1HoursCap === 'number'
+        ? raw.weekdayTier1HoursCap
+        : typeof raw.overtime_tier1_hours_cap === 'number'
+        ? raw.overtime_tier1_hours_cap
+        : defaults.weekdayTier1HoursCap,
+    weekdayTier2Multiplier:
+      typeof raw.weekdayTier2Multiplier === 'number'
+        ? raw.weekdayTier2Multiplier
+        : typeof raw.overtime_rate_tier2 === 'number'
+        ? raw.overtime_rate_tier2
+        : defaults.weekdayTier2Multiplier,
+
+    weekendMultiplier: Number(weekendMult) || defaults.weekendMultiplier,
+    separateSaturdaySunday:
+      typeof raw.separateSaturdaySunday === 'boolean'
+        ? raw.separateSaturdaySunday
+        : defaults.separateSaturdaySunday,
+    saturdayMultiplier:
+      typeof raw.saturdayMultiplier === 'number'
+        ? raw.saturdayMultiplier
+        : defaults.saturdayMultiplier,
+    sundayMultiplier:
+      typeof raw.sundayMultiplier === 'number'
+        ? raw.sundayMultiplier
+        : defaults.sundayMultiplier,
+
+    holidayMultiplier: Number(holidayMult) || defaults.holidayMultiplier,
+
+    nightMultiplier: Number(nightMult) || defaults.nightMultiplier,
+    nightShiftWindowStart:
+      typeof raw.nightShiftWindowStart === 'string' && TIME_REGEX.test(raw.nightShiftWindowStart)
+        ? raw.nightShiftWindowStart
+        : defaults.nightShiftWindowStart,
+    nightShiftWindowEnd:
+      typeof raw.nightShiftWindowEnd === 'string' && TIME_REGEX.test(raw.nightShiftWindowEnd)
+        ? raw.nightShiftWindowEnd
+        : defaults.nightShiftWindowEnd,
+
+    maxDailyOvertimeHours:
+      typeof raw.maxDailyOvertimeHours === 'number'
+        ? raw.maxDailyOvertimeHours
+        : defaults.maxDailyOvertimeHours,
+    maxWeeklyOvertimeHours:
+      typeof raw.maxWeeklyOvertimeHours === 'number'
+        ? raw.maxWeeklyOvertimeHours
+        : defaults.maxWeeklyOvertimeHours,
+    maxMonthlyOvertimeHours:
+      typeof raw.maxMonthlyOvertimeHours === 'number'
+        ? raw.maxMonthlyOvertimeHours
+        : defaults.maxMonthlyOvertimeHours,
+    actionOnCapBreach: actionOnBreach,
+
+    requireManagerApproval:
+      typeof raw.requireManagerApproval === 'boolean'
+        ? raw.requireManagerApproval
+        : defaults.requireManagerApproval,
+    timeOffInLieuAllowed:
+      typeof raw.timeOffInLieuAllowed === 'boolean'
+        ? raw.timeOffInLieuAllowed
+        : defaults.timeOffInLieuAllowed,
+    notes: typeof raw.notes === 'string' ? raw.notes : defaults.notes,
+  };
+}
+
+/**
+ * Pure calculation helper evaluating overtime hours and pay multipliers according to
+ * ATTENDANCE_LOGIC.md §4 and PAYROLL_LOGIC.md §9.
+ */
+export interface OvertimeCalculationInput {
+  workedHours: number;
+  dayType?: 'weekday' | 'saturday' | 'sunday' | 'holiday';
+  nightHours?: number;
+  scheduledStandardHours?: number;
+}
+
+export interface OvertimeCalculationResult {
+  standardHours: number;
+  regularOvertimeHours: number;
+  tier1OvertimeHours: number;
+  tier2OvertimeHours: number;
+  overtimeHoursBeforeCap: number;
+  overtimeHoursPayable: number;
+  cappedHours: number;
+  isCapBreached: boolean;
+  capBreachMessage?: string;
+  effectiveMultiplier: number;
+  equivalentRegularHours: number;
+  nightHoursPayable: number;
+  nightRateMultiplier: number;
+}
+
+export function calculateOvertimePayBreakdown(
+  input: OvertimeCalculationInput,
+  rules: WorkingHoursOtRulePayload,
+): OvertimeCalculationResult {
+  const scheduledStandard = input.scheduledStandardHours ?? rules.standardDailyHours;
+  const standardHours = Math.min(input.workedHours, scheduledStandard);
+  const overtimeHoursRaw = Math.max(0, input.workedHours - standardHours);
+
+  let overtimeHoursPayable = overtimeHoursRaw;
+  let cappedHours = 0;
+  let isCapBreached = false;
+  let capBreachMessage: string | undefined;
+
+  const dailyCap = rules.maxDailyOvertimeHours;
+  if (dailyCap !== null && dailyCap !== undefined && overtimeHoursRaw > dailyCap) {
+    isCapBreached = true;
+    if (rules.actionOnCapBreach === 'auto_cap') {
+      cappedHours = overtimeHoursRaw - dailyCap;
+      overtimeHoursPayable = dailyCap;
+      capBreachMessage = `Overtime automatically capped at daily limit of ${dailyCap}h (${cappedHours}h removed).`;
+    } else {
+      capBreachMessage = `Overtime breach flagged: ${overtimeHoursRaw}h worked exceeds daily limit of ${dailyCap}h. Sent for supervisor review.`;
+    }
+  }
+
+  const dayType = input.dayType || 'weekday';
+  let tier1OT = 0;
+  let tier2OT = 0;
+  let baseOtMultiplier = rules.weekdayMultiplier;
+
+  if (dayType === 'holiday') {
+    baseOtMultiplier = rules.holidayMultiplier;
+    tier1OT = overtimeHoursPayable;
+  } else if (dayType === 'saturday') {
+    baseOtMultiplier = rules.separateSaturdaySunday && rules.saturdayMultiplier
+      ? rules.saturdayMultiplier
+      : rules.weekendMultiplier;
+    tier1OT = overtimeHoursPayable;
+  } else if (dayType === 'sunday') {
+    baseOtMultiplier = rules.separateSaturdaySunday && rules.sundayMultiplier
+      ? rules.sundayMultiplier
+      : rules.weekendMultiplier;
+    tier1OT = overtimeHoursPayable;
+  } else {
+    // Weekday overtime tiers
+    if (rules.enableWeekdayTiers && rules.weekdayTier1HoursCap && rules.weekdayTier2Multiplier) {
+      const tier1Cap = rules.weekdayTier1HoursCap;
+      tier1OT = Math.min(overtimeHoursPayable, tier1Cap);
+      tier2OT = Math.max(0, overtimeHoursPayable - tier1Cap);
+    } else {
+      tier1OT = overtimeHoursPayable;
+      tier2OT = 0;
+    }
+  }
+
+  // Calculate equivalent regular hours:
+  // standard hours × 1.0 + tier1 × rate1 + tier2 × rate2 + night loading
+  const tier1Rate = dayType === 'weekday' ? rules.weekdayMultiplier : baseOtMultiplier;
+  const tier2Rate = rules.weekdayTier2Multiplier ?? rules.weekdayMultiplier;
+
+  const overtimePayWeight = (tier1OT * tier1Rate) + (tier2OT * tier2Rate);
+  const nightHours = Math.min(input.nightHours ?? 0, input.workedHours);
+  const nightLoadingExcess = nightHours * Math.max(0, rules.nightMultiplier - 1.0);
+
+  const equivalentRegularHours = standardHours + overtimePayWeight + nightLoadingExcess;
+  const effectiveMultiplier = input.workedHours > 0
+    ? equivalentRegularHours / input.workedHours
+    : 1.0;
+
+  return {
+    standardHours: Number(standardHours.toFixed(2)),
+    regularOvertimeHours: Number(overtimeHoursPayable.toFixed(2)),
+    tier1OvertimeHours: Number(tier1OT.toFixed(2)),
+    tier2OvertimeHours: Number(tier2OT.toFixed(2)),
+    overtimeHoursBeforeCap: Number(overtimeHoursRaw.toFixed(2)),
+    overtimeHoursPayable: Number(overtimeHoursPayable.toFixed(2)),
+    cappedHours: Number(cappedHours.toFixed(2)),
+    isCapBreached,
+    capBreachMessage,
+    effectiveMultiplier: Number(effectiveMultiplier.toFixed(3)),
+    equivalentRegularHours: Number(equivalentRegularHours.toFixed(2)),
+    nightHoursPayable: Number(nightHours.toFixed(2)),
+    nightRateMultiplier: rules.nightMultiplier,
+  };
+}

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CountryRuleType, RuleVersionStatus } from '@prisma/client';
+import { getDefaultWorkingHoursOtForCountry } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import { RuleVersionsService } from './rule-versions.service';
@@ -236,7 +237,7 @@ describe('RuleVersionsService', () => {
             status: 'published',
             sourceReference: 'Fair Work Commission OT Ruling 2024',
             changeNote: 'Overlap test',
-            payload: {},
+            payload: getDefaultWorkingHoursOtForCountry('AUS') as unknown as Record<string, unknown>,
           },
           mockUserId,
         ),
@@ -276,7 +277,7 @@ describe('RuleVersionsService', () => {
           status: 'published',
           sourceReference: 'Fair Work Act 2025 Overtime Schedule',
           changeNote: 'Next year overtime rules',
-          payload: { multiplier: 1.5 },
+          payload: getDefaultWorkingHoursOtForCountry('AUS') as unknown as Record<string, unknown>,
         },
         mockUserId,
       );
@@ -1231,6 +1232,186 @@ describe('RuleVersionsService', () => {
                 proRataApplicable: true,
               },
             ],
+          },
+        },
+        mockUserId,
+      );
+
+      expect(result.version).toBe(1);
+      expect(result.status).toBe('published');
+    });
+  });
+
+  describe('Overtime and Working Hours inline validation (ATTENDANCE_LOGIC.md §4 & PAYROLL_LOGIC.md §9)', () => {
+    it('should reject working hours/ot rule when standardDailyHours is invalid or negative', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'ot',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid standard hours',
+            payload: {
+              standardDailyHours: -5,
+              standardWeeklyHours: 38,
+              weekdayMultiplier: 1.5,
+              weekendMultiplier: 2.0,
+              holidayMultiplier: 2.5,
+              nightMultiplier: 1.15,
+              actionOnCapBreach: 'flag',
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject working hours/ot rule when maxDailyHours is less than standardDailyHours', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'ot',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Max daily hours less than standard',
+            payload: {
+              standardDailyHours: 8,
+              standardWeeklyHours: 40,
+              maxDailyHours: 6, // invalid
+              maxWeeklyHours: 48,
+              weekdayMultiplier: 1.5,
+              weekendMultiplier: 2.0,
+              holidayMultiplier: 2.5,
+              nightMultiplier: 1.15,
+              actionOnCapBreach: 'flag',
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject working hours/ot rule when multipliers are out of range (< 1.0 or > 10.0)', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'ot',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid multiplier',
+            payload: {
+              standardDailyHours: 7.6,
+              standardWeeklyHours: 38,
+              weekdayMultiplier: 0.8, // invalid: less than 1.0
+              weekendMultiplier: 2.0,
+              holidayMultiplier: 2.5,
+              nightMultiplier: 1.15,
+              actionOnCapBreach: 'flag',
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject working hours/ot rule when actionOnCapBreach is invalid', async () => {
+      await expect(
+        service.createVersion(
+          mockCountryId,
+          {
+            ruleType: 'ot',
+            effectiveFrom: '2025-01-01',
+            sourceReference: 'NES',
+            changeNote: 'Invalid cap action',
+            payload: {
+              standardDailyHours: 7.6,
+              standardWeeklyHours: 38,
+              weekdayMultiplier: 1.5,
+              weekendMultiplier: 2.0,
+              holidayMultiplier: 2.5,
+              nightMultiplier: 1.15,
+              actionOnCapBreach: 'ignore' as any, // invalid
+            },
+          },
+          mockUserId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should accept valid working hours and overtime rule and save version', async () => {
+      prisma.unscoped.countryRule.findFirst.mockResolvedValueOnce(null);
+      prisma.unscoped.countryRule.findMany.mockResolvedValueOnce([]);
+      prisma.unscoped.countryRule.create.mockResolvedValueOnce({
+        id: 'ot-version-1',
+        countryId: mockCountryId,
+        stateProvinceId: null,
+        ruleType: 'ot',
+        version: 1,
+        status: 'published',
+        effectiveFrom: new Date('2025-01-01'),
+        effectiveTo: null,
+        sourceReference: 'Fair Work Act 2009 (NES §62 & Modern Awards)',
+        changeNote: 'Australian statutory standard hours and overtime multipliers',
+        payload: {
+          standardDailyHours: 7.6,
+          standardWeeklyHours: 38,
+          maxDailyHours: 10,
+          maxWeeklyHours: 48,
+          maxConsecutiveDays: 6,
+          restBreakRequiredAfterHours: 5,
+          minimumRestBreakMinutes: 30,
+          dailyRestPeriodHours: 11,
+          weekdayMultiplier: 1.5,
+          enableWeekdayTiers: true,
+          weekdayTier1HoursCap: 2,
+          weekdayTier2Multiplier: 2.0,
+          weekendMultiplier: 2.0,
+          holidayMultiplier: 2.5,
+          nightMultiplier: 1.15,
+          nightShiftWindowStart: '18:00',
+          nightShiftWindowEnd: '06:00',
+          maxDailyOvertimeHours: 4,
+          maxWeeklyOvertimeHours: 12,
+          actionOnCapBreach: 'flag',
+        },
+        createdBy: mockUserId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        stateProvince: null,
+      });
+
+      const result = await service.createVersion(
+        mockCountryId,
+        {
+          ruleType: 'ot',
+          status: 'published',
+          effectiveFrom: '2025-01-01',
+          sourceReference: 'Fair Work Act 2009 (NES §62 & Modern Awards)',
+          changeNote: 'Australian statutory standard hours and overtime multipliers',
+          payload: {
+            standardDailyHours: 7.6,
+            standardWeeklyHours: 38,
+            maxDailyHours: 10,
+            maxWeeklyHours: 48,
+            maxConsecutiveDays: 6,
+            restBreakRequiredAfterHours: 5,
+            minimumRestBreakMinutes: 30,
+            dailyRestPeriodHours: 11,
+            weekdayMultiplier: 1.5,
+            enableWeekdayTiers: true,
+            weekdayTier1HoursCap: 2,
+            weekdayTier2Multiplier: 2.0,
+            weekendMultiplier: 2.0,
+            holidayMultiplier: 2.5,
+            nightMultiplier: 1.15,
+            nightShiftWindowStart: '18:00',
+            nightShiftWindowEnd: '06:00',
+            maxDailyOvertimeHours: 4,
+            maxWeeklyOvertimeHours: 12,
+            actionOnCapBreach: 'flag',
           },
         },
         mockUserId,

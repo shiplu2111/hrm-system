@@ -21,6 +21,7 @@ import {
   validateLeaveRulePayload,
   validateSocialSecurityPayload,
   validateTaxBrackets,
+  validateWorkingHoursOtPayload,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
@@ -150,6 +151,13 @@ export class RuleVersionsService {
     if (ruleType === 'leave' && dto.payload) {
       this.validateLeavePayload(dto.payload);
     }
+    // Validate working hours / overtime rule structure
+    if (
+      (ruleType === 'ot' || ruleType === 'working_hours') &&
+      dto.payload
+    ) {
+      this.validateWorkingHoursOtPayload(dto.payload);
+    }
 
     // Calculate incremental version number
     const maxVersionRecord = await this.prisma.unscoped.countryRule.findFirst({
@@ -266,6 +274,12 @@ export class RuleVersionsService {
     }
     if (existing.ruleType === 'leave' && dto.payload) {
       this.validateLeavePayload(dto.payload);
+    }
+    if (
+      (existing.ruleType === 'ot' || existing.ruleType === 'working_hours') &&
+      dto.payload
+    ) {
+      this.validateWorkingHoursOtPayload(dto.payload);
     }
 
     const effectiveFrom = dto.effectiveFrom
@@ -768,6 +782,19 @@ export class RuleVersionsService {
         message:
           res.summaryError ||
           'Invalid statutory leave rules configuration.',
+        details: res.errors,
+      });
+    }
+  }
+
+  private validateWorkingHoursOtPayload(payload: unknown): void {
+    const res = validateWorkingHoursOtPayload(payload);
+    if (!res.isValid) {
+      throw new BadRequestException({
+        code: 'INVALID_WORKING_HOURS_OT_PAYLOAD',
+        message:
+          res.summaryError ||
+          'Invalid working hours and overtime rules configuration.',
         details: res.errors,
       });
     }

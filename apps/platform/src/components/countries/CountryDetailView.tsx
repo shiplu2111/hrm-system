@@ -65,6 +65,7 @@ import { RuleVersionEditor } from '../rules/RuleVersionEditor';
 import { TaxRulesEditor } from '../tax/TaxRulesEditor';
 import { SocialSecurityRulesEditor } from '../social-security/SocialSecurityRulesEditor';
 import { LeaveRulesEditor } from '../leave/LeaveRulesEditor';
+import { WorkingHoursOtRulesEditor } from '../working-hours-ot/WorkingHoursOtRulesEditor';
 import { COMMON_TIMEZONES, ISO_FLAGS } from './CountriesList';
 
 export type CountryDetailTab =
@@ -438,14 +439,14 @@ export function CountryDetailView({
         tone: rules.some((r) => r.ruleType === 'leave') ? 'green' : 'amber',
       },
       'Working Hours': {
-        isComplete: rules.some((r) => r.ruleType === 'ot'),
-        label: rules.some((r) => r.ruleType === 'ot') ? 'Configured' : 'Pending',
-        tone: rules.some((r) => r.ruleType === 'ot') ? 'green' : 'amber',
+        isComplete: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours'),
+        label: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours') ? 'Configured' : 'Pending',
+        tone: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours') ? 'green' : 'amber',
       },
       Overtime: {
-        isComplete: rules.some((r) => r.ruleType === 'ot'),
-        label: rules.some((r) => r.ruleType === 'ot') ? 'Configured' : 'Pending',
-        tone: rules.some((r) => r.ruleType === 'ot') ? 'green' : 'amber',
+        isComplete: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours'),
+        label: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours') ? 'Configured' : 'Pending',
+        tone: rules.some((r) => r.ruleType === 'ot' || r.ruleType === 'working_hours') ? 'green' : 'amber',
       },
       'Public Holidays': {
         isComplete: rules.some((r) => r.ruleType === 'public_holiday'),
@@ -1322,13 +1323,26 @@ export function CountryDetailView({
         />
       )}
 
-      {/* 6 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
+      {(activeTab === 'Working Hours' || activeTab === 'Overtime') && (
+        <WorkingHoursOtRulesEditor
+          country={country}
+          states={states}
+          configuration={configuration}
+          completeness={tabCompleteness[activeTab]}
+          onRefresh={onRefresh}
+          defaultRuleType={activeTab === 'Working Hours' ? 'working_hours' : 'ot'}
+        />
+      )}
+
+      {/* 7 to 13. OTHER STATUTORY TABS (LINKED STAGES WITH COMPLETENESS BADGES) */}
       {activeTab !== 'General' &&
         activeTab !== 'Currency' &&
         activeTab !== 'Tax' &&
         activeTab !== 'Social Security' &&
         activeTab !== 'Pension' &&
-        activeTab !== 'Leave' && (
+        activeTab !== 'Leave' &&
+        activeTab !== 'Working Hours' &&
+        activeTab !== 'Overtime' && (
           <LinkedStageTabPanel
             tab={ALL_TABS.find((t) => t.key === activeTab)!}
             country={country}
