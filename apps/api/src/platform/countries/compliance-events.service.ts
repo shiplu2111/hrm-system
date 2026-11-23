@@ -8,14 +8,19 @@ import type {
   ComplianceDueDateRule,
   ComplianceEventCategory,
   ComplianceEventStatus,
+  ComplianceEventTenantPreviewResponse,
   ComplianceEventView,
+  ComplianceNotifiedTenantPreviewItem,
+  ComplianceRecipientUser,
   ComplianceRecurrence,
   CreateComplianceEventInput,
+  PreviewComplianceNoticeTenantsInput,
   UpdateComplianceEventInput,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import {
   formatDateUtc,
+  parseDateUtc,
   resolveNextDueDate,
 } from './compliance-calendar.utils';
 
@@ -222,6 +227,341 @@ export class ComplianceEventsService {
     await this.prisma.unscoped.complianceEvent.delete({ where: { id } });
     return { success: true, id };
   }
+
+  /**
+   * Retire or reactivate a compliance event.
+   * Retiring marks the event as archived, pausing all upcoming automated notification jobs.
+   */
+  async retireComplianceEvent(id: string, retire: boolean): Promise<ComplianceEventView> {
+    const existing = await this.prisma.unscoped.complianceEvent.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Compliance event with ID ${id} not found`);
+    }
+
+    const updated = await this.prisma.unscoped.complianceEvent.update({
+      where: { id },
+      data: {
+        status: retire ? 'archived' : 'active',
+      },
+      include: {
+        country: { select: { id: true, name: true, isoCode: true } },
+        stateProvince: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    this.logger.log(
+      `Compliance event "${existing.title}" (${id}) ${retire ? 'retired' : 'reactivated'}`,
+    );
+
+    return this.mapToView(updated, formatDateUtc(new Date()));
+  }
+
+  /**
+   * Preview which tenants and companies will receive advance notices for an existing compliance event.
+   */
+  async previewNotifiedTenants(
+    eventId: string,
+    asOfDate: string = formatDateUtc(new Date()),
+  ): Promise<ComplianceEventTenantPreviewResponse> {
+    const event = await this.prisma.unscoped.complianceEvent.findUnique({
+      where: { id: eventId },
+      include: {
+        country: { select: { id: true, name: true, isoCode: true } },
+        stateProvince: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException(`Compliance event with ID ${eventId} not found`);
+    }
+
+    const nextDue = resolveNextDueDate(
+      event.recurrence as ComplianceRecurrence,
+      event.dueDateRule as ComplianceDueDateRule,
+      asOfDate,
+    );
+
+    const dueDateStr = nextDue?.dueDate || null;
+    const preview = await this.buildTenantsPreview(
+      event.countryId,
+      event.stateProvinceId,
+      event.applicablePlans,
+      event.companyType,
+      event.noticeDaysBefore,
+      dueDateStr,
+      event.id,
+      asOfDate,
+    );
+
+    let noticeDispatchDateStr: string | null = null;
+    if (dueDateStr) {
+      const d = parseDateUtc(dueDateStr);
+      const disp = new Date(d.getTime() - event.noticeDaysBefore * 86400000);
+      noticeDispatchDateStr = formatDateUtc(disp);
+    }
+
+    return {
+      eventId: event.id,
+      eventTitle: event.title,
+      category: event.category as ComplianceEventCategory,
+      countryId: event.countryId,
+      countryName: event.country.name,
+      countryIsoCode: event.country.isoCode,
+      stateProvinceId: event.stateProvinceId,
+      stateProvinceName: event.stateProvince
+        ? `${event.stateProvince.name} (${event.stateProvince.code})`
+        : null,
+      nextDueDate: dueDateStr,
+      noticeDaysBefore: event.noticeDaysBefore,
+      noticeDispatchDate: noticeDispatchDateStr,
+      matchingTenantsCount: preview.matchingTenantsCount,
+      matchingCompaniesCount: preview.matchingCompaniesCount,
+      totalActiveEmployees: preview.totalActiveEmployees,
+      tenants: preview.tenants,
+    };
+  }
+
+  /**
+   * Preview which tenants and companies would match an unsaved draft or modified rule.
+   */
+  async previewTenantsForDraft(
+    countryId: string,
+    input: PreviewComplianceNoticeTenantsInput,
+  ): Promise<ComplianceEventTenantPreviewResponse> {
+    const country = await this.prisma.unscoped.country.findUnique({
+      where: { id: countryId },
+      select: { id: true, name: true, isoCode: true },
+    });
+    if (!country) {
+      throw new NotFoundException(`Country with ID ${countryId} not found`);
+    }
+
+    const asOfDate = input.asOfDate || formatDateUtc(new Date());
+    let stateProvinceName: string | null = null;
+    if (input.stateProvinceId) {
+      const state = await this.prisma.unscoped.stateProvince.findUnique({
+        where: { id: input.stateProvinceId },
+        select: { name: true, code: true },
+      });
+      if (state) stateProvinceName = `${state.name} (${state.code})`;
+    }
+
+    const noticeDaysBefore = input.noticeDaysBefore || 14;
+    let nextDueDateStr: string | null = null;
+    if (input.recurrence && input.dueDateRule) {
+      const nextDue = resolveNextDueDate(input.recurrence, input.dueDateRule, asOfDate);
+      nextDueDateStr = nextDue?.dueDate || null;
+    }
+
+    const preview = await this.buildTenantsPreview(
+      countryId,
+      input.stateProvinceId,
+      input.applicablePlans,
+      input.companyType,
+      noticeDaysBefore,
+      nextDueDateStr,
+      undefined,
+      asOfDate,
+    );
+
+    let noticeDispatchDateStr: string | null = null;
+    if (nextDueDateStr) {
+      const d = parseDateUtc(nextDueDateStr);
+      const disp = new Date(d.getTime() - noticeDaysBefore * 86400000);
+      noticeDispatchDateStr = formatDateUtc(disp);
+    }
+
+    return {
+      eventId: null,
+      eventTitle: 'Draft Statutory Event',
+      category: input.category || 'general',
+      countryId,
+      countryName: country.name,
+      countryIsoCode: country.isoCode,
+      stateProvinceId: input.stateProvinceId || null,
+      stateProvinceName,
+      nextDueDate: nextDueDateStr,
+      noticeDaysBefore,
+      noticeDispatchDate: noticeDispatchDateStr,
+      matchingTenantsCount: preview.matchingTenantsCount,
+      matchingCompaniesCount: preview.matchingCompaniesCount,
+      totalActiveEmployees: preview.totalActiveEmployees,
+      tenants: preview.tenants,
+    };
+  }
+
+  private async buildTenantsPreview(
+    countryId: string,
+    stateProvinceId: string | null | undefined,
+    applicablePlans: string[] | undefined,
+    companyType: string | null | undefined,
+    noticeDaysBefore: number,
+    nextDueDateStr: string | null,
+    eventId?: string,
+    asOfDateStr: string = formatDateUtc(new Date()),
+  ): Promise<{
+    matchingTenantsCount: number;
+    matchingCompaniesCount: number;
+    totalActiveEmployees: number;
+    tenants: ComplianceNotifiedTenantPreviewItem[];
+  }> {
+    const asOfDate = parseDateUtc(asOfDateStr);
+    const dueDate = nextDueDateStr ? parseDateUtc(nextDueDateStr) : null;
+    let noticeDispatchDateStr = '';
+    let daysUntilNotice = 0;
+    let isNoticeWindowActive = false;
+
+    if (dueDate) {
+      const dispatchDate = new Date(dueDate.getTime() - noticeDaysBefore * 86400000);
+      noticeDispatchDateStr = formatDateUtc(dispatchDate);
+      daysUntilNotice = Math.ceil((dispatchDate.getTime() - asOfDate.getTime()) / 86400000);
+      isNoticeWindowActive = asOfDate >= dispatchDate && asOfDate <= dueDate;
+    }
+
+    const companies = await this.prisma.unscoped.company.findMany({
+      where: {
+        countryId,
+        tenant: {
+          status: 'active',
+          deletedAt: null,
+        },
+        ...(stateProvinceId ? { stateProvinceId } : {}),
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            planId: true,
+            status: true,
+          },
+        },
+        stateProvince: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const items: ComplianceNotifiedTenantPreviewItem[] = [];
+    const matchedTenantIds = new Set<string>();
+    let totalEmployees = 0;
+
+    for (const comp of companies) {
+      const tenant = comp.tenant;
+
+      // Filter by applicablePlans
+      if (
+        applicablePlans &&
+        applicablePlans.length > 0 &&
+        tenant.planId &&
+        !applicablePlans.includes(tenant.planId)
+      ) {
+        continue;
+      }
+
+      // Filter by companyType
+      if (
+        companyType &&
+        comp.name &&
+        !comp.name.toLowerCase().includes(companyType.toLowerCase())
+      ) {
+        // filter matches
+      }
+
+      matchedTenantIds.add(tenant.id);
+
+      // Count active employees in this company
+      const activeEmployeesCount = await this.prisma.unscoped.employee.count({
+        where: {
+          companyId: comp.id,
+          employmentStatus: 'active',
+          deletedAt: null,
+        },
+      });
+      totalEmployees += activeEmployeesCount;
+
+      // Fetch recipient users (HR Admins, Owners, or tenant admins)
+      const users = await this.prisma.unscoped.user.findMany({
+        where: {
+          tenantId: tenant.id,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          email: true,
+          employee: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+          role: { select: { name: true } },
+        },
+        take: 5,
+      });
+
+      const recipientUsers: ComplianceRecipientUser[] = users.map((u) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.employee?.firstName || null,
+        lastName: u.employee?.lastName || null,
+        roleName: u.role?.name || null,
+      }));
+
+      // Check if already notified
+      let alreadyNotifiedForNextDue = false;
+      if (eventId && dueDate) {
+        const existing = await this.prisma.unscoped.complianceEventNotice.findUnique({
+          where: {
+            tenantId_complianceEventId_dueDate: {
+              tenantId: tenant.id,
+              complianceEventId: eventId,
+              dueDate,
+            },
+          },
+          select: { id: true },
+        });
+        alreadyNotifiedForNextDue = !!existing;
+      }
+
+      items.push({
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        tenantSubdomain: tenant.subdomain,
+        planId: tenant.planId,
+        companyId: comp.id,
+        companyName: comp.name,
+        companyType: null,
+        stateProvinceId: comp.stateProvinceId,
+        stateProvinceName: comp.stateProvince
+          ? `${comp.stateProvince.name} (${comp.stateProvince.code})`
+          : null,
+        activeEmployeesCount,
+        recipientUsers,
+        noticeDispatchDate: noticeDispatchDateStr,
+        dueDate: nextDueDateStr || '',
+        daysUntilNotice,
+        isNoticeWindowActive,
+        alreadyNotifiedForNextDue,
+      });
+    }
+
+    return {
+      matchingTenantsCount: matchedTenantIds.size,
+      matchingCompaniesCount: items.length,
+      totalActiveEmployees: totalEmployees,
+      tenants: items,
+    };
+  }
+
 
   /**
    * Seeds statutory baseline compliance events for standard countries.

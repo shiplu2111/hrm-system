@@ -139,3 +139,61 @@ export interface ComplianceNoticeView {
   completedBy: string | null;
   createdAt: string;
 }
+
+export interface ComplianceRecipientUser {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  roleName?: string | null;
+}
+
+export interface ComplianceNotifiedTenantPreviewItem {
+  tenantId: string;
+  tenantName: string;
+  tenantSubdomain: string;
+  planId: string | null;
+  companyId: string;
+  companyName: string;
+  companyType: string | null;
+  stateProvinceId: string | null;
+  stateProvinceName: string | null;
+  activeEmployeesCount: number;
+  recipientUsers: ComplianceRecipientUser[];
+  noticeDispatchDate: string;
+  dueDate: string;
+  daysUntilNotice: number;
+  isNoticeWindowActive: boolean;
+  alreadyNotifiedForNextDue: boolean;
+}
+
+export interface ComplianceEventTenantPreviewResponse {
+  eventId?: string | null;
+  eventTitle: string;
+  category: ComplianceEventCategory;
+  countryId: string;
+  countryName: string;
+  countryIsoCode: string;
+  stateProvinceId: string | null;
+  stateProvinceName: string | null;
+  nextDueDate: string | null;
+  noticeDaysBefore: number;
+  noticeDispatchDate: string | null;
+  matchingTenantsCount: number;
+  matchingCompaniesCount: number;
+  totalActiveEmployees: number;
+  tenants: ComplianceNotifiedTenantPreviewItem[];
+}
+
+export interface PreviewComplianceNoticeTenantsInput {
+  countryId: string;
+  stateProvinceId?: string | null;
+  category?: ComplianceEventCategory;
+  recurrence?: ComplianceRecurrence;
+  dueDateRule?: ComplianceDueDateRule;
+  applicablePlans?: string[];
+  companyType?: string | null;
+  noticeDaysBefore?: number;
+  asOfDate?: string;
+}
+

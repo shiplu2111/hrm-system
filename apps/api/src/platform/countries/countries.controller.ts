@@ -20,6 +20,7 @@ import type { Request } from 'express';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
   BulkImportStatesResult,
+  ComplianceEventTenantPreviewResponse,
   ComplianceEventView,
   ComplianceNoticeJobRunResult,
   CountryConfigStatusView,
@@ -49,6 +50,8 @@ import { ComplianceNoticeJobService } from './compliance-notice-job.service';
 import { RuleSandboxSimulationDto } from './dto/rule-sandbox.dto';
 import {
   CreateComplianceEventDto,
+  PreviewComplianceNoticeTenantsDto,
+  RetireComplianceEventDto,
   RunComplianceNoticeJobDto,
   UpdateComplianceEventDto,
 } from './dto/compliance-events.dto';
@@ -609,6 +612,45 @@ export class CountriesController {
   ): Promise<ApiEnvelope<ComplianceEventView>> {
     return {
       data: await this.complianceEventsService.updateComplianceEvent(eventId, dto),
+    };
+  }
+
+  @Patch('compliance-events/:eventId/retire')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({ summary: 'Mark a compliance event as retired or reactivate it' })
+  async retireComplianceEvent(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Body() dto: RetireComplianceEventDto,
+  ): Promise<ApiEnvelope<ComplianceEventView>> {
+    return {
+      data: await this.complianceEventsService.retireComplianceEvent(eventId, dto.retire),
+    };
+  }
+
+  @Get('compliance-events/:eventId/preview-tenants')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'Preview which tenants will receive advance notices for an event' })
+  async previewNotifiedTenants(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Query('asOfDate') asOfDate?: string,
+  ): Promise<ApiEnvelope<ComplianceEventTenantPreviewResponse>> {
+    return {
+      data: await this.complianceEventsService.previewNotifiedTenants(eventId, asOfDate),
+    };
+  }
+
+  @Post(':countryId/compliance-events/preview-tenants')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'Preview which tenants would receive notices for a draft rule' })
+  async previewTenantsForDraft(
+    @Param('countryId', ParseUUIDPipe) countryId: string,
+    @Body() dto: PreviewComplianceNoticeTenantsDto,
+  ): Promise<ApiEnvelope<ComplianceEventTenantPreviewResponse>> {
+    return {
+      data: await this.complianceEventsService.previewTenantsForDraft(countryId, {
+        countryId,
+        ...dto,
+      }),
     };
   }
 

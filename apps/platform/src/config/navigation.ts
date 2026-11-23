@@ -3,6 +3,7 @@ import {
   Activity,
   BellRing,
   Building2,
+  CalendarClock,
   CircleDollarSign,
   CreditCard,
   Database,
@@ -35,6 +36,7 @@ export type PlatformViewKey =
   | 'billing'
   | 'billing-invoices'
   | 'country-compliance'
+  | 'compliance-calendar'
   | 'rule-approvals'
   | 'rule-sandbox'
   | 'statutory-rules'
@@ -169,6 +171,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         label: 'Country Configuration',
         description: 'Statutory employment rules, tax brackets, and official holiday calendars',
         icon: Globe2,
+        badge: 'Live',
+        badgeTone: 'emerald',
+        permission: { module: 'country', action: 'view' },
+      },
+      {
+        key: 'compliance-calendar',
+        label: 'Compliance Calendar',
+        description: 'Month and list calendar views, deadline rules, tenant preview, and retirement tracking',
+        icon: CalendarClock,
         badge: 'Live',
         badgeTone: 'emerald',
         permission: { module: 'country', action: 'view' },

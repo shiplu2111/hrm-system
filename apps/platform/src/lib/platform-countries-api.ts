@@ -1,6 +1,7 @@
 import type {
   BulkImportStatesInput,
   BulkImportStatesResult,
+  ComplianceEventTenantPreviewResponse,
   ComplianceEventView,
   ComplianceNoticeJobRunInput,
   ComplianceNoticeJobRunResult,
@@ -15,6 +16,7 @@ import type {
   CreateStateProvinceInput,
   InheritingTenantsResponse,
   PendingRuleVersionView,
+  PreviewComplianceNoticeTenantsInput,
   PublishRuleVersionInput,
   RejectRuleVersionInput,
   RuleVersionDiffResult,
@@ -483,5 +485,42 @@ export function runComplianceNoticeJob(
     },
   );
 }
+
+export function retireComplianceEvent(
+  eventId: string,
+  retire: boolean,
+): Promise<ComplianceEventView> {
+  return apiRequest<ComplianceEventView>(
+    `/platform/countries/compliance-events/${eventId}/retire`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ retire }),
+    },
+  );
+}
+
+export function previewComplianceEventTenants(
+  eventId: string,
+  asOfDate?: string,
+): Promise<ComplianceEventTenantPreviewResponse> {
+  const qs = asOfDate ? `?asOfDate=${encodeURIComponent(asOfDate)}` : '';
+  return apiRequest<ComplianceEventTenantPreviewResponse>(
+    `/platform/countries/compliance-events/${eventId}/preview-tenants${qs}`,
+  );
+}
+
+export function previewDraftComplianceEventTenants(
+  countryId: string,
+  input: PreviewComplianceNoticeTenantsInput,
+): Promise<ComplianceEventTenantPreviewResponse> {
+  return apiRequest<ComplianceEventTenantPreviewResponse>(
+    `/platform/countries/${countryId}/compliance-events/preview-tenants`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 
 

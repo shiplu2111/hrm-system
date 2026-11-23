@@ -22,6 +22,7 @@ import { BrandingDomainsPage } from '@/pages/platform/BrandingDomainsPage';
 import { PlatformBillingPage } from '@/pages/platform/PlatformBillingPage';
 import { RevenueReportPage } from '@/pages/platform/RevenueReportPage';
 import { CountryCompliancePage } from '@/pages/platform/CountryCompliancePage';
+import { ComplianceCalendarPage } from '@/pages/platform/ComplianceCalendarPage';
 import { RuleApprovalsInboxPage } from '@/pages/platform/RuleApprovalsInboxPage';
 import { RuleSandboxPage } from '@/pages/platform/RuleSandboxPage';
 import { FeatureFlagsPage } from '@/pages/platform/FeatureFlagsPage';
@@ -153,6 +154,8 @@ export function PlatformShell({
         return <RevenueReportPage />;
       case 'country-compliance':
         return <CountryCompliancePage />;
+      case 'compliance-calendar':
+        return <ComplianceCalendarPage />;
       case 'rule-approvals':
         return <RuleApprovalsInboxPage />;
       case 'rule-sandbox':

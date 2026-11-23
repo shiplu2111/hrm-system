@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -252,4 +253,55 @@ export class UpdateNoticeStatusDto {
   @IsIn(['acknowledged', 'completed', 'dismissed'])
   status!: 'acknowledged' | 'completed' | 'dismissed';
 }
+
+export class PreviewComplianceNoticeTenantsDto {
+  @ApiPropertyOptional({ description: 'Optional state/province UUID filter' })
+  @IsOptional()
+  @IsUUID()
+  stateProvinceId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Compliance category' })
+  @IsOptional()
+  @IsString()
+  category?: ComplianceEventCategory;
+
+  @ApiPropertyOptional({ description: 'Recurrence type', enum: ['monthly', 'quarterly', 'yearly', 'fixed_date'] })
+  @IsOptional()
+  @IsEnum(['monthly', 'quarterly', 'yearly', 'fixed_date'])
+  recurrence?: ComplianceRecurrence;
+
+  @ApiPropertyOptional({ description: 'Structured due date rule', type: () => ComplianceDueDateRuleDto })
+  @IsOptional()
+  @IsObject()
+  dueDateRule?: ComplianceDueDateRuleDto;
+
+  @ApiPropertyOptional({ description: 'Applicable subscription plans' })
+  @IsOptional()
+  @IsArray()
+  applicablePlans?: string[];
+
+  @ApiPropertyOptional({ description: 'Company legal type filter' })
+  @IsOptional()
+  @IsString()
+  companyType?: string | null;
+
+  @ApiPropertyOptional({ description: 'Advance notice days before due' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  noticeDaysBefore?: number;
+
+  @ApiPropertyOptional({ description: 'As of evaluation date (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  asOfDate?: string;
+}
+
+export class RetireComplianceEventDto {
+  @ApiProperty({ description: 'Whether to retire (true) or reactivate (false) the event', example: true })
+  @IsNotEmpty()
+  @IsBoolean()
+  retire!: boolean;
+}
+
 
