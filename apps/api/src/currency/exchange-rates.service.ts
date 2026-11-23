@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   EmploymentContractStatus,
@@ -30,6 +31,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { PlatformExchangeRatesService } from '../platform/exchange-rates/platform-exchange-rates.service';
 import { parseDateOnly } from '../rule-resolver/effective-date.utils';
 import { formatRate, resolveExchangeRateRow } from './exchange-rate.utils';
 
@@ -58,6 +60,7 @@ export class ExchangeRatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    @Optional() private readonly platformExchangeRates?: PlatformExchangeRatesService,
   ) {}
 
   async listRates(tenantId: string): Promise<ExchangeRateRecord[]> {
@@ -388,6 +391,25 @@ export class ExchangeRatesService {
     const rows = await this.pairVersions(tenantId, base, quote);
     const match = resolveExchangeRateRow(rows, base, quote, asOfDate);
     if (!match) {
+      // Fallback to platform default exchange rate (MODULES.md §46, Phase 2 Stage 24.1)
+      if (this.platformExchangeRates) {
+        try {
+          const platformRate = await this.platformExchangeRates.resolveRate(base, quote, asOfDate);
+          return {
+            id: platformRate.id,
+            baseCurrency: platformRate.baseCurrency,
+            quoteCurrency: platformRate.quoteCurrency,
+            rate: platformRate.rate,
+            effectiveFrom: platformRate.effectiveFrom,
+            effectiveTo: platformRate.effectiveTo,
+            asOfDate: toDateOnly(asOfDate),
+            isIdentity: false,
+          };
+        } catch {
+          // No platform rate found either, proceed to not found exception
+        }
+      }
+
       throw new NotFoundException({
         code: 'NOT_FOUND',
         message: `No exchange rate for ${base}/${quote} effective on ${toDateOnly(asOfDate)}`,

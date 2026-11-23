@@ -5296,6 +5296,38 @@ model ExchangeRate {
   @@map("exchange_rates")
 }
 
+enum PlatformRateSource {
+  manual
+  provider
+  manual_override
+
+  @@map("platform_rate_source")
+}
+
+/// Platform-level baseline FX rates — effective-dated; cross-tenant default that tenants may override per Phase 2 Stage 24.1.
+model PlatformExchangeRate {
+  id              String             @id @default(uuid()) @db.Uuid
+  baseCurrency    String             @map("base_currency") @db.VarChar(3)
+  quoteCurrency   String             @map("quote_currency") @db.VarChar(3)
+  /// Base currency units received for 1 unit of quote currency (e.g. 1 USD -> 1.54 AUD).
+  rate            Decimal            @db.Decimal(18, 8)
+  /// Calculated inverse rate: 1 unit of base currency in quote currency (e.g. 1 AUD -> 0.64935065 USD).
+  inverseRate     Decimal?           @map("inverse_rate") @db.Decimal(18, 8)
+  effectiveFrom   DateTime           @map("effective_from") @db.Date
+  effectiveTo     DateTime?          @map("effective_to") @db.Date
+  source          PlatformRateSource @default(manual)
+  providerName    String?            @map("provider_name") @db.VarChar(64)
+  overrideReason  String?            @map("override_reason") @db.Text
+  notes           String?            @db.Text
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([baseCurrency, quoteCurrency, effectiveFrom])
+  @@index([source])
+  @@map("platform_exchange_rates")
+}
+
 // ---------------------------------------------------------------------------
 // §9 Audit & Security (DATABASE_SCHEMA.md, AUDIT_LOG.md)
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { PlatformStaffModule } from './staff/platform-staff.module';
 import { PlatformSubscriptionsModule } from './subscriptions/platform-subscriptions.module';
 import { PlatformSupportAccessModule } from './support-access/platform-support-access.module';
 import { PlatformTenantsModule } from './tenants/platform-tenants.module';
+import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-rates.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
+    PlatformExchangeRatesModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -35,6 +37,7 @@ import { PlatformTenantsModule } from './tenants/platform-tenants.module';
     PlatformAuditModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
+    PlatformExchangeRatesModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,

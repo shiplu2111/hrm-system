@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarClock,
   CircleDollarSign,
+  Coins,
   CreditCard,
   Database,
   FileCheck2,
@@ -41,6 +42,7 @@ export type PlatformViewKey =
   | 'rule-approvals'
   | 'rule-sandbox'
   | 'provisioning-templates'
+  | 'exchange-rates'
   | 'statutory-rules'
   | 'feature-flags'
   | 'platform-audit'
@@ -210,6 +212,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         description: 'Document types, leave policies, notifications, roles, checklists for new tenants (Stage C.0)',
         icon: Sparkles,
         badge: 'Stage C.0',
+        badgeTone: 'emerald',
+        permission: { module: 'country', action: 'view' },
+      },
+      {
+        key: 'exchange-rates',
+        label: 'Exchange Rates',
+        description: 'Platform baseline multi-currency rates, provider feeds, and rate history per pair',
+        icon: Coins,
+        badge: 'Stage 24.1',
         badgeTone: 'emerald',
         permission: { module: 'country', action: 'view' },
       },

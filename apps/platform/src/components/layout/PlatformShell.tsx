@@ -26,6 +26,7 @@ import { ComplianceCalendarPage } from '@/pages/platform/ComplianceCalendarPage'
 import { RuleApprovalsInboxPage } from '@/pages/platform/RuleApprovalsInboxPage';
 import { RuleSandboxPage } from '@/pages/platform/RuleSandboxPage';
 import { PlatformDefaultTemplatesPage } from '@/pages/platform/PlatformDefaultTemplatesPage';
+import { PlatformExchangeRatesPage } from '@/pages/platform/PlatformExchangeRatesPage';
 import { FeatureFlagsPage } from '@/pages/platform/FeatureFlagsPage';
 import { PlatformAuditPage } from '@/pages/platform/PlatformAuditPage';
 import { SupportTicketsPage } from '@/pages/platform/SupportTicketsPage';
@@ -163,6 +164,8 @@ export function PlatformShell({
         return <RuleSandboxPage />;
       case 'provisioning-templates':
         return <PlatformDefaultTemplatesPage />;
+      case 'exchange-rates':
+        return <PlatformExchangeRatesPage />;
       case 'feature-flags':
         return <FeatureFlagsPage />;
       case 'platform-audit':
