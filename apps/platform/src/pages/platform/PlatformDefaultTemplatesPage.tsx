@@ -12,11 +12,12 @@ import {
   Clock,
   Copy,
   Edit3,
-  ExternalLink,
+  Eye,
   FileCheck,
   FileText,
   Filter,
   Globe,
+  History,
   Info,
   Layers,
   Lock,
@@ -46,48 +47,45 @@ import {
 import { TemplatePayloadViewer } from '@/components/provisioning-templates/TemplatePayloadViewer';
 import { TemplateEditorModal } from '@/components/provisioning-templates/TemplateEditorModal';
 import { EffectiveTemplatesPreviewModal } from '@/components/provisioning-templates/EffectiveTemplatesPreviewModal';
+import { TemplateVersionHistoryModal } from '@/components/provisioning-templates/TemplateVersionHistoryModal';
+import { CategoryPreviewModal } from '@/components/provisioning-templates/CategoryPreviewModal';
 
-const CATEGORIES: {
-  key: PlatformTemplateCategory | 'all';
+// 5 primary tabs as requested: Documents, Leave, Notifications, Roles, Onboarding
+const TABS: {
+  id: PlatformTemplateCategory;
   label: string;
   icon: any;
   description: string;
 }[] = [
   {
-    key: 'all',
-    label: 'All Categories',
-    icon: Layers,
-    description: 'All platform baseline templates across all domains',
-  },
-  {
-    key: 'document_types',
-    label: 'Document Types',
+    id: 'document_types',
+    label: 'Documents',
     icon: FileText,
-    description: 'Standard employee onboarding verification and compliance document types',
+    description: 'Statutory verification, compliance, and employee onboarding document types',
   },
   {
-    key: 'leave_policies',
-    label: 'Leave Policies',
+    id: 'leave_policies',
+    label: 'Leave',
     icon: Calendar,
-    description: 'Statutory and company default leave entitlements, accruals, and approvals',
+    description: 'Statutory and company default leave entitlements, accruals, and carryover rules',
   },
   {
-    key: 'notification_templates',
-    label: 'Notification Templates',
+    id: 'notification_templates',
+    label: 'Notifications',
     icon: Sparkles,
-    description: 'Automated email and in-app notice templates dispatched for tenant events',
+    description: 'System notification triggers, email templates, push notifications, and notices',
   },
   {
-    key: 'default_roles',
-    label: 'Default Roles & RBAC',
+    id: 'default_roles',
+    label: 'Roles',
     icon: Shield,
-    description: 'Base roles (Owner, HR, Payroll, Manager, Employee) and permission sets',
+    description: 'Base RBAC tiers (Owner, Admin, HR, Payroll, Manager, Employee) and permission sets',
   },
   {
-    key: 'onboarding_checklists',
-    label: 'Onboarding Checklists',
+    id: 'onboarding_checklists',
+    label: 'Onboarding',
     icon: FileCheck,
-    description: 'Default multi-step onboarding workflows, task assignments, and document collection',
+    description: 'Multi-step onboarding workflows, task assignments, and document collection checklist',
   },
 ];
 
@@ -98,16 +96,20 @@ export function PlatformDefaultTemplatesPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
-  // Filters
+  // Active Tab: Documents, Leave, Notifications, Roles, Onboarding
+  const [activeTab, setActiveTab] = useState<PlatformTemplateCategory>('document_types');
+
+  // Filters per tab
   const [selectedCountryFilter, setSelectedCountryFilter] = useState<string>('all');
-  const [selectedCategory, setSelectedCategory] = useState<PlatformTemplateCategory | 'all'>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PlatformDefaultTemplate | null>(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isCrossTenantPreviewOpen, setIsCrossTenantPreviewOpen] = useState(false);
+  const [isCategoryPreviewOpen, setIsCategoryPreviewOpen] = useState(false);
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
 
   // Publishing state
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -123,8 +125,8 @@ export function PlatformDefaultTemplatesPage() {
       const [countriesRes, templatesRes] = await Promise.all([
         listCountries(),
         listPlatformDefaultTemplates({
+          category: activeTab,
           countryId: selectedCountryFilter === 'all' ? undefined : selectedCountryFilter,
-          category: selectedCategory === 'all' ? undefined : selectedCategory,
           status: selectedStatus === 'all' ? undefined : selectedStatus,
         }),
       ]);
@@ -139,14 +141,14 @@ export function PlatformDefaultTemplatesPage() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedCountryFilter, selectedCategory, selectedStatus]);
+  }, [activeTab, selectedCountryFilter, selectedStatus]);
 
   // Handle clone
   const handleClone = async (template: PlatformDefaultTemplate) => {
     try {
       const cloned = await clonePlatformDefaultTemplate(template.id);
       setActionSuccessMsg(
-        `Cloned version ${template.version} into new draft version ${cloned.version}.`,
+        `Cloned version ${template.version} into new draft version ${cloned.version}. Changing a default affects only tenants created afterwards, never existing tenants.`,
       );
       await fetchData();
     } catch (err: any) {
@@ -164,7 +166,7 @@ export function PlatformDefaultTemplatesPage() {
         changeSummary: `Published version ${publishConfirmModal.version}`,
       });
       setActionSuccessMsg(
-        `Template "${publishConfirmModal.name}" v${publishConfirmModal.version} is now published. Changing a default affects only tenants created afterwards, never existing tenants.`,
+        `Template "${publishConfirmModal.name}" v${publishConfirmModal.version} is now published. Applies to new tenants only — existing tenants are never affected.`,
       );
       setPublishConfirmModal(null);
       await fetchData();
@@ -179,7 +181,7 @@ export function PlatformDefaultTemplatesPage() {
   const handleArchive = async (template: PlatformDefaultTemplate) => {
     if (
       !window.confirm(
-        `Archive template "${template.name}" (v${template.version})? It will no longer be used for new tenant provisioning.`,
+        `Archive template "${template.name}" (v${template.version})? It will no longer be seeded into newly created tenants. Existing tenants remain untouched.`,
       )
     ) {
       return;
@@ -193,8 +195,13 @@ export function PlatformDefaultTemplatesPage() {
     }
   };
 
-  // Filter templates
+  // Active Tab Metadata
+  const currentTabDef = TABS.find((t) => t.id === activeTab) || TABS[0];
+  const ActiveTabIcon = currentTabDef.icon;
+
+  // Filter templates on active tab
   const filteredTemplates = templates.filter((t) => {
+    if (t.category !== activeTab) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -205,9 +212,6 @@ export function PlatformDefaultTemplatesPage() {
     );
   });
 
-  const publishedCount = templates.filter((t) => t.status === 'published').length;
-  const draftCount = templates.filter((t) => t.status === 'draft').length;
-
   return (
     <div className="space-y-6">
       {/* 1. Header Hero Card */}
@@ -217,24 +221,24 @@ export function PlatformDefaultTemplatesPage() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-mono font-bold tracking-wide uppercase">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              Stage C.0 • Tenant Provisioning Defaults
+              Stage C.0 • Tenant Provisioning Baselines
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
               Platform Default Templates
             </h1>
             <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Manage versioned baseline configuration templates from which newly provisioned tenants are seeded: document types, leave policies, notifications, default roles & permission sets, and onboarding checklists.
+              Define and govern versioned baseline configurations for Documents, Leave, Notifications, Roles, and Onboarding seeded into newly provisioned tenant workspaces.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
-              onClick={() => setIsPreviewOpen(true)}
+              onClick={() => setIsCrossTenantPreviewOpen(true)}
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
             >
               <Building2 className="w-4 h-4 text-emerald-400" />
-              Preview Tenant Seed
+              Full Provisioning Seed Simulation
             </button>
             <button
               type="button"
@@ -251,24 +255,53 @@ export function PlatformDefaultTemplatesPage() {
         </div>
       </div>
 
-      {/* 2. Non-Negotiable Core Rule Notice Banner (UI Requirement) */}
-      <div className="rounded-2xl p-4 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-800/80 text-amber-950 dark:text-amber-200 shadow-sm flex items-start gap-3.5">
-        <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+      {/* 2. Top-Level Tabs Navigation: Documents, Leave, Notifications, Roles, Onboarding */}
+      <div className="flex items-center gap-2 overflow-x-auto p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 shadow-inner">
+        {TABS.map((tab) => {
+          const TabIcon = tab.icon;
+          const isSelected = activeTab === tab.id;
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.id);
+                setSearchQuery('');
+              }}
+              className={`flex-1 min-w-[130px] px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2.5 transition-all ${
+                isSelected
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md border border-slate-200/80 dark:border-slate-700'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <TabIcon className={`w-4 h-4 ${isSelected ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+              <span className="text-sm font-black">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 3. Non-Negotiable "Applies to New Tenants Only" Notice Banner */}
+      <div className="rounded-2xl p-4 bg-gradient-to-r from-amber-50 via-orange-50/70 to-amber-50 dark:from-amber-950/40 dark:via-orange-950/30 dark:to-amber-950/40 border-2 border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-100 shadow-sm flex items-start gap-3.5">
+        <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
           <ShieldAlert className="w-5 h-5" />
         </div>
-        <div className="space-y-1">
-          <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 dark:text-amber-100 flex items-center gap-2">
-            <span>Tenant Provisioning Isolation & Immutability Policy</span>
-            <span className="px-2 py-0.2 rounded-full text-[10px] font-mono bg-amber-200/80 dark:bg-amber-900 text-amber-800 dark:text-amber-200">
-              Guaranteed
+        <div className="space-y-1 flex-1">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 dark:text-amber-100 flex items-center gap-2">
+              <span>Applies to New Tenants Only — Existing Tenants are Never Affected</span>
+            </h4>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+              Tenant Provisioning Isolation Guaranteed
             </span>
-          </h4>
+          </div>
           <p className="text-xs text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
-            Platform default templates define the baseline configuration seeded into tenant workspaces at creation time.
+            Platform default templates in <strong>{currentTabDef.label}</strong> define the baseline configuration seeded into tenant workspaces at creation time.
             <strong className="font-bold underline decoration-amber-500 underline-offset-2 ml-1">
               Changing a default affects only tenants created afterwards, never existing tenants.
             </strong>{' '}
-            Existing tenants retain their independently customized roles, leave policies, document types, and settings without unexpected mutation or drift.
+            Existing tenants retain their independently customized {currentTabDef.label.toLowerCase()} without unexpected mutation, drift, or overwrites.
           </p>
         </div>
       </div>
@@ -305,164 +338,113 @@ export function PlatformDefaultTemplatesPage() {
         </div>
       )}
 
-      {/* 3. Stat KPI Counters */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-xl p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
-            Published Baselines
-          </span>
-          <span className="text-xl font-black text-slate-900 dark:text-white mt-1 block">
-            {publishedCount} versions
-          </span>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-            Active for new tenants
-          </span>
-        </div>
-
-        <div className="rounded-xl p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
-            Draft Versions
-          </span>
-          <span className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
-            {draftCount} pending
-          </span>
-          <span className="text-[10px] text-slate-400 font-medium">
-            Review before publishing
-          </span>
-        </div>
-
-        <div className="rounded-xl p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
-            Categories Covered
-          </span>
-          <span className="text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 block">
-            5 of 5
-          </span>
-          <span className="text-[10px] text-slate-400 font-medium">
-            Roles, Docs, Leave, Notifs, Onboarding
-          </span>
-        </div>
-
-        <div className="rounded-xl p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
-            Tenant Provisioning Hook
-          </span>
-          <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Stage C.0 Active
-          </span>
-          <span className="text-[10px] text-slate-400 font-medium block mt-1">
-            Linked to Tenant Lifecycle
-          </span>
-        </div>
-      </div>
-
-      {/* 4. Category Nav Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-800">
-        {CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
-          const isSelected = selectedCategory === cat.key;
-          const count =
-            cat.key === 'all'
-              ? templates.length
-              : templates.filter((t) => t.category === cat.key).length;
-
-          return (
-            <button
-              key={cat.key}
-              type="button"
-              onClick={() => setSelectedCategory(cat.key)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
-                isSelected
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {cat.label}
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                  isSelected
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300'
-                }`}
-              >
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 5. Filter Toolbar */}
+      {/* 4. Tab Toolbar: Country Filter, Status Filter, Search, Preview Button & Version History Button */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
-          {/* Search */}
-          <div className="relative min-w-[220px]">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search template name, source reference..."
-              className="w-full text-xs rounded-xl pl-9 pr-3 py-2 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
           {/* Country Jurisdiction Filter */}
-          <select
-            value={selectedCountryFilter}
-            onChange={(e) => setSelectedCountryFilter(e.target.value)}
-            className="text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2"
-          >
-            <option value="all">All Jurisdictions</option>
-            <option value="global">🌐 Global Default Only</option>
-            {countries.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.isoCode})
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <Globe className="w-4 h-4 text-indigo-500" />
+            <select
+              value={selectedCountryFilter}
+              onChange={(e) => setSelectedCountryFilter(e.target.value)}
+              className="text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            >
+              <option value="all">All Jurisdictions</option>
+              <option value="global">🌐 Global Default Only</option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.isoCode})
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Status Filter */}
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2"
+            className="text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 font-semibold"
           >
             <option value="all">All Statuses</option>
             <option value="published">Published Only</option>
             <option value="draft">Draft Only</option>
             <option value="archived">Archived</option>
           </select>
+
+          {/* Search Box */}
+          <div className="relative min-w-[200px] flex-1 max-w-sm">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Search ${currentTabDef.label.toLowerCase()} templates...`}
+              className="w-full text-xs rounded-xl pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={fetchData}
-          disabled={loading}
-          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title="Refresh templates"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        {/* Tab Actions: Preview & Version History */}
+        <div className="flex items-center gap-2">
+          {/* Preview Button for Active Category */}
+          <button
+            type="button"
+            onClick={() => setIsCategoryPreviewOpen(true)}
+            className="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors flex items-center gap-1.5 shadow-sm"
+          >
+            <Eye className="w-4 h-4 text-emerald-600" />
+            Preview {currentTabDef.label}
+          </button>
+
+          {/* Version History Button for Active Category */}
+          <button
+            type="button"
+            onClick={() => setIsVersionHistoryOpen(true)}
+            className="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors flex items-center gap-1.5 shadow-sm"
+          >
+            <History className="w-4 h-4 text-indigo-600" />
+            Version History
+          </button>
+
+          {/* Refresh */}
+          <button
+            type="button"
+            onClick={fetchData}
+            disabled={loading}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Refresh templates"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
-      {/* 6. Templates List */}
+      {/* 5. Templates List for Active Tab */}
       {loading ? (
-        <div className="p-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+        <div className="p-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
           <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
-          Loading platform default templates...
+          Loading {currentTabDef.label.toLowerCase()} default templates...
         </div>
       ) : filteredTemplates.length === 0 ? (
         <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-          <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+          <ActiveTabIcon className="w-10 h-10 text-slate-300 mx-auto" />
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            No templates matching selected criteria
+            No {currentTabDef.label.toLowerCase()} templates matching selected jurisdiction or filters
           </h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Try adjusting your search query, jurisdiction filter, or create a new template version.
+            Try adjusting your search query, selecting another jurisdiction, or create a new version for {currentTabDef.label.toLowerCase()}.
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingTemplate(null);
+              setIsEditorOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Create {currentTabDef.label} Baseline
+          </button>
         </div>
       ) : (
         <div className="space-y-4">
@@ -481,7 +463,7 @@ export function PlatformDefaultTemplatesPage() {
                   <div className="space-y-1.5 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/50">
-                        {template.category.replace(/_/g, ' ')}
+                        {currentTabDef.label}
                       </span>
 
                       <span className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -500,11 +482,17 @@ export function PlatformDefaultTemplatesPage() {
                         {template.status}
                       </span>
 
-                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1">
                         <Globe className="w-3 h-3 text-indigo-500" />
                         {template.country
                           ? `${template.country.name} (${template.country.isoCode})`
                           : 'Global Default (All Countries)'}
+                      </span>
+
+                      {/* Clear "Applies to new tenants only" badge on each card */}
+                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1">
+                        <ShieldAlert className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                        Applies to new tenants only
                       </span>
                     </div>
 
@@ -538,8 +526,19 @@ export function PlatformDefaultTemplatesPage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 self-start sm:self-center">
+                  {/* Actions on Card */}
+                  <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+                    {/* View History Button on Card */}
+                    <button
+                      type="button"
+                      onClick={() => setIsVersionHistoryOpen(true)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+                      title="Inspect full version history"
+                    >
+                      <History className="w-3.5 h-3.5 text-indigo-500" />
+                      History
+                    </button>
+
                     {isDraft && (
                       <>
                         <button
@@ -605,7 +604,7 @@ export function PlatformDefaultTemplatesPage() {
         </div>
       )}
 
-      {/* 7. Publish Confirmation Modal */}
+      {/* 6. Publish Confirmation Modal */}
       {publishConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
@@ -618,7 +617,7 @@ export function PlatformDefaultTemplatesPage() {
                   Publish Template Version {publishConfirmModal.version}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {publishConfirmModal.name} ({publishConfirmModal.category.replace(/_/g, ' ')})
+                  {publishConfirmModal.name} ({currentTabDef.label})
                 </p>
               </div>
             </div>
@@ -626,7 +625,7 @@ export function PlatformDefaultTemplatesPage() {
             <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 space-y-2">
               <div className="flex items-center gap-1.5 font-bold">
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
-                <span>Tenant Provisioning Isolation Notice:</span>
+                <span>Applies to New Tenants Only:</span>
               </div>
               <p className="leading-relaxed">
                 Publishing this version sets it as the active baseline for all{' '}
@@ -676,21 +675,51 @@ export function PlatformDefaultTemplatesPage() {
         isOpen={isEditorOpen}
         onClose={() => setIsEditorOpen(false)}
         onSuccess={() => {
-          setActionSuccessMsg('Template saved successfully.');
+          setActionSuccessMsg('Template saved successfully. Applies to new tenants only.');
           fetchData();
         }}
         countries={countries}
-        initialCategory={selectedCategory === 'all' ? 'document_types' : selectedCategory}
+        initialCategory={activeTab}
         initialCountryId={selectedCountryFilter === 'all' || selectedCountryFilter === 'global' ? null : selectedCountryFilter}
         editingTemplate={editingTemplate}
       />
 
-      {/* Effective Provisioning Preview Modal */}
+      {/* Full Cross-Category Seed Simulation Modal */}
       <EffectiveTemplatesPreviewModal
-        isOpen={isPreviewOpen}
-        onClose={() => setIsPreviewOpen(false)}
+        isOpen={isCrossTenantPreviewOpen}
+        onClose={() => setIsCrossTenantPreviewOpen(false)}
         countries={countries}
         initialCountryId={selectedCountryFilter === 'all' || selectedCountryFilter === 'global' ? null : selectedCountryFilter}
+      />
+
+      {/* Category-Specific Preview Modal */}
+      <CategoryPreviewModal
+        isOpen={isCategoryPreviewOpen}
+        onClose={() => setIsCategoryPreviewOpen(false)}
+        category={activeTab}
+        categoryLabel={currentTabDef.label}
+        countries={countries}
+        initialCountryId={selectedCountryFilter === 'all' || selectedCountryFilter === 'global' ? null : selectedCountryFilter}
+      />
+
+      {/* Category-Specific Version History Modal */}
+      <TemplateVersionHistoryModal
+        isOpen={isVersionHistoryOpen}
+        onClose={() => setIsVersionHistoryOpen(false)}
+        category={activeTab}
+        categoryLabel={currentTabDef.label}
+        templates={templates}
+        countries={countries}
+        selectedCountryFilter={selectedCountryFilter}
+        onCloneVersion={handleClone}
+        onPublishDraft={(t) => {
+          setPublishConfirmModal(t);
+          setPublishEffectiveFrom(t.effectiveFrom || new Date().toISOString().slice(0, 10));
+        }}
+        onEditDraft={(t) => {
+          setEditingTemplate(t);
+          setIsEditorOpen(true);
+        }}
       />
     </div>
   );
