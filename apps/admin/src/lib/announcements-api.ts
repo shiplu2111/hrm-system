@@ -20,3 +20,18 @@ export async function dismissAnnouncement(
     },
   );
 }
+
+export async function recordAnnouncementRead(
+  id: string,
+): Promise<{ success: boolean }> {
+  try {
+    return await tenantApiRequest<{ success: boolean }>(
+      `/announcements/${id}/read`,
+      {
+        method: 'POST',
+      },
+    );
+  } catch {
+    return { success: false };
+  }
+}

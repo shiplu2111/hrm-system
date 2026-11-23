@@ -5,6 +5,8 @@ import type {
   CreatePlatformAnnouncementInput,
   PlatformAnnouncement,
   PlatformAnnouncementStats,
+  TenantPreviewQuery,
+  TenantPreviewResult,
   UpdatePlatformAnnouncementInput,
 } from '@hrm/shared-types';
 
@@ -85,6 +87,14 @@ export function archivePlatformAnnouncement(
   });
 }
 
+export function expirePlatformAnnouncement(
+  id: string,
+): Promise<PlatformAnnouncement> {
+  return apiRequest<PlatformAnnouncement>(`/platform/announcements/${id}/expire`, {
+    method: 'POST',
+  });
+}
+
 export function deletePlatformAnnouncement(
   id: string,
 ): Promise<{ success: boolean }> {
@@ -97,6 +107,15 @@ export function previewPlatformAudience(
   query: AudiencePreviewQuery,
 ): Promise<AudiencePreviewResult> {
   return apiRequest<AudiencePreviewResult>('/platform/announcements/audience-preview', {
+    method: 'POST',
+    body: JSON.stringify(query),
+  });
+}
+
+export function previewAsTenantAdmin(
+  query: TenantPreviewQuery,
+): Promise<TenantPreviewResult> {
+  return apiRequest<TenantPreviewResult>('/platform/announcements/preview-as-tenant', {
     method: 'POST',
     body: JSON.stringify(query),
   });

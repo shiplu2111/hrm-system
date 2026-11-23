@@ -67,4 +67,29 @@ export class TenantAnnouncementsController {
 
     return { data };
   }
+
+  /**
+   * Records read acknowledgment for an announcement.
+   */
+  @Post(':id/read')
+  @RequirePermission('employee', 'view')
+  async recordRead(
+    @Param('id') announcementId: string,
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenantId;
+    const userId = req.user?.id;
+
+    if (!tenantId || !userId) {
+      throw new BadRequestException('Authenticated tenant user required');
+    }
+
+    const data = await this.announcementsService.recordAnnouncementRead(
+      announcementId,
+      tenantId,
+      userId,
+    );
+
+    return { data };
+  }
 }

@@ -17,6 +17,7 @@ import {
 import type {
   CreatePlatformAnnouncementInput,
   AudiencePreviewQuery,
+  TenantPreviewQuery,
   UpdatePlatformAnnouncementInput,
 } from '@hrm/shared-types';
 
@@ -169,4 +170,29 @@ export class AudiencePreviewDto implements AudiencePreviewQuery {
   @IsBoolean()
   @IsOptional()
   rolesOnly?: boolean;
+}
+
+export class TenantPreviewDto implements TenantPreviewQuery {
+  @IsString()
+  @IsOptional()
+  announcementId?: string;
+
+  @IsString()
+  @IsOptional()
+  tenantId?: string;
+
+  @IsString()
+  @IsOptional()
+  planId?: string;
+
+  @IsString()
+  @IsOptional()
+  country?: string;
+
+  @IsString()
+  @IsOptional()
+  roleName?: string;
+
+  @IsOptional()
+  announcementData?: Partial<CreatePlatformAnnouncementInput>;
 }

@@ -11,6 +11,7 @@ export type PlatformAnnouncementStatus = 'draft' | 'published' | 'archived';
 export interface PlatformAnnouncementStats {
   targetTenantCount: number;
   targetUserCount: number;
+  readCount: number;
   dismissalCount: number;
 }
 
@@ -101,4 +102,27 @@ export interface TenantActiveAnnouncement {
   endTime: string | null;
   dismissible: boolean;
   rolesOnly: boolean;
+}
+
+export interface TenantPreviewQuery {
+  announcementId?: string;
+  tenantId?: string;
+  planId?: string;
+  country?: string;
+  roleName?: string;
+  announcementData?: Partial<CreatePlatformAnnouncementInput>;
+}
+
+export interface TenantPreviewResult {
+  matches: boolean;
+  matchReasons: string[];
+  banner: TenantActiveAnnouncement | null;
+  tenantInfo: {
+    id: string;
+    name: string;
+    subdomain: string;
+    planId: string;
+    country: string;
+    roleName: string;
+  };
 }

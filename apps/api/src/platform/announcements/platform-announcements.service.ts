@@ -20,6 +20,8 @@ import type {
   CreatePlatformAnnouncementInput,
   PlatformAnnouncementStats,
   TenantActiveAnnouncement,
+  TenantPreviewQuery,
+  TenantPreviewResult,
   UpdatePlatformAnnouncementInput,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
@@ -92,7 +94,7 @@ export class PlatformAnnouncementsService {
         take: pageSize,
         include: {
           _count: {
-            select: { dismissals: true },
+            select: { dismissals: true, reads: true },
           },
         },
       }),
@@ -120,6 +122,7 @@ export class PlatformAnnouncementsService {
         const stats: PlatformAnnouncementStats = {
           targetTenantCount: audience.tenantCount,
           targetUserCount: audience.userCount,
+          readCount: row._count.reads,
           dismissalCount: row._count.dismissals,
         };
 
@@ -147,7 +150,7 @@ export class PlatformAnnouncementsService {
       where: { id },
       include: {
         _count: {
-          select: { dismissals: true },
+          select: { dismissals: true, reads: true },
         },
       },
     });
@@ -178,6 +181,7 @@ export class PlatformAnnouncementsService {
       stats: {
         targetTenantCount: audience.tenantCount,
         targetUserCount: audience.userCount,
+        readCount: row._count.reads,
         dismissalCount: row._count.dismissals,
       },
     };
@@ -322,6 +326,39 @@ export class PlatformAnnouncementsService {
       actorUserId,
       actorName,
     );
+  }
+
+  async expireAnnouncement(
+    id: string,
+    actorUserId?: string,
+    actorName?: string,
+  ): Promise<PlatformAnnouncement> {
+    const existing = await this.prisma.unscoped.platformAnnouncement.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`Platform announcement with ID "${id}" not found`);
+    }
+
+    const updated = await this.prisma.unscoped.platformAnnouncement.update({
+      where: { id },
+      data: {
+        endTime: new Date(),
+      },
+    });
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'platform_announcement.expired',
+      module: 'platform',
+      recordId: id,
+      reason: `Manually expired platform announcement "${existing.title}"`,
+      oldValue: { endTime: existing.endTime },
+      newValue: { endTime: updated.endTime },
+    });
+
+    return updated;
   }
 
   async deleteAnnouncement(
@@ -539,6 +576,27 @@ export class PlatformAnnouncementsService {
       }
     }
 
+    if (results.length > 0) {
+      await Promise.allSettled(
+        results.map((res) =>
+          this.prisma.unscoped.platformAnnouncementRead.upsert({
+            where: {
+              announcementId_userId: {
+                announcementId: res.id,
+                userId,
+              },
+            },
+            create: {
+              announcementId: res.id,
+              tenantId,
+              userId,
+            },
+            update: {},
+          }),
+        ),
+      );
+    }
+
     return results;
   }
 
@@ -580,6 +638,170 @@ export class PlatformAnnouncementsService {
     });
 
     return { success: true };
+  }
+
+  async recordAnnouncementRead(
+    announcementId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<{ success: boolean }> {
+    await this.prisma.unscoped.platformAnnouncementRead.upsert({
+      where: {
+        announcementId_userId: {
+          announcementId,
+          userId,
+        },
+      },
+      create: {
+        announcementId,
+        tenantId,
+        userId,
+      },
+      update: {},
+    });
+
+    return { success: true };
+  }
+
+  async previewAsTenantAdmin(
+    query: TenantPreviewQuery,
+  ): Promise<TenantPreviewResult> {
+    // 1. Locate tenant
+    let tenant = null;
+    if (query.tenantId) {
+      tenant = await this.prisma.unscoped.tenant.findUnique({
+        where: { id: query.tenantId },
+        include: { companies: { select: { id: true, countryId: true } } },
+      });
+    }
+
+    if (!tenant && query.planId) {
+      tenant = await this.prisma.unscoped.tenant.findFirst({
+        where: {
+          planId: query.planId.toLowerCase(),
+          status: { notIn: [TenantStatus.deleted, TenantStatus.pending_deletion] },
+        },
+        include: { companies: { select: { id: true, countryId: true } } },
+      });
+    }
+
+    if (!tenant) {
+      tenant = await this.prisma.unscoped.tenant.findFirst({
+        where: { status: { notIn: [TenantStatus.deleted, TenantStatus.pending_deletion] } },
+        include: { companies: { select: { id: true, countryId: true } } },
+      });
+    }
+
+    const tenantInfo = {
+      id: tenant?.id || 'sample-tenant-uuid',
+      name: tenant?.name || 'Acme Technologies Inc.',
+      subdomain: tenant?.subdomain || 'acme',
+      planId: (query.planId || tenant?.planId || 'enterprise').toLowerCase(),
+      country: (query.country || tenant?.companies?.[0]?.countryId || 'BD').toUpperCase(),
+      roleName: query.roleName || 'Company Owner',
+    };
+
+    // 2. Fetch or mock announcement
+    let announcement: any = null;
+    if (query.announcementId) {
+      announcement = await this.prisma.unscoped.platformAnnouncement.findUnique({
+        where: { id: query.announcementId },
+      });
+    }
+
+    if (!announcement && query.announcementData) {
+      announcement = {
+        id: 'simulated-preview-announcement',
+        title: query.announcementData.title || 'Platform Announcement Notice',
+        body: query.announcementData.body || 'Simulated announcement preview.',
+        severity: query.announcementData.severity || 'info',
+        audienceType: query.announcementData.audienceType || 'all',
+        targetPlans: query.announcementData.targetPlans || [],
+        targetCountries: query.announcementData.targetCountries || [],
+        targetTenantIds: query.announcementData.targetTenantIds || [],
+        rolesOnly: query.announcementData.rolesOnly ?? false,
+        startTime: new Date(),
+        endTime: null,
+        dismissible: query.announcementData.dismissible ?? true,
+      };
+    }
+
+    if (!announcement) {
+      return {
+        matches: false,
+        matchReasons: ['No announcement found to preview.'],
+        banner: null,
+        tenantInfo,
+      };
+    }
+
+    // 3. Evaluate criteria
+    const matchReasons: string[] = [];
+    let matches = true;
+
+    // Check Role restriction
+    const isCompanyAdmin =
+      tenantInfo.roleName.includes('Owner') || tenantInfo.roleName.includes('Admin');
+
+    if (announcement.rolesOnly) {
+      if (isCompanyAdmin) {
+        matchReasons.push(`Role "${tenantInfo.roleName}" qualifies under Company Owner & Administrator restriction.`);
+      } else {
+        matches = false;
+        matchReasons.push(`Role "${tenantInfo.roleName}" does NOT qualify (limited to Company Owners and Admins).`);
+      }
+    } else {
+      matchReasons.push('Available to all tenant user roles.');
+    }
+
+    // Check audience type
+    switch (announcement.audienceType) {
+      case 'all':
+        matchReasons.push('Broadcast reaches all tenants network-wide.');
+        break;
+      case 'by_plan':
+        if (announcement.targetPlans.some((p: string) => p.toLowerCase() === tenantInfo.planId)) {
+          matchReasons.push(`Tenant plan "${tenantInfo.planId}" matches targeted plans [${announcement.targetPlans.join(', ')}].`);
+        } else {
+          matches = false;
+          matchReasons.push(`Tenant plan "${tenantInfo.planId}" does not match targeted plans [${announcement.targetPlans.join(', ')}].`);
+        }
+        break;
+      case 'by_country':
+        if (announcement.targetCountries.some((c: string) => c.toUpperCase() === tenantInfo.country)) {
+          matchReasons.push(`Tenant country "${tenantInfo.country}" matches targeted countries [${announcement.targetCountries.join(', ')}].`);
+        } else {
+          matches = false;
+          matchReasons.push(`Tenant country "${tenantInfo.country}" does not match targeted countries [${announcement.targetCountries.join(', ')}].`);
+        }
+        break;
+      case 'specific_tenants':
+        if (announcement.targetTenantIds.includes(tenantInfo.id)) {
+          matchReasons.push(`Tenant ID "${tenantInfo.id}" is explicitly included in target tenant list.`);
+        } else {
+          matches = false;
+          matchReasons.push(`Tenant ID "${tenantInfo.id}" is NOT included in target tenant list.`);
+        }
+        break;
+    }
+
+    const banner: TenantActiveAnnouncement = {
+      id: announcement.id,
+      title: announcement.title,
+      body: announcement.body,
+      severity: announcement.severity,
+      startTime: new Date(announcement.startTime).toISOString(),
+      endTime: announcement.endTime ? new Date(announcement.endTime).toISOString() : null,
+      dismissible: announcement.dismissible,
+      rolesOnly: announcement.rolesOnly,
+    };
+
+    return {
+      matches,
+      matchReasons,
+      banner: matches ? banner : null,
+      tenantInfo,
+    };
   }
 
   // ==========================================================================

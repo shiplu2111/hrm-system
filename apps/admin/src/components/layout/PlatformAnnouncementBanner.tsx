@@ -12,6 +12,7 @@ import type { TenantActiveAnnouncement } from '@hrm/shared-types';
 import {
   dismissAnnouncement,
   getActiveAnnouncements,
+  recordAnnouncementRead,
 } from '@/lib/announcements-api';
 
 export function PlatformAnnouncementBanner() {
@@ -43,6 +44,13 @@ export function PlatformAnnouncementBanner() {
   }
 
   const current = items[currentIndex] || items[0];
+
+  useEffect(() => {
+    if (current?.id) {
+      recordAnnouncementRead(current.id);
+    }
+  }, [current?.id]);
+
   if (!current) {
     return null;
   }

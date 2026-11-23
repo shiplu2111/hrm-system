@@ -27,6 +27,9 @@ describe('PlatformAnnouncementsService', () => {
         platformAnnouncementDismissal: {
           upsert: jest.fn(),
         },
+        platformAnnouncementRead: {
+          upsert: jest.fn().mockResolvedValue({}),
+        },
         tenant: {
           findMany: jest.fn(),
           findUnique: jest.fn(),
@@ -355,6 +358,70 @@ describe('PlatformAnnouncementsService', () => {
       await expect(
         service.dismissAnnouncement('ann-14', 't-1', 'u-1'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('records read acknowledgment for an announcement', async () => {
+      const res = await service.recordAnnouncementRead('ann-15', 't-1', 'u-1');
+      expect(res.success).toBe(true);
+      expect(
+        mockPrisma.unscoped.platformAnnouncementRead.upsert,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { announcementId_userId: { announcementId: 'ann-15', userId: 'u-1' } },
+        }),
+      );
+    });
+
+    it('manually expires an active announcement with audit logging', async () => {
+      const existing = {
+        id: 'ann-16',
+        title: 'Impending Upgrade',
+        endTime: null,
+      };
+      const updated = {
+        ...existing,
+        endTime: new Date(),
+      };
+      mockPrisma.unscoped.platformAnnouncement.findUnique.mockResolvedValue(existing);
+      mockPrisma.unscoped.platformAnnouncement.update.mockResolvedValue(updated);
+
+      const res = await service.expireAnnouncement('ann-16', 'user-op', 'operator@platform.local');
+      expect(res.endTime).toBeDefined();
+      expect(mockAudit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'platform_announcement.expired',
+          recordId: 'ann-16',
+        }),
+      );
+    });
+
+    it('previews announcement as a tenant admin with matching criteria breakdown', async () => {
+      mockPrisma.unscoped.tenant.findUnique.mockResolvedValue({
+        id: 't-10',
+        name: 'Alpha Corp',
+        subdomain: 'alpha',
+        planId: 'enterprise',
+        companies: [{ id: 'c-1', countryId: 'BD' }],
+      });
+
+      const res = await service.previewAsTenantAdmin({
+        tenantId: 't-10',
+        roleName: 'Company Owner',
+        announcementData: {
+          title: 'Tax Season Reminder',
+          body: 'Submit tax returns',
+          severity: PlatformAnnouncementSeverity.info,
+          audienceType: PlatformAnnouncementAudienceType.by_country,
+          targetCountries: ['BD'],
+          rolesOnly: true,
+          dismissible: true,
+        },
+      });
+
+      expect(res.matches).toBe(true);
+      expect(res.banner).not.toBeNull();
+      expect(res.tenantInfo.planId).toBe('enterprise');
+      expect(res.matchReasons.some((r) => r.includes('qualifies'))).toBe(true);
     });
   });
 });

@@ -6480,6 +6480,7 @@ model PlatformAnnouncement {
   updatedAt       DateTime                         @updatedAt @map("updated_at")
 
   dismissals      PlatformAnnouncementDismissal[]
+  reads           PlatformAnnouncementRead[]
 
   @@index([status, startTime, endTime])
   @@index([audienceType])
@@ -6498,6 +6499,20 @@ model PlatformAnnouncementDismissal {
   @@unique([announcementId, userId])
   @@index([tenantId, userId])
   @@map("platform_announcement_dismissals")
+}
+
+model PlatformAnnouncementRead {
+  id             String               @id @default(uuid()) @db.Uuid
+  announcementId String               @map("announcement_id") @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  userId         String               @map("user_id") @db.Uuid
+  readAt         DateTime             @default(now()) @map("read_at")
+
+  announcement   PlatformAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([tenantId, userId])
+  @@map("platform_announcement_reads")
 }
 
 

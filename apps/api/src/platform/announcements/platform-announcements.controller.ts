@@ -22,6 +22,7 @@ import { PlatformAnnouncementsService } from './platform-announcements.service';
 import {
   AudiencePreviewDto,
   CreatePlatformAnnouncementDto,
+  TenantPreviewDto,
   UpdatePlatformAnnouncementDto,
 } from './dto/announcement.dto';
 
@@ -64,6 +65,13 @@ export class PlatformAnnouncementsController {
   @RequirePlatformPermission('platform', 'view')
   async previewAudience(@Body() dto: AudiencePreviewDto) {
     const data = await this.announcementsService.previewAudience(dto);
+    return { data };
+  }
+
+  @Post('preview-as-tenant')
+  @RequirePlatformPermission('platform', 'view')
+  async previewAsTenant(@Body() dto: TenantPreviewDto) {
+    const data = await this.announcementsService.previewAsTenantAdmin(dto);
     return { data };
   }
 
@@ -126,6 +134,22 @@ export class PlatformAnnouncementsController {
     const actorUserId = req.platformUser?.id || req.user?.id;
     const actorName = req.platformUser?.name || req.user?.name || req.platformUser?.email;
     const data = await this.announcementsService.archiveAnnouncement(
+      id,
+      actorUserId,
+      actorName,
+    );
+    return { data };
+  }
+
+  @Post(':id/expire')
+  @RequirePlatformPermission('platform', 'manage')
+  async expireAnnouncement(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const actorUserId = req.platformUser?.id || req.user?.id;
+    const actorName = req.platformUser?.name || req.user?.name || req.platformUser?.email;
+    const data = await this.announcementsService.expireAnnouncement(
       id,
       actorUserId,
       actorName,

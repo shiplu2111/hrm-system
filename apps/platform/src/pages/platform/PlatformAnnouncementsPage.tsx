@@ -4,9 +4,14 @@ import {
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   Bell,
+  Building2,
+  Calendar,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   ExternalLink,
   Eye,
@@ -14,9 +19,11 @@ import {
   Globe2,
   Info,
   Layers,
+  Laptop,
   Lock,
   Mail,
   Megaphone,
+  Monitor,
   MoreVertical,
   Plus,
   RefreshCw,
@@ -24,10 +31,15 @@ import {
   Send,
   Shield,
   ShieldAlert,
+  Smartphone,
+  Sparkles,
+  Tablet,
+  Timer,
   Trash2,
   Unlock,
   Users,
   X,
+  XCircle,
 } from 'lucide-react';
 import type {
   AudiencePreviewResult,
@@ -37,6 +49,9 @@ import type {
   PlatformAnnouncementSeverity,
   PlatformAnnouncementStats,
   PlatformAnnouncementStatus,
+  TenantActiveAnnouncement,
+  TenantPreviewQuery,
+  TenantPreviewResult,
   UpdatePlatformAnnouncementInput,
 } from '@hrm/shared-types';
 import { usePlatformAuth } from '@/context/PlatformAuthContext';
@@ -44,28 +59,36 @@ import {
   archivePlatformAnnouncement,
   createPlatformAnnouncement,
   deletePlatformAnnouncement,
+  expirePlatformAnnouncement,
   listPlatformAnnouncements,
+  previewAsTenantAdmin,
   previewPlatformAudience,
   publishPlatformAnnouncement,
   updatePlatformAnnouncement,
 } from '@/lib/announcements-api';
 
-type FilterStatus = 'all' | 'published' | 'scheduled' | 'draft' | 'archived';
+type FilterStatus = 'all' | 'published' | 'scheduled' | 'expired' | 'draft' | 'archived';
 
 const AVAILABLE_PLANS = [
-  { id: 'trial', label: 'Trial' },
-  { id: 'starter', label: 'Starter' },
-  { id: 'professional', label: 'Professional' },
-  { id: 'enterprise', label: 'Enterprise' },
+  { id: 'trial', label: 'Trial', color: 'slate' },
+  { id: 'starter', label: 'Starter', color: 'blue' },
+  { id: 'professional', label: 'Professional', color: 'indigo' },
+  { id: 'enterprise', label: 'Enterprise', color: 'purple' },
 ];
 
 const AVAILABLE_COUNTRIES = [
-  { code: 'BD', name: 'Bangladesh' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'CA', name: 'Canada' },
-  { code: 'IN', name: 'India' },
+  { code: 'BD', name: 'Bangladesh', flag: '🇧🇩' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+  { code: 'US', name: 'United States', flag: '🇺🇸' },
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+  { code: 'IN', name: 'India', flag: '🇮🇳' },
+];
+
+const SAMPLE_TENANTS = [
+  { id: '10000000-0000-4000-8000-000000000001', name: 'CMSN Bangladesh Ltd', plan: 'enterprise', country: 'BD', subdomain: 'cmsn' },
+  { id: '10000000-0000-4000-8000-000000000002', name: 'Acme Australia Pty', plan: 'professional', country: 'AU', subdomain: 'acme-au' },
+  { id: '10000000-0000-4000-8000-000000000003', name: 'Globex Software US', plan: 'starter', country: 'US', subdomain: 'globex' },
 ];
 
 export function PlatformAnnouncementsPage() {
@@ -85,7 +108,7 @@ export function PlatformAnnouncementsPage() {
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal State
+  // Modal State: Create / Edit
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PlatformAnnouncement | null>(null);
   const [saving, setSaving] = useState(false);
@@ -119,12 +142,24 @@ export function PlatformAnnouncementsPage() {
     sendEmail: false,
   });
 
-  // Audience preview in modal
+  // Audience preview in create/edit modal
   const [previewLoading, setPreviewLoading] = useState(false);
   const [audiencePreview, setAudiencePreview] = useState<AudiencePreviewResult | null>(null);
 
-  // Delete confirm modal
+  // Modal State: "Preview as Tenant Admin"
+  const [tenantPreviewModalOpen, setTenantPreviewModalOpen] = useState(false);
+  const [activePreviewAnnouncement, setActivePreviewAnnouncement] = useState<PlatformAnnouncement | null>(null);
+  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [simulatedPlan, setSimulatedPlan] = useState('enterprise');
+  const [simulatedCountry, setSimulatedCountry] = useState('BD');
+  const [simulatedRole, setSimulatedRole] = useState('Company Owner');
+  const [simulatedTenantId, setSimulatedTenantId] = useState(SAMPLE_TENANTS[0].id);
+  const [tenantPreviewResult, setTenantPreviewResult] = useState<TenantPreviewResult | null>(null);
+  const [previewSimulatedDismissed, setPreviewSimulatedDismissed] = useState(false);
+
+  // Confirmation Modals
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [expireConfirmId, setExpireConfirmId] = useState<string | null>(null);
 
   // Fetch announcements
   const loadAnnouncements = async () => {
@@ -181,6 +216,54 @@ export function PlatformAnnouncementsPage() {
     formData.rolesOnly,
   ]);
 
+  // Update Tenant Admin Preview Simulator
+  const fetchTenantAdminPreview = async () => {
+    try {
+      setPreviewSimulatedDismissed(false);
+      const tenantIds = formData.targetTenantIdsStr
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const res = await previewAsTenantAdmin({
+        announcementId: activePreviewAnnouncement?.id,
+        tenantId: simulatedTenantId,
+        planId: simulatedPlan,
+        country: simulatedCountry,
+        roleName: simulatedRole,
+        announcementData: activePreviewAnnouncement
+          ? undefined
+          : {
+              title: formData.title,
+              body: formData.body,
+              severity: formData.severity,
+              audienceType: formData.audienceType,
+              targetPlans: formData.targetPlans,
+              targetCountries: formData.targetCountries,
+              targetTenantIds: tenantIds,
+              rolesOnly: formData.rolesOnly,
+              dismissible: formData.dismissible,
+            },
+      });
+      setTenantPreviewResult(res);
+    } catch (err) {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    if (tenantPreviewModalOpen) {
+      fetchTenantAdminPreview();
+    }
+  }, [
+    tenantPreviewModalOpen,
+    activePreviewAnnouncement,
+    simulatedTenantId,
+    simulatedPlan,
+    simulatedCountry,
+    simulatedRole,
+  ]);
+
   const openCreateModal = () => {
     const now = new Date();
     setEditingItem(null);
@@ -218,6 +301,24 @@ export function PlatformAnnouncementsPage() {
       sendEmail: item.sendEmail,
     });
     setModalOpen(true);
+  };
+
+  const openTenantPreviewForExisting = (item: PlatformAnnouncement) => {
+    setActivePreviewAnnouncement(item);
+    setSimulatedTenantId(SAMPLE_TENANTS[0].id);
+    setSimulatedPlan(SAMPLE_TENANTS[0].plan);
+    setSimulatedCountry(SAMPLE_TENANTS[0].country);
+    setSimulatedRole('Company Owner');
+    setTenantPreviewModalOpen(true);
+  };
+
+  const openTenantPreviewForCurrentDraft = () => {
+    setActivePreviewAnnouncement(null);
+    setSimulatedTenantId(SAMPLE_TENANTS[0].id);
+    setSimulatedPlan(formData.targetPlans[0] || 'enterprise');
+    setSimulatedCountry(formData.targetCountries[0] || 'BD');
+    setSimulatedRole(formData.rolesOnly ? 'Company Owner' : 'Employee');
+    setTenantPreviewModalOpen(true);
   };
 
   const handleSave = async (publishImmediately: boolean) => {
@@ -261,7 +362,7 @@ export function PlatformAnnouncementsPage() {
         }
         setSuccess('Announcement updated successfully.');
       } else {
-        const created = await createPlatformAnnouncement({
+        await createPlatformAnnouncement({
           ...payload,
           status: publishImmediately ? 'published' : 'draft',
         });
@@ -303,6 +404,18 @@ export function PlatformAnnouncementsPage() {
     }
   };
 
+  const handleExpireNow = async (id: string) => {
+    try {
+      setError(null);
+      await expirePlatformAnnouncement(id);
+      setExpireConfirmId(null);
+      setSuccess('Announcement expired immediately. Delivery ceased.');
+      await loadAnnouncements();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to expire announcement');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       setError(null);
@@ -319,15 +432,17 @@ export function PlatformAnnouncementsPage() {
   const filteredAnnouncements = useMemo(() => {
     const now = new Date();
     return announcements.filter((item) => {
+      const isExpired =
+        item.status === 'published' && item.endTime && new Date(item.endTime) < now;
+      const isScheduled = item.status === 'published' && new Date(item.startTime) > now;
+      const isLive = item.status === 'published' && !isExpired && !isScheduled;
+
       // Status filter
       if (statusFilter === 'draft' && item.status !== 'draft') return false;
       if (statusFilter === 'archived' && item.status !== 'archived') return false;
-      if (statusFilter === 'published') {
-        if (item.status !== 'published') return false;
-      }
-      if (statusFilter === 'scheduled') {
-        if (item.status !== 'published' || new Date(item.startTime) <= now) return false;
-      }
+      if (statusFilter === 'published' && !isLive) return false;
+      if (statusFilter === 'scheduled' && !isScheduled) return false;
+      if (statusFilter === 'expired' && !isExpired) return false;
 
       // Severity filter
       if (severityFilter !== 'all' && item.severity !== severityFilter) return false;
@@ -394,14 +509,15 @@ export function PlatformAnnouncementsPage() {
     }
     if (isExpired) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-500/15 text-slate-500 border border-slate-500/20">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+          <Clock className="h-3 w-3" />
           Expired
         </span>
       );
     }
     if (isScheduled) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
           <Clock className="h-3 w-3" />
           Scheduled
         </span>
@@ -439,7 +555,7 @@ export function PlatformAnnouncementsPage() {
             type="button"
             onClick={loadAnnouncements}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -497,8 +613,9 @@ export function PlatformAnnouncementsPage() {
           {(
             [
               { key: 'all', label: 'All' },
-              { key: 'published', label: 'Published / Live' },
+              { key: 'published', label: 'Live' },
               { key: 'scheduled', label: 'Scheduled' },
+              { key: 'expired', label: 'Expired' },
               { key: 'draft', label: 'Drafts' },
               { key: 'archived', label: 'Archived' },
             ] as const
@@ -568,7 +685,7 @@ export function PlatformAnnouncementsPage() {
               <button
                 type="button"
                 onClick={openCreateModal}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm"
               >
                 <Plus className="h-4 w-4" />
                 New Announcement
@@ -578,147 +695,223 @@ export function PlatformAnnouncementsPage() {
         )}
 
         {!loading &&
-          filteredAnnouncements.map((item) => (
-            <div
-              key={item.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/40 transition-all space-y-4"
-            >
-              {/* Top row: Badges, Title, Actions */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {getStatusBadge(item)}
-                    {getSeverityBadge(item.severity)}
-                    {item.rolesOnly && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                        <Shield className="h-3 w-3" />
-                        Owners & Admins Only
-                      </span>
-                    )}
-                    {item.dismissible ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800">
-                        <Unlock className="h-3 w-3" />
-                        Dismissible
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20">
-                        <Lock className="h-3 w-3" />
-                        Non-Dismissible (Locked)
-                      </span>
-                    )}
-                    {item.sendEmail && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10">
-                        <Mail className="h-3 w-3" />
-                        Email Broadcast
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    {item.title}
-                  </h3>
-                </div>
+          filteredAnnouncements.map((item) => {
+            const now = new Date();
+            const isExpired =
+              item.status === 'published' && item.endTime && new Date(item.endTime) < now;
+            const isScheduled = item.status === 'published' && new Date(item.startTime) > now;
+            const isLive = item.status === 'published' && !isExpired && !isScheduled;
 
-                {/* Action buttons */}
-                {isPlatformManager && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    {item.status === 'draft' && (
+            const targetUsers = item.stats?.targetUserCount || 0;
+            const readCount = item.stats?.readCount || 0;
+            const dismissalCount = item.stats?.dismissalCount || 0;
+
+            const readPercent = targetUsers ? Math.min(100, Math.round((readCount / targetUsers) * 100)) : 0;
+            const dismissPercent = targetUsers ? Math.min(100, Math.round((dismissalCount / targetUsers) * 100)) : 0;
+
+            return (
+              <div
+                key={item.id}
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/40 transition-all space-y-4"
+              >
+                {/* Top row: Badges, Title, Actions */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {getStatusBadge(item)}
+                      {getSeverityBadge(item.severity)}
+                      {item.rolesOnly && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                          <Shield className="h-3 w-3" />
+                          Owners & Admins Only
+                        </span>
+                      )}
+                      {item.dismissible ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800">
+                          <Unlock className="h-3 w-3" />
+                          Dismissible
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20">
+                          <Lock className="h-3 w-3" />
+                          Locked
+                        </span>
+                      )}
+                      {item.sendEmail && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10">
+                          <Mail className="h-3 w-3" />
+                          Email Broadcast
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                      {item.title}
+                    </h3>
+                  </div>
+
+                  {/* Action buttons */}
+                  {isPlatformManager && (
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {/* Preview as Tenant Admin Button */}
                       <button
                         type="button"
-                        onClick={() => handlePublish(item.id)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition inline-flex items-center gap-1.5"
+                        onClick={() => openTenantPreviewForExisting(item)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition inline-flex items-center gap-1.5 shadow-sm"
+                        title="Simulate this announcement from the perspective of a tenant administrator"
                       >
-                        <Send className="h-3.5 w-3.5" />
-                        Publish
+                        <Eye className="h-3.5 w-3.5" />
+                        Preview as Tenant
                       </button>
-                    )}
-                    {item.status === 'published' && (
+
+                      {item.status === 'draft' && (
+                        <button
+                          type="button"
+                          onClick={() => handlePublish(item.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition inline-flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Publish
+                        </button>
+                      )}
+
+                      {/* Expire Now action (active or scheduled) */}
+                      {item.status === 'published' && !isExpired && (
+                        <button
+                          type="button"
+                          onClick={() => setExpireConfirmId(item.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 transition inline-flex items-center gap-1.5"
+                          title="Immediately terminate this announcement so tenants no longer see it"
+                        >
+                          <Timer className="h-3.5 w-3.5" />
+                          Expire Now
+                        </button>
+                      )}
+
+                      {item.status === 'published' && (
+                        <button
+                          type="button"
+                          onClick={() => handleArchive(item.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
+                        >
+                          Archive
+                        </button>
+                      )}
+
                       <button
                         type="button"
-                        onClick={() => handleArchive(item.id)}
+                        onClick={() => openEditModal(item)}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
                       >
-                        Archive
+                        Edit
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(item)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmId(item.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-500/10 transition"
-                      title="Delete announcement"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmId(item.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-500/10 transition"
+                        title="Delete announcement"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Body message preview */}
+                <div className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                  {item.body}
+                </div>
+
+                {/* Schedule, Audience, and Read/Dismiss Analytics Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs pt-3 border-t border-slate-100 dark:border-slate-800">
+                  {/* Column 1: Audience */}
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Audience Target</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize block truncate">
+                      {item.audienceType === 'all' && 'All Tenants'}
+                      {item.audienceType === 'by_plan' &&
+                        `Plans: ${item.targetPlans?.join(', ') || 'None'}`}
+                      {item.audienceType === 'by_country' &&
+                        `Countries: ${item.targetCountries?.join(', ') || 'None'}`}
+                      {item.audienceType === 'specific_tenants' &&
+                        `${item.targetTenantIds?.length || 0} Tenants`}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {item.stats?.targetTenantCount ?? 0} matching workspaces
+                    </span>
                   </div>
-                )}
+
+                  {/* Column 2: Schedule & Expiration */}
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Schedule & Lifecycle</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                      {new Date(item.startTime).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">
+                      {item.endTime ? (
+                        <>
+                          Expires: {new Date(item.endTime).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </>
+                      ) : (
+                        'No expiration (Indefinite)'
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Column 3: Read Count & Impressions */}
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Read Impressions</span>
+                    <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
+                      <span>{readCount} views</span>
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                        {readPercent}%
+                      </span>
+                    </div>
+                    {/* Read progress bar */}
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-1 overflow-hidden flex">
+                      <div
+                        className="bg-emerald-500 h-full rounded-full transition-all"
+                        style={{ width: `${readPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Column 4: Dismissal Count */}
+                  <div>
+                    <span className="text-slate-400 block mb-0.5">Dismissals & Acknowledged</span>
+                    <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
+                      <span>{dismissalCount} dismissed</span>
+                      <span className="text-[11px] text-purple-600 dark:text-purple-400 font-bold">
+                        {dismissPercent}%
+                      </span>
+                    </div>
+                    {/* Dismissal progress bar */}
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-1 overflow-hidden flex">
+                      <div
+                        className="bg-purple-500 h-full rounded-full transition-all"
+                        style={{ width: `${dismissPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
-
-              {/* Body message preview */}
-              <div className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                {item.body}
-              </div>
-
-              {/* Metadata & Stats Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pt-2 border-t border-slate-100 dark:border-slate-800">
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Audience Target</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
-                    {item.audienceType === 'all' && 'All Tenants'}
-                    {item.audienceType === 'by_plan' &&
-                      `Plans: ${item.targetPlans?.join(', ') || 'None'}`}
-                    {item.audienceType === 'by_country' &&
-                      `Countries: ${item.targetCountries?.join(', ') || 'None'}`}
-                    {item.audienceType === 'specific_tenants' &&
-                      `${item.targetTenantIds?.length || 0} Tenants`}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Broadcast Schedule</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {new Date(item.startTime).toLocaleString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                    {item.endTime
-                      ? ` → ${new Date(item.endTime).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}`
-                      : ' (Permanent)'}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Audience Reach</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {item.stats?.targetTenantCount ?? 0} tenants •{' '}
-                    {item.stats?.targetUserCount ?? 0} users
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block mb-0.5">Dismissals</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {item.stats?.dismissalCount ?? 0} acknowledged
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
       </div>
 
-      {/* Create / Edit Modal */}
+      {/* ========================================================================= */}
+      {/* CREATE / EDIT ANNOUNCEMENT MODAL WITH AUDIENCE BUILDER                   */}
+      {/* ========================================================================= */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
@@ -733,7 +926,7 @@ export function PlatformAnnouncementsPage() {
                     {editingItem ? 'Edit Platform Announcement' : 'Create Platform Announcement'}
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Configure severity, targeted audience, schedule, and live banner preview.
+                    Audience segmentation, start and expiration schedules, and live simulator preview.
                   </p>
                 </div>
               </div>
@@ -748,7 +941,6 @@ export function PlatformAnnouncementsPage() {
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Split Layout: Form & Live Preview */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Left: Inputs */}
                 <div className="lg:col-span-7 space-y-4">
@@ -835,11 +1027,16 @@ export function PlatformAnnouncementsPage() {
                     </div>
                   </div>
 
-                  {/* Audience Selector */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      Target Audience
-                    </label>
+                  {/* Audience Builder Section */}
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Users className="h-4 w-4 text-indigo-500" />
+                        Audience Builder & Targeting
+                      </label>
+                      <span className="text-[10px] text-slate-400">Multi-tenant segmentation</span>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                       {(
                         [
@@ -856,7 +1053,7 @@ export function PlatformAnnouncementsPage() {
                           className={`p-2.5 rounded-xl border text-xs font-semibold text-center transition ${
                             formData.audienceType === aud.key
                               ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
-                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 text-slate-600 dark:text-slate-400'
+                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 text-slate-600 dark:text-slate-400'
                           }`}
                         >
                           {aud.label}
@@ -866,9 +1063,9 @@ export function PlatformAnnouncementsPage() {
 
                     {/* Conditional Audience Options */}
                     {formData.audienceType === 'by_plan' && (
-                      <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
                         <span className="text-xs font-medium text-slate-700 dark:text-slate-300 block">
-                          Select Plans:
+                          Select Targeted Plans:
                         </span>
                         <div className="flex flex-wrap gap-2">
                           {AVAILABLE_PLANS.map((plan) => {
@@ -885,7 +1082,7 @@ export function PlatformAnnouncementsPage() {
                                 }}
                                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                                   checked
-                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                 }`}
                               >
@@ -898,9 +1095,9 @@ export function PlatformAnnouncementsPage() {
                     )}
 
                     {formData.audienceType === 'by_country' && (
-                      <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
                         <span className="text-xs font-medium text-slate-700 dark:text-slate-300 block">
-                          Select Countries:
+                          Select Targeted Countries:
                         </span>
                         <div className="flex flex-wrap gap-2">
                           {AVAILABLE_COUNTRIES.map((ct) => {
@@ -917,11 +1114,11 @@ export function PlatformAnnouncementsPage() {
                                 }}
                                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                                   checked
-                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                 }`}
                               >
-                                {ct.code} - {ct.name}
+                                {ct.flag} {ct.code} - {ct.name}
                               </button>
                             );
                           })}
@@ -930,13 +1127,13 @@ export function PlatformAnnouncementsPage() {
                     )}
 
                     {formData.audienceType === 'specific_tenants' && (
-                      <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1.5">
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1.5">
                         <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block">
                           Tenant UUIDs (comma-separated):
                         </label>
                         <input
                           type="text"
-                          placeholder="e.g. 11111111-1111-1111-1111-111111111111"
+                          placeholder="e.g. 10000000-0000-4000-8000-000000000001"
                           value={formData.targetTenantIdsStr}
                           onChange={(e) =>
                             setFormData({ ...formData, targetTenantIdsStr: e.target.value })
@@ -945,28 +1142,27 @@ export function PlatformAnnouncementsPage() {
                         />
                       </div>
                     )}
+
+                    {/* Target Only Owners and Admins */}
+                    <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.rolesOnly}
+                        onChange={(e) => setFormData({ ...formData, rolesOnly: e.target.checked })}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                          Limit to Company Owners & Admins
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Restricts display exclusively to tenant decision-makers and administrators.
+                        </span>
+                      </div>
+                    </label>
                   </div>
 
-                  {/* Target Only Owners and Admins */}
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.rolesOnly}
-                      onChange={(e) => setFormData({ ...formData, rolesOnly: e.target.checked })}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-                        Limit to Company Owners & Admins
-                      </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Restricts announcement display only to tenant administrators and HR/Payroll
-                        decision-makers.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Schedule: Start & End */}
+                  {/* Schedule: Start & Expiration */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -981,7 +1177,7 @@ export function PlatformAnnouncementsPage() {
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        End Date/Time (Optional)
+                        Expiration Date/Time (Optional)
                       </label>
                       <input
                         type="datetime-local"
@@ -1037,9 +1233,20 @@ export function PlatformAnnouncementsPage() {
                 {/* Right: Live Preview & Audience Simulator */}
                 <div className="lg:col-span-5 space-y-5 flex flex-col justify-between">
                   <div className="space-y-4">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Live Banner Preview
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Live Banner Preview
+                      </h3>
+                      {/* Button to open full Tenant Admin Preview */}
+                      <button
+                        type="button"
+                        onClick={openTenantPreviewForCurrentDraft}
+                        className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                      >
+                        <Eye className="h-3 w-3" />
+                        Preview as Tenant Admin
+                      </button>
+                    </div>
 
                     {/* Preview Banner Container */}
                     <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm bg-slate-900">
@@ -1133,7 +1340,7 @@ export function PlatformAnnouncementsPage() {
                         audiencePreview.sampleTenants.length > 0 && (
                           <div className="space-y-1">
                             <span className="text-[11px] text-slate-500 block font-medium">
-                              Sample Matching Tenants:
+                              Sample Matching Workspaces:
                             </span>
                             <div className="flex flex-wrap gap-1">
                               {audiencePreview.sampleTenants.map((t) => (
@@ -1192,7 +1399,423 @@ export function PlatformAnnouncementsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* ========================================================================= */}
+      {/* "PREVIEW AS TENANT ADMIN" INTERACTIVE SIMULATOR MODAL                     */}
+      {/* ========================================================================= */}
+      {tenantPreviewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-5xl my-6 overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Simulator Header & Controls */}
+            <div className="p-4 bg-slate-900 text-white border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Monitor className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    Tenant Admin Portal Viewport Simulator
+                    <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                      Live Preview
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Verify exactly how a tenant admin views this announcement in their Admin Panel header.
+                  </p>
+                </div>
+              </div>
+
+              {/* Viewport switchers & Close */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewViewport('desktop')}
+                    className={`p-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 ${
+                      previewViewport === 'desktop' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Desktop 1200px"
+                  >
+                    <Monitor className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Desktop</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewViewport('tablet')}
+                    className={`p-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 ${
+                      previewViewport === 'tablet' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Tablet 768px"
+                  >
+                    <Tablet className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Tablet</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewViewport('mobile')}
+                    className={`p-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 ${
+                      previewViewport === 'mobile' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Mobile 375px"
+                  >
+                    <Smartphone className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Mobile</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setTenantPreviewModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Simulation Parameter Controls Bar */}
+            <div className="px-5 py-3 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Select Tenant Workspace */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Workspace:</span>
+                  <select
+                    value={simulatedTenantId}
+                    onChange={(e) => {
+                      setSimulatedTenantId(e.target.value);
+                      const t = SAMPLE_TENANTS.find((item) => item.id === e.target.value);
+                      if (t) {
+                        setSimulatedPlan(t.plan);
+                        setSimulatedCountry(t.country);
+                      }
+                    }}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    {SAMPLE_TENANTS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.plan.toUpperCase()} • {t.country})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Simulated Plan */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Plan:</span>
+                  <select
+                    value={simulatedPlan}
+                    onChange={(e) => setSimulatedPlan(e.target.value)}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 capitalize"
+                  >
+                    {AVAILABLE_PLANS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Simulated Country */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Country:</span>
+                  <select
+                    value={simulatedCountry}
+                    onChange={(e) => setSimulatedCountry(e.target.value)}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    {AVAILABLE_COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} ({c.name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Simulated User Role */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">Role:</span>
+                  <select
+                    value={simulatedRole}
+                    onChange={(e) => setSimulatedRole(e.target.value)}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="Company Owner">Company Owner</option>
+                    <option value="HR Admin">HR Admin</option>
+                    <option value="Payroll Admin">Payroll Admin</option>
+                    <option value="Employee">Employee (Self-Service)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Match Indicator */}
+              <div>
+                {tenantPreviewResult?.matches ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Will Display in Header
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                    <XCircle className="h-3.5 w-3.5" />
+                    Will NOT Display (Filtered Out)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Match Criteria Reasons Accordion */}
+            {tenantPreviewResult && (
+              <div className="px-5 py-2 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
+                <span className="text-slate-400 font-semibold uppercase tracking-wider block">
+                  Target Evaluation Breakdown:
+                </span>
+                <ul className="list-disc list-inside text-slate-600 dark:text-slate-400 space-y-0.5">
+                  {tenantPreviewResult.matchReasons.map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Viewport Frame */}
+            <div className="p-6 overflow-y-auto bg-slate-200 dark:bg-slate-950 flex items-center justify-center min-h-[460px]">
+              <div
+                className={`bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-300 dark:border-slate-800 overflow-hidden transition-all duration-300 ${
+                  previewViewport === 'mobile'
+                    ? 'w-[375px]'
+                    : previewViewport === 'tablet'
+                    ? 'w-[768px]'
+                    : 'w-full max-w-4xl'
+                }`}
+              >
+                {/* 1. Simulated AppShell Header Banner (The Target of Preview) */}
+                {tenantPreviewResult?.matches && tenantPreviewResult.banner && !previewSimulatedDismissed ? (
+                  <div
+                    role="alert"
+                    className={`px-4 py-2.5 text-xs font-medium z-50 flex items-center justify-between gap-3 ${
+                      tenantPreviewResult.banner.severity === 'critical'
+                        ? 'bg-rose-600 text-white border-b border-rose-700'
+                        : tenantPreviewResult.banner.severity === 'warning'
+                        ? 'bg-amber-500 text-amber-950 border-b border-amber-600'
+                        : 'bg-blue-600 text-white border-b border-blue-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
+                      <div className="shrink-0">
+                        {tenantPreviewResult.banner.severity === 'critical' ? (
+                          <div className="h-5 w-5 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+                            <AlertOctagon className="h-3.5 w-3.5" />
+                          </div>
+                        ) : tenantPreviewResult.banner.severity === 'warning' ? (
+                          <div className="h-5 w-5 rounded-full bg-amber-950/15 flex items-center justify-center">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          </div>
+                        ) : (
+                          <div className="h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
+                            <Info className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="truncate flex items-center gap-2 flex-1 min-w-0">
+                        <span
+                          className={`font-bold uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                            tenantPreviewResult.banner.severity === 'critical'
+                              ? 'bg-rose-700/80 text-rose-100'
+                              : tenantPreviewResult.banner.severity === 'warning'
+                              ? 'bg-amber-600/30 text-amber-950'
+                              : 'bg-blue-700/80 text-blue-100'
+                          }`}
+                        >
+                          {tenantPreviewResult.banner.severity === 'critical'
+                            ? 'Critical Alert'
+                            : tenantPreviewResult.banner.severity === 'warning'
+                            ? 'Notice'
+                            : 'Announcement'}
+                        </span>
+
+                        <span className="font-bold shrink-0">{tenantPreviewResult.banner.title}</span>
+                        <span className="opacity-90 truncate font-normal">
+                          — {tenantPreviewResult.banner.body}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      {tenantPreviewResult.banner.dismissible ? (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewSimulatedDismissed(true)}
+                          className={`p-1 rounded-md transition ${
+                            tenantPreviewResult.banner.severity === 'warning'
+                              ? 'hover:bg-amber-600/30 text-amber-950'
+                              : 'hover:bg-white/20 text-white'
+                          }`}
+                          title="Click to simulate tenant admin dismissal"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded ${
+                            tenantPreviewResult.banner.severity === 'warning'
+                              ? 'bg-amber-600/20 text-amber-950'
+                              : 'bg-black/25 text-white'
+                          }`}
+                          title="Pinned announcement cannot be dismissed"
+                        >
+                          <Lock className="h-3 w-3" />
+                          Pinned
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Notice if dismissed in simulator */}
+                {previewSimulatedDismissed && (
+                  <div className="p-2.5 bg-emerald-500/10 border-b border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between">
+                    <span>✓ Banner was dismissed by simulated tenant admin.</span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewSimulatedDismissed(false)}
+                      className="font-bold underline text-[11px]"
+                    >
+                      Reset Preview
+                    </button>
+                  </div>
+                )}
+
+                {/* Notice if not matched */}
+                {!tenantPreviewResult?.matches && (
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs text-center border-b border-slate-200 dark:border-slate-700 italic">
+                    (Announcement does not match this simulated tenant admin; header banner remains hidden)
+                  </div>
+                )}
+
+                {/* 2. Simulated Tenant Topbar */}
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                      {tenantPreviewResult?.tenantInfo.subdomain.slice(0, 2).toUpperCase() || 'TX'}
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-slate-900 dark:text-white">
+                        {tenantPreviewResult?.tenantInfo.name || 'Tenant Workspace'}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {tenantPreviewResult?.tenantInfo.planId.toUpperCase()} PLAN • {tenantPreviewResult?.tenantInfo.country}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-400 w-36">
+                      <Search className="h-3 w-3" /> Search...
+                    </div>
+                    <div className="h-7 w-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-500">
+                      <Bell className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 dark:border-slate-700">
+                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] flex items-center justify-center">
+                        SC
+                      </div>
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 hidden sm:inline">
+                        {simulatedRole}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Simulated Dashboard Canvas */}
+                <div className="p-5 space-y-4 bg-slate-50/50 dark:bg-slate-900/50 min-h-[220px]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                        Company Admin Dashboard
+                      </div>
+                      <div className="text-xs text-slate-400">Welcome back, Sarah Chen</div>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 font-semibold text-[11px]">
+                      Payroll Ready
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
+                      <div className="text-[10px] text-slate-400 font-medium">Headcount</div>
+                      <div className="text-base font-bold text-slate-900 dark:text-white">128 Employees</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
+                      <div className="text-[10px] text-slate-400 font-medium">Pending Requests</div>
+                      <div className="text-base font-bold text-amber-600">6 Leave Approvals</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm space-y-1">
+                      <div className="text-[10px] text-slate-400 font-medium">Next Pay Period</div>
+                      <div className="text-base font-bold text-indigo-600">Nov 30, 2026</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Simulator Footer */}
+            <div className="p-4 bg-slate-100 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                Live simulation renders exact header styles and responsive breakpoints.
+              </span>
+              <button
+                type="button"
+                onClick={() => setTenantPreviewModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white dark:bg-indigo-600 hover:opacity-90 transition shadow-sm"
+              >
+                Close Simulator
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* EXPIRE NOW CONFIRMATION MODAL                                             */}
+      {/* ========================================================================= */}
+      {expireConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="h-12 w-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mx-auto">
+              <Timer className="h-6 w-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                Expire Announcement Now?
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                This will immediately set the announcement expiration date to now. The banner will be
+                instantly removed from all tenant Admin Panel headers upon their next refresh.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setExpireConfirmId(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExpireNow(expireConfirmId)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm"
+              >
+                Expire Immediately
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DELETE CONFIRMATION MODAL                                                 */}
+      {/* ========================================================================= */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
@@ -1205,7 +1828,7 @@ export function PlatformAnnouncementsPage() {
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Are you sure you want to delete this announcement? This action cannot be undone and
-                will immediately remove it from all tenant header displays.
+                will permanently purge engagement and read statistics.
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1219,7 +1842,7 @@ export function PlatformAnnouncementsPage() {
               <button
                 type="button"
                 onClick={() => handleDelete(deleteConfirmId)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition shadow-sm"
               >
                 Delete
               </button>
