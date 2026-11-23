@@ -24,6 +24,7 @@ import type {
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import { PlatformDefaultTemplatesService } from '../countries/platform-default-templates.service';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import type {
   CancelTenantDto,
   HardDeleteTenantDto,
@@ -121,6 +122,8 @@ export class PlatformTenantLifecycleService {
     private readonly auditService: PlatformAuditService,
     @Optional()
     private readonly platformDefaultTemplatesService?: PlatformDefaultTemplatesService,
+    @Optional()
+    private readonly maintenanceService?: MaintenanceService,
   ) {}
 
   /**
@@ -140,6 +143,10 @@ export class PlatformTenantLifecycleService {
     input: ProvisionTenantDto,
     actorUserId?: string,
   ): Promise<TenantProvisioningResult> {
+    if (this.maintenanceService) {
+      await this.maintenanceService.assertFeatureNotKilled('new_signups');
+    }
+
     if (!input.reason?.trim()) {
       throw new BadRequestException(
         'A mandatory reason is required for tenant provisioning',

@@ -9,6 +9,7 @@ import { HelpWidget } from '@/components/support/HelpWidget';
 import { useTenant } from '@/context/TenantContext';
 import { usePageAccess } from '@/hooks/usePageAccess';
 import { SupportAccessBanner } from '@/components/layout/SupportAccessBanner';
+import { MaintenanceBanner } from '@/components/layout/MaintenanceBanner';
 
 function AdminShell({
   children,
@@ -60,6 +61,7 @@ export function AppShell({
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
+      <MaintenanceBanner />
       <SupportAccessBanner />
       <div className="flex-1 min-h-0 overflow-hidden">
         {selfServiceOnly ? (

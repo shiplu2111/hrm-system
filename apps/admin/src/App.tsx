@@ -11,6 +11,8 @@ import { LocalizationProvider } from '@/context/LocalizationContext';
 import { TenantProvider } from '@/context/TenantContext';
 import { NavProvider } from '@/context/NavContext';
 import { AppShell } from '@/components/layout/AppShell';
+import { MaintenancePage } from '@/pages/MaintenancePage';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { MyDashboardPage } from '@/pages/my/MyDashboardPage';
 import { MyProfilePage } from '@/pages/my/MyProfilePage';
@@ -294,6 +296,11 @@ function PageRoutes() {
 
 function AdminApp() {
   const { isAuthenticated, login, logout, user, changePassword } = useAuth();
+  const { status, refetch } = useSystemStatus();
+
+  if (status?.status === 'active') {
+    return <MaintenancePage status={status} onRetry={refetch} />;
+  }
 
   if (!isAuthenticated) {
     return <PortalLoginPage portal="admin" onLogin={login} />;

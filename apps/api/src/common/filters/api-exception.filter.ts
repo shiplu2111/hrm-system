@@ -102,6 +102,18 @@ export class ApiExceptionFilter implements ExceptionFilter {
         : typeof body.upgrade_hint === 'string'
           ? body.upgrade_hint
           : undefined;
+    const offlineQueueRetained =
+      typeof body.offlineQueueRetained === 'boolean'
+        ? body.offlineQueueRetained
+        : undefined;
+    const scheduledStart =
+      typeof body.scheduledStart === 'string'
+        ? body.scheduledStart
+        : undefined;
+    const scheduledEnd =
+      typeof body.scheduledEnd === 'string'
+        ? body.scheduledEnd
+        : undefined;
 
     return {
       error: {
@@ -109,6 +121,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
         message,
         ...(details?.length ? { details } : {}),
         ...(upgradeHint ? { upgradeHint } : {}),
+        ...(offlineQueueRetained !== undefined ? { offlineQueueRetained } : {}),
+        ...(scheduledStart ? { scheduledStart } : {}),
+        ...(scheduledEnd ? { scheduledEnd } : {}),
         requestId,
       },
     };

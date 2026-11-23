@@ -60,3 +60,4 @@ export * from './platform-templates';
 export * from './platform-exchange-rates';
 export * from './language-packs';
 export * from './platform-settings';
+export * from './maintenance';

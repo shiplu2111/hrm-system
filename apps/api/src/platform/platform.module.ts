@@ -14,6 +14,7 @@ import { PlatformSupportAccessModule } from './support-access/platform-support-a
 import { PlatformTenantsModule } from './tenants/platform-tenants.module';
 import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-rates.module';
 import { PlatformLanguagePacksModule } from './language-packs/platform-language-packs.module';
+import { PlatformMaintenanceModule } from './maintenance/platform-maintenance.module';
 import { PlatformSettingsModule } from './settings/platform-settings.module';
 
 @Module({
@@ -25,6 +26,7 @@ import { PlatformSettingsModule } from './settings/platform-settings.module';
     PlatformDashboardModule,
     PlatformExchangeRatesModule,
     PlatformLanguagePacksModule,
+    PlatformMaintenanceModule,
     PlatformSettingsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
@@ -43,6 +45,7 @@ import { PlatformSettingsModule } from './settings/platform-settings.module';
     PlatformDashboardModule,
     PlatformExchangeRatesModule,
     PlatformLanguagePacksModule,
+    PlatformMaintenanceModule,
     PlatformSettingsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,

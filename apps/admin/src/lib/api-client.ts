@@ -58,6 +58,17 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const errorBody = payload as ApiErrorBody;
+    if (
+      response.status === 503 &&
+      (errorBody.error?.code === 'MAINTENANCE_MODE' ||
+        (errorBody.error?.message || '').toLowerCase().includes('maintenance'))
+    ) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('hrm:maintenance-active', { detail: errorBody.error }),
+        );
+      }
+    }
     throw new ApiError(
       errorBody.error?.message ?? `Request failed (${response.status})`,
       response.status,

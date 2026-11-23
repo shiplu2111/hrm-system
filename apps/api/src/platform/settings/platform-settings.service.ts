@@ -32,6 +32,7 @@ import type {
 import { PrismaService } from '../../database/prisma.service';
 import { FieldEncryptionService } from '../../crypto/field-encryption.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 
 interface StoredEmailConfig {
   provider: 'smtp' | 'sendgrid' | 'postmark' | 'ses';
@@ -88,6 +89,7 @@ export class PlatformSettingsService {
     private readonly prisma: PrismaService,
     private readonly fieldEncryption: FieldEncryptionService,
     private readonly auditService: PlatformAuditService,
+    private readonly maintenanceService?: MaintenanceService,
   ) {}
 
   // ==========================================================================
@@ -381,6 +383,10 @@ export class PlatformSettingsService {
   }
 
   async sendTestSms(dto: SendTestSmsInput): Promise<TestSmsResult> {
+    if (this.maintenanceService) {
+      await this.maintenanceService.assertFeatureNotKilled('outgoing_sms');
+    }
+
     if (!dto.to || dto.to.trim().length < 5) {
       throw new BadRequestException({
         code: 'INVALID_PHONE_NUMBER',
