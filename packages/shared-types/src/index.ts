@@ -59,3 +59,4 @@ export * from './compliance-calendar';
 export * from './platform-templates';
 export * from './platform-exchange-rates';
 export * from './language-packs';
+export * from './platform-settings';
