@@ -12,11 +12,16 @@ import type {
   CountryStatus,
   CountrySummary,
   CreateComplianceEventInput,
+  CreatePlatformTemplateInput,
   CreateRuleVersionInput,
   CreateStateProvinceInput,
+  EffectiveProvisioningTemplatesResponse,
   InheritingTenantsResponse,
   PendingRuleVersionView,
+  PlatformDefaultTemplate,
+  PlatformTemplateCategory,
   PreviewComplianceNoticeTenantsInput,
+  PublishPlatformTemplateInput,
   PublishRuleVersionInput,
   RejectRuleVersionInput,
   RuleVersionDiffResult,
@@ -31,6 +36,7 @@ import type {
   SubmitRuleVersionInput,
   TaxBracketRecord,
   UpdateComplianceEventInput,
+  UpdatePlatformTemplateInput,
   UpdateRuleVersionInput,
   UpdateStateProvinceInput,
 } from '@hrm/shared-types';
@@ -518,6 +524,102 @@ export function previewDraftComplianceEventTenants(
     {
       method: 'POST',
       body: JSON.stringify(input),
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stage C.0: Platform Default Provisioning Templates
+// ---------------------------------------------------------------------------
+
+export function listPlatformDefaultTemplates(params?: {
+  countryId?: string;
+  category?: PlatformTemplateCategory;
+  status?: string;
+}): Promise<PlatformDefaultTemplate[]> {
+  const query = new URLSearchParams();
+  if (params?.countryId) query.set('countryId', params.countryId);
+  if (params?.category) query.set('category', params.category);
+  if (params?.status) query.set('status', params.status);
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return apiRequest<PlatformDefaultTemplate[]>(
+    `/platform/countries/default-templates${qs}`,
+  );
+}
+
+export function getEffectiveDefaultTemplates(
+  countryId?: string,
+): Promise<EffectiveProvisioningTemplatesResponse> {
+  const qs = countryId ? `?countryId=${encodeURIComponent(countryId)}` : '';
+  return apiRequest<EffectiveProvisioningTemplatesResponse>(
+    `/platform/countries/default-templates/effective${qs}`,
+  );
+}
+
+export function getPlatformDefaultTemplate(
+  id: string,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    `/platform/countries/default-templates/${id}`,
+  );
+}
+
+export function createPlatformDefaultTemplate(
+  input: CreatePlatformTemplateInput,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    '/platform/countries/default-templates',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updatePlatformDefaultTemplate(
+  id: string,
+  input: UpdatePlatformTemplateInput,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    `/platform/countries/default-templates/${id}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function publishPlatformDefaultTemplate(
+  id: string,
+  input: PublishPlatformTemplateInput,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    `/platform/countries/default-templates/${id}/publish`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function clonePlatformDefaultTemplate(
+  id: string,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    `/platform/countries/default-templates/${id}/clone`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+export function archivePlatformDefaultTemplate(
+  id: string,
+): Promise<PlatformDefaultTemplate> {
+  return apiRequest<PlatformDefaultTemplate>(
+    `/platform/countries/default-templates/${id}`,
+    {
+      method: 'DELETE',
     },
   );
 }

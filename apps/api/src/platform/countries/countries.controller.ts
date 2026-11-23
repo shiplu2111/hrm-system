@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -27,8 +28,10 @@ import type {
   CountryConfiguration,
   CountryRuleRecord,
   CountrySummary,
+  EffectiveProvisioningTemplatesResponse,
   InheritingTenantsResponse,
   PendingRuleVersionView,
+  PlatformDefaultTemplate,
   RuleSandboxDraftCandidate,
   RuleSandboxSimulationResult,
   RuleVersionDiffResult,
@@ -47,6 +50,7 @@ import { RuleVersionsService } from './rule-versions.service';
 import { RuleSandboxService } from './rule-sandbox.service';
 import { ComplianceEventsService } from './compliance-events.service';
 import { ComplianceNoticeJobService } from './compliance-notice-job.service';
+import { PlatformDefaultTemplatesService } from './platform-default-templates.service';
 import { RuleSandboxSimulationDto } from './dto/rule-sandbox.dto';
 import {
   CreateComplianceEventDto,
@@ -55,6 +59,12 @@ import {
   RunComplianceNoticeJobDto,
   UpdateComplianceEventDto,
 } from './dto/compliance-events.dto';
+import {
+  CreatePlatformTemplateDto,
+  PublishPlatformTemplateDto,
+  QueryPlatformTemplatesDto,
+  UpdatePlatformTemplateDto,
+} from './dto/platform-templates.dto';
 import {
   BulkImportStatesDto,
   CreateCountryDto,
@@ -89,6 +99,7 @@ export class CountriesController {
     private readonly ruleSandboxService: RuleSandboxService,
     private readonly complianceEventsService: ComplianceEventsService,
     private readonly complianceNoticeJobService: ComplianceNoticeJobService,
+    private readonly platformDefaultTemplatesService: PlatformDefaultTemplatesService,
   ) { }
 
   @Get()
@@ -676,6 +687,132 @@ export class CountriesController {
   ): Promise<ApiEnvelope<ComplianceNoticeJobRunResult>> {
     return {
       data: await this.complianceNoticeJobService.runNoticeJob(dto),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stage C.0: Platform Default Provisioning Templates
+  // ---------------------------------------------------------------------------
+
+  @Get('default-templates')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'List platform default provisioning templates (Stage C.0)',
+    description: 'Lists templates for document types, leave policies, notifications, roles, and onboarding checklists',
+  })
+  async listDefaultTemplates(
+    @Query() query: QueryPlatformTemplatesDto,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate[]>> {
+    return {
+      data: await this.platformDefaultTemplatesService.listTemplates(query),
+    };
+  }
+
+  @Get('default-templates/effective')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({
+    summary: 'Get effective published templates for new tenant provisioning',
+    description: 'Resolves country-specific or global default templates across all 5 provisioning categories',
+  })
+  async getEffectiveDefaultTemplates(
+    @Query('countryId') countryId?: string,
+  ): Promise<ApiEnvelope<EffectiveProvisioningTemplatesResponse>> {
+    return {
+      data: await this.platformDefaultTemplatesService.getEffectiveTemplatesForCountry(countryId),
+    };
+  }
+
+  @Get('default-templates/:templateId')
+  @RequirePlatformPermission('country', 'view')
+  @ApiOperation({ summary: 'Get a single platform default template by ID' })
+  async getDefaultTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    return {
+      data: await this.platformDefaultTemplatesService.getTemplateById(templateId),
+    };
+  }
+
+  @Post('default-templates')
+  @RequirePlatformPermission('country', 'create')
+  @ApiOperation({
+    summary: 'Create a new platform default template or next draft version',
+    description: 'Versioned baseline template. Changing a default affects only tenants created afterwards, never existing tenants.',
+  })
+  async createDefaultTemplate(
+    @Body() dto: CreatePlatformTemplateDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actorId = platformUser?.id ?? 'system';
+    return {
+      data: await this.platformDefaultTemplatesService.createTemplate(dto, actorId),
+    };
+  }
+
+  @Put('default-templates/:templateId')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Update a draft platform default template',
+    description: 'Only draft templates can be modified. Published templates are immutable.',
+  })
+  async updateDefaultTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Body() dto: UpdatePlatformTemplateDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actorId = platformUser?.id ?? 'system';
+    return {
+      data: await this.platformDefaultTemplatesService.updateTemplate(templateId, dto, actorId),
+    };
+  }
+
+  @Post('default-templates/:templateId/publish')
+  @RequirePlatformPermission('country', 'edit')
+  @ApiOperation({
+    summary: 'Publish a draft platform default template',
+    description: 'Takes effect for all new tenants provisioned on or after effectiveFrom. Existing tenants remain untouched.',
+  })
+  async publishDefaultTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Body() dto: PublishPlatformTemplateDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actorId = platformUser?.id ?? 'system';
+    return {
+      data: await this.platformDefaultTemplatesService.publishTemplate(templateId, dto, actorId),
+    };
+  }
+
+  @Post('default-templates/:templateId/clone')
+  @RequirePlatformPermission('country', 'create')
+  @ApiOperation({
+    summary: 'Clone an existing published template into the next draft version',
+  })
+  async cloneDefaultTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actorId = platformUser?.id ?? 'system';
+    return {
+      data: await this.platformDefaultTemplatesService.cloneAsDraft(templateId, actorId),
+    };
+  }
+
+  @Delete('default-templates/:templateId')
+  @RequirePlatformPermission('country', 'delete')
+  @ApiOperation({ summary: 'Archive a platform default template version' })
+  async archiveDefaultTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<PlatformDefaultTemplate>> {
+    const platformUser = (req as any).platformUser ?? (req as any).user;
+    const actorId = platformUser?.id ?? 'system';
+    return {
+      data: await this.platformDefaultTemplatesService.archiveTemplate(templateId, actorId),
     };
   }
 }

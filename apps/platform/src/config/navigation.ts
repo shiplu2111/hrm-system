@@ -20,6 +20,7 @@ import {
   Settings,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   UserCog,
   UserCheck,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ export type PlatformViewKey =
   | 'compliance-calendar'
   | 'rule-approvals'
   | 'rule-sandbox'
+  | 'provisioning-templates'
   | 'statutory-rules'
   | 'feature-flags'
   | 'platform-audit'
@@ -200,6 +202,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: FlaskConical,
         badge: 'Simulator',
         badgeTone: 'indigo',
+        permission: { module: 'country', action: 'view' },
+      },
+      {
+        key: 'provisioning-templates',
+        label: 'Default Templates',
+        description: 'Document types, leave policies, notifications, roles, checklists for new tenants (Stage C.0)',
+        icon: Sparkles,
+        badge: 'Stage C.0',
+        badgeTone: 'emerald',
         permission: { module: 'country', action: 'view' },
       },
       {

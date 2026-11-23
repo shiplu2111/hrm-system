@@ -180,11 +180,11 @@ const PLAN_TIERS = [
 const PROVISIONING_STEPS = [
   'Allocating tenant namespace and database partition...',
   'Seeding primary company & statutory compliance rules...',
-  'Generating default RBAC roles (Owner, HR, Payroll, Manager)...',
-  'Seeding default document types and leave policies...',
-  'Configuring notification templates & storage driver...',
+  'Generating default RBAC roles and permissions (Stage C.0)...',
+  'Seeding default document types, leave policies, and onboarding checklists (Stage C.0)...',
+  'Configuring notification templates & storage driver (Stage C.0)...',
   'Creating initial Company Owner account & dispatching invitation...',
-  'Committing platform audit log record...',
+  'Committing immutable platform audit log record...',
 ];
 
 interface CreateTenantWizardProps {
@@ -971,10 +971,18 @@ export function CreateTenantWizard({ onCancel, onSuccess }: CreateTenantWizardPr
             </div>
 
             {/* Notice banner */}
+            <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-950 dark:text-indigo-200 flex items-start gap-3">
+              <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-semibold block mb-0.5">Stage C.0 Provisioning Defaults:</strong>
+                This tenant will be seeded with currently published platform default templates: RBAC roles & permissions, document types, leave policies, notifications, and onboarding checklists. Subsequent modifications to platform defaults will never alter this tenant.
+              </div>
+            </div>
+
             <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3">
               <Server className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <strong>BullMQ Provisioning Flow:</strong> Creating this tenant will enqueue a background job to allocate database partitions, seed default document types, configure notification templates, dispatch the initial owner invitation, and lock the audit record.
+                <strong>BullMQ Provisioning Flow:</strong> Creating this tenant will allocate database partitions, seed default document types, configure notification templates, dispatch the initial owner invitation, and lock the audit record.
               </div>
             </div>
           </div>

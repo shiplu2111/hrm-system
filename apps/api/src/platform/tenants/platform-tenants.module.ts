@@ -8,8 +8,15 @@ import { PlatformTenantsController } from './platform-tenants.controller';
 import { PlatformTenantsService } from './platform-tenants.service';
 import { TenantLifecycleQueueService } from './tenant-lifecycle-queue.service';
 
+import { CountriesModule } from '../countries/countries.module';
+
 @Module({
-  imports: [PrismaModule, PlatformAuditModule, PlatformAuthModule],
+  imports: [
+    PrismaModule,
+    PlatformAuditModule,
+    PlatformAuthModule,
+    CountriesModule,
+  ],
   controllers: [PlatformTenantsController],
   providers: [
     PlatformTenantsService,

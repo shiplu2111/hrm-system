@@ -129,6 +129,7 @@ model Tenant {
   cancelReason        String?               @map("cancel_reason")
   scheduledDeletionAt DateTime?             @map("scheduled_deletion_at")
   deletedAt           DateTime?             @map("deleted_at")
+  provisionedTemplateVersions Json?         @map("provisioned_template_versions")
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
 
@@ -262,6 +263,7 @@ model Country {
   stateProvinceRules StateProvinceRule[]
   statesProvinces    StateProvince[]
   complianceEvents   ComplianceEvent[]
+  platformDefaultTemplates PlatformDefaultTemplate[]
 
   @@map("countries")
 }
@@ -446,6 +448,48 @@ model ComplianceEventNotice {
   @@index([companyId, dueDate])
   @@index([complianceEventId, dueDate])
   @@map("compliance_event_notices")
+}
+
+// ---------------------------------------------------------------------------
+// Stage C.0: Platform Default Provisioning Templates (Per Country / Global)
+// ---------------------------------------------------------------------------
+
+enum PlatformTemplateCategory {
+  document_types
+  leave_policies
+  notification_templates
+  default_roles
+  onboarding_checklists
+
+  @@map("platform_template_category")
+}
+
+model PlatformDefaultTemplate {
+  id              String                   @id @default(uuid()) @db.Uuid
+  countryId       String?                  @map("country_id") @db.Uuid
+  category        PlatformTemplateCategory
+  version         Int                      @default(1)
+  name            String
+  description     String?
+  status          RuleVersionStatus        @default(published)
+  payload         Json
+  effectiveFrom   DateTime                 @default(now()) @map("effective_from") @db.Date
+  effectiveTo     DateTime?                @map("effective_to") @db.Date
+  changeSummary   String?                  @map("change_summary")
+  sourceReference String?                  @map("source_reference")
+  createdBy       String                   @default("system") @map("created_by")
+  approvedBy      String?                  @map("approved_by")
+  approvedAt      DateTime?                @map("approved_at")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  country Country? @relation(fields: [countryId], references: [id], onDelete: SetNull)
+
+  @@index([countryId])
+  @@index([category, status])
+  @@index([countryId, category, status])
+  @@index([category, effectiveFrom])
+  @@map("platform_default_templates")
 }
 
 model Company {

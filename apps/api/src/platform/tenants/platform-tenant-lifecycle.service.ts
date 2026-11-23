@@ -4,10 +4,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import {
   LeaveAccrualType,
+  OnboardingTaskCategory,
+  OnboardingTaskType,
   PermissionAction,
   Prisma,
   RoleDataScope,
@@ -20,6 +23,7 @@ import type {
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
+import { PlatformDefaultTemplatesService } from '../countries/platform-default-templates.service';
 import type {
   CancelTenantDto,
   HardDeleteTenantDto,
@@ -115,6 +119,8 @@ export class PlatformTenantLifecycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: PlatformAuditService,
+    @Optional()
+    private readonly platformDefaultTemplatesService?: PlatformDefaultTemplatesService,
   ) {}
 
   /**
@@ -190,8 +196,44 @@ export class PlatformTenantLifecycleService {
     // Temporary password hash for the owner
     const tempPasswordHash = await bcrypt.hash('InitialSecure2026!#', 10);
 
+    // Resolve effective platform default templates for this tenant's country (Stage C.0)
+    // Changing a default affects only tenants created afterwards, never existing tenants.
+    const effectiveTemplates = this.platformDefaultTemplatesService
+      ? await this.platformDefaultTemplatesService.getEffectiveTemplatesForCountry(country.id)
+      : null;
+
+    const templateVersions = effectiveTemplates
+      ? {
+          document_types: {
+            id: effectiveTemplates.templates.document_types?.id,
+            version: effectiveTemplates.templates.document_types?.version,
+            source: effectiveTemplates.sources.document_types,
+          },
+          leave_policies: {
+            id: effectiveTemplates.templates.leave_policies?.id,
+            version: effectiveTemplates.templates.leave_policies?.version,
+            source: effectiveTemplates.sources.leave_policies,
+          },
+          notification_templates: {
+            id: effectiveTemplates.templates.notification_templates?.id,
+            version: effectiveTemplates.templates.notification_templates?.version,
+            source: effectiveTemplates.sources.notification_templates,
+          },
+          default_roles: {
+            id: effectiveTemplates.templates.default_roles?.id,
+            version: effectiveTemplates.templates.default_roles?.version,
+            source: effectiveTemplates.sources.default_roles,
+          },
+          onboarding_checklists: {
+            id: effectiveTemplates.templates.onboarding_checklists?.id,
+            version: effectiveTemplates.templates.onboarding_checklists?.version,
+            source: effectiveTemplates.sources.onboarding_checklists,
+          },
+        }
+      : null;
+
     const result = await this.prisma.unscoped.$transaction(async (tx) => {
-      // 1. Create Tenant
+      // 1. Create Tenant (with recorded provisioned template versions)
       const tenant = await tx.tenant.create({
         data: {
           name: input.name.trim(),
@@ -200,6 +242,7 @@ export class PlatformTenantLifecycleService {
           status,
           storageDriver: input.storageDriver ?? 'local',
           trialEndsAt,
+          provisionedTemplateVersions: templateVersions ?? undefined,
         },
       });
 
@@ -216,99 +259,259 @@ export class PlatformTenantLifecycleService {
         },
       });
 
-      // 3. Create Default Roles
+      // 3. Create Default Roles & Permissions (from resolved template or fallback)
+      const rolesPayload = effectiveTemplates?.templates?.default_roles?.payload;
+      const rolesList: any[] =
+        Array.isArray(rolesPayload) && rolesPayload.length > 0
+          ? rolesPayload
+          : DEFAULT_ROLES;
+
       const roleMap: Record<string, string> = {};
-      for (const roleDef of DEFAULT_ROLES) {
+      for (const roleDef of rolesList) {
+        const dataScope =
+          (roleDef.dataScope as RoleDataScope) || RoleDataScope.all;
         const createdRole = await tx.role.create({
           data: {
             tenantId: tenant.id,
             name: roleDef.name,
-            dataScope: roleDef.dataScope,
+            dataScope,
           },
         });
         roleMap[roleDef.name] = createdRole.id;
-      }
 
-      // Add basic permissions for Company Owner
-      const ownerRoleId = roleMap['Company Owner'];
-      const ownerModules = [
-        'employee',
-        'payroll',
-        'attendance',
-        'leave',
-        'roster',
-        'settings',
-        'documents',
-        'audit',
-        'billing',
-        'support',
-      ];
-      const actions: PermissionAction[] = [
-        PermissionAction.view,
-        PermissionAction.create,
-        PermissionAction.edit,
-        PermissionAction.delete,
-        PermissionAction.approve,
-        PermissionAction.finalize,
-      ];
-
-      for (const mod of ownerModules) {
-        for (const act of actions) {
-          await tx.permission.create({
-            data: {
-              roleId: ownerRoleId,
-              module: mod,
-              action: act,
-            },
-          });
+        // If explicit permissions list defined, seed them
+        if (Array.isArray(roleDef.permissions)) {
+          for (const perm of roleDef.permissions) {
+            if (perm.module && Array.isArray(perm.actions)) {
+              for (const act of perm.actions) {
+                const actionEnum = act as PermissionAction;
+                await tx.permission.create({
+                  data: {
+                    roleId: createdRole.id,
+                    module: perm.module,
+                    action: actionEnum,
+                  },
+                });
+              }
+            }
+          }
         }
       }
 
-      // 4. Create Default Document Types
-      for (const doc of DEFAULT_DOC_TYPES) {
-        await tx.documentType.create({
+      // Add basic / full permissions for Company Owner if not already explicitly defined
+      const ownerRoleDef = rolesList.find((r) => r.name === 'Company Owner');
+      const ownerRoleId = roleMap['Company Owner'];
+      if (
+        ownerRoleId &&
+        (!ownerRoleDef?.permissions || ownerRoleDef.permissions.length === 0)
+      ) {
+        const ownerModules = [
+          'employee',
+          'payroll',
+          'attendance',
+          'leave',
+          'roster',
+          'settings',
+          'documents',
+          'audit',
+          'billing',
+          'support',
+        ];
+        const actions: PermissionAction[] = [
+          PermissionAction.view,
+          PermissionAction.create,
+          PermissionAction.edit,
+          PermissionAction.delete,
+          PermissionAction.approve,
+          PermissionAction.finalize,
+        ];
+
+        for (const mod of ownerModules) {
+          for (const act of actions) {
+            await tx.permission.create({
+              data: {
+                roleId: ownerRoleId,
+                module: mod,
+                action: act,
+              },
+            });
+          }
+        }
+      }
+
+      // 4. Create Default Document Types (from resolved template or fallback)
+      const docPayload = effectiveTemplates?.templates?.document_types?.payload;
+      const docTypesList: any[] =
+        Array.isArray(docPayload) && docPayload.length > 0
+          ? docPayload
+          : DEFAULT_DOC_TYPES;
+
+      const docTypeMap: Record<string, string> = {};
+      for (const doc of docTypesList) {
+        const createdDoc = await tx.documentType.create({
           data: {
             companyId: company.id,
             name: doc.name,
-            description: doc.description,
-            requiresVerification: doc.requiresVerification,
-            tracksExpiry: doc.tracksExpiry,
+            description: doc.description || null,
+            requiresVerification: Boolean(doc.requiresVerification),
+            tracksExpiry: Boolean(doc.tracksExpiry),
           },
         });
+        docTypeMap[doc.name] = createdDoc.id;
       }
 
-      // 5. Create Default Leave Types and Policies
-      for (const lt of DEFAULT_LEAVE_TYPES) {
+      // 5. Create Default Leave Types and Policies (from resolved template or fallback)
+      const leavePayload = effectiveTemplates?.templates?.leave_policies?.payload;
+      const leaveList: any[] =
+        Array.isArray(leavePayload) && leavePayload.length > 0
+          ? leavePayload
+          : DEFAULT_LEAVE_TYPES;
+
+      for (const lt of leaveList) {
+        const isPaid =
+          lt.isPaid !== undefined
+            ? Boolean(lt.isPaid)
+            : lt.paid !== undefined
+              ? Boolean(lt.paid)
+              : true;
         const createdLt = await tx.leaveType.create({
           data: {
             companyId: company.id,
             name: lt.name,
-            isPaid: lt.paid,
+            isPaid,
           },
         });
+
+        const defaultDays =
+          lt.entitlementDays !== undefined
+            ? lt.entitlementDays
+            : lt.defaultDays !== undefined
+              ? lt.defaultDays
+              : 14;
+        const accrualType =
+          (lt.accrualType as LeaveAccrualType) || LeaveAccrualType.yearly;
 
         await tx.leavePolicy.create({
           data: {
             companyId: company.id,
             leaveTypeId: createdLt.id,
-            entitlementDays: new Prisma.Decimal(lt.defaultDays),
-            accrualType: LeaveAccrualType.yearly,
+            entitlementDays: new Prisma.Decimal(defaultDays),
+            accrualType,
+            carryForwardMax:
+              lt.carryForwardMax !== undefined && lt.carryForwardMax !== null
+                ? new Prisma.Decimal(lt.carryForwardMax)
+                : null,
+            expiryMonths: lt.expiryMonths ?? null,
+            encashmentAllowed: Boolean(lt.encashmentAllowed),
+            probationRestricted: Boolean(lt.probationRestricted),
+            allowNegativeBalance: Boolean(lt.allowNegativeBalance),
+            negativeBalanceCap: lt.negativeBalanceCap
+              ? new Prisma.Decimal(lt.negativeBalanceCap)
+              : null,
+            halfDayAllowed:
+              lt.halfDayAllowed !== undefined ? Boolean(lt.halfDayAllowed) : true,
+            deductPublicHolidays: Boolean(lt.deductPublicHolidays),
+            approvalSteps:
+              lt.approvalSteps || [
+                { roleName: 'Manager' },
+                { roleName: 'HR Admin' },
+              ],
             effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
           },
         });
       }
 
-      // 6. Create Default Notification Templates
-      for (const tmpl of DEFAULT_NOTIFICATION_TEMPLATES) {
+      // 6. Create Default Notification Templates (from resolved template or fallback)
+      const notifPayload =
+        effectiveTemplates?.templates?.notification_templates?.payload;
+      const notifList: any[] =
+        Array.isArray(notifPayload) && notifPayload.length > 0
+          ? notifPayload
+          : DEFAULT_NOTIFICATION_TEMPLATES;
+
+      for (const tmpl of notifList) {
+        const value = tmpl.template
+          ? tmpl.template
+          : {
+              channels: tmpl.channels || ['in_app', 'email'],
+              subject: tmpl.subject,
+              body: tmpl.body,
+              variables: tmpl.variables,
+            };
         await tx.tenantSetting.create({
           data: {
             tenantId: tenant.id,
             category: 'notification',
             key: tmpl.key,
-            value: tmpl.template,
+            value,
             updatedBy: ownerRoleId,
           },
         });
+      }
+
+      // 7. Create Default Onboarding Checklist Template (from resolved template)
+      const checklistPayload =
+        effectiveTemplates?.templates?.onboarding_checklists?.payload;
+      if (
+        checklistPayload &&
+        (checklistPayload.items || Array.isArray(checklistPayload))
+      ) {
+        const checklistDef = Array.isArray(checklistPayload)
+          ? {
+              name: 'Standard Onboarding Checklist',
+              items: checklistPayload,
+            }
+          : checklistPayload;
+        const items = Array.isArray(checklistDef.items)
+          ? checklistDef.items
+          : [];
+
+        if (items.length > 0) {
+          const createdChecklist = await tx.onboardingChecklistTemplate.create({
+            data: {
+              tenantId: tenant.id,
+              companyId: company.id,
+              name: checklistDef.name || 'Standard Onboarding Checklist',
+              description:
+                checklistDef.description ||
+                'Platform default onboarding checklist template',
+              isDefault: true,
+              isActive: true,
+            },
+          });
+
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const linkedDocTypeId = item.documentTypeName
+              ? docTypeMap[item.documentTypeName] ?? null
+              : null;
+            const cat =
+              (item.category as OnboardingTaskCategory) ||
+              OnboardingTaskCategory.general;
+            const taskType =
+              (item.taskType as OnboardingTaskType) ||
+              OnboardingTaskType.manual_task;
+
+            await tx.onboardingChecklistTemplateItem.create({
+              data: {
+                templateId: createdChecklist.id,
+                title: item.title,
+                description: item.description ?? null,
+                category: cat,
+                taskType,
+                documentTypeId: linkedDocTypeId,
+                assigneeLabel: item.assigneeLabel ?? 'Employee',
+                dueDaysOffset:
+                  item.dueDaysOffset !== undefined ? item.dueDaysOffset : 1,
+                sortOrder: i,
+                isRequired:
+                  item.isRequired !== undefined
+                    ? Boolean(item.isRequired)
+                    : true,
+              },
+            });
+          }
+        }
       }
 
       // 7. Create First Employee & User (Company Owner)
@@ -363,6 +566,7 @@ export class PlatformTenantLifecycleService {
         status: result.tenant.status,
         companyId: result.company.id,
         ownerEmail: input.ownerEmail,
+        provisionedTemplateVersions: templateVersions,
         reason: input.reason.trim(),
       },
     });

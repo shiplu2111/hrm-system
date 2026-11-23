@@ -10,6 +10,7 @@ import { RuleVersionsService } from './rule-versions.service';
 import { RuleSandboxService } from './rule-sandbox.service';
 import { ComplianceEventsService } from './compliance-events.service';
 import { ComplianceNoticeJobService } from './compliance-notice-job.service';
+import { PlatformDefaultTemplatesService } from './platform-default-templates.service';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ComplianceNoticeJobService } from './compliance-notice-job.service';
     RuleSandboxService,
     ComplianceEventsService,
     ComplianceNoticeJobService,
+    PlatformDefaultTemplatesService,
   ],
   exports: [
     CountriesService,
@@ -32,6 +34,7 @@ import { ComplianceNoticeJobService } from './compliance-notice-job.service';
     RuleSandboxService,
     ComplianceEventsService,
     ComplianceNoticeJobService,
+    PlatformDefaultTemplatesService,
   ],
 })
 export class CountriesModule {}
