@@ -13,6 +13,7 @@ import { PlatformSubscriptionsModule } from './subscriptions/platform-subscripti
 import { PlatformSupportAccessModule } from './support-access/platform-support-access.module';
 import { PlatformTenantsModule } from './tenants/platform-tenants.module';
 import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-rates.module';
+import { PlatformLanguagePacksModule } from './language-packs/platform-language-packs.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-
     PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformExchangeRatesModule,
+    PlatformLanguagePacksModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -38,6 +40,7 @@ import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-
     PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformExchangeRatesModule,
+    PlatformLanguagePacksModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,

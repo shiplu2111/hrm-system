@@ -14,6 +14,7 @@ import {
   Globe2,
   Headphones,
   Inbox,
+  Languages,
   LayoutDashboard,
   Palette,
   PlusCircle,
@@ -43,6 +44,7 @@ export type PlatformViewKey =
   | 'rule-sandbox'
   | 'provisioning-templates'
   | 'exchange-rates'
+  | 'language-packs'
   | 'statutory-rules'
   | 'feature-flags'
   | 'platform-audit'
@@ -304,6 +306,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         description: 'Operator accounts, RBAC permissions, and mandatory 2FA enforcement',
         icon: UserCog,
         permission: { module: 'user', action: 'view' },
+      },
+      {
+        key: 'language-packs',
+        label: 'Language Packs',
+        description: 'Supported languages, translation completeness, JSON import/export, tenant availability, and missing keys',
+        icon: Languages,
+        badge: 'i18n',
+        badgeTone: 'emerald',
+        permission: { module: 'platform', action: 'view' },
       },
       {
         key: 'platform-settings',

@@ -27,6 +27,7 @@ import { RuleApprovalsInboxPage } from '@/pages/platform/RuleApprovalsInboxPage'
 import { RuleSandboxPage } from '@/pages/platform/RuleSandboxPage';
 import { PlatformDefaultTemplatesPage } from '@/pages/platform/PlatformDefaultTemplatesPage';
 import { PlatformExchangeRatesPage } from '@/pages/platform/PlatformExchangeRatesPage';
+import { PlatformLanguagePacksPage } from '@/pages/platform/PlatformLanguagePacksPage';
 import { FeatureFlagsPage } from '@/pages/platform/FeatureFlagsPage';
 import { PlatformAuditPage } from '@/pages/platform/PlatformAuditPage';
 import { SupportTicketsPage } from '@/pages/platform/SupportTicketsPage';
@@ -176,6 +177,8 @@ export function PlatformShell({
         return <SupportSessionsLogPage />;
       case 'platform-users':
         return <PlatformUsersPage />;
+      case 'language-packs':
+        return <PlatformLanguagePacksPage />;
       case 'platform-settings':
         return <PlatformSettingsPage />;
       case 'my-account':

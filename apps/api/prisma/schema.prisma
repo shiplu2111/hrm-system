@@ -5328,6 +5328,32 @@ model PlatformExchangeRate {
   @@map("platform_exchange_rates")
 }
 
+/// Platform-level supported language packs — manages translations, completeness, JSON import/export, and tenant availability.
+model PlatformLanguagePack {
+  id                    String    @id @default(uuid()) @db.Uuid
+  code                  String    @unique @db.VarChar(10)
+  name                  String    @db.VarChar(100)
+  nativeName            String    @map("native_name") @db.VarChar(100)
+  direction             String    @default("ltr") @db.VarChar(3)
+  isAvailableToTenants  Boolean   @default(false) @map("is_available_to_tenants")
+  isDefault             Boolean   @default(false) @map("is_default")
+  totalKeys             Int       @default(0) @map("total_keys")
+  translatedKeys        Int       @default(0) @map("translated_keys")
+  completenessPercent   Decimal   @default(0.0) @map("completeness_percent") @db.Decimal(5, 2)
+  version               String    @default("1.0.0") @db.VarChar(20)
+  translations          Json      @default("{}")
+  notes                 String?   @db.Text
+  lastImportedAt        DateTime? @map("last_imported_at") @db.Timestamptz(6)
+  lastExportedAt        DateTime? @map("last_exported_at") @db.Timestamptz(6)
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isAvailableToTenants])
+  @@index([code])
+  @@map("platform_language_packs")
+}
+
 // ---------------------------------------------------------------------------
 // §9 Audit & Security (DATABASE_SCHEMA.md, AUDIT_LOG.md)
 // ---------------------------------------------------------------------------
