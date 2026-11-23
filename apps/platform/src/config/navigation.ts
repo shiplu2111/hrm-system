@@ -16,6 +16,7 @@ import {
   Inbox,
   Languages,
   LayoutDashboard,
+  Megaphone,
   Palette,
   PlusCircle,
   Receipt,
@@ -53,6 +54,7 @@ export type PlatformViewKey =
   | 'system-notifications'
   | 'platform-users'
   | 'my-account'
+  | 'platform-announcements'
   | 'platform-settings';
 
 export interface NavItem {
@@ -248,6 +250,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         label: 'Feature Flags',
         description: 'Tenant rollout rings, experimental module flags, and kill-switches',
         icon: SlidersHorizontal,
+        permission: { module: 'platform', action: 'view' },
+      },
+      {
+        key: 'platform-announcements',
+        label: 'Announcements',
+        description: 'Broadcast notifications to tenants, company owners, and admins with custom severity and email delivery',
+        icon: Megaphone,
+        badge: 'Live',
+        badgeTone: 'indigo',
         permission: { module: 'platform', action: 'view' },
       },
       {

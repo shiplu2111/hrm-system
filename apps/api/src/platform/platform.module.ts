@@ -16,6 +16,7 @@ import { PlatformExchangeRatesModule } from './exchange-rates/platform-exchange-
 import { PlatformLanguagePacksModule } from './language-packs/platform-language-packs.module';
 import { PlatformMaintenanceModule } from './maintenance/platform-maintenance.module';
 import { PlatformSettingsModule } from './settings/platform-settings.module';
+import { PlatformAnnouncementsModule } from './announcements/platform-announcements.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { PlatformSettingsModule } from './settings/platform-settings.module';
     PlatformLanguagePacksModule,
     PlatformMaintenanceModule,
     PlatformSettingsModule,
+    PlatformAnnouncementsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -47,6 +49,7 @@ import { PlatformSettingsModule } from './settings/platform-settings.module';
     PlatformLanguagePacksModule,
     PlatformMaintenanceModule,
     PlatformSettingsModule,
+    PlatformAnnouncementsModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,

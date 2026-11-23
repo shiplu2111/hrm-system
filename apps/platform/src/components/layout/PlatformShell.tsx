@@ -34,6 +34,7 @@ import { SupportTicketsPage } from '@/pages/platform/SupportTicketsPage';
 import { PlatformUsersPage } from '@/pages/platform/PlatformUsersPage';
 import { PlatformSettingsPage } from '@/pages/platform/PlatformSettingsPage';
 import { PlatformMaintenancePage } from '@/pages/platform/PlatformMaintenancePage';
+import { PlatformAnnouncementsPage } from '@/pages/platform/PlatformAnnouncementsPage';
 import { MyAccountPage } from '@/pages/platform/MyAccountPage';
 import { SupportSessionsLogPage } from '@/pages/platform/SupportSessionsLogPage';
 
@@ -184,6 +185,8 @@ export function PlatformShell({
         return <PlatformSettingsPage />;
       case 'system-notifications':
         return <PlatformMaintenancePage />;
+      case 'platform-announcements':
+        return <PlatformAnnouncementsPage />;
       case 'my-account':
         return <MyAccountPage currentUser={currentUser} onProfileUpdated={onProfileUpdated} />;
       default:

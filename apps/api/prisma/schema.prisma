@@ -6429,6 +6429,77 @@ model TenantCustomDomain {
   @@map("tenant_custom_domains")
 }
 
+// ---------------------------------------------------------------------------
+// §47 Platform Announcements (SYSTEM_SETTINGS.md §2, MODULES.md §17)
+// ---------------------------------------------------------------------------
+
+enum PlatformAnnouncementSeverity {
+  info
+  warning
+  critical
+
+  @@map("platform_announcement_severity")
+}
+
+enum PlatformAnnouncementAudienceType {
+  all
+  by_plan
+  by_country
+  specific_tenants
+
+  @@map("platform_announcement_audience_type")
+}
+
+enum PlatformAnnouncementStatus {
+  draft
+  published
+  archived
+
+  @@map("platform_announcement_status")
+}
+
+model PlatformAnnouncement {
+  id              String                           @id @default(uuid()) @db.Uuid
+  title           String
+  body            String                           @db.Text
+  severity        PlatformAnnouncementSeverity     @default(info)
+  audienceType    PlatformAnnouncementAudienceType @default(all) @map("audience_type")
+  targetPlans     String[]                         @default([]) @map("target_plans")
+  targetCountries String[]                         @default([]) @map("target_countries")
+  targetTenantIds String[]                         @default([]) @map("target_tenant_ids")
+  rolesOnly       Boolean                          @default(false) @map("roles_only")
+  startTime       DateTime                         @default(now()) @map("start_time")
+  endTime         DateTime?                        @map("end_time")
+  dismissible     Boolean                          @default(true)
+  sendEmail       Boolean                          @default(false) @map("send_email")
+  emailSentAt     DateTime?                        @map("email_sent_at")
+  status          PlatformAnnouncementStatus       @default(draft)
+  createdBy       String?                          @map("created_by") @db.Uuid
+  createdByName   String?                          @map("created_by_name")
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+
+  dismissals      PlatformAnnouncementDismissal[]
+
+  @@index([status, startTime, endTime])
+  @@index([audienceType])
+  @@map("platform_announcements")
+}
+
+model PlatformAnnouncementDismissal {
+  id             String               @id @default(uuid()) @db.Uuid
+  announcementId String               @map("announcement_id") @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  userId         String               @map("user_id") @db.Uuid
+  dismissedAt    DateTime             @default(now()) @map("dismissed_at")
+
+  announcement   PlatformAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([tenantId, userId])
+  @@map("platform_announcement_dismissals")
+}
+
 
 
 

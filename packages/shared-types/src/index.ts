@@ -61,3 +61,4 @@ export * from './platform-exchange-rates';
 export * from './language-packs';
 export * from './platform-settings';
 export * from './maintenance';
+export * from './announcement';
