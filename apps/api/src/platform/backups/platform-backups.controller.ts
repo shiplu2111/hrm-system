@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -123,8 +124,14 @@ export class PlatformBackupsController {
   @Get('summary')
   @ApiOperation({ summary: 'Get summary metrics for backups, restore testing, and compliance' })
   @RequirePlatformPermission('setting', 'view')
-  async getSummary(): Promise<ApiEnvelope<BackupsComplianceSummary>> {
-    const summary = await this.backupsService.getSummary();
+  async getSummary(
+    @Query('backupThresholdHours') backupThresholdHours?: string,
+    @Query('restoreTestThresholdDays') restoreTestThresholdDays?: string,
+  ): Promise<ApiEnvelope<BackupsComplianceSummary>> {
+    const summary = await this.backupsService.getSummary({
+      backupThresholdHours: backupThresholdHours ? parseFloat(backupThresholdHours) : undefined,
+      restoreTestThresholdDays: restoreTestThresholdDays ? parseFloat(restoreTestThresholdDays) : undefined,
+    });
     return { data: summary };
   }
 

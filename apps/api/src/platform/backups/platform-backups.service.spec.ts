@@ -41,10 +41,29 @@ describe('PlatformBackupsService', () => {
     mockUnscoped = {
       backupRun: {
         count: jest.fn().mockResolvedValue(4),
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'b-1',
-          completedAt: new Date('2026-11-24T10:00:00Z'),
-          sizeBytes: BigInt(256 * 1024 * 1024),
+        findFirst: jest.fn().mockImplementation((args?: any) => {
+          if (args?.where?.restoreTestStatus === RestoreTestStatus.passed) {
+            return Promise.resolve({
+              id: 'b-1',
+              restoreTestAt: new Date(Date.now() - 3600000), // 1 hour ago
+              restoreTestDurationMs: 1420,
+              restoreTestStatus: RestoreTestStatus.passed,
+            });
+          }
+          if (args?.where?.restoreTestStatus) {
+            return Promise.resolve({
+              id: 'b-1',
+              restoreTestAt: new Date(Date.now() - 3600000),
+              restoreTestDurationMs: 1420,
+              restoreTestStatus: RestoreTestStatus.passed,
+            });
+          }
+          return Promise.resolve({
+            id: 'b-1',
+            completedAt: new Date(Date.now() - 7200000), // 2 hours ago
+            sizeBytes: BigInt(256 * 1024 * 1024),
+            status: BackupStatus.completed,
+          });
         }),
         findMany: jest.fn().mockResolvedValue([
           {
@@ -215,13 +234,69 @@ describe('PlatformBackupsService', () => {
     service = module.get<PlatformBackupsService>(PlatformBackupsService);
   });
 
-  it('should compute KPI summary metrics correctly', async () => {
+  it('should compute KPI summary metrics correctly and evaluate healthy thresholds', async () => {
     const summary = await service.getSummary();
 
     expect(summary.totalBackups).toBe(4);
     expect(summary.completedBackups).toBe(4);
     expect(summary.lastBackupSizeFormatted).toBe('256.00 MB');
     expect(summary.pendingRestoreApprovals).toBe(1);
+    expect(summary.isBackupOverdue).toBe(false);
+    expect(summary.isRestoreTestOverdue).toBe(false);
+    expect(summary.hasThresholdWarning).toBe(false);
+    expect(summary.lastSuccessfulRestoreTestAt).toBeDefined();
+  });
+
+  it('should trigger warning banner when last backup is older than threshold', async () => {
+    // Mock backup completed 36 hours ago (exceeding 24h threshold)
+    mockUnscoped.backupRun.findFirst.mockImplementation((args?: any) => {
+      if (args?.where?.restoreTestStatus === RestoreTestStatus.passed) {
+        return Promise.resolve({
+          id: 'b-1',
+          restoreTestAt: new Date(Date.now() - 3600000),
+          restoreTestDurationMs: 1420,
+          restoreTestStatus: RestoreTestStatus.passed,
+        });
+      }
+      return Promise.resolve({
+        id: 'b-old',
+        completedAt: new Date(Date.now() - 36 * 3600 * 1000), // 36 hours ago
+        sizeBytes: BigInt(256 * 1024 * 1024),
+        status: BackupStatus.completed,
+      });
+    });
+
+    const summary = await service.getSummary({ backupThresholdHours: 24 });
+
+    expect(summary.isBackupOverdue).toBe(true);
+    expect(summary.hasThresholdWarning).toBe(true);
+    expect(summary.backupWarning).toContain('exceeds the 24-hour SLA threshold');
+  });
+
+  it('should trigger warning banner when last restore test is older than threshold', async () => {
+    // Mock restore test 10 days ago (exceeding 7d threshold)
+    mockUnscoped.backupRun.findFirst.mockImplementation((args?: any) => {
+      if (args?.where?.restoreTestStatus === RestoreTestStatus.passed) {
+        return Promise.resolve({
+          id: 'b-old-test',
+          restoreTestAt: new Date(Date.now() - 10 * 24 * 3600 * 1000), // 10 days ago
+          restoreTestDurationMs: 1420,
+          restoreTestStatus: RestoreTestStatus.passed,
+        });
+      }
+      return Promise.resolve({
+        id: 'b-1',
+        completedAt: new Date(Date.now() - 3600000), // 1 hour ago
+        sizeBytes: BigInt(256 * 1024 * 1024),
+        status: BackupStatus.completed,
+      });
+    });
+
+    const summary = await service.getSummary({ restoreTestThresholdDays: 7 });
+
+    expect(summary.isRestoreTestOverdue).toBe(true);
+    expect(summary.hasThresholdWarning).toBe(true);
+    expect(summary.restoreTestWarning).toContain('exceeds the 7-day SLA threshold');
   });
 
   it('should trigger a new backup run with automatic local file storage inclusion', async () => {

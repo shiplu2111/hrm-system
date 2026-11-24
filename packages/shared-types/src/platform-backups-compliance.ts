@@ -161,11 +161,26 @@ export interface BackupsComplianceSummary {
   completedBackups: number;
   lastBackupAt: string | null;
   lastBackupSizeFormatted: string | null;
+  lastBackupStatus: BackupStatus | null;
+  lastBackupRunId: string | null;
   fileStorageIncludedCount: number;
   restoreTestsCount: number;
   restoreTestsPassed: number;
+  lastSuccessfulRestoreTestAt: string | null;
+  lastSuccessfulRestoreTestRunId: string | null;
+  lastSuccessfulRestoreTestDurationMs: number | null;
+  lastRestoreTestStatus: RestoreTestStatus | null;
   pendingRestoreApprovals: number;
   activeDataRequests: number;
   completedExports: number;
   anonymizedEmployees: number;
+
+  // SLA Thresholds & Warning Banner
+  backupThresholdHours: number;
+  restoreTestThresholdDays: number;
+  isBackupOverdue: boolean;
+  isRestoreTestOverdue: boolean;
+  hasThresholdWarning: boolean;
+  backupWarning: string | null;
+  restoreTestWarning: string | null;
 }

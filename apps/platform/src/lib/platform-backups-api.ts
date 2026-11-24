@@ -37,8 +37,19 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const platformBackupsApi = {
-  async getSummary(): Promise<BackupsComplianceSummary> {
-    const res = await fetch(`${API_BASE}/summary`, {
+  async getSummary(thresholds?: {
+    backupThresholdHours?: number;
+    restoreTestThresholdDays?: number;
+  }): Promise<BackupsComplianceSummary> {
+    const params = new URLSearchParams();
+    if (thresholds?.backupThresholdHours) {
+      params.set('backupThresholdHours', thresholds.backupThresholdHours.toString());
+    }
+    if (thresholds?.restoreTestThresholdDays) {
+      params.set('restoreTestThresholdDays', thresholds.restoreTestThresholdDays.toString());
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_BASE}/summary${qs}`, {
       headers: getAuthHeaders(),
     });
     return handleResponse<BackupsComplianceSummary>(res);

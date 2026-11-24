@@ -346,7 +346,7 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
       },
       {
         key: 'backups-compliance',
-        label: 'Backups & Compliance',
+        label: 'Backups & Restore Requests',
         description: 'Scheduled backups, restore testing, dual approval restores, and GDPR data requests',
         icon: Database,
         badge: 'Live',

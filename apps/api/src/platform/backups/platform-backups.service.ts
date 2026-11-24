@@ -71,13 +71,27 @@ export class PlatformBackupsService {
   /**
    * Get KPI metrics summary for backups, restore testing, restore requests, and data compliance
    */
-  async getSummary(): Promise<BackupsComplianceSummary> {
+  async getSummary(options?: {
+    backupThresholdHours?: number;
+    restoreTestThresholdDays?: number;
+  }): Promise<BackupsComplianceSummary> {
     await this.seedInitialDataIfEmpty();
+
+    const backupThresholdHours =
+      options?.backupThresholdHours && options.backupThresholdHours > 0
+        ? options.backupThresholdHours
+        : 24; // 24-hour daily backup SLA
+    const restoreTestThresholdDays =
+      options?.restoreTestThresholdDays && options.restoreTestThresholdDays > 0
+        ? options.restoreTestThresholdDays
+        : 7; // 7-day periodic restore testing SLA per SECURITY.md §7
 
     const [
       totalBackups,
       completedBackups,
       lastBackup,
+      lastSuccessfulRestoreTest,
+      lastRestoreTest,
       fileStorageIncludedCount,
       restoreTestsCount,
       restoreTestsPassed,
@@ -91,6 +105,14 @@ export class PlatformBackupsService {
       this.db.backupRun.findFirst({
         where: { status: BackupStatus.completed },
         orderBy: { completedAt: 'desc' },
+      }),
+      this.db.backupRun.findFirst({
+        where: { restoreTestStatus: RestoreTestStatus.passed },
+        orderBy: { restoreTestAt: 'desc' },
+      }),
+      this.db.backupRun.findFirst({
+        where: { restoreTestStatus: { in: [RestoreTestStatus.passed, RestoreTestStatus.failed] } },
+        orderBy: { restoreTestAt: 'desc' },
       }),
       this.db.backupRun.count({
         where: { includesFileStorage: true, status: BackupStatus.completed },
@@ -121,18 +143,63 @@ export class PlatformBackupsService {
       }),
     ]);
 
+    // Calculate Backup SLA Overdue
+    let isBackupOverdue = false;
+    let backupWarning: string | null = null;
+    if (!lastBackup || !lastBackup.completedAt) {
+      isBackupOverdue = true;
+      backupWarning = 'No completed backups found on record. An immediate backup is required.';
+    } else {
+      const elapsedHours = (Date.now() - new Date(lastBackup.completedAt).getTime()) / (1000 * 60 * 60);
+      if (elapsedHours > backupThresholdHours) {
+        isBackupOverdue = true;
+        backupWarning = `Last successful backup was completed ${Math.floor(elapsedHours)} hours ago, which exceeds the ${backupThresholdHours}-hour SLA threshold.`;
+      }
+    }
+
+    // Calculate Restore Test SLA Overdue
+    let isRestoreTestOverdue = false;
+    let restoreTestWarning: string | null = null;
+    if (!lastSuccessfulRestoreTest || !lastSuccessfulRestoreTest.restoreTestAt) {
+      isRestoreTestOverdue = true;
+      restoreTestWarning =
+        'No passed automated sandbox restore test found on record. Routine restore testing is required per SECURITY.md §7.';
+    } else {
+      const elapsedDays =
+        (Date.now() - new Date(lastSuccessfulRestoreTest.restoreTestAt).getTime()) / (1000 * 60 * 60 * 24);
+      if (elapsedDays > restoreTestThresholdDays) {
+        isRestoreTestOverdue = true;
+        restoreTestWarning = `Last verified restore test was completed ${elapsedDays.toFixed(1)} days ago, which exceeds the ${restoreTestThresholdDays}-day SLA threshold.`;
+      }
+    }
+
+    const hasThresholdWarning = isBackupOverdue || isRestoreTestOverdue;
+
     return {
       totalBackups,
       completedBackups,
       lastBackupAt: lastBackup?.completedAt?.toISOString() || null,
       lastBackupSizeFormatted: lastBackup ? this.formatBytes(lastBackup.sizeBytes) : null,
+      lastBackupStatus: (lastBackup?.status as any) || null,
+      lastBackupRunId: lastBackup?.id || null,
       fileStorageIncludedCount,
       restoreTestsCount,
       restoreTestsPassed,
+      lastSuccessfulRestoreTestAt: lastSuccessfulRestoreTest?.restoreTestAt?.toISOString() || null,
+      lastSuccessfulRestoreTestRunId: lastSuccessfulRestoreTest?.id || null,
+      lastSuccessfulRestoreTestDurationMs: lastSuccessfulRestoreTest?.restoreTestDurationMs || null,
+      lastRestoreTestStatus: (lastRestoreTest?.restoreTestStatus as any) || null,
       pendingRestoreApprovals,
       activeDataRequests,
       completedExports,
       anonymizedEmployees,
+      backupThresholdHours,
+      restoreTestThresholdDays,
+      isBackupOverdue,
+      isRestoreTestOverdue,
+      hasThresholdWarning,
+      backupWarning,
+      restoreTestWarning,
     };
   }
 

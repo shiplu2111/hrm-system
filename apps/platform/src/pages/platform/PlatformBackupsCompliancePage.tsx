@@ -74,6 +74,19 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
   const [selectedRestoreRequest, setSelectedRestoreRequest] = useState<RestoreRequestItem | null>(null);
   const [selectedDataRequest, setSelectedDataRequest] = useState<DataRequestItem | null>(null);
 
+  // SLA Thresholds & Configuration
+  const [backupThresholdHours, setBackupThresholdHours] = useState<number>(24);
+  const [restoreTestThresholdDays, setRestoreTestThresholdDays] = useState<number>(7);
+  const [tempBackupHours, setTempBackupHours] = useState<number>(24);
+  const [tempRestoreDays, setTempRestoreDays] = useState<number>(7);
+  const [showThresholdModal, setShowThresholdModal] = useState<boolean>(false);
+
+  // Filters & search
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [runStatusFilter, setRunStatusFilter] = useState<string>('all');
+  const [runTestFilter, setRunTestFilter] = useState<string>('all');
+  const [restoreStatusFilter, setRestoreStatusFilter] = useState<string>('all');
+
   // Form states
   const [backupTypeForm, setBackupTypeForm] = useState<BackupType>('full');
   const [includesFileStorageForm, setIncludesFileStorageForm] = useState<boolean>(true);
@@ -107,14 +120,36 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
     return '';
   }, []);
 
-  const loadData = async (isRefresh = false) => {
+  const formatTimeAgo = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'Never';
+    const diffMs = Date.now() - new Date(dateString).getTime();
+    if (diffMs < 0) return 'Just now';
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
+  const loadData = async (
+    isRefresh = false,
+    thresholdOverrides?: { backupThresholdHours?: number; restoreTestThresholdDays?: number },
+  ) => {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
       setError(null);
 
+      const bHours = thresholdOverrides?.backupThresholdHours ?? backupThresholdHours;
+      const rDays = thresholdOverrides?.restoreTestThresholdDays ?? restoreTestThresholdDays;
+
       const [sum, runs, restores, dataReqs, tList] = await Promise.all([
-        platformBackupsApi.getSummary(),
+        platformBackupsApi.getSummary({
+          backupThresholdHours: bHours,
+          restoreTestThresholdDays: rDays,
+        }),
         platformBackupsApi.listBackupRuns(),
         platformBackupsApi.listRestoreRequests(),
         platformBackupsApi.listDataRequests(),
@@ -303,6 +338,28 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
     }
   };
 
+  const filteredBackupRuns = useMemo(() => {
+    return backupRuns.filter((r) => {
+      const q = searchQuery.toLowerCase().trim();
+      if (q) {
+        const matchesId = r.id.toLowerCase().includes(q);
+        const matchesLoc = r.location.toLowerCase().includes(q);
+        const matchesChecksum = r.checksum?.toLowerCase().includes(q);
+        if (!matchesId && !matchesLoc && !matchesChecksum) return false;
+      }
+      if (runStatusFilter !== 'all' && r.status !== runStatusFilter) return false;
+      if (runTestFilter !== 'all' && r.restoreTestStatus !== runTestFilter) return false;
+      return true;
+    });
+  }, [backupRuns, searchQuery, runStatusFilter, runTestFilter]);
+
+  const filteredRestoreRequests = useMemo(() => {
+    return restoreRequests.filter((req) => {
+      if (restoreStatusFilter !== 'all' && req.status !== restoreStatusFilter) return false;
+      return true;
+    });
+  }, [restoreRequests, restoreStatusFilter]);
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Page Header */}
@@ -384,10 +441,162 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
         </div>
       )}
 
+      {/* Prominent SLA Warning Banner if last backup or last restore test is older than threshold */}
+      {summary?.hasThresholdWarning ? (
+        <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/40 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex-shrink-0">
+                <AlertTriangle className="h-6 w-6 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-amber-900 dark:text-amber-100">
+                    Resilience & SLA Threshold Alert: Action Required
+                  </h3>
+                  <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100">
+                    SLA Breached
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                  System resilience thresholds violated. Ensure frequent backups and verified restore tests to satisfy RPO/RTO compliance.
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  {summary.isBackupOverdue && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/60 border border-amber-200 dark:border-amber-900/80 text-xs">
+                      <div className="flex items-center gap-2 text-amber-950 dark:text-amber-200 font-medium">
+                        <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <span><strong>Backup Overdue:</strong> {summary.backupWarning}</span>
+                        <span className="text-slate-500 text-[11px]">
+                          (Threshold: {summary.backupThresholdHours}h · Last: {formatTimeAgo(summary.lastBackupAt)})
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setShowTriggerBackupModal(true)}
+                        className="px-3 py-1 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                      >
+                        Trigger Backup Now
+                      </button>
+                    </div>
+                  )}
+
+                  {summary.isRestoreTestOverdue && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/60 border border-amber-200 dark:border-amber-900/80 text-xs">
+                      <div className="flex items-center gap-2 text-amber-950 dark:text-amber-200 font-medium">
+                        <AlertOctagon className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <span><strong>Restore Test Overdue:</strong> {summary.restoreTestWarning}</span>
+                        <span className="text-slate-500 text-[11px]">
+                          (Threshold: {summary.restoreTestThresholdDays}d · Last Verified: {formatTimeAgo(summary.lastSuccessfulRestoreTestAt)})
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (backupRuns.length > 0) {
+                            handleRunRestoreTest(backupRuns[0]);
+                          } else {
+                            setShowTriggerBackupModal(true);
+                          }
+                        }}
+                        className="px-3 py-1 text-xs font-semibold rounded-md bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                      >
+                        Run Restore Test Now
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setTempBackupHours(summary.backupThresholdHours);
+                setTempRestoreDays(summary.restoreTestThresholdDays);
+                setShowThresholdModal(true);
+              }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-300 dark:border-amber-700 bg-white/60 dark:bg-slate-800/60 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 flex-shrink-0 self-start md:self-auto"
+            >
+              Configure Thresholds
+            </button>
+          </div>
+        </div>
+      ) : summary ? (
+        <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs text-emerald-900 dark:text-emerald-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <span className="font-semibold">Resilience SLAs Nominal:</span>
+            <span>
+              Last backup completed {formatTimeAgo(summary.lastBackupAt)} (SLA: {summary.backupThresholdHours}h) · Last restore test verified {formatTimeAgo(summary.lastSuccessfulRestoreTestAt)} (SLA: {summary.restoreTestThresholdDays}d).
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setTempBackupHours(summary.backupThresholdHours);
+              setTempRestoreDays(summary.restoreTestThresholdDays);
+              setShowThresholdModal(true);
+            }}
+            className="px-2.5 py-1 text-xs font-medium rounded border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+          >
+            Adjust Thresholds ({summary.backupThresholdHours}h / {summary.restoreTestThresholdDays}d)
+          </button>
+        </div>
+      ) : null}
+
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Card 1: Last Successful Backup */}
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Backups</div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Backup Run</span>
+            <span
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                summary?.isBackupOverdue
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+              }`}
+            >
+              {summary?.isBackupOverdue ? 'Overdue' : 'SLA Nominal'}
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 dark:text-white">
+              {summary?.lastBackupAt ? formatTimeAgo(summary.lastBackupAt) : 'Never'}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {summary?.lastBackupSizeFormatted ? `Size: ${summary.lastBackupSizeFormatted}` : 'No backups recorded'}
+          </div>
+        </div>
+
+        {/* Card 2: Last Successful Restore Test */}
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Restore Test</span>
+            <span
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                summary?.isRestoreTestOverdue
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+              }`}
+            >
+              {summary?.isRestoreTestOverdue ? 'Overdue' : 'Passed'}
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+              {summary?.lastSuccessfulRestoreTestAt ? formatTimeAgo(summary.lastSuccessfulRestoreTestAt) : 'None'}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {summary?.lastSuccessfulRestoreTestDurationMs
+              ? `${summary.lastSuccessfulRestoreTestDurationMs}ms sandbox latency`
+              : `${summary?.restoreTestsPassed || 0} verified tests`}
+          </div>
+        </div>
+
+        {/* Card 3: Local Storage & Backup Scope */}
+        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Backups & Scope</div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-slate-900 dark:text-white">
               {summary ? summary.totalBackups : '--'}
@@ -397,67 +606,53 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
             </span>
           </div>
           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {summary?.lastBackupSizeFormatted ? `Last: ${summary.lastBackupSizeFormatted}` : 'Retention: 30 days'}
+            {summary?.fileStorageIncludedCount ?? 0} with local file storage
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Restore Tests Passed</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {summary ? summary.restoreTestsPassed : '--'}
-            </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {summary ? `of ${summary.restoreTestsCount} tested` : ''}
-            </span>
-          </div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Periodic automated sandbox tests
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Local Storage Backups</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 dark:text-white">
-              {summary ? summary.fileStorageIncludedCount : '--'}
-            </span>
-            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-              Files + DB
-            </span>
-          </div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            SYSTEM_SETTINGS.md §3 compliant
-          </div>
-        </div>
-
+        {/* Card 4: Pending Restore Approvals */}
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Pending Restore Approvals</div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className={`text-2xl font-bold ${summary && summary.pendingRestoreApprovals > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
+            <span
+              className={`text-2xl font-bold ${
+                summary && summary.pendingRestoreApprovals > 0
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-slate-900 dark:text-white'
+              }`}
+            >
               {summary ? summary.pendingRestoreApprovals : '--'}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Dual control
-            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">Dual control</span>
           </div>
           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Requires 2nd Owner/Admin
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Data & GDPR Compliance</div>
+        {/* Card 5: Resilience SLA Thresholds */}
+        <div
+          onClick={() => {
+            if (summary) {
+              setTempBackupHours(summary.backupThresholdHours);
+              setTempRestoreDays(summary.restoreTestThresholdDays);
+            }
+            setShowThresholdModal(true);
+          }}
+          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
+          title="Click to adjust SLA thresholds"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">SLA Thresholds</span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold underline">Edit</span>
+          </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-slate-900 dark:text-white">
-              {summary ? summary.anonymizedEmployees : '--'}
-            </span>
-            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-              {summary ? `${summary.completedExports} exports` : ''}
+              {summary ? `${summary.backupThresholdHours}h / ${summary.restoreTestThresholdDays}d` : '24h / 7d'}
             </span>
           </div>
           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Payroll & audit logs preserved
+            Backup: {summary?.backupThresholdHours || 24}h · Test: {summary?.restoreTestThresholdDays || 7}d
           </div>
         </div>
       </div>
@@ -532,6 +727,58 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
             </button>
           </div>
 
+          {/* Search & Filter Toolbar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+            <div className="relative flex-1 max-w-md">
+              <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by Run ID, location path, or checksum..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={runStatusFilter}
+                onChange={(e) => setRunStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">All Statuses</option>
+                <option value="completed">Completed</option>
+                <option value="running">Running</option>
+                <option value="failed">Failed</option>
+                <option value="pending">Pending</option>
+              </select>
+
+              <select
+                value={runTestFilter}
+                onChange={(e) => setRunTestFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">All Restore Test Results</option>
+                <option value="passed">Passed Sandbox</option>
+                <option value="failed">Failed Sandbox</option>
+                <option value="pending">Test Pending</option>
+                <option value="not_tested">Not Tested</option>
+              </select>
+
+              {(searchQuery || runStatusFilter !== 'all' || runTestFilter !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setRunStatusFilter('all');
+                    setRunTestFilter('all');
+                  }}
+                  className="px-2 py-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -547,14 +794,14 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {backupRuns.length === 0 ? (
+                  {filteredBackupRuns.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-slate-500">
-                        No backup runs found.
+                        No backup runs match the selected filters.
                       </td>
                     </tr>
                   ) : (
-                    backupRuns.map((run) => (
+                    filteredBackupRuns.map((run) => (
                       <tr key={run.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
                         <td className="py-3 px-4">
                           <div className="font-medium text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -564,7 +811,7 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                             </span>
                           </div>
                           <div className="text-xs text-slate-500 font-mono mt-0.5">
-                            {new Date(run.startedAt).toLocaleString()}
+                            {formatTimeAgo(run.startedAt)} · {new Date(run.startedAt).toLocaleString()}
                           </div>
                         </td>
 
@@ -697,6 +944,28 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
             </button>
           </div>
 
+          {/* Restore Request Status Filter Bar */}
+          <div className="flex items-center gap-2">
+            {[
+              { id: 'all', label: 'All Requests' },
+              { id: 'pending_approval', label: 'Pending Approval' },
+              { id: 'completed', label: 'Completed Restores' },
+              { id: 'rejected', label: 'Rejected' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setRestoreStatusFilter(f.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  restoreStatusFilter === f.id
+                    ? 'bg-amber-600 text-white font-semibold'
+                    : 'border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -712,14 +981,14 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {restoreRequests.length === 0 ? (
+                  {filteredRestoreRequests.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-slate-500">
-                        No restore requests recorded.
+                        No restore requests found matching the filter.
                       </td>
                     </tr>
                   ) : (
-                    restoreRequests.map((req) => {
+                    filteredRestoreRequests.map((req) => {
                       const isInitiator = currentUserId && req.requestedByUserId === currentUserId;
                       return (
                         <tr key={req.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
@@ -1642,6 +1911,131 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 10: Threshold Settings Modal */}
+      {showThresholdModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-indigo-600" />
+                Configure Resilience & SLA Thresholds
+              </h3>
+              <button
+                onClick={() => setShowThresholdModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Define the maximum acceptable staleness thresholds before warning banners are triggered across the Platform Control Plane.
+              </p>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Backup Freshness Threshold (Hours)
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[6, 12, 24, 48].map((hrs) => (
+                    <button
+                      key={hrs}
+                      type="button"
+                      onClick={() => setTempBackupHours(hrs)}
+                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
+                        tempBackupHours === hrs
+                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {hrs} Hours
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Alert is shown if the latest completed backup is older than this value. Default: 24h.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Restore Test Freshness Threshold (Days)
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 3, 7, 14].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setTempRestoreDays(days)}
+                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
+                        tempRestoreDays === days
+                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {days} {days === 1 ? 'Day' : 'Days'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Alert is shown if no automated sandbox test has passed within this window. Default: 7d (SECURITY.md §7).
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200">
+                <strong>Simulation Tip:</strong> Selecting a strict threshold (e.g. 6h backup or 1d restore test) triggers the persistent warning banner immediately for operational testing.
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={async () => {
+                  setBackupThresholdHours(0.01);
+                  setRestoreTestThresholdDays(0.0001);
+                  setShowThresholdModal(false);
+                  await loadData(true, {
+                    backupThresholdHours: 0.01,
+                    restoreTestThresholdDays: 0.0001,
+                  });
+                  setSuccessMessage('Simulated threshold breach: SLA Warning Banner triggered.');
+                  setTimeout(() => setSuccessMessage(null), 4000);
+                }}
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-1"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Simulate SLA Breach
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowThresholdModal(false)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setBackupThresholdHours(tempBackupHours);
+                    setRestoreTestThresholdDays(tempRestoreDays);
+                    setShowThresholdModal(false);
+                    await loadData(true, {
+                      backupThresholdHours: tempBackupHours,
+                      restoreTestThresholdDays: tempRestoreDays,
+                    });
+                    setSuccessMessage(`SLA thresholds updated to ${tempBackupHours}h backup / ${tempRestoreDays}d restore test.`);
+                    setTimeout(() => setSuccessMessage(null), 3000);
+                  }}
+                  className="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                >
+                  Apply Thresholds
+                </button>
+              </div>
             </div>
           </div>
         </div>
