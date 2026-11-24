@@ -27,11 +27,13 @@ import {
   Sparkles,
   UserCog,
   UserCheck,
+  Workflow,
 } from 'lucide-react';
 
 export type PlatformViewKey =
   | 'dashboard'
   | 'system-health'
+  | 'queue-inspector'
   | 'usage-storage'
   | 'tenants'
   | 'sandbox-tenants'
@@ -100,6 +102,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         badge: '99.98%',
         badgeTone: 'emerald',
         permission: { module: 'platform', action: 'view' },
+      },
+      {
+        key: 'queue-inspector',
+        label: 'Job Queue Inspector',
+        description: 'BullMQ queues, jobs by state, failed job stacks, retry & remove with safety guards',
+        icon: Workflow,
+        badge: 'BullMQ',
+        badgeTone: 'emerald',
+        permission: { module: 'platform', action: 'manage' },
       },
     ],
   },

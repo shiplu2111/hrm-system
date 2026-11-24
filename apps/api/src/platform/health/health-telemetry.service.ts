@@ -515,8 +515,8 @@ export class HealthTelemetryService {
       redis.status === 'connected'
         ? 'healthy'
         : redis.status === 'degraded'
-        ? 'degraded'
-        : 'unhealthy',
+          ? 'degraded'
+          : 'unhealthy',
       queues.status,
       storage.status,
       notifications.status,
@@ -593,8 +593,8 @@ export class HealthTelemetryService {
     const status: OverallHealthStatus = !isHealthy || usedPercentage >= 95
       ? 'unhealthy'
       : usedPercentage >= 80
-      ? 'degraded'
-      : 'healthy';
+        ? 'degraded'
+        : 'healthy';
 
     return {
       status,
@@ -707,8 +707,8 @@ export class HealthTelemetryService {
     const overallStatus: OverallHealthStatus = allChannelStatuses.includes('unhealthy')
       ? 'unhealthy'
       : allChannelStatuses.includes('degraded')
-      ? 'degraded'
-      : 'healthy';
+        ? 'degraded'
+        : 'healthy';
 
     const totalSent = channels.reduce((sum, c) => sum + c.sentLast24h, 0);
     const totalFailed = channels.reduce((sum, c) => sum + c.failedLast24h, 0);
@@ -739,10 +739,10 @@ export class HealthTelemetryService {
       timeRange === '1h'
         ? 5 * 60 * 1000
         : timeRange === '6h'
-        ? 20 * 60 * 1000
-        : timeRange === '7d'
-        ? 6 * 60 * 60 * 1000
-        : 60 * 60 * 1000;
+          ? 20 * 60 * 1000
+          : timeRange === '7d'
+            ? 6 * 60 * 60 * 1000
+            : 60 * 60 * 1000;
 
     const currentLive = this.getApiLatencyAndErrorRate();
     const currentDb = await this.getDatabaseConnectionHealth();
@@ -781,8 +781,8 @@ export class HealthTelemetryService {
         timeRange === '1h'
           ? ptTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           : timeRange === '7d'
-          ? ptTime.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit' })
-          : ptTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            ? ptTime.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit' })
+            : ptTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       points.push({
         timestamp: ptTime.toISOString(),

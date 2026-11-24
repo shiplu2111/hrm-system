@@ -64,3 +64,4 @@ export * from './platform-settings';
 export * from './maintenance';
 export * from './announcement';
 export * from './platform-usage-health';
+export * from './platform-queue-inspector';

@@ -19,6 +19,7 @@ import { PlatformSettingsModule } from './settings/platform-settings.module';
 import { PlatformAnnouncementsModule } from './announcements/platform-announcements.module';
 import { PlatformHealthModule } from './health/platform-health.module';
 import { UsageMeteringModule } from './usage/usage-metering.module';
+import { PlatformQueuesModule } from './queues/platform-queues.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { UsageMeteringModule } from './usage/usage-metering.module';
     PlatformAnnouncementsModule,
     PlatformHealthModule,
     UsageMeteringModule,
+    PlatformQueuesModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -56,6 +58,7 @@ import { UsageMeteringModule } from './usage/usage-metering.module';
     PlatformAnnouncementsModule,
     PlatformHealthModule,
     UsageMeteringModule,
+    PlatformQueuesModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,

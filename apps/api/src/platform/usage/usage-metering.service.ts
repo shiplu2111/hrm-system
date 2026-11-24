@@ -30,7 +30,7 @@ export class UsageMeteringService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly healthTelemetry: HealthTelemetryService,
-  ) {}
+  ) { }
 
   /**
    * Nightly scheduled metering job running at 02:00 AM UTC.
@@ -135,10 +135,10 @@ export class UsageMeteringService {
 
       const tenantStorageBytes = BigInt(
         (contractDocs._sum.sizeBytes ?? 0) +
-          (candidateDocs._sum.sizeBytes ?? 0) +
-          (resumeDocs._sum.sizeBytes ?? 0) +
-          (expenseReceipts._sum.sizeBytes ?? 0) +
-          (trainingDocs._sum.fileSizeBytes ?? 0),
+        (candidateDocs._sum.sizeBytes ?? 0) +
+        (resumeDocs._sum.sizeBytes ?? 0) +
+        (expenseReceipts._sum.sizeBytes ?? 0) +
+        (trainingDocs._sum.fileSizeBytes ?? 0),
       );
 
       // 3. API calls for tenant on this date

@@ -747,9 +747,12 @@ export function SystemHealthPage() {
 
                     <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
                       <span>Monitored Queues: <strong className="text-slate-700 dark:text-slate-300 font-mono">{liveHealth?.queues.totalQueues ?? 5}</strong></span>
-                      <div className="w-24">
-                        <Sparkline values={[0, 1, 0, 0, 2, 0, liveHealth?.queues.totalQueueDepth || 0]} status={queueStatus} />
-                      </div>
+                      <a
+                        href="#/queue-inspector"
+                        className="inline-flex items-center gap-1 font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+                      >
+                        Inspect Queues →
+                      </a>
                     </div>
                   </div>
                 );
