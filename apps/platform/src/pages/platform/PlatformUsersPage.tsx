@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertCircle,
   AlertTriangle,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
   CreditCard,
   Edit3,
@@ -11,6 +13,7 @@ import {
   Grid,
   Headphones,
   KeyRound,
+  Laptop,
   LayoutGrid,
   Lock,
   Mail,
@@ -35,6 +38,9 @@ import type {
   Platform2faResetRequestView,
   PlatformPermissionDefinition,
   PlatformRoleRecord,
+  PlatformSecurityStats,
+  PlatformStaffLoginHistoryView,
+  PlatformStaffSessionView,
   PlatformUserDetailedView,
 } from '@hrm/shared-types';
 import { getPlatformStoredUser } from '@/lib/api-client';
@@ -42,8 +48,11 @@ import {
   deactivatePlatformUser,
   getActiveOwnerStatus,
   getPlatformRoleDefinitions,
+  getPlatformSecurityStats,
   invitePlatformUser,
   list2faResetRequests,
+  listAllPlatformLoginHistory,
+  listAllPlatformSessions,
   listPlatformRoles,
   listPlatformUsers,
   reactivatePlatformUser,
@@ -54,6 +63,8 @@ import {
 import { PlatformRoleMatrixOverview } from '@/components/platform-roles/PlatformRoleMatrixOverview';
 import { PlatformRolePermissionEditorModal } from '@/components/platform-roles/PlatformRolePermissionEditorModal';
 import { PlatformRoleDeleteModal } from '@/components/platform-roles/PlatformRoleDeleteModal';
+import { PlatformStaffSessionsTab } from '@/components/platform-staff/PlatformStaffSessionsTab';
+import { PlatformStaffLoginHistoryTab } from '@/components/platform-staff/PlatformStaffLoginHistoryTab';
 
 function getRoleBadgeStyle(roleName: string) {
   switch (roleName) {
@@ -93,12 +104,17 @@ export function PlatformUsersPage() {
   const currentUser = getPlatformStoredUser();
   const isPlatformOwner = currentUser?.roleName === 'Platform Owner';
 
-  const [activeTab, setActiveTab] = useState<'staff' | 'resets' | 'roles'>('staff');
+  const [activeTab, setActiveTab] = useState<'staff' | 'sessions' | 'logins' | 'resets' | 'roles'>('staff');
   const [users, setUsers] = useState<PlatformUserDetailedView[]>([]);
   const [roles, setRoles] = useState<PlatformRoleOption[]>([]);
   const [resetRequests, setResetRequests] = useState<Platform2faResetRequestView[]>([]);
+  const [sessions, setSessions] = useState<PlatformStaffSessionView[]>([]);
+  const [logins, setLogins] = useState<PlatformStaffLoginHistoryView[]>([]);
+  const [securityStats, setSecurityStats] = useState<PlatformSecurityStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [loginsLoading, setLoginsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -150,18 +166,33 @@ export function PlatformUsersPage() {
     else setRefreshing(true);
     setError(null);
     try {
-      const [usersData, rolesData, requestsData, definitionsData, ownerStatusData] = await Promise.all([
+      const [
+        usersData,
+        rolesData,
+        requestsData,
+        definitionsData,
+        ownerStatusData,
+        sessionsData,
+        loginsData,
+        secStatsData,
+      ] = await Promise.all([
         listPlatformUsers(),
         listPlatformRoles(),
         list2faResetRequests(),
         getPlatformRoleDefinitions().catch(() => []),
         getActiveOwnerStatus().catch(() => null),
+        listAllPlatformSessions().catch(() => []),
+        listAllPlatformLoginHistory().catch(() => ({ items: [], total: 0, unusualCount: 0 })),
+        getPlatformSecurityStats().catch(() => null),
       ]);
       setUsers(usersData);
       setRoles(rolesData);
       setResetRequests(requestsData);
       if (definitionsData && definitionsData.length > 0) setRoleDefinitions(definitionsData);
       if (ownerStatusData) setActiveOwnerStatus(ownerStatusData);
+      if (sessionsData) setSessions(sessionsData);
+      if (loginsData?.items) setLogins(loginsData.items);
+      if (secStatsData) setSecurityStats(secStatsData);
 
       // Set default invite role if none selected
       if (!inviteRoleId && rolesData.length > 0) {
@@ -202,6 +233,38 @@ export function PlatformUsersPage() {
     setRoleDeleteTarget(null);
   };
 
+  const handleRevokeSession = (sessionId: string) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, isRevoked: true } : s)),
+    );
+    setNotice('Platform staff session has been revoked immediately.');
+    getPlatformSecurityStats().then(setSecurityStats).catch(() => {});
+  };
+
+  const loadSessionsOnly = async () => {
+    setSessionsLoading(true);
+    try {
+      const data = await listAllPlatformSessions();
+      setSessions(data);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to refresh sessions');
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  const loadLoginsOnly = async () => {
+    setLoginsLoading(true);
+    try {
+      const data = await listAllPlatformLoginHistory();
+      setLogins(data.items);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to refresh login history');
+    } finally {
+      setLoginsLoading(false);
+    }
+  };
+
   const pendingResetRequests = useMemo(
     () => resetRequests.filter((r) => r.status === 'pending'),
     [resetRequests],
@@ -212,8 +275,20 @@ export function PlatformUsersPage() {
     const active = users.filter((u) => u.isActive && u.status === 'active').length;
     const invited = users.filter((u) => u.status === 'invited').length;
     const deactivated = users.filter((u) => !u.isActive).length;
-    return { total, active, invited, deactivated, pendingResets: pendingResetRequests.length };
-  }, [users, pendingResetRequests]);
+    const activeSessions = sessions.filter((s) => !s.isRevoked && new Date(s.expiresAt) > new Date());
+    const unusualSessions = activeSessions.filter((s) => s.isUnusualLocation);
+    const unusualLogins = logins.filter((l) => l.isUnusualLocation);
+    return {
+      total,
+      active,
+      invited,
+      deactivated,
+      pendingResets: pendingResetRequests.length,
+      activeSessionsCount: activeSessions.length,
+      unusualSessionsCount: unusualSessions.length,
+      unusualLoginsCount: unusualLogins.length,
+    };
+  }, [users, pendingResetRequests, sessions, logins]);
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
@@ -436,20 +511,44 @@ export function PlatformUsersPage() {
           <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">Active Operators</div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
-          <div className="h-9 w-9 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300">
-            <Mail className="h-4 w-4" />
+        <div
+          onClick={() => setActiveTab('sessions')}
+          className="cursor-pointer bg-white dark:bg-slate-900 hover:border-indigo-400 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <div className="h-9 w-9 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300">
+              <Laptop className="h-4 w-4" />
+            </div>
+            {stats.activeSessionsCount > 0 && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+            )}
           </div>
-          <div className="text-2xl font-extrabold mt-3 text-blue-600 dark:text-blue-400">{stats.invited}</div>
-          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">Pending 1st Login (2FA)</div>
+          <div className="text-2xl font-extrabold mt-3 text-blue-600 dark:text-blue-400">{stats.activeSessionsCount}</div>
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">Live Staff Sessions</div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
-          <div className="h-9 w-9 rounded-xl flex items-center justify-center bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">
-            <UserX className="h-4 w-4" />
+        <div
+          onClick={() => setActiveTab('logins')}
+          className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all ${
+            stats.unusualSessionsCount + stats.unusualLoginsCount > 0
+              ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20 hover:border-amber-400'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="h-9 w-9 rounded-xl flex items-center justify-center bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            {stats.unusualSessionsCount + stats.unusualLoginsCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-600 text-white animate-pulse">
+                Flagged
+              </span>
+            )}
           </div>
-          <div className="text-2xl font-extrabold mt-3 text-rose-600 dark:text-rose-400">{stats.deactivated}</div>
-          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">Deactivated (Revoked)</div>
+          <div className="text-2xl font-extrabold mt-3 text-amber-600 dark:text-amber-400">
+            {stats.unusualSessionsCount + stats.unusualLoginsCount}
+          </div>
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">Location Anomalies</div>
         </div>
 
         <div
@@ -476,11 +575,11 @@ export function PlatformUsersPage() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800">
+      <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto scrollbar-none">
         <button
           type="button"
           onClick={() => setActiveTab('staff')}
-          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'staff'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -495,15 +594,55 @@ export function PlatformUsersPage() {
 
         <button
           type="button"
+          onClick={() => setActiveTab('sessions')}
+          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'sessions'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Laptop className="h-4 w-4" />
+          <span>Staff Sessions</span>
+          <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 font-extrabold">
+            {stats.activeSessionsCount}
+          </span>
+          {stats.unusualSessionsCount > 0 && (
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('logins')}
+          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'logins'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Clock className="h-4 w-4" />
+          <span>Login History & Telemetry</span>
+          <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+            {logins.length}
+          </span>
+          {stats.unusualLoginsCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-500 text-white">
+              {stats.unusualLoginsCount} unusual
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('resets')}
-          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'resets'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <ShieldAlert className="h-4 w-4" />
-          <span>2FA Reset Requests (Four-Eyes Queue)</span>
+          <span>2FA Reset Requests</span>
           {pendingResetRequests.length > 0 && (
             <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 font-extrabold">
               {pendingResetRequests.length}
@@ -514,14 +653,14 @@ export function PlatformUsersPage() {
         <button
           type="button"
           onClick={() => setActiveTab('roles')}
-          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
+          className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'roles'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <Shield className="h-4 w-4" />
-          <span>Platform Roles & Hierarchy</span>
+          <span>Roles & Permission Matrix</span>
         </button>
       </div>
 
@@ -794,7 +933,28 @@ export function PlatformUsersPage() {
         </div>
       )}
 
-      {/* Tab 2: 2FA Reset Approvals (Four-Eyes Queue) */}
+      {/* Tab 2: Staff Sessions */}
+      {activeTab === 'sessions' && (
+        <PlatformStaffSessionsTab
+          sessions={sessions}
+          loading={sessionsLoading}
+          onRefresh={loadSessionsOnly}
+          currentUserRoleName={currentUser?.roleName || ''}
+          currentUserId={currentUser?.id}
+          onRevokeSession={handleRevokeSession}
+        />
+      )}
+
+      {/* Tab 3: Login History & Telemetry */}
+      {activeTab === 'logins' && (
+        <PlatformStaffLoginHistoryTab
+          logins={logins}
+          loading={loginsLoading}
+          onRefresh={loadLoginsOnly}
+        />
+      )}
+
+      {/* Tab 4: 2FA Reset Approvals (Four-Eyes Queue) */}
       {activeTab === 'resets' && (
         <div className="space-y-6">
           <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3">

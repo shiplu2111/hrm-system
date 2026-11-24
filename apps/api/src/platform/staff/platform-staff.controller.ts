@@ -3,10 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
+  Ip,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -20,6 +23,8 @@ import {
   CreatePlatformRoleDto,
   CreatePlatformUserDto,
   InvitePlatformUserDto,
+  PlatformLoginHistoryFilterDto,
+  PlatformSessionFilterDto,
   Request2faResetDto,
   Review2faResetDto,
   UpdatePlatformRoleDto,
@@ -42,7 +47,7 @@ function extractActor(req: any) {
 @UseGuards(PlatformAuthGuard, PlatformPermissionsGuard)
 @Controller('platform/staff')
 export class PlatformStaffController {
-  constructor(private readonly platformStaffService: PlatformStaffService) {}
+  constructor(private readonly platformStaffService: PlatformStaffService) { }
 
   @Get('roles/definitions')
   @RequirePlatformPermission('platform', 'view')
@@ -198,5 +203,64 @@ export class PlatformStaffController {
   ): Promise<ApiEnvelope<any>> {
     const actor = extractActor(req);
     return { data: await this.platformStaffService.review2faReset(id, dto, actor) };
+  }
+
+  // =========================================================================
+  // Platform Staff Sessions & Login History
+  // =========================================================================
+
+  @Get('sessions')
+  @RequirePlatformPermission('user', 'view')
+  @ApiOperation({ summary: 'List all platform staff sessions across operators with device and location info' })
+  async listStaffSessions(
+    @Query() filter: PlatformSessionFilterDto,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.listStaffSessions(filter, actor) };
+  }
+
+  @Post('sessions/:id/revoke')
+  @RequirePlatformPermission('user', 'edit')
+  @ApiOperation({ summary: 'Revoke any staff session by session UUID' })
+  async revokeStaffSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.revokeStaffSession(id, actor, ip, userAgent) };
+  }
+
+  @Post('users/:id/sessions/revoke-all')
+  @RequirePlatformPermission('user', 'edit')
+  @ApiOperation({ summary: 'Revoke all active sessions for a specific staff operator' })
+  async revokeAllStaffSessions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.revokeAllStaffSessions(id, actor, ip, userAgent) };
+  }
+
+  @Get('login-history')
+  @RequirePlatformPermission('user', 'view')
+  @ApiOperation({ summary: 'List all staff logins with status, 2FA result, device, and unusual location flags' })
+  async listStaffLoginHistory(
+    @Query() filter: PlatformLoginHistoryFilterDto,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.listStaffLoginHistory(filter, actor) };
+  }
+
+  @Get('security-stats')
+  @RequirePlatformPermission('user', 'view')
+  @ApiOperation({ summary: 'Get platform session and login security statistics' })
+  async getSecurityStats(): Promise<ApiEnvelope<any>> {
+    return { data: await this.platformStaffService.getSecurityStats() };
   }
 }

@@ -13,8 +13,13 @@ import {
   Platform2faResetRequestView,
   PlatformPermissionDefinition,
   PlatformRoleRecord,
+  PlatformSecurityStats,
+  PlatformStaffLoginHistoryView,
+  PlatformStaffSessionView,
   PlatformUserDetailedView,
   PLATFORM_PERMISSION_DEFINITIONS,
+  RevokeSessionResult,
+  RevokeUserSessionsResult,
 } from '@hrm/shared-types';
 import { FieldEncryptionService } from '../../crypto/field-encryption.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -24,11 +29,19 @@ import {
   CreatePlatformRoleDto,
   CreatePlatformUserDto,
   InvitePlatformUserDto,
+  PlatformLoginHistoryFilterDto,
+  PlatformSessionFilterDto,
   Request2faResetDto,
   Review2faResetDto,
   UpdatePlatformRoleDto,
   UpdatePlatformUserDto,
 } from './dto/create-platform-user.dto';
+import {
+  assessUnusualLocation,
+  determinePlatform2faResult,
+  parsePlatformUserAgent,
+  resolvePlatformIpLocation,
+} from './helpers/platform-geo-device.helper';
 
 export interface DefaultPlatformRoleDefinition {
   name: string;
@@ -1499,5 +1512,406 @@ export class PlatformStaffService implements OnModuleInit {
         updatedAt: updated.updatedAt.toISOString(),
       };
     }
+  }
+
+  /**
+   * List all platform staff active and historical sessions, enriched with parsed device and unusual location telemetry.
+   */
+  async listStaffSessions(
+    filter?: PlatformSessionFilterDto,
+    actor?: PlatformActorContext,
+  ): Promise<PlatformStaffSessionView[]> {
+    const now = new Date();
+    const where: any = {};
+
+    if (filter?.userId) {
+      where.userId = filter.userId;
+    }
+
+    if (filter?.status === 'active') {
+      where.isRevoked = false;
+      where.expiresAt = { gt: now };
+    } else if (filter?.status === 'revoked') {
+      where.isRevoked = true;
+    } else if (filter?.status === 'expired') {
+      where.isRevoked = false;
+      where.expiresAt = { lte: now };
+    }
+
+    if (filter?.search) {
+      const q = filter.search.trim();
+      where.OR = [
+        { user: { email: { contains: q, mode: 'insensitive' } } },
+        { user: { firstName: { contains: q, mode: 'insensitive' } } },
+        { user: { lastName: { contains: q, mode: 'insensitive' } } },
+        { ipAddress: { contains: q } },
+      ];
+    }
+
+    const sessions = await this.prisma.unscoped.platformSession.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: { select: { name: true } },
+            loginHistory: {
+              where: { status: 'success' },
+              select: { ipAddress: true, createdAt: true, status: true },
+              orderBy: { createdAt: 'desc' },
+              take: 20,
+            },
+          },
+        },
+      },
+      orderBy: [{ isRevoked: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+    });
+
+    const views: PlatformStaffSessionView[] = sessions.map((s) => {
+      const parsedDevice = parsePlatformUserAgent(s.userAgent);
+      const location = resolvePlatformIpLocation(s.ipAddress);
+      const anomaly = assessUnusualLocation(s.ipAddress, s.createdAt, s.user.loginHistory);
+
+      return {
+        id: s.id,
+        userId: s.userId,
+        userName: `${s.user.firstName} ${s.user.lastName}`.trim(),
+        userEmail: s.user.email,
+        userRoleName: s.user.role.name,
+        ipAddress: s.ipAddress,
+        userAgent: s.userAgent,
+        device: parsedDevice.device,
+        browser: parsedDevice.browser,
+        os: parsedDevice.os,
+        location: location.location,
+        country: location.country,
+        city: location.city,
+        countryCode: location.countryCode,
+        isUnusualLocation: anomaly.isUnusual,
+        unusualLocationReason: anomaly.reason,
+        createdAt: s.createdAt.toISOString(),
+        expiresAt: s.expiresAt.toISOString(),
+        isRevoked: s.isRevoked,
+        isCurrent: Boolean(actor && actor.id === s.userId && !s.isRevoked && s.expiresAt > now),
+      };
+    });
+
+    if (filter?.unusualOnly) {
+      return views.filter((v) => v.isUnusualLocation);
+    }
+
+    return views;
+  }
+
+  /**
+   * Revoke any staff session by session ID with role-hierarchy governance.
+   */
+  async revokeStaffSession(
+    sessionId: string,
+    actor: PlatformActorContext,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<RevokeSessionResult> {
+    const session = await this.prisma.unscoped.platformSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException({
+        code: 'SESSION_NOT_FOUND',
+        message: 'Platform staff session not found',
+      });
+    }
+
+    // Role Hierarchy Rule: Only Platform Owner can revoke another Platform Owner's session
+    if (session.user.role.name === 'Platform Owner' && actor.roleName !== 'Platform Owner') {
+      throw new ForbiddenException({
+        code: 'OWNER_RESTRICTION',
+        message: 'Only a Platform Owner can revoke an active session belonging to another Platform Owner.',
+      });
+    }
+
+    if (session.isRevoked) {
+      return {
+        success: true,
+        sessionId,
+        isRevoked: true,
+        message: 'Session was already revoked',
+      };
+    }
+
+    await this.prisma.unscoped.platformSession.update({
+      where: { id: sessionId },
+      data: { isRevoked: true },
+    });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'revoke_session',
+      module: 'platform_session',
+      recordId: sessionId,
+      reason: `Revoked active session for staff member ${session.user.email} (${session.user.role.name})`,
+      oldValue: { isRevoked: false },
+      newValue: { isRevoked: true, revokedBy: actor.email },
+      ipAddress: ip,
+      userAgent,
+    });
+
+    return {
+      success: true,
+      sessionId,
+      isRevoked: true,
+      message: `Session revoked successfully for ${session.user.email}.`,
+    };
+  }
+
+  /**
+   * Revoke all active sessions for a staff member.
+   */
+  async revokeAllStaffSessions(
+    userId: string,
+    actor: PlatformActorContext,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<RevokeUserSessionsResult> {
+    const user = await this.prisma.unscoped.platformUser.findUnique({
+      where: { id: userId },
+      include: { role: { select: { name: true } } },
+    });
+
+    if (!user) {
+      throw new NotFoundException({
+        code: 'USER_NOT_FOUND',
+        message: 'Platform staff user not found',
+      });
+    }
+
+    // Role Hierarchy Rule: Only Platform Owner can revoke a Platform Owner's sessions
+    if (user.role.name === 'Platform Owner' && actor.roleName !== 'Platform Owner') {
+      throw new ForbiddenException({
+        code: 'OWNER_RESTRICTION',
+        message: 'Only a Platform Owner can revoke all sessions for another Platform Owner.',
+      });
+    }
+
+    const activeSessionsCount = await this.prisma.unscoped.platformSession.count({
+      where: { userId, isRevoked: false },
+    });
+
+    await this.prisma.unscoped.platformSession.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true },
+    });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'revoke_all_sessions',
+      module: 'platform_session',
+      recordId: userId,
+      reason: `Revoked all (${activeSessionsCount}) active sessions for ${user.email} (${user.role.name})`,
+      newValue: { revokedCount: activeSessionsCount, targetUserId: userId },
+      ipAddress: ip,
+      userAgent,
+    });
+
+    return {
+      success: true,
+      userId,
+      revokedCount: activeSessionsCount,
+      message: `Successfully revoked all ${activeSessionsCount} active session(s) for ${user.email}.`,
+    };
+  }
+
+  /**
+   * List all staff logins, complete with IP, device, success/failure, 2FA result, and unusual location flags.
+   */
+  async listStaffLoginHistory(
+    filter?: PlatformLoginHistoryFilterDto,
+    actor?: PlatformActorContext,
+  ): Promise<{ items: PlatformStaffLoginHistoryView[]; total: number; unusualCount: number }> {
+    const where: any = {};
+
+    if (filter?.userId) {
+      where.userId = filter.userId;
+    }
+
+    if (filter?.status) {
+      where.status = filter.status;
+    }
+
+    if (filter?.search) {
+      const q = filter.search.trim();
+      where.OR = [
+        { email: { contains: q, mode: 'insensitive' } },
+        { user: { firstName: { contains: q, mode: 'insensitive' } } },
+        { user: { lastName: { contains: q, mode: 'insensitive' } } },
+        { ipAddress: { contains: q } },
+      ];
+    }
+
+    const take = filter?.limit ?? 100;
+    const skip = filter?.offset ?? (filter?.page ? Math.max(0, filter.page - 1) * take : 0);
+
+    const [records, total] = await Promise.all([
+      this.prisma.unscoped.platformLoginHistory.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              role: { select: { name: true } },
+              loginHistory: {
+                where: { status: 'success' },
+                select: { ipAddress: true, createdAt: true, status: true },
+                orderBy: { createdAt: 'desc' },
+                take: 20,
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.unscoped.platformLoginHistory.count({ where }),
+    ]);
+
+    let unusualCount = 0;
+    const items: PlatformStaffLoginHistoryView[] = records.map((r) => {
+      const parsedDevice = parsePlatformUserAgent(r.userAgent);
+      const loc = resolvePlatformIpLocation(r.ipAddress);
+      const anomaly = assessUnusualLocation(r.ipAddress, r.createdAt, r.user?.loginHistory ?? []);
+      const twoFactorResult = determinePlatform2faResult(r.status, r.failureReason);
+
+      if (anomaly.isUnusual) {
+        unusualCount++;
+      }
+
+      return {
+        id: r.id,
+        userId: r.userId,
+        userName: r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : undefined,
+        email: r.email,
+        userRoleName: r.user?.role?.name,
+        status: r.status as any,
+        failureReason: r.failureReason,
+        twoFactorResult,
+        ipAddress: r.ipAddress,
+        userAgent: r.userAgent,
+        device: parsedDevice.device,
+        browser: parsedDevice.browser,
+        os: parsedDevice.os,
+        location: loc.location,
+        country: loc.country,
+        city: loc.city,
+        countryCode: loc.countryCode,
+        isUnusualLocation: anomaly.isUnusual,
+        unusualLocationReason: anomaly.reason,
+        createdAt: r.createdAt.toISOString(),
+      };
+    });
+
+    const filteredItems = filter?.unusualOnly ? items.filter((i) => i.isUnusualLocation) : items;
+
+    return {
+      items: filteredItems,
+      total: filter?.unusualOnly ? filteredItems.length : total,
+      unusualCount,
+    };
+  }
+
+  /**
+   * Aggregate security stats: active sessions, 24h logins, unusual location flags.
+   */
+  async getSecurityStats(): Promise<PlatformSecurityStats> {
+    const now = new Date();
+    const past24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const [activeSessions, totalLogins24h, failedLogins24h] = await Promise.all([
+      this.prisma.unscoped.platformSession.findMany({
+        where: { isRevoked: false, expiresAt: { gt: now } },
+        include: {
+          user: {
+            select: {
+              loginHistory: {
+                where: { status: 'success' },
+                select: { ipAddress: true, createdAt: true, status: true },
+                orderBy: { createdAt: 'desc' },
+                take: 15,
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.unscoped.platformLoginHistory.count({
+        where: { createdAt: { gte: past24h } },
+      }),
+      this.prisma.unscoped.platformLoginHistory.count({
+        where: { createdAt: { gte: past24h }, status: { not: 'success' } },
+      }),
+    ]);
+
+    const distinctUserIds = new Set<string>();
+    let unusualSessionCount = 0;
+
+    for (const s of activeSessions) {
+      distinctUserIds.add(s.userId);
+      const anomaly = assessUnusualLocation(s.ipAddress, s.createdAt, s.user.loginHistory);
+      if (anomaly.isUnusual) {
+        unusualSessionCount++;
+      }
+    }
+
+    const recentLogins = await this.prisma.unscoped.platformLoginHistory.findMany({
+      where: { createdAt: { gte: past24h } },
+      include: {
+        user: {
+          select: {
+            loginHistory: {
+              where: { status: 'success' },
+              select: { ipAddress: true, createdAt: true, status: true },
+              orderBy: { createdAt: 'desc' },
+              take: 15,
+            },
+          },
+        },
+      },
+      take: 100,
+    });
+
+    let unusualLoginsCount = 0;
+    for (const l of recentLogins) {
+      const anomaly = assessUnusualLocation(l.ipAddress, l.createdAt, l.user?.loginHistory ?? []);
+      if (anomaly.isUnusual) {
+        unusualLoginsCount++;
+      }
+    }
+
+    return {
+      totalActiveSessions: activeSessions.length,
+      distinctStaffWithSessions: distinctUserIds.size,
+      unusualLocationSessionsCount: unusualSessionCount,
+      recentLogins24hCount: totalLogins24h,
+      failedLogins24hCount: failedLogins24h,
+      unusualLoginsCount,
+    };
   }
 }

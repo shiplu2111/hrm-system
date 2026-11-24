@@ -48,6 +48,14 @@ describe('PlatformStaffService', () => {
         },
         platformSession: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+          findMany: jest.fn(),
+          findUnique: jest.fn(),
+          update: jest.fn(),
+          count: jest.fn(),
+        },
+        platformLoginHistory: {
+          findMany: jest.fn(),
+          count: jest.fn(),
         },
         platform2faResetRequest: {
           findFirst: jest.fn(),
@@ -608,6 +616,226 @@ describe('PlatformStaffService', () => {
       expect(auditServiceMock.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'delete', module: 'platform_role' }),
       );
+    });
+  });
+
+  describe('listStaffSessions', () => {
+    it('returns sessions enriched with device, location, and unusual flags', async () => {
+      const pastLoginDate = new Date(Date.now() - 3600000);
+      prismaMock.unscoped.platformSession.findMany.mockResolvedValue([
+        {
+          id: 'sess-1',
+          userId: 'user-admin',
+          ipAddress: '185.220.101.5', // Germany
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
+          isRevoked: false,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 86400000),
+          user: {
+            id: 'user-admin',
+            email: 'admin@cmsnbd.com',
+            firstName: 'Platform',
+            lastName: 'Admin',
+            role: { name: 'Platform Admin' },
+            loginHistory: [
+              // User baseline is Bangladesh
+              { ipAddress: '103.145.120.1', createdAt: pastLoginDate, status: 'success' },
+              { ipAddress: '103.145.120.2', createdAt: pastLoginDate, status: 'success' },
+            ],
+          },
+        },
+      ]);
+
+      const res = await service.listStaffSessions(undefined, adminActor);
+
+      expect(res).toHaveLength(1);
+      expect(res[0].device).toContain('Chrome 122 on macOS');
+      expect(res[0].country).toBe('Germany');
+      expect(res[0].isUnusualLocation).toBe(true);
+      expect(res[0].unusualLocationReason).toContain('Anomalous geographic origin: Germany (staff baseline: Bangladesh)');
+      expect(res[0].isCurrent).toBe(true);
+    });
+  });
+
+  describe('revokeStaffSession', () => {
+    it('successfully revokes an active session and audit logs', async () => {
+      prismaMock.unscoped.platformSession.findUnique.mockResolvedValue({
+        id: 'sess-target',
+        userId: 'user-support',
+        isRevoked: false,
+        user: {
+          id: 'user-support',
+          email: 'support@cmsnbd.com',
+          role: { name: 'Support Agent' },
+        },
+      });
+
+      const res = await service.revokeStaffSession('sess-target', adminActor, '127.0.0.1', 'Jest');
+
+      expect(res.success).toBe(true);
+      expect(prismaMock.unscoped.platformSession.update).toHaveBeenCalledWith({
+        where: { id: 'sess-target' },
+        data: { isRevoked: true },
+      });
+      expect(auditServiceMock.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'revoke_session', module: 'platform_session' }),
+      );
+    });
+
+    it('prevents non-Platform Owner from revoking a Platform Owner session', async () => {
+      prismaMock.unscoped.platformSession.findUnique.mockResolvedValue({
+        id: 'sess-owner',
+        userId: 'user-owner',
+        isRevoked: false,
+        user: {
+          id: 'user-owner',
+          email: 'owner@cmsnbd.com',
+          role: { name: 'Platform Owner' },
+        },
+      });
+
+      await expect(service.revokeStaffSession('sess-owner', adminActor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows a Platform Owner to revoke another Platform Owner session', async () => {
+      prismaMock.unscoped.platformSession.findUnique.mockResolvedValue({
+        id: 'sess-owner-2',
+        userId: 'user-owner-2',
+        isRevoked: false,
+        user: {
+          id: 'user-owner-2',
+          email: 'owner2@cmsnbd.com',
+          role: { name: 'Platform Owner' },
+        },
+      });
+
+      const res = await service.revokeStaffSession('sess-owner-2', ownerActor);
+      expect(res.success).toBe(true);
+      expect(prismaMock.unscoped.platformSession.update).toHaveBeenCalledWith({
+        where: { id: 'sess-owner-2' },
+        data: { isRevoked: true },
+      });
+    });
+  });
+
+  describe('revokeAllStaffSessions', () => {
+    it('revokes all active sessions for a staff member', async () => {
+      prismaMock.unscoped.platformUser.findUnique.mockResolvedValue({
+        id: 'user-support',
+        email: 'support@cmsnbd.com',
+        role: { name: 'Support Agent' },
+      });
+      prismaMock.unscoped.platformSession.count.mockResolvedValue(4);
+
+      const res = await service.revokeAllStaffSessions('user-support', adminActor);
+
+      expect(res.success).toBe(true);
+      expect(res.revokedCount).toBe(4);
+      expect(prismaMock.unscoped.platformSession.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-support', isRevoked: false },
+        data: { isRevoked: true },
+      });
+    });
+
+    it('prevents non-Platform Owner from revoking all sessions of a Platform Owner', async () => {
+      prismaMock.unscoped.platformUser.findUnique.mockResolvedValue({
+        id: 'user-owner',
+        email: 'owner@cmsnbd.com',
+        role: { name: 'Platform Owner' },
+      });
+
+      await expect(service.revokeAllStaffSessions('user-owner', adminActor)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('listStaffLoginHistory', () => {
+    it('maps 2FA results and flags unusual locations', async () => {
+      const pastDate = new Date(Date.now() - 3600000);
+      prismaMock.unscoped.platformLoginHistory.findMany.mockResolvedValue([
+        {
+          id: 'log-1',
+          userId: 'user-admin',
+          email: 'admin@cmsnbd.com',
+          status: 'success',
+          failureReason: null,
+          ipAddress: '103.145.120.1', // Bangladesh
+          userAgent: 'Mozilla/5.0 Chrome/122.0.0.0 Safari/537.36',
+          createdAt: new Date(),
+          user: {
+            id: 'user-admin',
+            firstName: 'Admin',
+            lastName: 'One',
+            role: { name: 'Platform Admin' },
+            loginHistory: [],
+          },
+        },
+        {
+          id: 'log-2',
+          userId: 'user-admin',
+          email: 'admin@cmsnbd.com',
+          status: '2fa_failed',
+          failureReason: 'Invalid 2FA code',
+          ipAddress: '142.250.190.46', // US
+          userAgent: 'curl/7.68.0',
+          createdAt: new Date(),
+          user: {
+            id: 'user-admin',
+            firstName: 'Admin',
+            lastName: 'One',
+            role: { name: 'Platform Admin' },
+            loginHistory: [{ ipAddress: '103.145.120.1', createdAt: pastDate, status: 'success' }],
+          },
+        },
+      ]);
+      prismaMock.unscoped.platformLoginHistory.count.mockResolvedValue(2);
+
+      const res = await service.listStaffLoginHistory();
+
+      expect(res.items).toHaveLength(2);
+      expect(res.items[0].twoFactorResult).toBe('verified');
+      expect(res.items[0].country).toBe('Bangladesh');
+      expect(res.items[0].isUnusualLocation).toBe(false);
+
+      expect(res.items[1].twoFactorResult).toBe('failed');
+      expect(res.items[1].device).toContain('cURL');
+      expect(res.items[1].country).toBe('United States');
+      expect(res.items[1].isUnusualLocation).toBe(true);
+      expect(res.items[1].unusualLocationReason).toContain('Anomalous geographic origin: United States (staff baseline: Bangladesh)');
+    });
+  });
+
+  describe('getSecurityStats', () => {
+    it('aggregates active sessions and telemetry counts', async () => {
+      prismaMock.unscoped.platformSession.findMany.mockResolvedValue([
+        {
+          id: 'sess-1',
+          userId: 'user-1',
+          ipAddress: '127.0.0.1',
+          createdAt: new Date(),
+          user: { loginHistory: [] },
+        },
+        {
+          id: 'sess-2',
+          userId: 'user-2',
+          ipAddress: '185.220.101.5', // Germany
+          createdAt: new Date(),
+          user: {
+            loginHistory: [{ ipAddress: '103.145.120.1', createdAt: new Date(Date.now() - 5000), status: 'success' }],
+          },
+        },
+      ]);
+      prismaMock.unscoped.platformLoginHistory.count
+        .mockResolvedValueOnce(25) // totalLogins24h
+        .mockResolvedValueOnce(3); // failedLogins24h
+      prismaMock.unscoped.platformLoginHistory.findMany.mockResolvedValue([]);
+
+      const stats = await service.getSecurityStats();
+
+      expect(stats.totalActiveSessions).toBe(2);
+      expect(stats.distinctStaffWithSessions).toBe(2);
+      expect(stats.unusualLocationSessionsCount).toBe(1);
+      expect(stats.recentLogins24hCount).toBe(25);
+      expect(stats.failedLogins24hCount).toBe(3);
     });
   });
 });

@@ -4,11 +4,18 @@ import type {
   CreatePlatformRoleInput,
   InvitePlatformUserInput,
   Platform2faResetRequestView,
+  PlatformLoginHistoryFilter,
   PlatformPermissionDefinition,
   PlatformRoleRecord,
+  PlatformSecurityStats,
+  PlatformSessionFilter,
+  PlatformStaffLoginHistoryView,
+  PlatformStaffSessionView,
   PlatformUserDetailedView,
   Request2faResetInput,
   Review2faResetInput,
+  RevokeSessionResult,
+  RevokeUserSessionsResult,
   UpdatePlatformRoleInput,
 } from '@hrm/shared-types';
 
@@ -97,4 +104,51 @@ export function review2faReset(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function listAllPlatformSessions(
+  filter?: PlatformSessionFilter,
+): Promise<PlatformStaffSessionView[]> {
+  const query = new URLSearchParams();
+  if (filter?.search) query.set('search', filter.search);
+  if (filter?.userId) query.set('userId', filter.userId);
+  if (filter?.status && filter.status !== 'all') query.set('status', filter.status);
+  if (filter?.unusualOnly) query.set('unusualOnly', 'true');
+
+  const qs = query.toString();
+  return apiRequest<PlatformStaffSessionView[]>(`/platform/staff/sessions${qs ? `?${qs}` : ''}`);
+}
+
+export function revokePlatformSession(sessionId: string): Promise<RevokeSessionResult> {
+  return apiRequest<RevokeSessionResult>(`/platform/staff/sessions/${sessionId}/revoke`, {
+    method: 'POST',
+  });
+}
+
+export function revokeAllUserPlatformSessions(userId: string): Promise<RevokeUserSessionsResult> {
+  return apiRequest<RevokeUserSessionsResult>(`/platform/staff/users/${userId}/sessions/revoke-all`, {
+    method: 'POST',
+  });
+}
+
+export function listAllPlatformLoginHistory(
+  filter?: PlatformLoginHistoryFilter,
+): Promise<{ items: PlatformStaffLoginHistoryView[]; total: number; unusualCount: number }> {
+  const query = new URLSearchParams();
+  if (filter?.search) query.set('search', filter.search);
+  if (filter?.userId) query.set('userId', filter.userId);
+  if (filter?.status && filter.status !== 'All') query.set('status', filter.status);
+  if (filter?.twoFactorResult && filter.twoFactorResult !== 'All') query.set('twoFactorResult', filter.twoFactorResult);
+  if (filter?.unusualOnly) query.set('unusualOnly', 'true');
+  if (filter?.limit) query.set('limit', String(filter.limit));
+  if (filter?.offset) query.set('offset', String(filter.offset));
+
+  const qs = query.toString();
+  return apiRequest<{ items: PlatformStaffLoginHistoryView[]; total: number; unusualCount: number }>(
+    `/platform/staff/login-history${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export function getPlatformSecurityStats(): Promise<PlatformSecurityStats> {
+  return apiRequest<PlatformSecurityStats>('/platform/staff/security-stats');
 }

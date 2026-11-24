@@ -162,3 +162,64 @@ export class UpdatePlatformRoleDto {
   @Type(() => PlatformPermissionClaimDto)
   permissions?: PlatformPermissionClaimDto[];
 }
+
+export class PlatformSessionFilterDto {
+  @ApiPropertyOptional({ description: 'Filter by user name, email, or IP address' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by specific staff user UUID' })
+  @IsOptional()
+  @IsUUID('4')
+  userId?: string;
+
+  @ApiPropertyOptional({ enum: ['all', 'active', 'revoked', 'expired'] })
+  @IsOptional()
+  @IsIn(['all', 'active', 'revoked', 'expired'])
+  status?: 'all' | 'active' | 'revoked' | 'expired';
+
+  @ApiPropertyOptional({ description: 'Filter only sessions flagged with unusual locations' })
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  unusualOnly?: boolean;
+}
+
+export class PlatformLoginHistoryFilterDto {
+  @ApiPropertyOptional({ description: 'Filter by user name, email, or IP address' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by specific staff user UUID' })
+  @IsOptional()
+  @IsUUID('4')
+  userId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by status: success, failed, locked, 2fa_challenge, 2fa_failed' })
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @ApiPropertyOptional({ description: 'Filter only login events flagged with unusual locations' })
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  unusualOnly?: boolean;
+
+  @ApiPropertyOptional({ default: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  limit?: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  offset?: number;
+}

@@ -153,3 +153,100 @@ export const PLATFORM_PERMISSION_DEFINITIONS: PlatformPermissionDefinition[] = [
     actions: ['view', 'edit', 'manage'],
   },
 ];
+
+// ============================================================================
+// Platform Staff Sessions & Login Telemetry
+// ============================================================================
+
+export interface PlatformStaffSessionView {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRoleName: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  device: string;
+  browser: string;
+  os: string;
+  location: string;
+  country: string;
+  city: string;
+  countryCode: string;
+  isUnusualLocation: boolean;
+  unusualLocationReason?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  isRevoked: boolean;
+  isCurrent: boolean;
+}
+
+export type Platform2faResult =
+  | 'verified'
+  | 'failed'
+  | 'challenge_issued'
+  | 'setup_required'
+  | 'not_applicable';
+
+export interface PlatformStaffLoginHistoryView {
+  id: string;
+  userId: string | null;
+  userName?: string;
+  email: string;
+  userRoleName?: string;
+  status: 'success' | 'failed' | 'locked' | '2fa_failed' | '2fa_challenge';
+  failureReason: string | null;
+  twoFactorResult: Platform2faResult;
+  ipAddress: string | null;
+  userAgent: string | null;
+  device: string;
+  browser: string;
+  os: string;
+  location: string;
+  country: string;
+  city: string;
+  countryCode: string;
+  isUnusualLocation: boolean;
+  unusualLocationReason?: string | null;
+  createdAt: string;
+}
+
+export interface PlatformSessionFilter {
+  search?: string;
+  userId?: string;
+  status?: 'all' | 'active' | 'revoked' | 'expired';
+  unusualOnly?: boolean;
+}
+
+export interface PlatformLoginHistoryFilter {
+  search?: string;
+  userId?: string;
+  status?: string;
+  twoFactorResult?: string;
+  unusualOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RevokeSessionResult {
+  success: boolean;
+  sessionId: string;
+  isRevoked: boolean;
+  message: string;
+}
+
+export interface RevokeUserSessionsResult {
+  success: boolean;
+  userId: string;
+  revokedCount: number;
+  message: string;
+}
+
+export interface PlatformSecurityStats {
+  totalActiveSessions: number;
+  distinctStaffWithSessions: number;
+  unusualLocationSessionsCount: number;
+  recentLogins24hCount: number;
+  failedLogins24hCount: number;
+  unusualLoginsCount: number;
+}
