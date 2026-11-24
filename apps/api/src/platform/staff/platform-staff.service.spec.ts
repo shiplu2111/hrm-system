@@ -26,10 +26,16 @@ describe('PlatformStaffService', () => {
         platformRole: {
           upsert: jest.fn(),
           findUnique: jest.fn(),
+          findUniqueOrThrow: jest.fn(),
           findMany: jest.fn(),
+          create: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
         },
         platformPermission: {
           upsert: jest.fn(),
+          createMany: jest.fn(),
+          deleteMany: jest.fn(),
         },
         platformUser: {
           upsert: jest.fn(),
@@ -38,6 +44,7 @@ describe('PlatformStaffService', () => {
           create: jest.fn(),
           update: jest.fn(),
           count: jest.fn(),
+          groupBy: jest.fn().mockResolvedValue([]),
         },
         platformSession: {
           updateMany: jest.fn().mockResolvedValue({ count: 2 }),
@@ -49,6 +56,7 @@ describe('PlatformStaffService', () => {
           create: jest.fn(),
           update: jest.fn(),
         },
+        $transaction: jest.fn((cb: any) => cb(prismaMock.unscoped)),
       },
     };
 
@@ -397,6 +405,208 @@ describe('PlatformStaffService', () => {
       expect(prismaMock.unscoped.platformUser.update).not.toHaveBeenCalled();
       expect(auditServiceMock.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'reject_2fa_reset', module: 'platform_user' }),
+      );
+    });
+  });
+
+  describe('getActiveOwnerStatus', () => {
+    it('warns when only 1 active Platform Owner remains (isAtRisk = true)', async () => {
+      prismaMock.unscoped.platformUser.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+      const status = await service.getActiveOwnerStatus();
+      expect(status.activeOwnerCount).toBe(1);
+      expect(status.isAtRisk).toBe(true);
+      expect(status.warningMessage).toContain('High Governance Risk');
+    });
+
+    it('reports healthy governance when 2 or more active Platform Owners exist', async () => {
+      prismaMock.unscoped.platformUser.count.mockResolvedValueOnce(2).mockResolvedValueOnce(2);
+      const status = await service.getActiveOwnerStatus();
+      expect(status.activeOwnerCount).toBe(2);
+      expect(status.isAtRisk).toBe(false);
+      expect(status.warningMessage).toBeNull();
+    });
+  });
+
+  describe('createRole', () => {
+    it('successfully creates a custom role with permission matrix', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(null);
+      prismaMock.unscoped.platformRole.create.mockResolvedValue({
+        id: 'role-devops',
+        name: 'DevOps Operator',
+        description: 'Infrastructure ops',
+        isSystem: false,
+        permissions: [{ module: 'setting', action: 'edit' }],
+        _count: { users: 0 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await service.createRole(
+        {
+          name: 'DevOps Operator',
+          description: 'Infrastructure ops',
+          permissions: [{ module: 'setting', action: 'edit' }],
+        },
+        adminActor,
+      );
+
+      expect(res.name).toBe('DevOps Operator');
+      expect(res.permissions).toHaveLength(1);
+      expect(auditServiceMock.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'create', module: 'platform_role' }),
+      );
+    });
+
+    it('forbids non-Platform Owner from creating a role with platform:manage or user:manage', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(null);
+      await expect(
+        service.createRole(
+          {
+            name: 'Shadow Admin',
+            permissions: [{ module: 'platform', action: 'manage' }],
+          },
+          adminActor,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows Platform Owner to grant platform:manage on custom role', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(null);
+      prismaMock.unscoped.platformRole.create.mockResolvedValue({
+        id: 'role-custom-lead',
+        name: 'Lead Admin',
+        isSystem: false,
+        permissions: [{ module: 'platform', action: 'manage' }],
+        _count: { users: 0 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await service.createRole(
+        {
+          name: 'Lead Admin',
+          permissions: [{ module: 'platform', action: 'manage' }],
+        },
+        ownerActor,
+      );
+      expect(res.name).toBe('Lead Admin');
+    });
+
+    it('rejects duplicate role name with ConflictException', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue({ id: 'role-1', name: 'Existing' });
+      await expect(
+        service.createRole({ name: 'Existing', permissions: [] }, adminActor),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('updateRole', () => {
+    it('prevents non-Platform Owner from modifying the Platform Owner role', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(mockOwnerRole);
+      await expect(
+        service.updateRole(mockOwnerRole.id, { description: 'New desc' }, adminActor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('prevents renaming the Platform Owner role', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(mockOwnerRole);
+      await expect(
+        service.updateRole(mockOwnerRole.id, { name: 'Renamed Owner' }, ownerActor),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('ENFORCES LAST ACTIVE OWNER PROTECTION: prevents stripping root platform:manage and user:manage from Platform Owner', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue({
+        ...mockOwnerRole,
+        permissions: [{ module: 'platform', action: 'manage' }, { module: 'user', action: 'manage' }],
+        _count: { users: 1 },
+      });
+
+      // Attempting to remove user:manage
+      await expect(
+        service.updateRole(
+          mockOwnerRole.id,
+          {
+            permissions: [{ module: 'platform', action: 'manage' }], // user:manage missing!
+          },
+          ownerActor,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('successfully updates role permissions and writes audit log', async () => {
+      const customRole = {
+        id: 'role-custom',
+        name: 'Custom Auditor',
+        isSystem: false,
+        permissions: [],
+        _count: { users: 0 },
+      };
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue(customRole);
+      prismaMock.unscoped.platformRole.findUniqueOrThrow.mockResolvedValue({
+        ...customRole,
+        permissions: [{ module: 'audit', action: 'view' }],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      prismaMock.unscoped.platformUser.count.mockResolvedValue(0);
+
+      const res = await service.updateRole(
+        'role-custom',
+        {
+          permissions: [{ module: 'audit', action: 'view' }],
+        },
+        adminActor,
+      );
+
+      expect(res.permissions).toHaveLength(1);
+      expect(prismaMock.unscoped.platformPermission.deleteMany).toHaveBeenCalledWith({ where: { roleId: 'role-custom' } });
+      expect(prismaMock.unscoped.platformPermission.createMany).toHaveBeenCalledWith({
+        data: [{ roleId: 'role-custom', module: 'audit', action: 'view' }],
+        skipDuplicates: true,
+      });
+      expect(auditServiceMock.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'update', module: 'platform_role' }),
+      );
+    });
+  });
+
+  describe('deleteRole', () => {
+    it('prevents deleting system roles', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue({
+        id: 'role-system',
+        name: 'Platform Admin',
+        isSystem: true,
+        _count: { users: 0 },
+      });
+
+      await expect(service.deleteRole('role-system', ownerActor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('prevents deleting custom roles that have active users assigned', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue({
+        id: 'role-used',
+        name: 'Support Tier 2',
+        isSystem: false,
+        _count: { users: 3 },
+      });
+
+      await expect(service.deleteRole('role-used', adminActor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('successfully deletes an unassigned custom role', async () => {
+      prismaMock.unscoped.platformRole.findUnique.mockResolvedValue({
+        id: 'role-empty',
+        name: 'Temp Role',
+        isSystem: false,
+        _count: { users: 0 },
+      });
+
+      const res = await service.deleteRole('role-empty', adminActor);
+      expect(res.success).toBe(true);
+      expect(prismaMock.unscoped.platformRole.delete).toHaveBeenCalledWith({ where: { id: 'role-empty' } });
+      expect(auditServiceMock.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'delete', module: 'platform_role' }),
       );
     });
   });

@@ -8,19 +8,25 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
-import type {
+import {
+  ActiveOwnerCheckResult,
   Platform2faResetRequestView,
+  PlatformPermissionDefinition,
+  PlatformRoleRecord,
   PlatformUserDetailedView,
+  PLATFORM_PERMISSION_DEFINITIONS,
 } from '@hrm/shared-types';
 import { FieldEncryptionService } from '../../crypto/field-encryption.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PlatformAuditService } from '../audit/platform-audit.service';
 import { TotpService } from '../auth/totp.service';
 import {
+  CreatePlatformRoleDto,
   CreatePlatformUserDto,
   InvitePlatformUserDto,
   Request2faResetDto,
   Review2faResetDto,
+  UpdatePlatformRoleDto,
   UpdatePlatformUserDto,
 } from './dto/create-platform-user.dto';
 
@@ -292,8 +298,42 @@ export class PlatformStaffService implements OnModuleInit {
     }
   }
 
-  async listRoles() {
-    return this.prisma.unscoped.platformRole.findMany({
+  /**
+   * Returns available platform permission module and action definitions (matrix template).
+   */
+  getRoleDefinitions(): PlatformPermissionDefinition[] {
+    return PLATFORM_PERMISSION_DEFINITIONS;
+  }
+
+  /**
+   * Checks the active Platform Owner status and returns an advisory warning
+   * when active owners count is <= 1 (Last Active Owner Protection).
+   */
+  async getActiveOwnerStatus(): Promise<ActiveOwnerCheckResult> {
+    const [activeOwnerCount, totalOwnerCount] = await Promise.all([
+      this.prisma.unscoped.platformUser.count({
+        where: { role: { name: 'Platform Owner' }, isActive: true },
+      }),
+      this.prisma.unscoped.platformUser.count({
+        where: { role: { name: 'Platform Owner' } },
+      }),
+    ]);
+    const isAtRisk = activeOwnerCount <= 1;
+    return {
+      activeOwnerCount,
+      totalOwnerCount,
+      isAtRisk,
+      warningMessage: isAtRisk
+        ? 'High Governance Risk: Only 1 active Platform Owner account exists. Any demotion or deactivation would leave zero active Platform Owners with root governance access.'
+        : null,
+    };
+  }
+
+  /**
+   * Lists all platform roles, user counts, active user counts, and permissions.
+   */
+  async listRoles(): Promise<PlatformRoleRecord[]> {
+    const roles = await this.prisma.unscoped.platformRole.findMany({
       include: {
         permissions: {
           select: { module: true, action: true },
@@ -302,8 +342,321 @@ export class PlatformStaffService implements OnModuleInit {
           select: { users: true },
         },
       },
-      orderBy: { name: 'asc' },
+      orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
     });
+
+    const activeUserCounts = await this.prisma.unscoped.platformUser.groupBy({
+      by: ['roleId'],
+      where: { isActive: true },
+      _count: { id: true },
+    });
+    const activeMap = new Map(activeUserCounts.map((a) => [a.roleId, a._count.id]));
+
+    return roles.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      isSystem: r.isSystem,
+      permissions: r.permissions,
+      userCount: r._count.users,
+      activeUserCount: activeMap.get(r.id) ?? 0,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Retrieves single platform role by ID.
+   */
+  async getRole(id: string): Promise<PlatformRoleRecord> {
+    const r = await this.prisma.unscoped.platformRole.findUnique({
+      where: { id },
+      include: {
+        permissions: { select: { module: true, action: true } },
+        _count: { select: { users: true } },
+      },
+    });
+    if (!r) {
+      throw new NotFoundException({
+        code: 'ROLE_NOT_FOUND',
+        message: 'Platform role not found',
+      });
+    }
+    const activeUserCount = await this.prisma.unscoped.platformUser.count({
+      where: { roleId: id, isActive: true },
+    });
+    return {
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      isSystem: r.isSystem,
+      permissions: r.permissions,
+      userCount: r._count.users,
+      activeUserCount,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Creates a new custom platform role with permission matrix grants.
+   * Only Platform Owner can create roles with user:manage or platform:manage.
+   */
+  async createRole(input: CreatePlatformRoleDto, actor: PlatformActorContext): Promise<PlatformRoleRecord> {
+    const name = input.name.trim();
+    const existing = await this.prisma.unscoped.platformRole.findUnique({ where: { name } });
+    if (existing) {
+      throw new ConflictException({
+        code: 'ROLE_EXISTS',
+        message: `A platform role with name '${name}' already exists`,
+      });
+    }
+
+    // Role Hierarchy Rule: Only Platform Owner can grant root management permissions
+    const grantsApex = input.permissions.some(
+      (p) => (p.module === 'user' || p.module === 'platform') && p.action === 'manage',
+    );
+    if (grantsApex && actor.roleName !== 'Platform Owner') {
+      throw new ForbiddenException({
+        code: 'OWNER_RESTRICTION',
+        message: 'Only a Platform Owner can grant user:manage or platform:manage permissions.',
+      });
+    }
+
+    const created = await this.prisma.unscoped.platformRole.create({
+      data: {
+        name,
+        description: input.description?.trim() || null,
+        isSystem: false,
+        permissions: {
+          createMany: {
+            data: input.permissions.map((p) => ({
+              module: p.module.trim().toLowerCase(),
+              action: p.action.trim().toLowerCase(),
+            })),
+            skipDuplicates: true,
+          },
+        },
+      },
+      include: {
+        permissions: { select: { module: true, action: true } },
+        _count: { select: { users: true } },
+      },
+    });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'create',
+      module: 'platform_role',
+      recordId: created.id,
+      reason: `Created platform role '${created.name}' with ${created.permissions.length} permission grants`,
+      newValue: {
+        name: created.name,
+        description: created.description,
+        permissions: created.permissions,
+      },
+    });
+
+    return {
+      id: created.id,
+      name: created.name,
+      description: created.description,
+      isSystem: created.isSystem,
+      permissions: created.permissions,
+      userCount: created._count.users,
+      activeUserCount: 0,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Updates an existing platform role and its permission matrix.
+   * Warns and protects against changes that would leave zero active Platform Owners.
+   */
+  async updateRole(id: string, input: UpdatePlatformRoleDto, actor: PlatformActorContext): Promise<PlatformRoleRecord> {
+    const role = await this.prisma.unscoped.platformRole.findUnique({
+      where: { id },
+      include: {
+        permissions: { select: { module: true, action: true } },
+        _count: { select: { users: true } },
+      },
+    });
+    if (!role) {
+      throw new NotFoundException({
+        code: 'ROLE_NOT_FOUND',
+        message: 'Platform role not found',
+      });
+    }
+
+    // Role Hierarchy & Last Active Owner Protection:
+    if (role.name === 'Platform Owner') {
+      if (input.name && input.name.trim() !== 'Platform Owner') {
+        throw new BadRequestException({
+          code: 'CANNOT_RENAME_OWNER_ROLE',
+          message: 'The Platform Owner system role cannot be renamed.',
+        });
+      }
+
+      if (actor.roleName !== 'Platform Owner') {
+        throw new ForbiddenException({
+          code: 'OWNER_RESTRICTION',
+          message: 'Only a Platform Owner can edit permissions on the Platform Owner role.',
+        });
+      }
+
+      if (input.permissions) {
+        // Platform Owner MUST retain root platform:manage and user:manage permissions
+        const hasPlatformManage = input.permissions.some(
+          (p) => p.module === 'platform' && p.action === 'manage',
+        );
+        const hasUserManage = input.permissions.some(
+          (p) => p.module === 'user' && p.action === 'manage',
+        );
+
+        if (!hasPlatformManage || !hasUserManage) {
+          throw new BadRequestException({
+            code: 'CANNOT_STRIP_OWNER_PERMISSIONS',
+            message:
+              'Cannot save changes: Stripping platform:manage or user:manage from Platform Owner would compromise root governance. At least one active Platform Owner with full management access must remain.',
+          });
+        }
+      }
+    }
+
+    if (input.name && input.name.trim() !== role.name) {
+      if (role.isSystem) {
+        throw new BadRequestException({
+          code: 'CANNOT_RENAME_SYSTEM_ROLE',
+          message: 'System platform roles cannot be renamed.',
+        });
+      }
+      const conflict = await this.prisma.unscoped.platformRole.findUnique({
+        where: { name: input.name.trim() },
+      });
+      if (conflict) {
+        throw new ConflictException({
+          code: 'ROLE_EXISTS',
+          message: `A platform role with name '${input.name.trim()}' already exists`,
+        });
+      }
+    }
+
+    if (input.permissions) {
+      const grantsApex = input.permissions.some(
+        (p) => (p.module === 'user' || p.module === 'platform') && p.action === 'manage',
+      );
+      if (grantsApex && actor.roleName !== 'Platform Owner') {
+        throw new ForbiddenException({
+          code: 'OWNER_RESTRICTION',
+          message: 'Only a Platform Owner can grant user:manage or platform:manage permissions.',
+        });
+      }
+    }
+
+    await this.prisma.unscoped.$transaction(async (tx) => {
+      if (input.permissions) {
+        await tx.platformPermission.deleteMany({ where: { roleId: id } });
+        if (input.permissions.length > 0) {
+          await tx.platformPermission.createMany({
+            data: input.permissions.map((p) => ({
+              roleId: id,
+              module: p.module.trim().toLowerCase(),
+              action: p.action.trim().toLowerCase(),
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      await tx.platformRole.update({
+        where: { id },
+        data: {
+          ...(input.name ? { name: input.name.trim() } : {}),
+          ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
+        },
+      });
+    });
+
+    const updated = await this.prisma.unscoped.platformRole.findUniqueOrThrow({
+      where: { id },
+      include: {
+        permissions: { select: { module: true, action: true } },
+        _count: { select: { users: true } },
+      },
+    });
+
+    const activeUserCount = await this.prisma.unscoped.platformUser.count({
+      where: { roleId: id, isActive: true },
+    });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'update',
+      module: 'platform_role',
+      recordId: id,
+      reason: `Updated platform role '${updated.name}' (permissions: ${updated.permissions.length})`,
+      oldValue: { name: role.name, description: role.description, permissionCount: role.permissions.length },
+      newValue: { name: updated.name, description: updated.description, permissionCount: updated.permissions.length },
+    });
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+      isSystem: updated.isSystem,
+      permissions: updated.permissions,
+      userCount: updated._count.users,
+      activeUserCount,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Deletes a custom platform role.
+   * System roles and roles with active assigned users cannot be deleted.
+   */
+  async deleteRole(id: string, actor: PlatformActorContext): Promise<{ success: boolean; id: string }> {
+    const role = await this.prisma.unscoped.platformRole.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { users: true } },
+      },
+    });
+    if (!role) {
+      throw new NotFoundException({
+        code: 'ROLE_NOT_FOUND',
+        message: 'Platform role not found',
+      });
+    }
+
+    if (role.isSystem) {
+      throw new BadRequestException({
+        code: 'CANNOT_DELETE_SYSTEM_ROLE',
+        message: 'System platform roles cannot be deleted.',
+      });
+    }
+
+    if (role._count.users > 0) {
+      throw new BadRequestException({
+        code: 'ROLE_IN_USE',
+        message: `Cannot delete role '${role.name}' because it is assigned to ${role._count.users} staff user(s). Reassign them first.`,
+      });
+    }
+
+    await this.prisma.unscoped.platformRole.delete({ where: { id } });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: 'delete',
+      module: 'platform_role',
+      recordId: id,
+      reason: `Deleted custom platform role '${role.name}'`,
+      oldValue: { name: role.name, description: role.description },
+    });
+
+    return { success: true, id };
   }
 
   async listUsers(): Promise<PlatformUserDetailedView[]> {

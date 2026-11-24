@@ -1,5 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 
 export class CreatePlatformUserDto {
   @ApiProperty({ example: 'staff@cmsnbd.com' })
@@ -100,4 +112,53 @@ export class Review2faResetDto {
   @IsOptional()
   @IsString()
   reviewReason?: string;
+}
+
+export class PlatformPermissionClaimDto {
+  @ApiProperty({ example: 'tenant' })
+  @IsString()
+  @IsNotEmpty()
+  module!: string;
+
+  @ApiProperty({ example: 'manage' })
+  @IsString()
+  @IsNotEmpty()
+  action!: string;
+}
+
+export class CreatePlatformRoleDto {
+  @ApiProperty({ example: 'DevOps Operator' })
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @ApiPropertyOptional({ example: 'Infrastructure and maintenance operators.' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiProperty({ type: [PlatformPermissionClaimDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PlatformPermissionClaimDto)
+  permissions!: PlatformPermissionClaimDto[];
+}
+
+export class UpdatePlatformRoleDto {
+  @ApiPropertyOptional({ example: 'DevOps Operator' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'Updated description' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ type: [PlatformPermissionClaimDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PlatformPermissionClaimDto)
+  permissions?: PlatformPermissionClaimDto[];
 }

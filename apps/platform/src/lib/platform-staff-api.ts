@@ -1,23 +1,53 @@
 import { apiRequest } from './api-client';
 import type {
+  ActiveOwnerCheckResult,
+  CreatePlatformRoleInput,
   InvitePlatformUserInput,
   Platform2faResetRequestView,
+  PlatformPermissionDefinition,
+  PlatformRoleRecord,
   PlatformUserDetailedView,
   Request2faResetInput,
   Review2faResetInput,
+  UpdatePlatformRoleInput,
 } from '@hrm/shared-types';
 
-export interface PlatformRoleOption {
-  id: string;
-  name: string;
-  description: string;
-  isSystem: boolean;
-  permissions: Array<{ module: string; action: string }>;
-  _count?: { users: number };
+export type PlatformRoleOption = PlatformRoleRecord;
+
+export function getPlatformRoleDefinitions(): Promise<PlatformPermissionDefinition[]> {
+  return apiRequest<PlatformPermissionDefinition[]>('/platform/staff/roles/definitions');
 }
 
-export function listPlatformRoles(): Promise<PlatformRoleOption[]> {
-  return apiRequest<PlatformRoleOption[]>('/platform/staff/roles');
+export function getActiveOwnerStatus(): Promise<ActiveOwnerCheckResult> {
+  return apiRequest<ActiveOwnerCheckResult>('/platform/staff/roles/active-owner-check');
+}
+
+export function listPlatformRoles(): Promise<PlatformRoleRecord[]> {
+  return apiRequest<PlatformRoleRecord[]>('/platform/staff/roles');
+}
+
+export function getPlatformRole(id: string): Promise<PlatformRoleRecord> {
+  return apiRequest<PlatformRoleRecord>(`/platform/staff/roles/${id}`);
+}
+
+export function createPlatformRole(input: CreatePlatformRoleInput): Promise<PlatformRoleRecord> {
+  return apiRequest<PlatformRoleRecord>('/platform/staff/roles', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePlatformRole(id: string, input: UpdatePlatformRoleInput): Promise<PlatformRoleRecord> {
+  return apiRequest<PlatformRoleRecord>(`/platform/staff/roles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deletePlatformRole(id: string): Promise<{ success: boolean; id: string }> {
+  return apiRequest<{ success: boolean; id: string }>(`/platform/staff/roles/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export function listPlatformUsers(): Promise<PlatformUserDetailedView[]> {

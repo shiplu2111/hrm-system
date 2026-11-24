@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -16,10 +17,12 @@ import { RequirePlatformPermission } from '../auth/decorators/require-platform-p
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import {
+  CreatePlatformRoleDto,
   CreatePlatformUserDto,
   InvitePlatformUserDto,
   Request2faResetDto,
   Review2faResetDto,
+  UpdatePlatformRoleDto,
   UpdatePlatformUserDto,
 } from './dto/create-platform-user.dto';
 import { PlatformStaffService } from './platform-staff.service';
@@ -41,11 +44,66 @@ function extractActor(req: any) {
 export class PlatformStaffController {
   constructor(private readonly platformStaffService: PlatformStaffService) {}
 
+  @Get('roles/definitions')
+  @RequirePlatformPermission('platform', 'view')
+  @ApiOperation({ summary: 'Get platform role permission definitions and actions matrix template' })
+  async getRoleDefinitions(): Promise<ApiEnvelope<any>> {
+    return { data: this.platformStaffService.getRoleDefinitions() };
+  }
+
+  @Get('roles/active-owner-check')
+  @RequirePlatformPermission('platform', 'view')
+  @ApiOperation({ summary: 'Check active Platform Owner count and governance risk status' })
+  async getActiveOwnerStatus(): Promise<ApiEnvelope<any>> {
+    return { data: await this.platformStaffService.getActiveOwnerStatus() };
+  }
+
   @Get('roles')
   @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List all platform roles and permissions' })
   async listRoles(): Promise<ApiEnvelope<any>> {
     return { data: await this.platformStaffService.listRoles() };
+  }
+
+  @Get('roles/:id')
+  @RequirePlatformPermission('platform', 'view')
+  @ApiOperation({ summary: 'Get single platform role with permissions' })
+  async getRole(@Param('id', ParseUUIDPipe) id: string): Promise<ApiEnvelope<any>> {
+    return { data: await this.platformStaffService.getRole(id) };
+  }
+
+  @Post('roles')
+  @RequirePlatformPermission('platform', 'edit')
+  @ApiOperation({ summary: 'Create a new custom platform role with permission matrix' })
+  async createRole(
+    @Body() dto: CreatePlatformRoleDto,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.createRole(dto, actor) };
+  }
+
+  @Patch('roles/:id')
+  @RequirePlatformPermission('platform', 'edit')
+  @ApiOperation({ summary: 'Update an existing platform role and its permission matrix' })
+  async updateRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePlatformRoleDto,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.updateRole(id, dto, actor) };
+  }
+
+  @Delete('roles/:id')
+  @RequirePlatformPermission('platform', 'edit')
+  @ApiOperation({ summary: 'Delete a custom platform role' })
+  async deleteRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
+  ): Promise<ApiEnvelope<any>> {
+    const actor = extractActor(req);
+    return { data: await this.platformStaffService.deleteRole(id, actor) };
   }
 
   @Get('users')

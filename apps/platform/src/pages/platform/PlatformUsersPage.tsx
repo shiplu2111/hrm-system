@@ -6,9 +6,12 @@ import {
   CheckCircle2,
   Copy,
   CreditCard,
+  Edit3,
   Eye,
+  Grid,
   Headphones,
   KeyRound,
+  LayoutGrid,
   Lock,
   Mail,
   Plus,
@@ -18,6 +21,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
+  Table,
   UserCheck,
   UserCog,
   UserPlus,
@@ -27,12 +31,17 @@ import {
   Zap,
 } from 'lucide-react';
 import type {
+  ActiveOwnerCheckResult,
   Platform2faResetRequestView,
+  PlatformPermissionDefinition,
+  PlatformRoleRecord,
   PlatformUserDetailedView,
 } from '@hrm/shared-types';
 import { getPlatformStoredUser } from '@/lib/api-client';
 import {
   deactivatePlatformUser,
+  getActiveOwnerStatus,
+  getPlatformRoleDefinitions,
   invitePlatformUser,
   list2faResetRequests,
   listPlatformRoles,
@@ -42,6 +51,9 @@ import {
   review2faReset,
   type PlatformRoleOption,
 } from '@/lib/platform-staff-api';
+import { PlatformRoleMatrixOverview } from '@/components/platform-roles/PlatformRoleMatrixOverview';
+import { PlatformRolePermissionEditorModal } from '@/components/platform-roles/PlatformRolePermissionEditorModal';
+import { PlatformRoleDeleteModal } from '@/components/platform-roles/PlatformRoleDeleteModal';
 
 function getRoleBadgeStyle(roleName: string) {
   switch (roleName) {
@@ -124,20 +136,32 @@ export function PlatformUsersPage() {
   const [reviewReason, setReviewReason] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
+  // Roles & Permissions Matrix State
+  const [roleDefinitions, setRoleDefinitions] = useState<PlatformPermissionDefinition[]>([]);
+  const [activeOwnerStatus, setActiveOwnerStatus] = useState<ActiveOwnerCheckResult | null>(null);
+  const [selectedRoleForEdit, setSelectedRoleForEdit] = useState<PlatformRoleRecord | null>(null);
+  const [roleEditorOpen, setRoleEditorOpen] = useState(false);
+  const [roleDeleteTarget, setRoleDeleteTarget] = useState<PlatformRoleRecord | null>(null);
+  const [roleViewMode, setRoleViewMode] = useState<'matrix' | 'cards'>('matrix');
+
   // Load data
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     setError(null);
     try {
-      const [usersData, rolesData, requestsData] = await Promise.all([
+      const [usersData, rolesData, requestsData, definitionsData, ownerStatusData] = await Promise.all([
         listPlatformUsers(),
         listPlatformRoles(),
         list2faResetRequests(),
+        getPlatformRoleDefinitions().catch(() => []),
+        getActiveOwnerStatus().catch(() => null),
       ]);
       setUsers(usersData);
       setRoles(rolesData);
       setResetRequests(requestsData);
+      if (definitionsData && definitionsData.length > 0) setRoleDefinitions(definitionsData);
+      if (ownerStatusData) setActiveOwnerStatus(ownerStatusData);
 
       // Set default invite role if none selected
       if (!inviteRoleId && rolesData.length > 0) {
@@ -155,6 +179,28 @@ export function PlatformUsersPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleRoleSaved = (savedRole: PlatformRoleRecord) => {
+    setRoles((prev) => {
+      const idx = prev.findIndex((r) => r.id === savedRole.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = savedRole;
+        return next;
+      }
+      return [...prev, savedRole];
+    });
+    setNotice(`Platform role "${savedRole.name}" permissions updated successfully.`);
+    setRoleEditorOpen(false);
+    setSelectedRoleForEdit(null);
+    getActiveOwnerStatus().then(setActiveOwnerStatus).catch(() => {});
+  };
+
+  const handleRoleDeleted = (roleId: string) => {
+    setRoles((prev) => prev.filter((r) => r.id !== roleId));
+    setNotice('Custom platform role deleted successfully.');
+    setRoleDeleteTarget(null);
+  };
 
   const pendingResetRequests = useMemo(
     () => resetRequests.filter((r) => r.status === 'pending'),
@@ -936,63 +982,180 @@ export function PlatformUsersPage() {
       {/* Tab 3: Roles & Permissions Matrix */}
       {activeTab === 'roles' && (
         <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-200">
-            <div className="font-bold text-sm mb-1 flex items-center gap-1.5">
-              <Shield className="h-4 w-4 text-indigo-600" />
-              <span>Platform Role Hierarchy Rules</span>
+          {/* Header & Controls Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <span>Platform Roles & Permission Matrix</span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold">
+                  {roles.length} roles
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Granular module-level and action-level platform permissions with last-owner safety lock.
+              </p>
             </div>
-            <p className="leading-relaxed">
-              <strong>Platform Owner</strong> is the apex governance role. Only an existing Platform Owner can invite,
-              promote, modify, deactivate, or approve 2FA resets for other Platform Owners. The system protects the last
-              remaining active Platform Owner from demotion or deactivation.
-            </p>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {roles.map((role) => (
-              <div
-                key={role.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${getRoleBadgeStyle(
-                        role.name,
-                      )}`}
-                    >
-                      {role.name === 'Platform Owner' && <Shield className="h-3 w-3" />}
-                      {role.name}
-                    </span>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                      {role.description}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-slate-400">
-                      {role._count?.users ?? users.filter((u) => u.roleId === role.id).length} users
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Granted Permissions ({role.permissions.length}):
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
-                    {role.permissions.map((p) => (
-                      <span
-                        key={`${p.module}-${p.action}`}
-                        className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300"
-                      >
-                        {p.module}:{p.action}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+            <div className="flex items-center gap-2">
+              {/* View mode toggle */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setRoleViewMode('matrix')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    roleViewMode === 'matrix'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Table className="h-3.5 w-3.5" />
+                  <span>Matrix View</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRoleViewMode('cards')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    roleViewMode === 'cards'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span>Role Cards</span>
+                </button>
               </div>
-            ))}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRoleForEdit(null);
+                  setRoleEditorOpen(true);
+                }}
+                className="h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>New Custom Role</span>
+              </button>
+            </div>
           </div>
+
+          {/* Active Owner Risk Warning Banner */}
+          {activeOwnerStatus?.isAtRisk && (
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-sm">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-sm">
+                  Platform Owner Governance Alert: Only {activeOwnerStatus.activeOwnerCount} Active Owner Account
+                </div>
+                <p className="leading-relaxed">
+                  {activeOwnerStatus.warning}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Render Mode: Matrix vs Cards */}
+          {roleViewMode === 'matrix' ? (
+            <PlatformRoleMatrixOverview
+              roles={roles}
+              definitions={roleDefinitions}
+              activeOwnerStatus={activeOwnerStatus}
+              onSelectRole={(role) => {
+                setSelectedRoleForEdit(role);
+                setRoleEditorOpen(true);
+              }}
+              onCreateRole={() => {
+                setSelectedRoleForEdit(null);
+                setRoleEditorOpen(true);
+              }}
+            />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {roles.map((role) => {
+                const canDelete = !role.isSystem && (role._count?.users ?? 0) === 0;
+
+                return (
+                  <div
+                    key={role.id}
+                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${getRoleBadgeStyle(
+                              role.name,
+                            )}`}
+                          >
+                            {role.name === 'Platform Owner' && <Shield className="h-3 w-3" />}
+                            {role.name}
+                          </span>
+                          {role.isSystem ? (
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                              System
+                            </span>
+                          ) : (
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                              Custom
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                          {role.description || 'No description provided'}
+                        </p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full">
+                          {role._count?.users ?? users.filter((u) => u.roleId === role.id).length} users
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                        <span>Granted Permissions ({role.permissions.length})</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                        {role.permissions.map((p) => (
+                          <span
+                            key={`${p.module}-${p.action}`}
+                            className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300"
+                          >
+                            {p.module}:{p.action}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => setRoleDeleteTarget(role)}
+                          className="h-8 px-3 rounded-lg border border-rose-200 dark:border-rose-900/50 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold transition-colors"
+                        >
+                          Delete Role
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedRoleForEdit(role);
+                          setRoleEditorOpen(true);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        <span>Edit Permissions</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1448,6 +1611,35 @@ export function PlatformUsersPage() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: Platform Role Permission Matrix Editor Modal */}
+      {/* ========================================================================= */}
+      <PlatformRolePermissionEditorModal
+        isOpen={roleEditorOpen}
+        role={selectedRoleForEdit}
+        definitions={roleDefinitions}
+        activeOwnerStatus={activeOwnerStatus}
+        currentUserRoleName={currentUser?.roleName || ''}
+        onClose={() => {
+          setRoleEditorOpen(false);
+          setSelectedRoleForEdit(null);
+        }}
+        onSaved={handleRoleSaved}
+        onDeleteRequest={(role) => {
+          setRoleEditorOpen(false);
+          setRoleDeleteTarget(role);
+        }}
+      />
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: Platform Role Delete Modal */}
+      {/* ========================================================================= */}
+      <PlatformRoleDeleteModal
+        role={roleDeleteTarget}
+        onClose={() => setRoleDeleteTarget(null)}
+        onDeleted={handleRoleDeleted}
+      />
     </div>
   );
 }
