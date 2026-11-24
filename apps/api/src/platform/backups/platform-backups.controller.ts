@@ -17,7 +17,9 @@ import {
   IsBoolean,
   IsEnum,
   IsIn,
+  IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -81,6 +83,10 @@ export class CreateTenantExportDto {
   @IsNotEmpty()
   @IsString()
   reason!: string;
+
+  @IsOptional()
+  @IsInt()
+  deadlineDays?: number;
 }
 
 export class CreateEmployeeAnonymizationDto {
@@ -96,6 +102,38 @@ export class CreateEmployeeAnonymizationDto {
   @IsIn(['employee_anonymization', 'employee_deletion'])
   type?: 'employee_anonymization' | 'employee_deletion';
 
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
+
+  @IsOptional()
+  @IsInt()
+  deadlineDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  retainTaxRecords?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  retainPayrollHistory?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  retainAuditLogs?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  retainPensionRecords?: boolean;
+}
+
+export class ApproveDataRequestDto {
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class RejectDataRequestDto {
   @IsNotEmpty()
   @IsString()
   reason!: string;
@@ -265,6 +303,32 @@ export class PlatformBackupsController {
   ): Promise<ApiEnvelope<DataRequestItem>> {
     const actor = this.extractActor(req);
     const request = await this.backupsService.createEmployeeAnonymization(body, actor);
+    return { data: request };
+  }
+
+  @Post('data-requests/:id/approve')
+  @ApiOperation({ summary: 'Approve and execute a pending data request' })
+  @RequirePlatformPermission('setting', 'edit')
+  async approveDataRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ApproveDataRequestDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<DataRequestItem>> {
+    const actor = this.extractActor(req);
+    const request = await this.backupsService.approveDataRequest(id, body, actor);
+    return { data: request };
+  }
+
+  @Post('data-requests/:id/reject')
+  @ApiOperation({ summary: 'Reject a pending data request' })
+  @RequirePlatformPermission('setting', 'edit')
+  async rejectDataRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RejectDataRequestDto,
+    @Req() req: Request,
+  ): Promise<ApiEnvelope<DataRequestItem>> {
+    const actor = this.extractActor(req);
+    const request = await this.backupsService.rejectDataRequest(id, body, actor);
     return { data: request };
   }
 

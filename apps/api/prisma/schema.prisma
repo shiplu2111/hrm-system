@@ -6807,6 +6807,8 @@ enum DataRequestType {
 
 enum DataRequestStatus {
   pending
+  approved
+  rejected
   processing
   completed
   failed
@@ -6815,33 +6817,44 @@ enum DataRequestStatus {
 }
 
 model DataRequest {
-  id                String            @id @default(uuid()) @db.Uuid
-  tenantId          String            @map("tenant_id") @db.Uuid
-  type              DataRequestType
-  status            DataRequestStatus @default(pending)
-  targetEmployeeId  String?           @map("target_employee_id") @db.Uuid
-  requestedByUserId String            @map("requested_by_user_id") @db.Uuid
-  requestedByName   String?           @map("requested_by_name")
-  reason            String            @map("reason")
-  archiveUrl        String?           @map("archive_url")
-  archiveSizeBytes  BigInt?           @map("archive_size_bytes")
-  archiveExpiresAt  DateTime?         @map("archive_expires_at") @db.Timestamptz(6)
-  anonymizedSummary Json?             @map("anonymized_summary")
-  jobId             String?           @map("job_id")
-  startedAt         DateTime?         @map("started_at") @db.Timestamptz(6)
-  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(6)
-  errorMessage      String?           @map("error_message")
-  logs              Json?             @map("logs")
-  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                        String            @id @default(uuid()) @db.Uuid
+  tenantId                  String            @map("tenant_id") @db.Uuid
+  type                      DataRequestType
+  status                    DataRequestStatus @default(pending)
+  targetEmployeeId          String?           @map("target_employee_id") @db.Uuid
+  requestedByUserId         String            @map("requested_by_user_id") @db.Uuid
+  requestedByName           String?           @map("requested_by_name")
+  reason                    String            @map("reason")
+  deadline                  DateTime?         @map("deadline") @db.Timestamptz(6)
+  approvedByUserId          String?           @map("approved_by_user_id") @db.Uuid
+  approvedByName            String?           @map("approved_by_name")
+  approvedAt                DateTime?         @map("approved_at") @db.Timestamptz(6)
+  rejectedByUserId          String?           @map("rejected_by_user_id") @db.Uuid
+  rejectedByName            String?           @map("rejected_by_name")
+  rejectedAt                DateTime?         @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason           String?           @map("rejection_reason")
+  legalRetentionExceptions  Json?             @map("legal_retention_exceptions")
+  completionRecord          Json?             @map("completion_record")
+  archiveUrl                String?           @map("archive_url")
+  archiveSizeBytes          BigInt?           @map("archive_size_bytes")
+  archiveExpiresAt          DateTime?         @map("archive_expires_at") @db.Timestamptz(6)
+  anonymizedSummary         Json?             @map("anonymized_summary")
+  jobId                     String?           @map("job_id")
+  startedAt                 DateTime?         @map("started_at") @db.Timestamptz(6)
+  completedAt               DateTime?         @map("completed_at") @db.Timestamptz(6)
+  errorMessage              String?           @map("error_message")
+  logs                      Json?             @map("logs")
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  targetEmployee    Employee?         @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+  tenant                    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  targetEmployee            Employee?         @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([targetEmployeeId])
   @@index([status])
   @@index([type])
+  @@index([deadline])
   @@map("data_requests")
 }
 

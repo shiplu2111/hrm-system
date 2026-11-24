@@ -159,6 +159,30 @@ describe('PlatformBackupsService', () => {
       dataRequest: {
         count: jest.fn().mockResolvedValue(2),
         findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockImplementation(({ where }) => {
+          return Promise.resolve({
+            id: where.id,
+            tenantId: 'tenant-1',
+            type: DataRequestType.employee_anonymization,
+            status: DataRequestStatus.pending,
+            targetEmployeeId: 'emp-1',
+            requestedByUserId: mockActor1.id,
+            requestedByName: 'Alice Initiator',
+            reason: 'GDPR erasure request',
+            deadline: new Date(Date.now() + 25 * 86400000),
+            tenant: { id: 'tenant-1', name: 'Acme Corp', subdomain: 'acme' },
+            targetEmployee: {
+              id: 'emp-1',
+              tenantId: 'tenant-1',
+              employeeNumber: 'EMP-001',
+              firstName: 'John',
+              lastName: 'Doe',
+              user: { id: 'usr-1', email: 'john@acme.com' },
+              payrollRuns: [{ id: 'pr-1' }, { id: 'pr-2' }],
+              taxProfiles: [{ id: 'tp-1' }],
+            },
+          });
+        }),
         create: jest.fn().mockImplementation(({ data }) =>
           Promise.resolve({
             id: 'dr-1',
@@ -166,23 +190,31 @@ describe('PlatformBackupsService', () => {
             createdAt: new Date(),
           }),
         ),
-        update: jest.fn().mockImplementation(({ data }) =>
+        update: jest.fn().mockImplementation(({ where, data }) =>
           Promise.resolve({
-            id: 'dr-1',
+            id: where.id,
             tenantId: 'tenant-1',
-            type: DataRequestType.tenant_export,
-            status: DataRequestStatus.completed,
-            targetEmployeeId: null,
+            type: DataRequestType.employee_anonymization,
+            status: data.status || DataRequestStatus.completed,
+            targetEmployeeId: 'emp-1',
             requestedByUserId: mockActor1.id,
             requestedByName: 'Alice Initiator',
-            reason: 'Offboarding export',
-            archiveUrl: data.archiveUrl || '/download/dr-1',
-            archiveSizeBytes: BigInt(18 * 1024 * 1024),
-            archiveExpiresAt: new Date(Date.now() + 7 * 86400000),
-            anonymizedSummary: null,
-            jobId: 'job_export_1',
+            reason: 'GDPR erasure request',
+            approvedByUserId: data.approvedByUserId || null,
+            approvedByName: data.approvedByName || null,
+            approvedAt: data.approvedAt || null,
+            rejectedByUserId: data.rejectedByUserId || null,
+            rejectedByName: data.rejectedByName || null,
+            rejectedAt: data.rejectedAt || null,
+            rejectionReason: data.rejectionReason || null,
+            legalRetentionExceptions: data.legalRetentionExceptions || null,
+            completionRecord: data.completionRecord || null,
+            archiveUrl: data.archiveUrl || null,
+            archiveSizeBytes: data.archiveSizeBytes || null,
+            anonymizedSummary: data.anonymizedSummary || null,
+            jobId: data.jobId || 'job_1',
             startedAt: new Date(),
-            completedAt: new Date(),
+            completedAt: data.completedAt || new Date(),
             errorMessage: null,
             logs: {},
             createdAt: new Date(),
@@ -412,6 +444,92 @@ describe('PlatformBackupsService', () => {
       expect.objectContaining({
         module: 'data_compliance',
         action: 'employee.anonymize',
+      }),
+    );
+  });
+
+  it('should list data requests with statutory deadline and real-time countdown calculation', async () => {
+    const futureDeadline = new Date(Date.now() + 5 * 24 * 3600 * 1000); // 5 days left
+    mockUnscoped.dataRequest.findMany.mockResolvedValueOnce([
+      {
+        id: 'dr-req-1',
+        tenantId: 'tenant-1',
+        type: DataRequestType.tenant_export,
+        status: DataRequestStatus.pending,
+        targetEmployeeId: null,
+        requestedByUserId: mockActor1.id,
+        requestedByName: 'Alice Initiator',
+        reason: 'Client audit export',
+        deadline: futureDeadline,
+        approvedByUserId: null,
+        approvedByName: null,
+        approvedAt: null,
+        rejectedByUserId: null,
+        rejectedByName: null,
+        rejectedAt: null,
+        rejectionReason: null,
+        legalRetentionExceptions: null,
+        completionRecord: null,
+        archiveUrl: null,
+        archiveSizeBytes: null,
+        archiveExpiresAt: null,
+        anonymizedSummary: null,
+        jobId: null,
+        startedAt: null,
+        completedAt: null,
+        errorMessage: null,
+        logs: null,
+        createdAt: new Date(),
+        tenant: { name: 'Acme Corp', subdomain: 'acme' },
+        targetEmployee: null,
+      },
+    ]);
+
+    const items = await service.listDataRequests();
+
+    expect(items.length).toBe(1);
+    expect(items[0].deadline).toBeDefined();
+    expect(items[0].countdown).toBeDefined();
+    expect(items[0].countdown?.severity).toBe('warning'); // 5 days is in warning range (24h-7d)
+    expect(items[0].countdown?.isOverdue).toBe(false);
+    expect(items[0].countdown?.formatted).toContain('left');
+  });
+
+  it('should approve a pending data request and apply legal retention exceptions', async () => {
+    const result = await service.approveDataRequest(
+      'dr-1',
+      { notes: 'Identity verified with legal passport' },
+      mockActor2,
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.approvedByUserId).toBe(mockActor2.id);
+    expect(result.legalRetentionExceptions).toBeDefined();
+    expect(result.legalRetentionExceptions?.length).toBeGreaterThanOrEqual(4);
+    expect(result.completionRecord).toBeDefined();
+    expect(result.completionRecord?.complianceNotes).toBe('Identity verified with legal passport');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'data_compliance',
+        action: 'data_request.approve',
+      }),
+    );
+  });
+
+  it('should reject a pending data request with typed reason', async () => {
+    const result = await service.rejectDataRequest(
+      'dr-1',
+      { reason: 'Fraudulent request without employee authorization' },
+      mockActor2,
+    );
+
+    expect(result.status).toBe('rejected');
+    expect(result.rejectedByUserId).toBe(mockActor2.id);
+    expect(result.rejectionReason).toBe('Fraudulent request without employee authorization');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        module: 'data_compliance',
+        action: 'data_request.reject',
       }),
     );
   });

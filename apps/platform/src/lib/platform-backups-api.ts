@@ -1,11 +1,13 @@
 import type {
   ApiResponse as ApiEnvelope,
+  ApproveDataRequestInput,
   BackupsComplianceSummary,
   BackupRunItem,
   CreateEmployeeAnonymizationInput,
   CreateRestoreRequestInput,
   CreateTenantExportInput,
   DataRequestItem,
+  RejectDataRequestInput,
   RejectRestoreRequestInput,
   RestoreRequestItem,
   TriggerBackupInput,
@@ -135,6 +137,30 @@ export const platformBackupsApi = {
     input: CreateEmployeeAnonymizationInput,
   ): Promise<DataRequestItem> {
     const res = await fetch(`${API_BASE}/data-requests/employee-anonymize`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(input),
+    });
+    return handleResponse<DataRequestItem>(res);
+  },
+
+  async approveDataRequest(
+    id: string,
+    input?: ApproveDataRequestInput,
+  ): Promise<DataRequestItem> {
+    const res = await fetch(`${API_BASE}/data-requests/${id}/approve`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(input || {}),
+    });
+    return handleResponse<DataRequestItem>(res);
+  },
+
+  async rejectDataRequest(
+    id: string,
+    input: RejectDataRequestInput,
+  ): Promise<DataRequestItem> {
+    const res = await fetch(`${API_BASE}/data-requests/${id}/reject`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(input),

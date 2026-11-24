@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Ban,
   Building2,
+  Calendar,
   CheckCircle2,
   Clock,
   Copy,
@@ -19,12 +20,15 @@ import {
   Filter,
   HardDrive,
   History,
+  Info,
   Lock,
   Plus,
   RefreshCw,
+  Scale,
   Search,
   ShieldAlert,
   ShieldCheck,
+  Timer,
   Trash2,
   UserCheck,
   UserX,
@@ -35,8 +39,11 @@ import type {
   BackupsComplianceSummary,
   BackupRunItem,
   BackupType,
+  CompletionRecord,
   DataRequestItem,
   DataRequestType,
+  LegalRetentionException,
+  RequestCountdown,
   RestoreRequestItem,
   RestoreScope,
 } from '@hrm/shared-types';
@@ -69,6 +76,12 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
   const [showAnonSummaryModal, setShowAnonSummaryModal] = useState<boolean>(false);
   const [showJobLogsModal, setShowJobLogsModal] = useState<boolean>(false);
 
+  // Compliance & Statutory Deadlines Modals
+  const [showCompletionRecordModal, setShowCompletionRecordModal] = useState<boolean>(false);
+  const [showLegalExceptionsModal, setShowLegalExceptionsModal] = useState<boolean>(false);
+  const [showApproveDataRequestModal, setShowApproveDataRequestModal] = useState<boolean>(false);
+  const [showRejectDataRequestModal, setShowRejectDataRequestModal] = useState<boolean>(false);
+
   // Selected entities for modals
   const [selectedBackupRun, setSelectedBackupRun] = useState<BackupRunItem | null>(null);
   const [selectedRestoreRequest, setSelectedRestoreRequest] = useState<RestoreRequestItem | null>(null);
@@ -87,6 +100,12 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
   const [runTestFilter, setRunTestFilter] = useState<string>('all');
   const [restoreStatusFilter, setRestoreStatusFilter] = useState<string>('all');
 
+  // Data requests queue filters & search
+  const [dataReqSearchQuery, setDataReqSearchQuery] = useState<string>('');
+  const [dataReqTypeFilter, setDataReqTypeFilter] = useState<string>('all');
+  const [dataReqStatusFilter, setDataReqStatusFilter] = useState<string>('all');
+  const [dataReqUrgencyFilter, setDataReqUrgencyFilter] = useState<string>('all');
+
   // Form states
   const [backupTypeForm, setBackupTypeForm] = useState<BackupType>('full');
   const [includesFileStorageForm, setIncludesFileStorageForm] = useState<boolean>(true);
@@ -97,10 +116,14 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
   const [rejectReasonForm, setRejectReasonForm] = useState<string>('');
   const [exportTenantIdForm, setExportTenantIdForm] = useState<string>('');
   const [exportReasonForm, setExportReasonForm] = useState<string>('');
+  const [exportDeadlineDaysForm, setExportDeadlineDaysForm] = useState<number>(7);
   const [anonTenantIdForm, setAnonTenantIdForm] = useState<string>('');
   const [anonTargetEmployeeIdForm, setAnonTargetEmployeeIdForm] = useState<string>('');
   const [anonTypeForm, setAnonTypeForm] = useState<'employee_anonymization' | 'employee_deletion'>('employee_anonymization');
   const [anonReasonForm, setAnonReasonForm] = useState<string>('');
+  const [anonDeadlineDaysForm, setAnonDeadlineDaysForm] = useState<number>(30);
+  const [dataReqApproveNotesForm, setDataReqApproveNotesForm] = useState<string>('');
+  const [dataReqRejectReasonForm, setDataReqRejectReasonForm] = useState<string>('');
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<boolean>(false);
 
@@ -295,8 +318,9 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
       await platformBackupsApi.createTenantExport({
         tenantId: exportTenantIdForm,
         reason: exportReasonForm.trim() || 'Tenant data portability archive request',
+        deadlineDays: exportDeadlineDaysForm,
       });
-      setSuccessMessage('Tenant export archive generated successfully. Ready for download.');
+      setSuccessMessage('Tenant export archive request created and scheduled.');
       setShowTenantExportModal(false);
       setExportReasonForm('');
       setActiveTab('data-requests');
@@ -321,9 +345,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
         targetEmployeeId: anonTargetEmployeeIdForm.trim(),
         type: anonTypeForm,
         reason: anonReasonForm.trim() || 'Right to be forgotten request',
+        deadlineDays: anonDeadlineDaysForm,
       });
       setSuccessMessage(
-        'Employee personal identifiers scrubbed while statutory payroll records and audit logs are preserved in anonymized form.',
+        'Employee anonymization request logged. Personal identifiers will be scrubbed while statutory payroll records and audit logs are preserved in anonymized form.',
       );
       setShowEmployeeAnonModal(false);
       setAnonTargetEmployeeIdForm('');
@@ -333,6 +358,52 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       alert(`Anonymization error: ${err.message}`);
+    } finally {
+      setActionInProgress(false);
+    }
+  };
+
+  const handleApproveDataRequest = async () => {
+    if (!selectedDataRequest) return;
+    try {
+      setActionInProgress(true);
+      await platformBackupsApi.approveDataRequest(selectedDataRequest.id, {
+        reviewNotes: dataReqApproveNotesForm.trim() || undefined,
+      });
+      setSuccessMessage(
+        `Data request ${selectedDataRequest.id.slice(0, 8)} approved and completed with statutory retention exceptions applied.`,
+      );
+      setShowApproveDataRequestModal(false);
+      setSelectedDataRequest(null);
+      setDataReqApproveNotesForm('');
+      await loadData(true);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      alert(`Approval error: ${err.message}`);
+    } finally {
+      setActionInProgress(false);
+    }
+  };
+
+  const handleRejectDataRequest = async () => {
+    if (!selectedDataRequest) return;
+    if (!dataReqRejectReasonForm.trim()) {
+      alert('A typed reason is required to reject a compliance data request.');
+      return;
+    }
+    try {
+      setActionInProgress(true);
+      await platformBackupsApi.rejectDataRequest(selectedDataRequest.id, {
+        reason: dataReqRejectReasonForm.trim(),
+      });
+      setSuccessMessage(`Data request ${selectedDataRequest.id.slice(0, 8)} rejected.`);
+      setShowRejectDataRequestModal(false);
+      setSelectedDataRequest(null);
+      setDataReqRejectReasonForm('');
+      await loadData(true);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      alert(`Rejection error: ${err.message}`);
     } finally {
       setActionInProgress(false);
     }
@@ -359,6 +430,29 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
       return true;
     });
   }, [restoreRequests, restoreStatusFilter]);
+
+  const filteredDataRequests = useMemo(() => {
+    return dataRequests.filter((req) => {
+      const q = dataReqSearchQuery.toLowerCase().trim();
+      if (q) {
+        const matchesId = req.id.toLowerCase().includes(q);
+        const matchesTenant = req.tenantName?.toLowerCase().includes(q) || req.tenantSubdomain?.toLowerCase().includes(q);
+        const matchesTarget = req.targetEmployeeName?.toLowerCase().includes(q) || req.targetEmployeeId?.toLowerCase().includes(q);
+        const matchesReason = req.reason.toLowerCase().includes(q);
+        const matchesRequester = req.requestedByName?.toLowerCase().includes(q);
+        const matchesApprover = req.approvedByName?.toLowerCase().includes(q);
+        if (!matchesId && !matchesTenant && !matchesTarget && !matchesReason && !matchesRequester && !matchesApprover) {
+          return false;
+        }
+      }
+      if (dataReqTypeFilter !== 'all' && req.type !== dataReqTypeFilter) return false;
+      if (dataReqStatusFilter !== 'all' && req.status !== dataReqStatusFilter) return false;
+      if (dataReqUrgencyFilter !== 'all') {
+        if (!req.countdown || req.countdown.severity !== dataReqUrgencyFilter) return false;
+      }
+      return true;
+    });
+  }, [dataRequests, dataReqSearchQuery, dataReqTypeFilter, dataReqStatusFilter, dataReqUrgencyFilter]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -549,11 +643,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Backup Run</span>
             <span
-              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                summary?.isBackupOverdue
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
-              }`}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${summary?.isBackupOverdue
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                }`}
             >
               {summary?.isBackupOverdue ? 'Overdue' : 'SLA Nominal'}
             </span>
@@ -573,11 +666,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Restore Test</span>
             <span
-              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                summary?.isRestoreTestOverdue
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
-              }`}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${summary?.isRestoreTestOverdue
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                }`}
             >
               {summary?.isRestoreTestOverdue ? 'Overdue' : 'Passed'}
             </span>
@@ -615,11 +707,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Pending Restore Approvals</div>
           <div className="mt-2 flex items-baseline gap-2">
             <span
-              className={`text-2xl font-bold ${
-                summary && summary.pendingRestoreApprovals > 0
-                  ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-slate-900 dark:text-white'
-              }`}
+              className={`text-2xl font-bold ${summary && summary.pendingRestoreApprovals > 0
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-slate-900 dark:text-white'
+                }`}
             >
               {summary ? summary.pendingRestoreApprovals : '--'}
             </span>
@@ -661,11 +752,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
       <div className="flex border-b border-slate-200 dark:border-slate-800 space-x-1">
         <button
           onClick={() => setActiveTab('runs')}
-          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'runs'
-              ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
-              : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-          }`}
+          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'runs'
+            ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
+            : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
         >
           <Database className="h-4 w-4" />
           Scheduled Backups & Restore Tests
@@ -676,11 +766,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('restore-requests')}
-          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'restore-requests'
-              ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
-              : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-          }`}
+          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'restore-requests'
+            ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
+            : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
         >
           <Lock className="h-4 w-4" />
           Restore Requests (Dual Approval)
@@ -693,11 +782,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('data-requests')}
-          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-            activeTab === 'data-requests'
-              ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
-              : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-          }`}
+          className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'data-requests'
+            ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-semibold'
+            : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
         >
           <ShieldCheck className="h-4 w-4" />
           Tenant Export & GDPR Anonymization
@@ -955,11 +1043,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
               <button
                 key={f.id}
                 onClick={() => setRestoreStatusFilter(f.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  restoreStatusFilter === f.id
-                    ? 'bg-amber-600 text-white font-semibold'
-                    : 'border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
-                }`}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${restoreStatusFilter === f.id
+                  ? 'bg-amber-600 text-white font-semibold'
+                  : 'border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  }`}
               >
                 {f.label}
               </button>
@@ -1108,11 +1195,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                                   }}
                                   disabled={actionInProgress || !!isInitiator}
                                   title={isInitiator ? 'You cannot approve your own request' : 'Approve & Execute'}
-                                  className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors ${
-                                    isInitiator
-                                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                  }`}
+                                  className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors ${isInitiator
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    }`}
                                 >
                                   Approve
                                 </button>
@@ -1143,83 +1229,208 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
       {/* TAB 3: Data Requests & GDPR Compliance */}
       {activeTab === 'data-requests' && (
         <div className="space-y-4">
+          {/* Policy Banner */}
           <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/20 text-sm text-indigo-900 dark:text-indigo-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex items-start gap-3">
               <ShieldCheck className="h-5 w-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-indigo-900 dark:text-indigo-100">
-                  Data Portability & Statutory Retention Policy (SECURITY.md §9, AUDIT_LOG.md §6)
+                <p className="font-semibold text-indigo-900 dark:text-indigo-100 flex items-center gap-2">
+                  <span>Data Requests Queue: Portability & Legal Erasure</span>
+                  <span className="text-[11px] font-normal px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300">
+                    GDPR Art. 12(3), 17(3)(b) · SECURITY.md §9
+                  </span>
                 </p>
                 <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-0.5">
-                  Tenant Data Export generates a self-contained archive for client offboarding. Employee Anonymization scrubs all personal identifiers under GDPR while preserving statutory payroll records and keeping audit logs intact.
+                  Tenant Data Export provides full data portability archives within legal deadlines. Employee Anonymization scrubs all personal identifiers while strictly preserving statutory tax, payroll, and audit logs.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 onClick={() => setShowTenantExportModal(true)}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5 transition-colors"
               >
+                <Archive className="h-3.5 w-3.5" />
                 + Tenant Export
               </button>
               <button
                 onClick={() => setShowEmployeeAnonModal(true)}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-sm"
+                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-purple-700 hover:bg-purple-800 text-white shadow-sm flex items-center gap-1.5 transition-colors"
               >
+                <UserX className="h-3.5 w-3.5" />
                 + Anonymize Employee
               </button>
             </div>
           </div>
 
+          {/* Compliance KPI Chips */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-slate-500">Total Compliance Requests</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white mt-0.5">
+                  {dataRequests.length}
+                </p>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <FileText className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Awaiting Dual Review</p>
+                <p className="text-xl font-bold text-amber-700 dark:text-amber-300 mt-0.5">
+                  {dataRequests.filter((r) => r.status === 'pending').length}
+                </p>
+              </div>
+              <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                <Clock className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">Urgent Deadline (&lt;7d)</p>
+                <p className="text-xl font-bold text-rose-700 dark:text-rose-300 mt-0.5">
+                  {dataRequests.filter((r) => r.countdown && ['warning', 'critical'].includes(r.countdown.severity) && r.status !== 'completed').length}
+                </p>
+              </div>
+              <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+                <Timer className="h-4 w-4" />
+              </div>
+            </div>
+
+            <div className={`p-3.5 rounded-xl border shadow-sm flex items-center justify-between ${
+              dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                ? 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30'
+                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
+            }`}>
+              <div>
+                <p className={`text-xs font-medium ${
+                  dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                    ? 'text-red-700 dark:text-red-300 font-bold'
+                    : 'text-slate-500'
+                }`}>
+                  Overdue Compliance Breaches
+                </p>
+                <p className={`text-xl font-bold mt-0.5 ${
+                  dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                    ? 'text-red-600 dark:text-red-400 animate-pulse'
+                    : 'text-slate-900 dark:text-white'
+                }`}>
+                  {dataRequests.filter((r) => r.countdown?.isOverdue && r.status !== 'completed').length}
+                </p>
+              </div>
+              <div className={`p-2 rounded-lg ${
+                dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                  ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 animate-pulse'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}>
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* Search & Filters */}
+          <div className="flex flex-col md:flex-row items-center gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="relative flex-1 w-full">
+              <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={dataReqSearchQuery}
+                onChange={(e) => setDataReqSearchQuery(e.target.value)}
+                placeholder="Search requests by ID, tenant, employee, reason, approver..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <select
+                value={dataReqTypeFilter}
+                onChange={(e) => setDataReqTypeFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="all">All Request Types</option>
+                <option value="tenant_export">Tenant Export</option>
+                <option value="employee_anonymization">GDPR Anonymization</option>
+              </select>
+
+              <select
+                value={dataReqStatusFilter}
+                onChange={(e) => setDataReqStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending Approval</option>
+                <option value="approved">Approved</option>
+                <option value="completed">Completed</option>
+                <option value="rejected">Rejected</option>
+              </select>
+
+              <select
+                value={dataReqUrgencyFilter}
+                onChange={(e) => setDataReqUrgencyFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="all">All Deadlines</option>
+                <option value="nominal">Nominal (&gt;7d)</option>
+                <option value="warning">Warning (24h - 7d)</option>
+                <option value="critical">Critical (&lt;24h)</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Comprehensive Data Requests Table */}
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 text-xs">
                   <tr>
-                    <th className="py-3 px-4">Request Type</th>
-                    <th className="py-3 px-4">Tenant & Target</th>
+                    <th className="py-3 px-4">Request Type & Target</th>
                     <th className="py-3 px-4">Reason & Requester</th>
+                    <th className="py-3 px-4">Statutory Deadline & Countdown</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Compliance Outcome</th>
+                    <th className="py-3 px-4">Dual Approver</th>
+                    <th className="py-3 px-4">Legal Retention Exceptions</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {dataRequests.length === 0 ? (
+                  {filteredDataRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-500">
-                        No data requests recorded.
+                      <td colSpan={7} className="py-8 text-center text-slate-500">
+                        No compliance data requests found matching filter criteria.
                       </td>
                     </tr>
                   ) : (
-                    dataRequests.map((req) => (
+                    filteredDataRequests.map((req) => (
                       <tr key={req.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                        {/* 1. Request Type & Target */}
                         <td className="py-3 px-4">
-                          {req.type === 'tenant_export' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                              <Archive className="h-3 w-3" />
-                              Tenant Export
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
-                              <UserX className="h-3 w-3" />
-                              GDPR Anonymization
-                            </span>
-                          )}
-                          <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                            {new Date(req.createdAt).toLocaleString()}
+                          <div className="flex items-center gap-1.5">
+                            {req.type === 'tenant_export' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                                <Archive className="h-3 w-3" />
+                                Tenant Export
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                                <UserX className="h-3 w-3" />
+                                GDPR Anonymization
+                              </span>
+                            )}
                           </div>
-                        </td>
-
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900 dark:text-white">
+                          <div className="font-medium text-slate-900 dark:text-white mt-1">
                             {req.tenantName || 'Tenant'}
                           </div>
-                          <div className="text-xs text-slate-500 font-mono">
-                            {req.targetEmployeeName ? `Target: ${req.targetEmployeeName}` : req.tenantSubdomain}
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {req.targetEmployeeName ? `Target: ${req.targetEmployeeName}` : (req.targetEmployeeId ? `ID: ${req.targetEmployeeId.slice(0, 13)}...` : req.tenantSubdomain)}
                           </div>
                         </td>
 
+                        {/* 2. Reason & Requester */}
                         <td className="py-3 px-4 max-w-xs">
                           <div className="text-xs text-slate-800 dark:text-slate-200 font-medium truncate" title={req.reason}>
                             "{req.reason}"
@@ -1227,50 +1438,196 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                           <div className="text-[11px] text-slate-400 mt-0.5">
                             by {req.requestedByName || req.requestedByUserId}
                           </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            {new Date(req.createdAt).toLocaleDateString()} {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                         </td>
 
+                        {/* 3. Statutory Deadline & Live Countdown */}
                         <td className="py-3 px-4">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            <CheckCircle2 className="h-3 w-3" />
-                            {req.status}
-                          </span>
+                          <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                            {req.deadline ? new Date(req.deadline).toLocaleDateString() : 'N/A'}
+                          </div>
+                          <div className="mt-1">
+                            {req.status === 'completed' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                Completed
+                              </span>
+                            ) : req.countdown ? (
+                              req.countdown.severity === 'overdue' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-800 animate-pulse">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {req.countdown.formatted}
+                                </span>
+                              ) : req.countdown.severity === 'critical' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                  <Clock className="h-3 w-3" />
+                                  Critical: {req.countdown.formatted}
+                                </span>
+                              ) : req.countdown.severity === 'warning' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                  <Clock className="h-3 w-3" />
+                                  Warning: {req.countdown.formatted}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                  <Clock className="h-3 w-3" />
+                                  {req.countdown.formatted}
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-xs text-slate-400">No deadline</span>
+                            )}
+                          </div>
                         </td>
 
+                        {/* 4. Status */}
+                        <td className="py-3 px-4">
+                          {req.status === 'completed' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Completed
+                            </span>
+                          )}
+                          {req.status === 'pending' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                              <Clock className="h-3 w-3" />
+                              Pending Approval
+                            </span>
+                          )}
+                          {req.status === 'approved' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Approved
+                            </span>
+                          )}
+                          {req.status === 'rejected' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+                              <Ban className="h-3 w-3" />
+                              Rejected
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 5. Dual Approver */}
                         <td className="py-3 px-4 text-xs">
-                          {req.type === 'tenant_export' ? (
+                          {req.approvedByName ? (
                             <div>
-                              <div className="font-semibold text-slate-900 dark:text-white">
-                                {req.archiveSizeFormatted || '18.4 MB'}
+                              <div className="font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                {req.approvedByName}
                               </div>
-                              <div className="text-[11px] text-slate-400">
-                                Expires: {req.archiveExpiresAt ? new Date(req.archiveExpiresAt).toLocaleDateString() : '7 days'}
+                              <div className="text-[10px] text-slate-400">
+                                {req.approvedAt ? new Date(req.approvedAt).toLocaleDateString() : 'Approved'}
+                              </div>
+                            </div>
+                          ) : req.rejectedByName ? (
+                            <div>
+                              <div className="font-medium text-red-700 dark:text-red-400 flex items-center gap-1">
+                                <Ban className="h-3 w-3" />
+                                {req.rejectedByName}
+                              </div>
+                              <div className="text-[10px] text-red-500 truncate max-w-[120px]" title={req.rejectionReason || 'Rejected'}>
+                                {req.rejectionReason || 'Rejected'}
                               </div>
                             </div>
                           ) : (
+                            <span className="text-amber-600 dark:text-amber-400 text-xs font-medium">
+                              Awaiting Review
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 6. Legal Retention Exceptions */}
+                        <td className="py-3 px-4 text-xs">
+                          {req.type === 'employee_anonymization' ? (
                             <div>
-                              <span className="font-medium text-indigo-600 dark:text-indigo-400">
-                                PII Scrubbed
+                              <div className="flex flex-wrap gap-1 mb-1">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  Tax (7y)
+                                </span>
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  Payroll (7y)
+                                </span>
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  Audit (10y)
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setSelectedDataRequest(req);
+                                  setShowLegalExceptionsModal(true);
+                                }}
+                                className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 underline font-medium"
+                              >
+                                View Exceptions ({req.legalRetentionExceptions?.length || 4})
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                {req.archiveSizeFormatted || '18.4 MB'}
                               </span>
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                                Payroll & audit retained
+                              <div className="text-[10px] text-slate-400">
+                                Full Tenant Archive · 7d TTL
                               </div>
                             </div>
                           )}
                         </td>
 
-                        <td className="py-3 px-4 text-right space-x-2">
+                        {/* 7. Actions */}
+                        <td className="py-3 px-4 text-right space-x-1.5">
+                          {req.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setSelectedDataRequest(req);
+                                  setDataReqApproveNotesForm('');
+                                  setShowApproveDataRequestModal(true);
+                                }}
+                                className="px-2.5 py-1 text-xs font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedDataRequest(req);
+                                  setDataReqRejectReasonForm('');
+                                  setShowRejectDataRequestModal(true);
+                                }}
+                                className="px-2.5 py-1 text-xs font-medium rounded border border-red-200 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+
+                          {req.status === 'completed' && req.completionRecord && (
+                            <button
+                              onClick={() => {
+                                setSelectedDataRequest(req);
+                                setShowCompletionRecordModal(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors"
+                            >
+                              <FileCheck2 className="h-3 w-3" />
+                              Completion Record
+                            </button>
+                          )}
+
                           {req.type === 'tenant_export' && req.archiveUrl && (
                             <a
                               href={req.archiveUrl}
                               download
-                              className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors"
                             >
-                              <Download className="h-3.5 w-3.5" />
+                              <Download className="h-3 w-3" />
                               Download
                             </a>
                           )}
 
-                          {req.anonymizedSummary && (
+                          {req.anonymizedSummary && !req.completionRecord && (
                             <button
                               onClick={() => {
                                 setSelectedDataRequest(req);
@@ -1278,7 +1635,7 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                               }}
                               className="px-2.5 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
                             >
-                              View Summary
+                              Summary
                             </button>
                           )}
                         </td>
@@ -1639,6 +1996,21 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Statutory SLA Deadline (Days)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={exportDeadlineDaysForm}
+                  onChange={(e) => setExportDeadlineDaysForm(parseInt(e.target.value, 10) || 7)}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <span className="text-[11px] text-slate-500">Standard data portability SLA: 7 days.</span>
+              </div>
+
               <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-xs text-slate-600 dark:text-slate-400">
                 Generates a complete downloadable JSON/ZIP bundle containing all tenant business entities: organizational hierarchy, employees, attendance logs, leave balances, and payroll totals. Available for 7 days.
               </div>
@@ -1719,6 +2091,21 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                   placeholder="e.g. Employee GDPR Article 17 erasure request"
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Statutory SLA Deadline (Days)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={anonDeadlineDaysForm}
+                  onChange={(e) => setAnonDeadlineDaysForm(parseInt(e.target.value, 10) || 30)}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <span className="text-[11px] text-slate-500">GDPR Art. 12(3) statutory response limit: 30 days.</span>
               </div>
 
               <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-900/40 bg-purple-50/50 dark:bg-purple-950/20 text-xs text-purple-900 dark:text-purple-200 space-y-1">
@@ -1947,11 +2334,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                       key={hrs}
                       type="button"
                       onClick={() => setTempBackupHours(hrs)}
-                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
-                        tempBackupHours === hrs
-                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
+                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${tempBackupHours === hrs
+                        ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                        }`}
                     >
                       {hrs} Hours
                     </button>
@@ -1972,11 +2358,10 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                       key={days}
                       type="button"
                       onClick={() => setTempRestoreDays(days)}
-                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
-                        tempRestoreDays === days
-                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
+                      className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${tempRestoreDays === days
+                        ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                        }`}
                     >
                       {days} {days === 1 ? 'Day' : 'Days'}
                     </button>
@@ -2036,6 +2421,412 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                   Apply Thresholds
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 11: Compliance Completion Record Modal */}
+      {showCompletionRecordModal && selectedDataRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <FileCheck2 className="h-5 w-5 text-emerald-600" />
+                Compliance Completion Record
+              </h3>
+              <button
+                onClick={() => setShowCompletionRecordModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
+              {/* Header Details */}
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500 block">Request ID:</span>
+                  <span className="font-mono text-slate-900 dark:text-white font-semibold">
+                    {selectedDataRequest.id}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Request Type:</span>
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400 capitalize">
+                    {selectedDataRequest.type.replace('_', ' ')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Target Tenant:</span>
+                  <span className="font-medium text-slate-900 dark:text-white">
+                    {selectedDataRequest.tenantName} ({selectedDataRequest.tenantSubdomain})
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Completion Timestamp:</span>
+                  <span className="font-medium text-slate-900 dark:text-white">
+                    {selectedDataRequest.completedAt ? new Date(selectedDataRequest.completedAt).toLocaleString() : 'Completed'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Dual Approver:</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    {selectedDataRequest.approvedByName || 'Authorized Platform Staff'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Executed By:</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    {selectedDataRequest.completionRecord?.executedByName || 'Compliance Processing Engine'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Completion Summary */}
+              {selectedDataRequest.completionRecord?.summary && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Execution Summary
+                  </h4>
+                  <div className="p-3 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-xs text-emerald-900 dark:text-emerald-200">
+                    {selectedDataRequest.completionRecord.summary}
+                  </div>
+                </div>
+              )}
+
+              {/* Scrubbed Fields */}
+              {selectedDataRequest.completionRecord?.scrubbedFields && selectedDataRequest.completionRecord.scrubbedFields.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                    Scrubbed Personal Identifiers (GDPR Art. 17)
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedDataRequest.completionRecord.scrubbedFields.map((field) => (
+                      <span
+                        key={field}
+                        className="px-2 py-0.5 rounded text-xs font-mono font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
+                      >
+                        ✓ {field}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Preserved Records Count */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <div className="text-base font-bold text-slate-900 dark:text-white">
+                    {selectedDataRequest.completionRecord?.preservedPayrollRunsCount ?? 'All'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Payroll Runs (7y)</div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <div className="text-base font-bold text-slate-900 dark:text-white">
+                    {selectedDataRequest.completionRecord?.preservedAuditLogsCount ?? 'All'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Audit Logs (10y)</div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <div className="text-base font-bold text-slate-900 dark:text-white">
+                    {selectedDataRequest.completionRecord?.preservedTaxProfilesCount ?? 'All'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Tax Profiles (7y)</div>
+                </div>
+              </div>
+
+              {/* Archive Information (if export) */}
+              {selectedDataRequest.type === 'tenant_export' && (
+                <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <Archive className="h-4 w-4" />
+                    Downloadable Portability Package
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Archive Size:</span>
+                    <span className="font-semibold">{selectedDataRequest.archiveSizeFormatted || '18.4 MB'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Retention Expiry:</span>
+                    <span>{selectedDataRequest.archiveExpiresAt ? new Date(selectedDataRequest.archiveExpiresAt).toLocaleString() : '7 days from generation'}</span>
+                  </div>
+                  {selectedDataRequest.archiveUrl && (
+                    <div className="pt-1.5">
+                      <a
+                        href={selectedDataRequest.archiveUrl}
+                        download
+                        className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download Archive Bundle
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowCompletionRecordModal(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 transition-colors"
+              >
+                Close Record
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 12: Legal Retention Exceptions Modal */}
+      {showLegalExceptionsModal && selectedDataRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Scale className="h-5 w-5 text-indigo-600" />
+                Legal-Retention Exceptions Applied
+              </h3>
+              <button
+                onClick={() => setShowLegalExceptionsModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
+              <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs text-indigo-900 dark:text-indigo-200">
+                <strong>GDPR Article 17(3)(b) & (e) Directive:</strong> The right to erasure does not apply to the extent that processing is necessary for compliance with a legal obligation (statutory tax/wage accounting) or for the establishment, exercise, or defense of legal claims.
+              </div>
+
+              <div className="space-y-3">
+                {(selectedDataRequest.legalRetentionExceptions && selectedDataRequest.legalRetentionExceptions.length > 0
+                  ? selectedDataRequest.legalRetentionExceptions
+                  : [
+                      {
+                        category: 'Tax & Fiscal Accounting',
+                        legalBasis: 'GDPR Art. 17(3)(b) / Tax Code §44',
+                        retentionPeriod: '7 years',
+                        reason: 'Mandatory retention of statutory compensation and withholding schedules for tax authority audits.',
+                        recordsCount: 1,
+                        affectedEntities: ['PayrollRuns', 'TaxWithholdingProfiles'],
+                      },
+                      {
+                        category: 'Statutory Payroll Journals',
+                        legalBasis: 'FLSA 29 U.S.C. §211 / Employment Standards',
+                        retentionPeriod: '7 years',
+                        reason: 'Statutory wage payment histories must be preserved to prove compliance with minimum wage and overtime laws.',
+                        recordsCount: 1,
+                        affectedEntities: ['PayrollItems', 'DisbursementRecords'],
+                      },
+                      {
+                        category: 'Security & Access Audit Logs',
+                        legalBasis: 'AUDIT_LOG.md §6 / ISO 27001 Control A.12.4',
+                        retentionPeriod: '10 years',
+                        reason: 'Immutable append-only access and modification logs required for regulatory forensics and anti-fraud verification.',
+                        recordsCount: 1,
+                        affectedEntities: ['AuditLogs'],
+                      },
+                      {
+                        category: 'Pension & Benefit Accruals',
+                        legalBasis: 'ERISA Section 107 / Statutory Retirement Rules',
+                        retentionPeriod: '10 years',
+                        reason: 'Vested benefit accruals and historical contribution logs preserved for retirement qualification calculations.',
+                        recordsCount: 1,
+                        affectedEntities: ['BenefitEnrollments', 'DeductionSchedules'],
+                      },
+                    ]
+                ).map((exc, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>{exc.category}</span>
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                            {exc.retentionPeriod}
+                          </span>
+                        </div>
+                        <div className="text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
+                          {exc.legalBasis}
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        {exc.recordsCount} {exc.recordsCount === 1 ? 'Record' : 'Records'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      {exc.reason}
+                    </p>
+
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                      <span>Affected Entities:</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">
+                        {exc.affectedEntities?.join(', ') || 'PayrollRuns, AuditLogs'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowLegalExceptionsModal(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+              >
+                Acknowledge & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 13: Approve Data Request Modal */}
+      {showApproveDataRequestModal && selectedDataRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                Approve & Execute Compliance Request
+              </h3>
+              <button
+                onClick={() => setShowApproveDataRequestModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 space-y-2 text-xs">
+                <div>
+                  <span className="text-slate-500">Request:</span>{' '}
+                  <span className="font-semibold text-slate-900 dark:text-white capitalize">
+                    {selectedDataRequest.type.replace('_', ' ')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Target Tenant:</span>{' '}
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                    {selectedDataRequest.tenantName} ({selectedDataRequest.tenantSubdomain})
+                  </span>
+                </div>
+                {selectedDataRequest.targetEmployeeName && (
+                  <div>
+                    <span className="text-slate-500">Target Employee:</span>{' '}
+                    <span className="font-semibold text-purple-600 dark:text-purple-400">
+                      {selectedDataRequest.targetEmployeeName}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-slate-500">Statutory Deadline:</span>{' '}
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {selectedDataRequest.deadline ? new Date(selectedDataRequest.deadline).toLocaleDateString() : '30 days SLA'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Reason:</span>
+                  <p className="italic text-slate-700 dark:text-slate-300 mt-0.5">
+                    "{selectedDataRequest.reason}"
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Approval Notes / Legal Verification (Optional)
+                </label>
+                <textarea
+                  value={dataReqApproveNotesForm}
+                  onChange={(e) => setDataReqApproveNotesForm(e.target.value)}
+                  placeholder="Record verification of identity, legal representative authority, or statutory basis..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                />
+              </div>
+
+              <div className="p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20 text-xs text-emerald-900 dark:text-emerald-200">
+                <strong>Statutory Guarantee:</strong> Approving this request will scrub all personal identifiers under GDPR while automatically applying statutory retention exceptions for payroll runs, tax summaries, and audit logs.
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowApproveDataRequestModal(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApproveDataRequest}
+                disabled={actionInProgress}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5"
+              >
+                {actionInProgress ? 'Processing...' : 'Approve & Execute Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 14: Reject Data Request Modal */}
+      {showRejectDataRequestModal && selectedDataRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Ban className="h-5 w-5 text-red-600" />
+                Reject Compliance Request
+              </h3>
+              <button
+                onClick={() => setShowRejectDataRequestModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <p className="text-slate-600 dark:text-slate-400 text-xs">
+                Under GDPR Article 12(4), when refusing to act on a request for erasure or portability, the controller must state the specific legal grounds and inform the data subject of their right to lodge a complaint with a supervisory authority.
+              </p>
+
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Rejection Reason & Legal Justification (Required)
+                </label>
+                <textarea
+                  value={dataReqRejectReasonForm}
+                  onChange={(e) => setDataReqRejectReasonForm(e.target.value)}
+                  placeholder="Explain why this request is denied (e.g. unverified identity, pending statutory subpoena, conflicting contractual obligation)..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setShowRejectDataRequestModal(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectDataRequest}
+                disabled={actionInProgress}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-sm"
+              >
+                Confirm Rejection
+              </button>
             </div>
           </div>
         </div>

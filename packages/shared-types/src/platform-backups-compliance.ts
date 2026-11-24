@@ -21,7 +21,13 @@ export type DataRequestType =
   | 'employee_anonymization'
   | 'employee_deletion';
 
-export type DataRequestStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type DataRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'processing'
+  | 'completed'
+  | 'failed';
 
 export interface BackupRunItem {
   id: string;
@@ -119,6 +125,40 @@ export interface AnonymizationSummary {
   anonymizedAt?: string;
 }
 
+export interface LegalRetentionException {
+  category: 'tax_accounting' | 'statutory_payroll' | 'audit_log' | 'dispute_legal_defense' | 'pension_benefits';
+  title: string;
+  statutoryBasis: string;
+  retentionPeriodYears: number;
+  retainedRecordTypes: string[];
+  retainedRecordCount: number;
+  justification: string;
+}
+
+export interface CompletionRecord {
+  completedAt: string;
+  completedByUserId?: string | null;
+  completedByName?: string | null;
+  summary: string;
+  scrubbedFields?: string[];
+  legalExceptionsApplied?: LegalRetentionException[];
+  recordsPreservedCount?: number;
+  archiveSizeBytes?: string | null;
+  archiveSizeFormatted?: string | null;
+  archiveUrl?: string | null;
+  jobId?: string | null;
+  complianceNotes?: string;
+}
+
+export interface RequestCountdown {
+  days: number;
+  hours: number;
+  minutes: number;
+  isOverdue: boolean;
+  formatted: string;
+  severity: 'nominal' | 'warning' | 'critical' | 'overdue';
+}
+
 export interface DataRequestItem {
   id: string;
   tenantId: string;
@@ -131,6 +171,17 @@ export interface DataRequestItem {
   requestedByUserId: string;
   requestedByName: string | null;
   reason: string;
+  deadline: string | null;
+  countdown: RequestCountdown | null;
+  approvedByUserId: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  rejectedByUserId: string | null;
+  rejectedByName: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  legalRetentionExceptions: LegalRetentionException[] | null;
+  completionRecord: CompletionRecord | null;
   archiveUrl: string | null;
   archiveSizeBytes: string | null;
   archiveSizeFormatted?: string | null;
@@ -147,12 +198,26 @@ export interface DataRequestItem {
 export interface CreateTenantExportInput {
   tenantId: string;
   reason: string;
+  deadlineDays?: number;
 }
 
 export interface CreateEmployeeAnonymizationInput {
   tenantId: string;
   targetEmployeeId: string;
   type?: 'employee_anonymization' | 'employee_deletion';
+  reason: string;
+  deadlineDays?: number;
+  retainTaxRecords?: boolean;
+  retainPayrollHistory?: boolean;
+  retainAuditLogs?: boolean;
+  retainPensionRecords?: boolean;
+}
+
+export interface ApproveDataRequestInput {
+  notes?: string;
+}
+
+export interface RejectDataRequestInput {
   reason: string;
 }
 
