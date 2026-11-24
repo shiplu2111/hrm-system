@@ -61,6 +61,7 @@ export type PlatformViewKey =
   | 'global-kb'
   | 'api-registry'
   | 'webhook-monitor'
+  | 'backups-compliance'
   | 'system-notifications'
   | 'platform-users'
   | 'my-account'
@@ -342,6 +343,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         badge: 'Monitor',
         badgeTone: 'indigo',
         permission: { module: 'platform', action: 'view' },
+      },
+      {
+        key: 'backups-compliance',
+        label: 'Backups & Compliance',
+        description: 'Scheduled backups, restore testing, dual approval restores, and GDPR data requests',
+        icon: Database,
+        badge: 'Live',
+        badgeTone: 'emerald',
+        permission: { module: 'setting', action: 'view' },
       },
       {
         key: 'system-notifications',

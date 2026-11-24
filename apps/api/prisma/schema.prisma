@@ -242,6 +242,8 @@ model Tenant {
   mobileSyncLogs              MobileSyncLog[]
   platformAuditLogs           PlatformAuditLog[]
   rateLimitOverride           TenantRateLimitOverride?
+  restoreRequests             RestoreRequest[]
+  dataRequests                DataRequest[]
 
   @@map("tenants")
 }
@@ -860,6 +862,7 @@ model Employee {
   requestedShiftSwaps         ShiftSwapRequest[] @relation("ShiftSwapRequester")
   receivedShiftSwaps          ShiftSwapRequest[] @relation("ShiftSwapTarget")
   overtimeRequests            OvertimeRequest[]
+  dataRequests                DataRequest[]
 
   @@unique([tenantId, employeeNumber])
   @@index([tenantId])
@@ -6685,6 +6688,163 @@ model GlobalKbArticle {
   @@index([categoryId])
   @@map("global_kb_articles")
 }
+
+// §47 Backup, Restore & Data Compliance (SYSTEM_SETTINGS.md §3-5, SECURITY.md §7, §9, §10)
+// ---------------------------------------------------------------------------
+
+enum BackupType {
+  database
+  file_storage
+  full
+
+  @@map("backup_type")
+}
+
+enum BackupStatus {
+  pending
+  running
+  completed
+  failed
+
+  @@map("backup_status")
+}
+
+enum RestoreTestStatus {
+  not_tested
+  pending
+  passed
+  failed
+
+  @@map("restore_test_status")
+}
+
+model BackupRun {
+  id                    String            @id @default(uuid()) @db.Uuid
+  backupType            BackupType        @default(full) @map("backup_type")
+  storageDriver         String            @default("local_disk") @map("storage_driver")
+  status                BackupStatus      @default(pending)
+  sizeBytes             BigInt            @default(0) @map("size_bytes")
+  location              String            @map("location")
+  checksum              String?           @map("checksum")
+  includesFileStorage   Boolean           @default(false) @map("includes_file_storage")
+  retentionExpiry       DateTime          @map("retention_expiry") @db.Timestamptz(6)
+  startedAt             DateTime          @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt           DateTime?         @map("completed_at") @db.Timestamptz(6)
+  errorMessage          String?           @map("error_message")
+  restoreTestStatus     RestoreTestStatus @default(not_tested) @map("restore_test_status")
+  restoreTestAt         DateTime?         @map("restore_test_at") @db.Timestamptz(6)
+  restoreTestDurationMs Int?              @map("restore_test_duration_ms")
+  restoreTestDetails    Json?             @map("restore_test_details")
+  metadata              Json?             @map("metadata")
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restoreRequests       RestoreRequest[]
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("backup_runs")
+}
+
+enum RestoreScope {
+  full
+  tenant
+
+  @@map("restore_scope")
+}
+
+enum RestoreRequestStatus {
+  pending_approval
+  approved
+  rejected
+  executing
+  completed
+  failed
+
+  @@map("restore_request_status")
+}
+
+model RestoreRequest {
+  id                String               @id @default(uuid()) @db.Uuid
+  backupRunId       String               @map("backup_run_id") @db.Uuid
+  scope             RestoreScope         @default(tenant)
+  tenantId          String?              @map("tenant_id") @db.Uuid
+  status            RestoreRequestStatus @default(pending_approval)
+  requestedByUserId String               @map("requested_by_user_id") @db.Uuid
+  requestedByName   String?              @map("requested_by_name")
+  reason            String               @map("reason")
+  approvedByUserId  String?              @map("approved_by_user_id") @db.Uuid
+  approvedByName    String?              @map("approved_by_name")
+  approvedAt        DateTime?            @map("approved_at") @db.Timestamptz(6)
+  rejectedByUserId  String?              @map("rejected_by_user_id") @db.Uuid
+  rejectedByName    String?              @map("rejected_by_name")
+  rejectedAt        DateTime?            @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason   String?              @map("rejection_reason")
+  jobId             String?              @map("job_id")
+  startedAt         DateTime?            @map("started_at") @db.Timestamptz(6)
+  completedAt       DateTime?            @map("completed_at") @db.Timestamptz(6)
+  errorMessage      String?              @map("error_message")
+  logs              Json?                @map("logs")
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  backupRun         BackupRun            @relation(fields: [backupRunId], references: [id], onDelete: Restrict)
+  tenant            Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([backupRunId])
+  @@index([status])
+  @@map("restore_requests")
+}
+
+enum DataRequestType {
+  tenant_export
+  employee_anonymization
+  employee_deletion
+
+  @@map("data_request_type")
+}
+
+enum DataRequestStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("data_request_status")
+}
+
+model DataRequest {
+  id                String            @id @default(uuid()) @db.Uuid
+  tenantId          String            @map("tenant_id") @db.Uuid
+  type              DataRequestType
+  status            DataRequestStatus @default(pending)
+  targetEmployeeId  String?           @map("target_employee_id") @db.Uuid
+  requestedByUserId String            @map("requested_by_user_id") @db.Uuid
+  requestedByName   String?           @map("requested_by_name")
+  reason            String            @map("reason")
+  archiveUrl        String?           @map("archive_url")
+  archiveSizeBytes  BigInt?           @map("archive_size_bytes")
+  archiveExpiresAt  DateTime?         @map("archive_expires_at") @db.Timestamptz(6)
+  anonymizedSummary Json?             @map("anonymized_summary")
+  jobId             String?           @map("job_id")
+  startedAt         DateTime?         @map("started_at") @db.Timestamptz(6)
+  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(6)
+  errorMessage      String?           @map("error_message")
+  logs              Json?             @map("logs")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  targetEmployee    Employee?         @relation(fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([targetEmployeeId])
+  @@index([status])
+  @@index([type])
+  @@map("data_requests")
+}
+
 
 
 

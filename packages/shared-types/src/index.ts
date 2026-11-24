@@ -70,3 +70,4 @@ export * from './global-kb';
 export * from './platform-audit';
 export * from './platform-api-registry';
 export * from './platform-webhook-monitor';
+export * from './platform-backups-compliance';

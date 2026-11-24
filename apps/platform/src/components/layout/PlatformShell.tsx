@@ -36,6 +36,7 @@ import { SupportTicketsPage } from '@/pages/platform/SupportTicketsPage';
 import { GlobalKnowledgeBasePage } from '@/pages/platform/GlobalKnowledgeBasePage';
 import { ApiAppsAndKeysPage } from '@/pages/platform/ApiAppsAndKeysPage';
 import { WebhookMonitorPage } from '@/pages/platform/WebhookMonitorPage';
+import { PlatformBackupsCompliancePage } from '@/pages/platform/PlatformBackupsCompliancePage';
 import { PlatformUsersPage } from '@/pages/platform/PlatformUsersPage';
 import { PlatformSettingsPage } from '@/pages/platform/PlatformSettingsPage';
 import { PlatformMaintenancePage } from '@/pages/platform/PlatformMaintenancePage';
@@ -197,6 +198,8 @@ export function PlatformShell({
         return <ApiAppsAndKeysPage />;
       case 'webhook-monitor':
         return <WebhookMonitorPage />;
+      case 'backups-compliance':
+        return <PlatformBackupsCompliancePage />;
       case 'support-sessions':
         return <SupportSessionsLogPage />;
       case 'platform-users':
