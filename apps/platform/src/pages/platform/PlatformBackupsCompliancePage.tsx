@@ -1301,32 +1301,28 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
               </div>
             </div>
 
-            <div className={`p-3.5 rounded-xl border shadow-sm flex items-center justify-between ${
-              dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
-                ? 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30'
-                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
-            }`}>
+            <div className={`p-3.5 rounded-xl border shadow-sm flex items-center justify-between ${dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+              ? 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
+              }`}>
               <div>
-                <p className={`text-xs font-medium ${
-                  dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
-                    ? 'text-red-700 dark:text-red-300 font-bold'
-                    : 'text-slate-500'
-                }`}>
+                <p className={`text-xs font-medium ${dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                  ? 'text-red-700 dark:text-red-300 font-bold'
+                  : 'text-slate-500'
+                  }`}>
                   Overdue Compliance Breaches
                 </p>
-                <p className={`text-xl font-bold mt-0.5 ${
-                  dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
-                    ? 'text-red-600 dark:text-red-400 animate-pulse'
-                    : 'text-slate-900 dark:text-white'
-                }`}>
+                <p className={`text-xl font-bold mt-0.5 ${dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                  ? 'text-red-600 dark:text-red-400 animate-pulse'
+                  : 'text-slate-900 dark:text-white'
+                  }`}>
                   {dataRequests.filter((r) => r.countdown?.isOverdue && r.status !== 'completed').length}
                 </p>
               </div>
-              <div className={`p-2 rounded-lg ${
-                dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
-                  ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 animate-pulse'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-              }`}>
+              <div className={`p-2 rounded-lg ${dataRequests.some((r) => r.countdown?.isOverdue && r.status !== 'completed')
+                ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200 animate-pulse'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}>
                 <AlertTriangle className="h-4 w-4" />
               </div>
             </div>
@@ -2605,39 +2601,39 @@ export const PlatformBackupsCompliancePage: React.FC = () => {
                 {(selectedDataRequest.legalRetentionExceptions && selectedDataRequest.legalRetentionExceptions.length > 0
                   ? selectedDataRequest.legalRetentionExceptions
                   : [
-                      {
-                        category: 'Tax & Fiscal Accounting',
-                        legalBasis: 'GDPR Art. 17(3)(b) / Tax Code §44',
-                        retentionPeriod: '7 years',
-                        reason: 'Mandatory retention of statutory compensation and withholding schedules for tax authority audits.',
-                        recordsCount: 1,
-                        affectedEntities: ['PayrollRuns', 'TaxWithholdingProfiles'],
-                      },
-                      {
-                        category: 'Statutory Payroll Journals',
-                        legalBasis: 'FLSA 29 U.S.C. §211 / Employment Standards',
-                        retentionPeriod: '7 years',
-                        reason: 'Statutory wage payment histories must be preserved to prove compliance with minimum wage and overtime laws.',
-                        recordsCount: 1,
-                        affectedEntities: ['PayrollItems', 'DisbursementRecords'],
-                      },
-                      {
-                        category: 'Security & Access Audit Logs',
-                        legalBasis: 'AUDIT_LOG.md §6 / ISO 27001 Control A.12.4',
-                        retentionPeriod: '10 years',
-                        reason: 'Immutable append-only access and modification logs required for regulatory forensics and anti-fraud verification.',
-                        recordsCount: 1,
-                        affectedEntities: ['AuditLogs'],
-                      },
-                      {
-                        category: 'Pension & Benefit Accruals',
-                        legalBasis: 'ERISA Section 107 / Statutory Retirement Rules',
-                        retentionPeriod: '10 years',
-                        reason: 'Vested benefit accruals and historical contribution logs preserved for retirement qualification calculations.',
-                        recordsCount: 1,
-                        affectedEntities: ['BenefitEnrollments', 'DeductionSchedules'],
-                      },
-                    ]
+                    {
+                      category: 'Tax & Fiscal Accounting',
+                      legalBasis: 'GDPR Art. 17(3)(b) / Tax Code §44',
+                      retentionPeriod: '7 years',
+                      reason: 'Mandatory retention of statutory compensation and withholding schedules for tax authority audits.',
+                      recordsCount: 1,
+                      affectedEntities: ['PayrollRuns', 'TaxWithholdingProfiles'],
+                    },
+                    {
+                      category: 'Statutory Payroll Journals',
+                      legalBasis: 'FLSA 29 U.S.C. §211 / Employment Standards',
+                      retentionPeriod: '7 years',
+                      reason: 'Statutory wage payment histories must be preserved to prove compliance with minimum wage and overtime laws.',
+                      recordsCount: 1,
+                      affectedEntities: ['PayrollItems', 'DisbursementRecords'],
+                    },
+                    {
+                      category: 'Security & Access Audit Logs',
+                      legalBasis: 'AUDIT_LOG.md §6 / ISO 27001 Control A.12.4',
+                      retentionPeriod: '10 years',
+                      reason: 'Immutable append-only access and modification logs required for regulatory forensics and anti-fraud verification.',
+                      recordsCount: 1,
+                      affectedEntities: ['AuditLogs'],
+                    },
+                    {
+                      category: 'Pension & Benefit Accruals',
+                      legalBasis: 'ERISA Section 107 / Statutory Retirement Rules',
+                      retentionPeriod: '10 years',
+                      reason: 'Vested benefit accruals and historical contribution logs preserved for retirement qualification calculations.',
+                      recordsCount: 1,
+                      affectedEntities: ['BenefitEnrollments', 'DeductionSchedules'],
+                    },
+                  ]
                 ).map((exc, idx) => (
                   <div
                     key={idx}

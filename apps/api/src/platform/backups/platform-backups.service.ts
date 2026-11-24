@@ -151,7 +151,7 @@ export class PlatformBackupsService {
     // Calculate Backup SLA Overdue
     let isBackupOverdue = false;
     let backupWarning: string | null = null;
-    if(!lastBackup || !lastBackup.completedAt) {
+    if (!lastBackup || !lastBackup.completedAt) {
       isBackupOverdue = true;
       backupWarning = 'No completed backups found on record. An immediate backup is required.';
     } else {
