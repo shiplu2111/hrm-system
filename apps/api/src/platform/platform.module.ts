@@ -20,6 +20,7 @@ import { PlatformAnnouncementsModule } from './announcements/platform-announceme
 import { PlatformHealthModule } from './health/platform-health.module';
 import { UsageMeteringModule } from './usage/usage-metering.module';
 import { PlatformQueuesModule } from './queues/platform-queues.module';
+import { PlatformSupportTicketsModule } from './support-tickets/platform-support-tickets.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { PlatformQueuesModule } from './queues/platform-queues.module';
     PlatformStaffModule,
     PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
+    PlatformSupportTicketsModule,
     PlatformTenantsModule,
   ],
   exports: [
@@ -66,6 +68,7 @@ import { PlatformQueuesModule } from './queues/platform-queues.module';
     PlatformStaffModule,
     PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
+    PlatformSupportTicketsModule,
     PlatformTenantsModule,
   ],
 })
