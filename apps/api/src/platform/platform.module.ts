@@ -23,6 +23,7 @@ import { PlatformQueuesModule } from './queues/platform-queues.module';
 import { PlatformSupportTicketsModule } from './support-tickets/platform-support-tickets.module';
 import { PlatformKbModule } from './knowledge-base/platform-kb.module';
 import { PlatformApiRegistryModule } from './api-registry/platform-api-registry.module';
+import { PlatformWebhookMonitorModule } from './webhook-monitor/platform-webhook-monitor.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { PlatformApiRegistryModule } from './api-registry/platform-api-registry.
     PlatformSupportTicketsModule,
     PlatformKbModule,
     PlatformApiRegistryModule,
+    PlatformWebhookMonitorModule,
     PlatformTenantsModule,
   ],
   exports: [
@@ -56,6 +58,7 @@ import { PlatformApiRegistryModule } from './api-registry/platform-api-registry.
     PlatformAuthModule,
     PlatformAuditModule,
     PlatformApiRegistryModule,
+    PlatformWebhookMonitorModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformExchangeRatesModule,

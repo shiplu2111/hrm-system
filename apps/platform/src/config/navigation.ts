@@ -29,6 +29,7 @@ import {
   Sparkles,
   UserCog,
   UserCheck,
+  Webhook,
   Workflow,
 } from 'lucide-react';
 
@@ -59,6 +60,7 @@ export type PlatformViewKey =
   | 'support-sessions'
   | 'global-kb'
   | 'api-registry'
+  | 'webhook-monitor'
   | 'system-notifications'
   | 'platform-users'
   | 'my-account'
@@ -329,6 +331,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         description: 'Cross-tenant API keys registry, immediate revocation, and tenant rate-limit overrides',
         icon: KeyRound,
         badge: 'Stage 22',
+        badgeTone: 'indigo',
+        permission: { module: 'platform', action: 'view' },
+      },
+      {
+        key: 'webhook-monitor',
+        label: 'Webhook Monitor',
+        description: 'Cross-tenant outbound webhook deliveries, retry schedules, redelivery, and auto-disable',
+        icon: Webhook,
+        badge: 'Monitor',
         badgeTone: 'indigo',
         permission: { module: 'platform', action: 'view' },
       },
