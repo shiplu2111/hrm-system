@@ -147,3 +147,135 @@ export interface PlatformComprehensiveHealth {
   websocket: WebSocketHealth;
   mobileSync: MobileSyncHealth;
 }
+
+// ============================================================================
+// Usage & Storage against Plan Limits Types
+// ============================================================================
+
+export type UsageResourceStatus = 'normal' | 'near_limit' | 'over_limit';
+
+export interface TenantUsageAndLimitItem {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  status: string;
+  planId: string;
+  planCode: string;
+  planName: string;
+  hasCustomOverrides: boolean;
+
+  // Active Employees vs Limit
+  activeEmployees: number;
+  employeeLimit: number | null; // null = Unlimited
+  employeeUsagePercent: number | null; // null if unlimited
+  isEmployeeNearLimit: boolean; // >= 80% and < 100%
+  isEmployeeOverLimit: boolean; // >= 100%
+
+  // Storage vs Limit
+  storageUsedBytes: number;
+  storageUsedMb: number;
+  storageUsedGb: number;
+  storageLimitBytes: number | null; // null = Unlimited
+  storageLimitGb: number | null;
+  storageUsagePercent: number | null;
+  isStorageNearLimit: boolean;
+  isStorageOverLimit: boolean;
+
+  // API Calls vs Limit
+  apiCalls: number;
+  apiCallLimit: number | null; // null = Unlimited
+  apiCallUsagePercent: number | null;
+  isApiNearLimit: boolean;
+  isApiOverLimit: boolean;
+
+  // Overall Evaluation
+  maxUsagePercent: number; // max percentage of any limited resource
+  overallStatus: UsageResourceStatus;
+  nearLimitResources: Array<'employees' | 'storage' | 'api_calls'>;
+  overLimitResources: Array<'employees' | 'storage' | 'api_calls'>;
+
+  lastMeteredAt: string;
+}
+
+export interface TenantUsageOverviewFilter {
+  search?: string;
+  plan?: string;
+  status?: 'all' | 'near_limit' | 'over_limit' | 'normal';
+  resource?: 'all' | 'employees' | 'storage' | 'api_calls';
+  sortBy?:
+    | 'tenantName'
+    | 'maxUsagePercent'
+    | 'employeePercent'
+    | 'storagePercent'
+    | 'apiPercent'
+    | 'activeEmployees'
+    | 'storageUsedBytes'
+    | 'apiCalls';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+}
+
+export interface TenantUsageOverviewSummary {
+  totalTenants: number;
+  normalCount: number;
+  nearLimitCount: number;
+  overLimitCount: number;
+  totalEmployees: number;
+  totalStorageBytes: number;
+  totalStorageGb: number;
+  totalApiCalls: number;
+}
+
+export interface TenantUsageOverviewResponse {
+  items: TenantUsageAndLimitItem[];
+  total: number;
+  page: number;
+  limit: number;
+  summary: TenantUsageOverviewSummary;
+}
+
+export interface TenantUsageTrendPoint {
+  date: string;
+  activeEmployees: number;
+  storageUsedBytes: number;
+  storageUsedGb: number;
+  storageUsedMb: number;
+  apiCalls: number;
+  // If specific tenant trend:
+  employeeLimit?: number | null;
+  storageLimitGb?: number | null;
+  apiCallLimit?: number | null;
+  employee80Threshold?: number | null;
+  storage80Threshold?: number | null;
+  api80Threshold?: number | null;
+}
+
+export interface TenantUsageTrendsResponse {
+  tenantId?: string | null;
+  tenantName?: string | null;
+  planName?: string | null;
+  days: number;
+  trends: TenantUsageTrendPoint[];
+}
+
+export interface TenantUsageExportRow {
+  tenantId: string;
+  tenantName: string;
+  subdomain: string;
+  planName: string;
+  status: string;
+  activeEmployees: number;
+  employeeLimit: string;
+  employeeUsagePercent: string;
+  storageUsedHuman: string;
+  storageLimitHuman: string;
+  storageUsagePercent: string;
+  apiCalls: number;
+  apiCallLimit: string;
+  apiUsagePercent: string;
+  overallStatus: string;
+  flaggedResources: string;
+  lastMeteredAt: string;
+}
+

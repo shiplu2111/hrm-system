@@ -17,6 +17,7 @@ import { PlatformDashboardPage } from '@/pages/platform/PlatformDashboardPage';
 import { TenantsPage } from '@/pages/platform/TenantsPage';
 import { SandboxTenantsPage } from '@/pages/platform/SandboxTenantsPage';
 import { SystemHealthPage } from '@/pages/platform/SystemHealthPage';
+import { UsageStoragePage } from '@/pages/platform/UsageStoragePage';
 import { TenantIsolationPage } from '@/pages/platform/TenantIsolationPage';
 import { BrandingDomainsPage } from '@/pages/platform/BrandingDomainsPage';
 import { PlatformBillingPage } from '@/pages/platform/PlatformBillingPage';
@@ -143,6 +144,15 @@ export function PlatformShell({
         return <PlatformDashboardPage onOpenTenants={() => selectView('tenants')} />;
       case 'system-health':
         return <SystemHealthPage />;
+      case 'usage-storage':
+        return (
+          <UsageStoragePage
+            onNavigateToTenant={(tenantId) => {
+              localStorage.setItem('hrm_platform_target_tenant', tenantId);
+              selectView('tenants');
+            }}
+          />
+        );
       case 'tenants':
         return <TenantsPage initialView="list" />;
       case 'sandbox-tenants':

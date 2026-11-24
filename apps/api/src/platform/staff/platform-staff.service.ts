@@ -170,7 +170,7 @@ export class PlatformStaffService implements OnModuleInit {
     private readonly fieldEncryption: FieldEncryptionService,
     private readonly totpService: TotpService,
     private readonly auditService: PlatformAuditService,
-  ) {}
+  ) { }
 
   async onModuleInit(): Promise<void> {
     try {
@@ -1764,9 +1764,6 @@ export class PlatformStaffService implements OnModuleInit {
       ];
     }
 
-    const take = filter?.limit ?? 100;
-    const skip = filter?.offset ?? (filter?.page ? Math.max(0, filter.page - 1) * take : 0);
-
     const [records, total] = await Promise.all([
       this.prisma.unscoped.platformLoginHistory.findMany({
         where,
@@ -1788,8 +1785,8 @@ export class PlatformStaffService implements OnModuleInit {
           },
         },
         orderBy: { createdAt: 'desc' },
-        take,
-        skip,
+        take: filter?.limit ?? 100,
+        skip: filter?.offset ?? 0,
       }),
       this.prisma.unscoped.platformLoginHistory.count({ where }),
     ]);

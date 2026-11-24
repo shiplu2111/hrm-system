@@ -12,6 +12,7 @@ import {
   FileClock,
   FlaskConical,
   Globe2,
+  HardDrive,
   Headphones,
   Inbox,
   Languages,
@@ -31,6 +32,7 @@ import {
 export type PlatformViewKey =
   | 'dashboard'
   | 'system-health'
+  | 'usage-storage'
   | 'tenants'
   | 'sandbox-tenants'
   | 'tenant-detail'
@@ -110,6 +112,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         label: 'Tenants Directory',
         description: 'Manage tenant workspaces, company lifecycles, and tenant status',
         icon: Building2,
+        permission: { module: 'tenant', action: 'view' },
+      },
+      {
+        key: 'usage-storage',
+        label: 'Usage & Storage',
+        description: 'Per-tenant employees, storage, and API quotas vs. plan limits with 80% saturation detection',
+        icon: HardDrive,
+        badge: 'Limits',
+        badgeTone: 'amber',
         permission: { module: 'tenant', action: 'view' },
       },
       {

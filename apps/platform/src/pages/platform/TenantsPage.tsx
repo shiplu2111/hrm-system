@@ -395,6 +395,44 @@ export function TenantsPage({ initialView = 'list' }: TenantsPageProps) {
     setViewState(initialView);
   }, [initialView]);
 
+  useEffect(() => {
+    const targetTenantId = localStorage.getItem('hrm_platform_target_tenant');
+    if (targetTenantId) {
+      localStorage.removeItem('hrm_platform_target_tenant');
+      const found = tenantsList.find(
+        (t) =>
+          t.id === targetTenantId ||
+          t.domain.includes(targetTenantId) ||
+          t.name.toLowerCase() === targetTenantId.toLowerCase(),
+      );
+      if (found) {
+        setSelectedTenant(found);
+        setViewState('detail');
+      } else if (contextTenants.length > 0) {
+        const ct = contextTenants.find((c) => c.id === targetTenantId || c.subdomain === targetTenantId);
+        if (ct) {
+          const mapped: Tenant = {
+            id: ct.id,
+            name: ct.name,
+            domain: `${ct.subdomain}.cmsnbd.com`,
+            plan: 'Enterprise',
+            employees: 0,
+            status: 'Active',
+            mrr: 0,
+            signup: new Date().toLocaleDateString(),
+            health: 95,
+            region: 'Global',
+            country: 'Global',
+            admin: 'Tenant Admin',
+            email: `admin@${ct.subdomain}.com`,
+          };
+          setSelectedTenant(mapped);
+          setViewState('detail');
+        }
+      }
+    }
+  }, [tenantsList, contextTenants]);
+
   // Search & Filter state
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');

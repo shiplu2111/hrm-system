@@ -4,12 +4,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type {
+  TenantUsageAndLimitItem,
+  TenantUsageExportRow,
+  TenantUsageOverviewResponse,
+  TenantUsageTrendPoint,
+  TenantUsageTrendsResponse,
   UsageDailyRecord,
   UsageDailySummary,
+  UsageResourceStatus,
 } from '@hrm/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { HealthTelemetryService } from '../health/health-telemetry.service';
-import type { TriggerUsageMeteringDto, UsageMeteringFilterDto } from './dto/usage-metering.dto';
+import type {
+  TenantUsageExportQueryDto,
+  TenantUsageOverviewFilterDto,
+  TenantUsageTrendsQueryDto,
+  TriggerUsageMeteringDto,
+  UsageMeteringFilterDto,
+} from './dto/usage-metering.dto';
 
 @Injectable()
 export class UsageMeteringService {
@@ -424,5 +436,524 @@ export class UsageMeteringService {
         updatedAt: r.updatedAt.toISOString(),
       };
     });
+  }
+
+  /**
+   * Resolve effective limits for a given tenant.
+   */
+  private resolveEffectiveLimits(
+    tenant: {
+      id: string;
+      planId?: string | null;
+      subscriptions?: Array<{ planId: string; plan: { id: string; code: string; name: string; limits: Array<{ limitKey: string; value: number | null }> } }>;
+      limitOverrides?: Array<{ limitKey: string; value: number | null }>;
+    },
+    allPlans: Array<{ id: string; code: string; name: string; limits: Array<{ limitKey: string; value: number | null }> }>,
+  ) {
+    // Determine active plan
+    let activePlan = tenant.subscriptions?.[0]?.plan;
+    if (!activePlan && tenant.planId) {
+      const targetPlanId = tenant.planId;
+      activePlan =
+        allPlans.find((p) => p.id === targetPlanId || p.code.toLowerCase() === targetPlanId.toLowerCase()) ||
+        allPlans.find((p) => p.code === 'starter');
+    }
+    if (!activePlan) {
+      activePlan = allPlans.find((p) => p.code === 'starter') || {
+        id: 'starter',
+        code: 'starter',
+        name: 'Starter',
+        limits: [],
+      };
+    }
+
+    const planCode = activePlan.code.toLowerCase();
+    const planName = activePlan.name;
+
+    // Default baseline limits per tier
+    let employeeLimit: number | null = 50;
+    let storageLimitGb: number | null = 10;
+    let apiCallLimit: number | null = 5000;
+
+    if (planCode === 'free') {
+      employeeLimit = 10;
+      storageLimitGb = 1;
+      apiCallLimit = 1000;
+    } else if (planCode === 'starter') {
+      employeeLimit = 50;
+      storageLimitGb = 10;
+      apiCallLimit = 5000;
+    } else if (planCode === 'business') {
+      employeeLimit = 250;
+      storageLimitGb = 50;
+      apiCallLimit = 25000;
+    } else if (planCode === 'enterprise') {
+      employeeLimit = null; // Unlimited
+      storageLimitGb = null; // Unlimited
+      apiCallLimit = null; // Unlimited
+    }
+
+    // Apply DB plan limits if present
+    for (const pl of activePlan.limits || []) {
+      if (pl.limitKey === 'employees') employeeLimit = pl.value;
+      if (pl.limitKey === 'storage_gb') storageLimitGb = pl.value;
+      if (pl.limitKey === 'api_calls') {
+        apiCallLimit = pl.value === 0 ? apiCallLimit : pl.value;
+      }
+    }
+
+    let hasCustomOverrides = false;
+    // Apply tenant custom overrides
+    for (const ov of tenant.limitOverrides || []) {
+      hasCustomOverrides = true;
+      if (ov.limitKey === 'employees') employeeLimit = ov.value;
+      if (ov.limitKey === 'storage_gb') storageLimitGb = ov.value;
+      if (ov.limitKey === 'api_calls') apiCallLimit = ov.value;
+    }
+
+    const storageLimitBytes =
+      storageLimitGb != null ? storageLimitGb * 1024 * 1024 * 1024 : null;
+
+    return {
+      planId: activePlan.id,
+      planCode,
+      planName,
+      employeeLimit,
+      storageLimitGb,
+      storageLimitBytes,
+      apiCallLimit,
+      hasCustomOverrides,
+    };
+  }
+
+  /**
+   * Get tenant usage overview comparing current utilization against plan limits with near-limit tracking.
+   */
+  async getTenantUsageOverview(
+    filter?: TenantUsageOverviewFilterDto,
+  ): Promise<TenantUsageOverviewResponse> {
+    const [allPlans, tenants] = await Promise.all([
+      this.prisma.unscoped.plan.findMany({
+        include: { limits: true },
+      }),
+      this.prisma.unscoped.tenant.findMany({
+        where: { status: { not: 'cancelled' } },
+        select: {
+          id: true,
+          name: true,
+          subdomain: true,
+          status: true,
+          planId: true,
+          subscriptions: {
+            where: { status: { in: ['active', 'trialing'] } },
+            include: { plan: { include: { limits: true } } },
+          },
+          limitOverrides: true,
+          usageDailyRecords: {
+            orderBy: { date: 'desc' },
+            take: 1,
+          },
+        },
+      }),
+    ]);
+
+    let normalCount = 0;
+    let nearLimitCount = 0;
+    let overLimitCount = 0;
+    let totalEmployees = 0;
+    let totalStorageBytes = 0;
+    let totalApiCalls = 0;
+
+    const allItems: TenantUsageAndLimitItem[] = tenants.map((tenant) => {
+      const limits = this.resolveEffectiveLimits(tenant, allPlans);
+      const latestUsage = tenant.usageDailyRecords?.[0];
+
+      const activeEmployees = latestUsage?.activeEmployees ?? 0;
+      const storageUsedBytes = Number(latestUsage?.storageUsedBytes ?? 0);
+      const storageUsedMb = Math.round((storageUsedBytes / (1024 * 1024)) * 100) / 100;
+      const storageUsedGb = Math.round((storageUsedBytes / (1024 * 1024 * 1024)) * 100) / 100;
+      const apiCalls = latestUsage?.apiCalls ?? 0;
+
+      totalEmployees += activeEmployees;
+      totalStorageBytes += storageUsedBytes;
+      totalApiCalls += apiCalls;
+
+      // Employee percentage & status
+      let employeeUsagePercent: number | null = null;
+      let isEmployeeNearLimit = false;
+      let isEmployeeOverLimit = false;
+      if (limits.employeeLimit != null && limits.employeeLimit > 0) {
+        employeeUsagePercent = Math.round((activeEmployees / limits.employeeLimit) * 1000) / 10;
+        isEmployeeNearLimit = employeeUsagePercent >= 80 && employeeUsagePercent < 100;
+        isEmployeeOverLimit = employeeUsagePercent >= 100;
+      }
+
+      // Storage percentage & status
+      let storageUsagePercent: number | null = null;
+      let isStorageNearLimit = false;
+      let isStorageOverLimit = false;
+      if (limits.storageLimitBytes != null && limits.storageLimitBytes > 0) {
+        storageUsagePercent = Math.round((storageUsedBytes / limits.storageLimitBytes) * 1000) / 10;
+        isStorageNearLimit = storageUsagePercent >= 80 && storageUsagePercent < 100;
+        isStorageOverLimit = storageUsagePercent >= 100;
+      }
+
+      // API calls percentage & status
+      let apiCallUsagePercent: number | null = null;
+      let isApiNearLimit = false;
+      let isApiOverLimit = false;
+      if (limits.apiCallLimit != null && limits.apiCallLimit > 0) {
+        apiCallUsagePercent = Math.round((apiCalls / limits.apiCallLimit) * 1000) / 10;
+        isApiNearLimit = apiCallUsagePercent >= 80 && apiCallUsagePercent < 100;
+        isApiOverLimit = apiCallUsagePercent >= 100;
+      }
+
+      const nearLimitResources: Array<'employees' | 'storage' | 'api_calls'> = [];
+      const overLimitResources: Array<'employees' | 'storage' | 'api_calls'> = [];
+
+      if (isEmployeeNearLimit) nearLimitResources.push('employees');
+      if (isEmployeeOverLimit) overLimitResources.push('employees');
+      if (isStorageNearLimit) nearLimitResources.push('storage');
+      if (isStorageOverLimit) overLimitResources.push('storage');
+      if (isApiNearLimit) nearLimitResources.push('api_calls');
+      if (isApiOverLimit) overLimitResources.push('api_calls');
+
+      const maxUsagePercent = Math.max(
+        employeeUsagePercent ?? 0,
+        storageUsagePercent ?? 0,
+        apiCallUsagePercent ?? 0,
+      );
+
+      let overallStatus: UsageResourceStatus = 'normal';
+      if (overLimitResources.length > 0) {
+        overallStatus = 'over_limit';
+        overLimitCount++;
+      } else if (nearLimitResources.length > 0) {
+        overallStatus = 'near_limit';
+        nearLimitCount++;
+      } else {
+        normalCount++;
+      }
+
+      return {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        subdomain: tenant.subdomain,
+        status: tenant.status,
+        planId: limits.planId,
+        planCode: limits.planCode,
+        planName: limits.planName,
+        hasCustomOverrides: limits.hasCustomOverrides,
+
+        activeEmployees,
+        employeeLimit: limits.employeeLimit,
+        employeeUsagePercent,
+        isEmployeeNearLimit,
+        isEmployeeOverLimit,
+
+        storageUsedBytes,
+        storageUsedMb,
+        storageUsedGb,
+        storageLimitBytes: limits.storageLimitBytes,
+        storageLimitGb: limits.storageLimitGb,
+        storageUsagePercent,
+        isStorageNearLimit,
+        isStorageOverLimit,
+
+        apiCalls,
+        apiCallLimit: limits.apiCallLimit,
+        apiCallUsagePercent,
+        isApiNearLimit,
+        isApiOverLimit,
+
+        maxUsagePercent,
+        overallStatus,
+        nearLimitResources,
+        overLimitResources,
+
+        lastMeteredAt: latestUsage ? latestUsage.date.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      };
+    });
+
+    // Filtering
+    let filtered = allItems;
+
+    if (filter?.search) {
+      const q = filter.search.toLowerCase().trim();
+      filtered = filtered.filter(
+        (i) => i.tenantName.toLowerCase().includes(q) || i.subdomain.toLowerCase().includes(q),
+      );
+    }
+
+    if (filter?.plan && filter.plan !== 'all') {
+      const targetPlan = filter.plan.toLowerCase();
+      filtered = filtered.filter((i) => i.planCode === targetPlan);
+    }
+
+    if (filter?.status && filter.status !== 'all') {
+      if (filter.status === 'near_limit') {
+        filtered = filtered.filter((i) => i.isEmployeeNearLimit || i.isStorageNearLimit || i.isApiNearLimit || i.overallStatus === 'near_limit');
+      } else if (filter.status === 'over_limit') {
+        filtered = filtered.filter((i) => i.isEmployeeOverLimit || i.isStorageOverLimit || i.isApiOverLimit || i.overallStatus === 'over_limit');
+      } else if (filter.status === 'normal') {
+        filtered = filtered.filter((i) => i.overallStatus === 'normal');
+      }
+    }
+
+    if (filter?.resource && filter.resource !== 'all') {
+      if (filter.resource === 'employees') {
+        filtered = filtered.filter((i) => i.isEmployeeNearLimit || i.isEmployeeOverLimit);
+      } else if (filter.resource === 'storage') {
+        filtered = filtered.filter((i) => i.isStorageNearLimit || i.isStorageOverLimit);
+      } else if (filter.resource === 'api_calls') {
+        filtered = filtered.filter((i) => i.isApiNearLimit || i.isApiOverLimit);
+      }
+    }
+
+    // Sorting
+    const sortOrder = filter?.sortOrder === 'asc' ? 1 : -1;
+    filtered.sort((a, b) => {
+      switch (filter?.sortBy) {
+        case 'tenantName':
+          return a.tenantName.localeCompare(b.tenantName) * sortOrder;
+        case 'employeePercent':
+          return ((a.employeeUsagePercent ?? -1) - (b.employeeUsagePercent ?? -1)) * sortOrder;
+        case 'storagePercent':
+          return ((a.storageUsagePercent ?? -1) - (b.storageUsagePercent ?? -1)) * sortOrder;
+        case 'apiPercent':
+          return ((a.apiCallUsagePercent ?? -1) - (b.apiCallUsagePercent ?? -1)) * sortOrder;
+        case 'activeEmployees':
+          return (a.activeEmployees - b.activeEmployees) * sortOrder;
+        case 'storageUsedBytes':
+          return (a.storageUsedBytes - b.storageUsedBytes) * sortOrder;
+        case 'apiCalls':
+          return (a.apiCalls - b.apiCalls) * sortOrder;
+        case 'maxUsagePercent':
+        default:
+          return (a.maxUsagePercent - b.maxUsagePercent) * sortOrder;
+      }
+    });
+
+    // Pagination
+    const page = filter?.page ?? 1;
+    const limit = filter?.limit ?? 50;
+    const total = filtered.length;
+    const startIndex = (page - 1) * limit;
+    const items = filtered.slice(startIndex, startIndex + limit);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      summary: {
+        totalTenants: tenants.length,
+        normalCount,
+        nearLimitCount,
+        overLimitCount,
+        totalEmployees,
+        totalStorageBytes,
+        totalStorageGb: Math.round((totalStorageBytes / (1024 * 1024 * 1024)) * 100) / 100,
+        totalApiCalls,
+      },
+    };
+  }
+
+  /**
+   * Get timeseries trends for employees, storage, and API calls against plan limits.
+   */
+  async getTenantUsageTrends(query?: TenantUsageTrendsQueryDto): Promise<TenantUsageTrendsResponse> {
+    const days = Math.min(Math.max(query?.days ?? 30, 1), 90);
+    const startDate = new Date();
+    startDate.setUTCDate(startDate.getUTCDate() - days);
+
+    if (query?.tenantId) {
+      const [allPlans, tenant, usageRecords] = await Promise.all([
+        this.prisma.unscoped.plan.findMany({ include: { limits: true } }),
+        this.prisma.unscoped.tenant.findUnique({
+          where: { id: query.tenantId },
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            planId: true,
+            subscriptions: {
+              where: { status: { in: ['active', 'trialing'] } },
+              include: { plan: { include: { limits: true } } },
+            },
+            limitOverrides: true,
+          },
+        }),
+        this.prisma.unscoped.usageDaily.findMany({
+          where: {
+            tenantId: query.tenantId,
+            date: { gte: startDate },
+          },
+          orderBy: { date: 'asc' },
+        }),
+      ]);
+
+      const limits = tenant ? this.resolveEffectiveLimits(tenant, allPlans) : null;
+
+      const employeeLimit = limits?.employeeLimit ?? null;
+      const storageLimitGb = limits?.storageLimitGb ?? null;
+      const apiCallLimit = limits?.apiCallLimit ?? null;
+
+      const employee80Threshold =
+        employeeLimit != null ? Math.round(employeeLimit * 0.8) : null;
+      const storage80Threshold =
+        storageLimitGb != null ? Math.round(storageLimitGb * 0.8 * 10) / 10 : null;
+      const api80Threshold =
+        apiCallLimit != null ? Math.round(apiCallLimit * 0.8) : null;
+
+      const trends: TenantUsageTrendPoint[] = usageRecords.map((r) => {
+        const bytes = Number(r.storageUsedBytes);
+        return {
+          date: r.date.toISOString().slice(0, 10),
+          activeEmployees: r.activeEmployees,
+          storageUsedBytes: bytes,
+          storageUsedMb: Math.round((bytes / (1024 * 1024)) * 100) / 100,
+          storageUsedGb: Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100,
+          apiCalls: r.apiCalls,
+          employeeLimit,
+          storageLimitGb,
+          apiCallLimit,
+          employee80Threshold,
+          storage80Threshold,
+          api80Threshold,
+        };
+      });
+
+      return {
+        tenantId: tenant?.id,
+        tenantName: tenant?.name,
+        planName: limits?.planName,
+        days,
+        trends,
+      };
+    }
+
+    // Platform-wide aggregate trends
+    const usageRecords = await this.prisma.unscoped.usageDaily.findMany({
+      where: { date: { gte: startDate } },
+      orderBy: { date: 'asc' },
+    });
+
+    const dateMap = new Map<
+      string,
+      { activeEmployees: number; storageUsedBytes: bigint; apiCalls: number }
+    >();
+
+    for (const r of usageRecords) {
+      const d = r.date.toISOString().slice(0, 10);
+      const cur = dateMap.get(d) || { activeEmployees: 0, storageUsedBytes: BigInt(0), apiCalls: 0 };
+      cur.activeEmployees += r.activeEmployees;
+      cur.storageUsedBytes += r.storageUsedBytes;
+      cur.apiCalls += r.apiCalls;
+      dateMap.set(d, cur);
+    }
+
+    const trends: TenantUsageTrendPoint[] = Array.from(dateMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, val]) => {
+        const bytes = Number(val.storageUsedBytes);
+        return {
+          date,
+          activeEmployees: val.activeEmployees,
+          storageUsedBytes: bytes,
+          storageUsedMb: Math.round((bytes / (1024 * 1024)) * 100) / 100,
+          storageUsedGb: Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100,
+          apiCalls: val.apiCalls,
+        };
+      });
+
+    return {
+      tenantId: null,
+      tenantName: 'All Tenants (Platform Total)',
+      planName: 'Aggregated',
+      days,
+      trends,
+    };
+  }
+
+  /**
+   * Export tenant usage and limits report in CSV or JSON.
+   */
+  async exportTenantUsage(query?: TenantUsageExportQueryDto): Promise<{ csv?: string; json?: any; filename: string }> {
+    const overview = await this.getTenantUsageOverview({
+      search: query?.search,
+      plan: query?.plan,
+      status: query?.status as any,
+      resource: query?.resource as any,
+      page: 1,
+      limit: 1000,
+    });
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    if (query?.format === 'json') {
+      return {
+        json: overview.items,
+        filename: `platform-tenant-usage-${timestamp}.json`,
+      };
+    }
+
+    const headers = [
+      'Tenant ID',
+      'Tenant Name',
+      'Subdomain',
+      'Plan',
+      'Status',
+      'Active Employees',
+      'Employee Limit',
+      'Employee %',
+      'Storage Used (MB)',
+      'Storage Limit (GB)',
+      'Storage %',
+      'Daily API Calls',
+      'API Call Limit',
+      'API %',
+      'Overall Status',
+      'Flagged Resources',
+      'Last Metered',
+    ];
+
+    const escapeCsv = (str: string | number | null | undefined) => {
+      if (str == null) return '""';
+      const s = String(str).replace(/"/g, '""');
+      return `"${s}"`;
+    };
+
+    const rows = overview.items.map((i) => [
+      escapeCsv(i.tenantId),
+      escapeCsv(i.tenantName),
+      escapeCsv(i.subdomain),
+      escapeCsv(i.planName),
+      escapeCsv(i.status),
+      i.activeEmployees,
+      escapeCsv(i.employeeLimit ?? 'Unlimited'),
+      escapeCsv(i.employeeUsagePercent != null ? `${i.employeeUsagePercent}%` : 'N/A'),
+      i.storageUsedMb,
+      escapeCsv(i.storageLimitGb != null ? `${i.storageLimitGb} GB` : 'Unlimited'),
+      escapeCsv(i.storageUsagePercent != null ? `${i.storageUsagePercent}%` : 'N/A'),
+      i.apiCalls,
+      escapeCsv(i.apiCallLimit ?? 'Unlimited'),
+      escapeCsv(i.apiCallUsagePercent != null ? `${i.apiCallUsagePercent}%` : 'N/A'),
+      escapeCsv(i.overallStatus.toUpperCase().replace('_', ' ')),
+      escapeCsv(
+        [
+          ...i.nearLimitResources.map((r) => `Near:${r}`),
+          ...i.overLimitResources.map((r) => `Exceeded:${r}`),
+        ].join('; ') || 'None',
+      ),
+      escapeCsv(i.lastMeteredAt),
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+
+    return {
+      csv: csvContent,
+      filename: `platform-tenant-usage-${timestamp}.csv`,
+    };
   }
 }

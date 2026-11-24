@@ -5,12 +5,20 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { ApiResponse as ApiEnvelope } from '@hrm/shared-types';
 import type {
+  TenantUsageOverviewResponse,
+  TenantUsageTrendsResponse,
   UsageDailyRecord,
   UsageDailySummary,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
-import { TriggerUsageMeteringDto, UsageMeteringFilterDto } from './dto/usage-metering.dto';
+import {
+  TenantUsageExportQueryDto,
+  TenantUsageOverviewFilterDto,
+  TenantUsageTrendsQueryDto,
+  TriggerUsageMeteringDto,
+  UsageMeteringFilterDto,
+} from './dto/usage-metering.dto';
 import { UsageMeteringService } from './usage-metering.service';
 
 @ApiTags('platform-usage')
@@ -20,6 +28,47 @@ import { UsageMeteringService } from './usage-metering.service';
 @Controller('platform/usage')
 export class UsageMeteringController {
   constructor(private readonly usageMeteringService: UsageMeteringService) {}
+
+  @Get('overview')
+  @ApiOperation({
+    summary: 'Get per-tenant usage and storage against plan limits with near-limit indicators',
+    description:
+      'Returns per-tenant headcount, storage usage, and API volume compared with plan limits, near-limit flags (>80%), and summary KPIs.',
+  })
+  @ApiResponse({ status: 200, description: 'Tenant usage overview and plan limits' })
+  async getUsageOverview(
+    @Query() filter: TenantUsageOverviewFilterDto,
+  ): Promise<ApiEnvelope<TenantUsageOverviewResponse>> {
+    const data = await this.usageMeteringService.getTenantUsageOverview(filter);
+    return { data };
+  }
+
+  @Get('trends')
+  @ApiOperation({
+    summary: 'Get usage timeseries trends against plan limits',
+    description:
+      'Provides daily timeseries points for active employees, storage footprint, and API volume for all tenants or a single tenant with limit threshold lines.',
+  })
+  @ApiResponse({ status: 200, description: 'Usage timeseries trends' })
+  async getUsageTrends(
+    @Query() query: TenantUsageTrendsQueryDto,
+  ): Promise<ApiEnvelope<TenantUsageTrendsResponse>> {
+    const data = await this.usageMeteringService.getTenantUsageTrends(query);
+    return { data };
+  }
+
+  @Get('export')
+  @ApiOperation({
+    summary: 'Export tenant usage & storage report',
+    description: 'Generates a CSV or JSON export of tenant usage versus plan limits.',
+  })
+  @ApiResponse({ status: 200, description: 'Usage export payload' })
+  async exportUsage(
+    @Query() query: TenantUsageExportQueryDto,
+  ): Promise<ApiEnvelope<{ csv?: string; json?: any; filename: string }>> {
+    const data = await this.usageMeteringService.exportTenantUsage(query);
+    return { data };
+  }
 
   @Get('daily')
   @ApiOperation({

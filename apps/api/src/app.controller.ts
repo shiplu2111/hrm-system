@@ -14,7 +14,7 @@ export class AppController {
   constructor(
     private readonly appService: AppService,
     private readonly healthTelemetry: HealthTelemetryService,
-  ) {}
+  ) { }
 
   @Get()
   @ApiOperation({ summary: 'API root message' })

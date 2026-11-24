@@ -18,6 +18,10 @@ describe('UsageMeteringService', () => {
     unscoped: {
       tenant: {
         findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      plan: {
+        findMany: jest.fn(),
       },
       employee: {
         count: jest.fn(),
@@ -157,6 +161,159 @@ describe('UsageMeteringService', () => {
       expect(result.items[0].storageUsedMb).toBe(2);
       expect(result.items[0].apiCalls).toBe(100);
       expect(result.items[0].attendanceEventsSynced).toBe(12);
+    });
+  });
+
+  describe('getTenantUsageOverview', () => {
+    it('computes usage percentages against plan limits, flags near limit (>80%) and over limit (>=100%)', async () => {
+      mockPrisma.unscoped.plan.findMany.mockResolvedValueOnce([
+        {
+          id: 'p-starter',
+          code: 'starter',
+          name: 'Starter',
+          limits: [
+            { limitKey: 'employees', value: 50 },
+            { limitKey: 'storage_gb', value: 10 },
+            { limitKey: 'api_calls', value: 5000 },
+          ],
+        },
+        {
+          id: 'p-enterprise',
+          code: 'enterprise',
+          name: 'Enterprise',
+          limits: [
+            { limitKey: 'employees', value: null },
+            { limitKey: 'storage_gb', value: null },
+            { limitKey: 'api_calls', value: null },
+          ],
+        },
+      ]);
+
+      mockPrisma.unscoped.tenant.findMany.mockResolvedValueOnce([
+        {
+          id: 'tenant-1',
+          name: 'Near Limit Corp',
+          subdomain: 'near-limit',
+          status: 'active',
+          planId: 'starter',
+          subscriptions: [],
+          limitOverrides: [],
+          usageDailyRecords: [
+            {
+              date: new Date('2026-11-23'),
+              activeEmployees: 44, // 44 / 50 = 88% -> NEAR LIMIT!
+              storageUsedBytes: BigInt(8.5 * 1024 * 1024 * 1024), // 8.5 GB / 10 GB = 85% -> NEAR LIMIT!
+              apiCalls: 2000,
+            },
+          ],
+        },
+        {
+          id: 'tenant-2',
+          name: 'Enterprise Corp',
+          subdomain: 'enterprise-corp',
+          status: 'active',
+          planId: 'enterprise',
+          subscriptions: [],
+          limitOverrides: [],
+          usageDailyRecords: [
+            {
+              date: new Date('2026-11-23'),
+              activeEmployees: 500,
+              storageUsedBytes: BigInt(50 * 1024 * 1024 * 1024),
+              apiCalls: 10000,
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.getTenantUsageOverview();
+
+      expect(result.total).toBe(2);
+      expect(result.summary.totalTenants).toBe(2);
+      expect(result.summary.nearLimitCount).toBe(1);
+      expect(result.summary.normalCount).toBe(1);
+
+      const nearLimitTenant = result.items.find((i) => i.tenantId === 'tenant-1')!;
+      expect(nearLimitTenant.isEmployeeNearLimit).toBe(true);
+      expect(nearLimitTenant.employeeUsagePercent).toBe(88);
+      expect(nearLimitTenant.isStorageNearLimit).toBe(true);
+      expect(nearLimitTenant.overallStatus).toBe('near_limit');
+      expect(nearLimitTenant.nearLimitResources).toContain('employees');
+      expect(nearLimitTenant.nearLimitResources).toContain('storage');
+
+      const enterpriseTenant = result.items.find((i) => i.tenantId === 'tenant-2')!;
+      expect(enterpriseTenant.employeeLimit).toBeNull();
+      expect(enterpriseTenant.employeeUsagePercent).toBeNull();
+      expect(enterpriseTenant.overallStatus).toBe('normal');
+    });
+  });
+
+  describe('getTenantUsageTrends', () => {
+    it('returns daily timeseries trend points for platform aggregate', async () => {
+      mockPrisma.unscoped.usageDaily.findMany.mockResolvedValueOnce([
+        {
+          date: new Date('2026-11-22T00:00:00.000Z'),
+          activeEmployees: 100,
+          storageUsedBytes: BigInt(10737418240), // 10 GB
+          apiCalls: 5000,
+        },
+        {
+          date: new Date('2026-11-23T00:00:00.000Z'),
+          activeEmployees: 120,
+          storageUsedBytes: BigInt(11811160064), // 11 GB
+          apiCalls: 6500,
+        },
+      ]);
+
+      const result = await service.getTenantUsageTrends({ days: 30 });
+      expect(result.trends.length).toBe(2);
+      expect(result.trends[0].date).toBe('2026-11-22');
+      expect(result.trends[0].activeEmployees).toBe(100);
+      expect(result.trends[1].activeEmployees).toBe(120);
+      expect(result.trends[1].storageUsedGb).toBe(11);
+    });
+  });
+
+  describe('exportTenantUsage', () => {
+    it('exports tenant usage report as CSV', async () => {
+      mockPrisma.unscoped.plan.findMany.mockResolvedValueOnce([
+        {
+          id: 'starter',
+          code: 'starter',
+          name: 'Starter',
+          limits: [
+            { limitKey: 'employees', value: 50 },
+            { limitKey: 'storage_gb', value: 10 },
+            { limitKey: 'api_calls', value: 5000 },
+          ],
+        },
+      ]);
+
+      mockPrisma.unscoped.tenant.findMany.mockResolvedValueOnce([
+        {
+          id: 'tenant-1',
+          name: 'Acme Corp',
+          subdomain: 'acme',
+          status: 'active',
+          planId: 'starter',
+          subscriptions: [],
+          limitOverrides: [],
+          usageDailyRecords: [
+            {
+              date: new Date('2026-11-23'),
+              activeEmployees: 45,
+              storageUsedBytes: BigInt(8589934592),
+              apiCalls: 1200,
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.exportTenantUsage({ format: 'csv' });
+      expect(result.csv).toBeDefined();
+      expect(result.csv).toContain('Tenant ID,Tenant Name,Subdomain');
+      expect(result.csv).toContain('"Acme Corp"');
+      expect(result.filename).toMatch(/\.csv$/);
     });
   });
 });

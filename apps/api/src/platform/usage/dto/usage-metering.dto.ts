@@ -58,3 +58,119 @@ export class TriggerUsageMeteringDto {
   @IsUUID('4')
   tenantId?: string;
 }
+
+export class TenantUsageOverviewFilterDto {
+  @ApiPropertyOptional({ description: 'Search tenant by name or subdomain' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by plan code (free, starter, business, enterprise)' })
+  @IsOptional()
+  @IsString()
+  plan?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by limit utilization status',
+    enum: ['all', 'near_limit', 'over_limit', 'normal'],
+  })
+  @IsOptional()
+  @IsString()
+  status?: 'all' | 'near_limit' | 'over_limit' | 'normal';
+
+  @ApiPropertyOptional({
+    description: 'Filter by specific resource bottleneck',
+    enum: ['all', 'employees', 'storage', 'api_calls'],
+  })
+  @IsOptional()
+  @IsString()
+  resource?: 'all' | 'employees' | 'storage' | 'api_calls';
+
+  @ApiPropertyOptional({
+    description: 'Sort by field',
+    enum: [
+      'tenantName',
+      'maxUsagePercent',
+      'employeePercent',
+      'storagePercent',
+      'apiPercent',
+      'activeEmployees',
+      'storageUsedBytes',
+      'apiCalls',
+    ],
+  })
+  @IsOptional()
+  @IsString()
+  sortBy?:
+    | 'tenantName'
+    | 'maxUsagePercent'
+    | 'employeePercent'
+    | 'storagePercent'
+    | 'apiPercent'
+    | 'activeEmployees'
+    | 'storageUsedBytes'
+    | 'apiCalls';
+
+  @ApiPropertyOptional({ description: 'Sort order', enum: ['asc', 'desc'] })
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'asc' | 'desc';
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+export class TenantUsageTrendsQueryDto {
+  @ApiPropertyOptional({ description: 'Optional specific tenant ID to drilldown' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  @ApiPropertyOptional({ description: 'Number of past days of trend history (default 30)', default: 30 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(90)
+  days?: number;
+}
+
+export class TenantUsageExportQueryDto {
+  @ApiPropertyOptional({ description: 'Export format', enum: ['csv', 'json'], default: 'csv' })
+  @IsOptional()
+  @IsString()
+  format?: 'csv' | 'json';
+
+  @ApiPropertyOptional({ description: 'Search tenant by name or subdomain' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by plan code' })
+  @IsOptional()
+  @IsString()
+  plan?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by limit utilization status' })
+  @IsOptional()
+  @IsString()
+  status?: 'all' | 'near_limit' | 'over_limit' | 'normal';
+
+  @ApiPropertyOptional({ description: 'Filter by bottleneck resource' })
+  @IsOptional()
+  @IsString()
+  resource?: 'all' | 'employees' | 'storage' | 'api_calls';
+}
+
