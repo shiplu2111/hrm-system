@@ -21,6 +21,7 @@ import { PlatformHealthModule } from './health/platform-health.module';
 import { UsageMeteringModule } from './usage/usage-metering.module';
 import { PlatformQueuesModule } from './queues/platform-queues.module';
 import { PlatformSupportTicketsModule } from './support-tickets/platform-support-tickets.module';
+import { PlatformKbModule } from './knowledge-base/platform-kb.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PlatformSupportTicketsModule } from './support-tickets/platform-support
     PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
     PlatformSupportTicketsModule,
+    PlatformKbModule,
     PlatformTenantsModule,
   ],
   exports: [
@@ -69,6 +71,7 @@ import { PlatformSupportTicketsModule } from './support-tickets/platform-support
     PlatformSubscriptionsModule,
     PlatformSupportAccessModule,
     PlatformSupportTicketsModule,
+    PlatformKbModule,
     PlatformTenantsModule,
   ],
 })

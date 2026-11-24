@@ -33,6 +33,7 @@ import { PlatformLanguagePacksPage } from '@/pages/platform/PlatformLanguagePack
 import { FeatureFlagsPage } from '@/pages/platform/FeatureFlagsPage';
 import { PlatformAuditPage } from '@/pages/platform/PlatformAuditPage';
 import { SupportTicketsPage } from '@/pages/platform/SupportTicketsPage';
+import { GlobalKnowledgeBasePage } from '@/pages/platform/GlobalKnowledgeBasePage';
 import { PlatformUsersPage } from '@/pages/platform/PlatformUsersPage';
 import { PlatformSettingsPage } from '@/pages/platform/PlatformSettingsPage';
 import { PlatformMaintenancePage } from '@/pages/platform/PlatformMaintenancePage';
@@ -188,6 +189,8 @@ export function PlatformShell({
         return <PlatformAuditPage />;
       case 'support-tickets':
         return <SupportTicketsPage />;
+      case 'global-kb':
+        return <GlobalKnowledgeBasePage />;
       case 'support-sessions':
         return <SupportSessionsLogPage />;
       case 'platform-users':

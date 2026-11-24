@@ -6620,6 +6620,50 @@ model PlatformIncident {
   @@map("platform_incidents")
 }
 
+model GlobalKbCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  icon        String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  articles    GlobalKbArticle[]
+
+  @@map("global_kb_categories")
+}
+
+model GlobalKbArticle {
+  id                  String    @id @default(uuid()) @db.Uuid
+  categoryId          String    @map("category_id") @db.Uuid
+  title               String
+  slug                String    @unique
+  summary             String    @db.Text
+  body                String    @db.Text
+  status              String    @default("draft")
+  published           Boolean   @default(false)
+  viewCount           Int       @default(0) @map("view_count")
+  targetCountries     String[]  @default([]) @map("target_countries")
+  targetPlans         String[]  @default([]) @map("target_plans")
+  tags                String[]  @default([])
+  authorUserId        String?   @map("author_user_id") @db.Uuid
+  authorName          String?   @map("author_name")
+  lastUpdatedByUserId String?   @map("last_updated_by_user_id") @db.Uuid
+  lastUpdatedByName   String?   @map("last_updated_by_name")
+  publishedAt         DateTime? @map("published_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  category            GlobalKbCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([status, published])
+  @@index([categoryId])
+  @@map("global_kb_articles")
+}
+
+
 
 
 

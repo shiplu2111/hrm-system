@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import {
   Activity,
   BellRing,
+  BookOpen,
   Building2,
   CalendarClock,
   CircleDollarSign,
@@ -55,6 +56,7 @@ export type PlatformViewKey =
   | 'platform-audit'
   | 'support-tickets'
   | 'support-sessions'
+  | 'global-kb'
   | 'system-notifications'
   | 'platform-users'
   | 'my-account'
@@ -309,6 +311,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         badge: 'Audited',
         badgeTone: 'amber',
         permission: { module: 'tenant', action: 'view' },
+      },
+      {
+        key: 'global-kb',
+        label: 'Global Knowledge Base',
+        description: 'Cross-tenant articles, categories, and country/plan visibility',
+        icon: BookOpen,
+        badge: 'Global',
+        badgeTone: 'emerald',
+        permission: { module: 'support', action: 'view' },
       },
       {
         key: 'system-notifications',
