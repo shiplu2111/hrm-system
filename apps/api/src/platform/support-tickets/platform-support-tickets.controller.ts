@@ -24,6 +24,7 @@ import {
 } from '@hrm/shared-types';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
 import { PlatformActorContext, PlatformSupportTicketsService } from './platform-support-tickets.service';
 
 interface ApiEnvelope<T> {
@@ -49,6 +50,7 @@ export class PlatformSupportTicketsController {
   }
 
   @Get()
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'List platform support queue across all tenants with SLA tracking and filters' })
   async getQueue(
     @Query('tenantId') tenantId?: string,
@@ -87,6 +89,7 @@ export class PlatformSupportTicketsController {
   }
 
   @Get('staff')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'List active platform staff assignees for support ticket routing' })
   async getStaffAssignees(): Promise<ApiEnvelope<PlatformStaffAssignee[]>> {
     const data = await this.supportService.getStaffAssignees();
@@ -94,6 +97,7 @@ export class PlatformSupportTicketsController {
   }
 
   @Get(':id')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'Get full support ticket detail with thread, internal notes, and SLA timers' })
   async getTicketDetail(
     @Param('id') id: string,
@@ -105,6 +109,7 @@ export class PlatformSupportTicketsController {
   }
 
   @Patch(':id')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Update support ticket status, priority, or staff assignment' })
   async updateTicket(
     @Param('id') id: string,
@@ -117,6 +122,7 @@ export class PlatformSupportTicketsController {
   }
 
   @Post(':id/messages')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Add a customer-visible reply or staff internal note to the ticket' })
   async createMessage(
     @Param('id') id: string,

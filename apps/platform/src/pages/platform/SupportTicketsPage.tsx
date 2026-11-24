@@ -49,6 +49,7 @@ import {
   getPlatformStoredUser,
   requestSupportAccess,
 } from '@/lib/api-client';
+import { usePermission } from '@/hooks/usePermission';
 
 // Design System Badges and Styling
 const statusConfig: Record<PlatformSupportTicketStatus, { label: string; bg: string; text: string; border: string }> = {
@@ -195,6 +196,8 @@ function getPlanBadge(planId?: string) {
 
 export function SupportTicketsPage() {
   const currentUser = getPlatformStoredUser();
+  const canManage = usePermission('support', 'manage');
+  const canImpersonate = usePermission('support', 'impersonate');
 
   // State: Queue and Detail
   const [data, setData] = useState<PlatformSupportQueueResponse | null>(null);
@@ -429,63 +432,83 @@ export function SupportTicketsPage() {
             <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-sm text-xs">
               <User className="h-3.5 w-3.5 text-slate-400" />
               <span className="text-slate-500 font-medium">Assignee:</span>
-              <select
-                value={selectedTicket.assignedToUserId || ''}
-                disabled={updatingTicket}
-                onChange={(e) => handleUpdateTicket({ assignedToUserId: e.target.value || null })}
-                className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value="">Unassigned</option>
-                {staffList.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.firstName} {staff.lastName} ({staff.roleName})
-                  </option>
-                ))}
-              </select>
+              {canManage ? (
+                <select
+                  value={selectedTicket.assignedToUserId || ''}
+                  disabled={updatingTicket}
+                  onChange={(e) => handleUpdateTicket({ assignedToUserId: e.target.value || null })}
+                  className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="">Unassigned</option>
+                  {staffList.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.firstName} {staff.lastName} ({staff.roleName})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  {selectedTicket.assignedToName || 'Unassigned'}
+                </span>
+              )}
             </div>
 
             {/* Quick Priority Selector */}
             <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-sm text-xs">
               <span className={`h-2 w-2 rounded-full ${priority.dot}`} />
               <span className="text-slate-500 font-medium">Priority:</span>
-              <select
-                value={selectedTicket.priority}
-                disabled={updatingTicket}
-                onChange={(e) => handleUpdateTicket({ priority: e.target.value as PlatformSupportTicketPriority })}
-                className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value="urgent">Urgent</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+              {canManage ? (
+                <select
+                  value={selectedTicket.priority}
+                  disabled={updatingTicket}
+                  onChange={(e) => handleUpdateTicket({ priority: e.target.value as PlatformSupportTicketPriority })}
+                  className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              ) : (
+                <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                  {selectedTicket.priority}
+                </span>
+              )}
             </div>
 
             {/* Quick Status Selector */}
             <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 shadow-sm text-xs">
               <span className="text-slate-500 font-medium">Status:</span>
-              <select
-                value={selectedTicket.status}
-                disabled={updatingTicket}
-                onChange={(e) => handleUpdateTicket({ status: e.target.value as PlatformSupportTicketStatus })}
-                className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting">Waiting on Customer</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
+              {canManage ? (
+                <select
+                  value={selectedTicket.status}
+                  disabled={updatingTicket}
+                  onChange={(e) => handleUpdateTicket({ status: e.target.value as PlatformSupportTicketStatus })}
+                  className="bg-transparent font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="waiting">Waiting on Customer</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>
+              ) : (
+                <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                  {statusConfig[selectedTicket.status]?.label || selectedTicket.status}
+                </span>
+              )}
             </div>
 
             {/* One-Click Request Support Access Button (Stage D) */}
-            <button
-              onClick={() => setAccessModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-semibold shadow-sm transition active:scale-95"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              <span>Request Support Access</span>
-            </button>
+            {(canImpersonate || canManage) && (
+              <button
+                onClick={() => setAccessModalOpen(true)}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-semibold shadow-sm transition active:scale-95"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span>Request Support Access</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -754,109 +777,115 @@ export function SupportTicketsPage() {
         </div>
 
         {/* Message Composer */}
-        <form
-          onSubmit={handleSendMessage}
-          className={`rounded-2xl p-5 shadow-sm border transition ${
-            composerIsInternal
-              ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          {/* Mode Switcher */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setComposerIsInternal(false)}
-                className={`px-3 py-1.5 rounded-lg transition ${
-                  !composerIsInternal
-                    ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                }`}
-              >
-                Customer Reply (Public)
-              </button>
-              <button
-                type="button"
-                onClick={() => setComposerIsInternal(true)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
-                  composerIsInternal
-                    ? 'bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 shadow-sm'
-                    : 'text-slate-500 hover:text-amber-600 dark:hover:text-amber-400'
-                }`}
-              >
-                <Lock className="h-3 w-3" />
-                <span>Internal Staff Note (Private)</span>
-              </button>
-            </div>
+        {canManage ? (
+          <form
+            onSubmit={handleSendMessage}
+            className={`rounded-2xl p-5 shadow-sm border transition ${
+              composerIsInternal
+                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            {/* Mode Switcher */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setComposerIsInternal(false)}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    !composerIsInternal
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Customer Reply (Public)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setComposerIsInternal(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
+                    composerIsInternal
+                      ? 'bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 shadow-sm'
+                      : 'text-slate-500 hover:text-amber-600 dark:hover:text-amber-400'
+                  }`}
+                >
+                  <Lock className="h-3 w-3" />
+                  <span>Internal Staff Note (Private)</span>
+                </button>
+              </div>
 
-            {composerIsInternal ? (
-              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
-                <Lock className="h-3 w-3" />
-                Private Note: Only visible to platform team
-              </span>
-            ) : (
-              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                Visible to customer on tenant portal
-              </span>
-            )}
-          </div>
-
-          <div className="relative">
-            <textarea
-              rows={4}
-              value={composerBody}
-              onChange={(e) => setComposerBody(e.target.value)}
-              placeholder={
-                composerIsInternal
-                  ? 'Write an internal investigation note, reproduction steps, or sync notes for platform staff (not visible to customer)...'
-                  : 'Type your official customer-visible reply here. This will be visible on the tenant portal...'
-              }
-              className={`w-full p-3.5 rounded-xl text-sm border focus:outline-none transition ${
-                composerIsInternal
-                  ? 'border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-amber-950 dark:text-amber-100 focus:ring-2 focus:ring-amber-400/40'
-                  : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-400/40'
-              }`}
-            />
-          </div>
-
-          <div className="flex items-center justify-between mt-3 pt-2">
-            <span className="text-xs text-slate-500">
-              {!composerIsInternal && selectedTicket.status === 'open' && (
-                <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-                  • Sending a customer reply will automatically move status to <strong>In Progress</strong> and assign to you.
+              {composerIsInternal ? (
+                <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  Private Note: Only visible to platform team
+                </span>
+              ) : (
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Visible to customer on tenant portal
                 </span>
               )}
-            </span>
+            </div>
 
-            <button
-              type="submit"
-              disabled={submittingMessage || !composerBody.trim()}
-              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition disabled:opacity-50 ${
-                composerIsInternal
-                  ? 'bg-amber-600 hover:bg-amber-500 dark:bg-amber-600 dark:hover:bg-amber-500'
-                  : 'bg-indigo-600 hover:bg-indigo-500 dark:bg-indigo-600 dark:hover:bg-indigo-500'
-              }`}
-            >
-              {submittingMessage ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>Submitting...</span>
-                </>
-              ) : composerIsInternal ? (
-                <>
-                  <Lock className="h-3.5 w-3.5" />
-                  <span>Save Internal Note</span>
-                </>
-              ) : (
-                <>
-                  <Send className="h-3.5 w-3.5" />
-                  <span>Send Customer Reply</span>
-                </>
-              )}
-            </button>
+            <div className="relative">
+              <textarea
+                rows={4}
+                value={composerBody}
+                onChange={(e) => setComposerBody(e.target.value)}
+                placeholder={
+                  composerIsInternal
+                    ? 'Write an internal investigation note, reproduction steps, or sync notes for platform staff (not visible to customer)...'
+                    : 'Type your official customer-visible reply here. This will be visible on the tenant portal...'
+                }
+                className={`w-full p-3.5 rounded-xl text-sm border focus:outline-none transition ${
+                  composerIsInternal
+                    ? 'border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-amber-950 dark:text-amber-100 focus:ring-2 focus:ring-amber-400/40'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-400/40'
+                }`}
+              />
+            </div>
+
+            <div className="flex items-center justify-between mt-3 pt-2">
+              <span className="text-xs text-slate-500">
+                {!composerIsInternal && selectedTicket.status === 'open' && (
+                  <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                    • Sending a customer reply will automatically move status to <strong>In Progress</strong> and assign to you.
+                  </span>
+                )}
+              </span>
+
+              <button
+                type="submit"
+                disabled={submittingMessage || !composerBody.trim()}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition disabled:opacity-50 ${
+                  composerIsInternal
+                    ? 'bg-amber-600 hover:bg-amber-500 dark:bg-amber-600 dark:hover:bg-amber-500'
+                    : 'bg-indigo-600 hover:bg-indigo-500 dark:bg-indigo-600 dark:hover:bg-indigo-500'
+                }`}
+              >
+                {submittingMessage ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Submitting...</span>
+                  </>
+                ) : composerIsInternal ? (
+                  <>
+                    <Lock className="h-3.5 w-3.5" />
+                    <span>Save Internal Note</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Send Customer Reply</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-500 italic text-center">
+            Ticket replies and internal notes are restricted to Support Agents and Platform Admins (Read-only view).
           </div>
-        </form>
+        )}
 
         {/* Modal: Request Support Access (Stage D) */}
         {accessModalOpen && (

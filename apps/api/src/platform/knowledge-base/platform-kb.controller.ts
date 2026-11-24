@@ -25,6 +25,7 @@ import {
 } from '@hrm/shared-types';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
 import { PlatformActorContext, PlatformKbService } from './platform-kb.service';
 
 interface ApiEnvelope<T> {
@@ -54,6 +55,7 @@ export class PlatformKbController {
   // ==========================================
 
   @Get('categories')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'List all global knowledge base categories with article counts' })
   async listCategories(@Req() req?: any): Promise<ApiEnvelope<GlobalKbCategory[]>> {
     const actor = this.getActor(req);
@@ -62,6 +64,7 @@ export class PlatformKbController {
   }
 
   @Post('categories')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Create a new global knowledge base category' })
   async createCategory(
     @Body() body: CreateGlobalKbCategoryInput,
@@ -73,6 +76,7 @@ export class PlatformKbController {
   }
 
   @Patch('categories/:id')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Update an existing global knowledge base category' })
   async updateCategory(
     @Param('id') id: string,
@@ -85,6 +89,7 @@ export class PlatformKbController {
   }
 
   @Delete('categories/:id')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Delete an empty global knowledge base category' })
   async deleteCategory(
     @Param('id') id: string,
@@ -100,6 +105,7 @@ export class PlatformKbController {
   // ==========================================
 
   @Get('articles')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'List global articles with filters (category, country, plan, status, search)' })
   async listArticles(
     @Query('search') search?: string,
@@ -138,6 +144,7 @@ export class PlatformKbController {
   }
 
   @Get('articles/:id')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'Get global article details with preview flag' })
   async getArticle(
     @Param('id') id: string,
@@ -151,6 +158,7 @@ export class PlatformKbController {
   }
 
   @Post('articles')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Create a new global article with country/plan visibility' })
   async createArticle(
     @Body() body: CreateGlobalKbArticleInput,
@@ -162,6 +170,7 @@ export class PlatformKbController {
   }
 
   @Patch('articles/:id')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Update an existing global article' })
   async updateArticle(
     @Param('id') id: string,
@@ -174,6 +183,7 @@ export class PlatformKbController {
   }
 
   @Delete('articles/:id')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Delete a global article' })
   async deleteArticle(
     @Param('id') id: string,
@@ -185,6 +195,7 @@ export class PlatformKbController {
   }
 
   @Post('articles/:id/view')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'Increment article view count' })
   async incrementView(@Param('id') id: string): Promise<ApiEnvelope<IncrementArticleViewResult>> {
     const data = await this.kbService.incrementViewCount(id);

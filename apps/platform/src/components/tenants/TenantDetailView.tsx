@@ -941,94 +941,68 @@ export function TenantDetailView({
               )}
 
               {/* Lifecycle Actions */}
-              {tenant.status === 'Pending_deletion' && (
-                <button
-                  type="button"
-                  disabled={!isLifecycleAuthorized}
-                  title={
-                    !isLifecycleAuthorized
-                      ? 'Restricted: Only Platform Owner and Platform Admin can manage tenant lifecycle'
-                      : 'Abort pending permanent deletion and restore tenant to active'
-                  }
-                  onClick={() => setShowCancelDeletionModal(true)}
-                  className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Cancel Deletion</span>
-                  {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-emerald-200" />}
-                </button>
-              )}
+              {isLifecycleAuthorized && (
+                <>
+                  {tenant.status === 'Pending_deletion' && (
+                    <button
+                      type="button"
+                      title="Abort pending permanent deletion and restore tenant to active"
+                      onClick={() => setShowCancelDeletionModal(true)}
+                      className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Cancel Deletion</span>
+                    </button>
+                  )}
 
-              {(tenant.status === 'Suspended' || tenant.status === 'Cancelled') && (
-                <button
-                  type="button"
-                  disabled={!isLifecycleAuthorized}
-                  title={
-                    !isLifecycleAuthorized
-                      ? 'Restricted: Only Platform Owner and Platform Admin can manage tenant lifecycle'
-                      : 'Restore workspace and lift operational restrictions'
-                  }
-                  onClick={() => setShowRestoreModal(true)}
-                  className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Restore Tenant</span>
-                  {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-emerald-200" />}
-                </button>
-              )}
+                  {(tenant.status === 'Suspended' || tenant.status === 'Cancelled') && (
+                    <button
+                      type="button"
+                      title="Restore workspace and lift operational restrictions"
+                      onClick={() => setShowRestoreModal(true)}
+                      className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Restore Tenant</span>
+                    </button>
+                  )}
 
-              {(tenant.status === 'Active' || tenant.status === 'Trial' || tenant.status === 'Past_due') && (
-                <button
-                  type="button"
-                  disabled={!isLifecycleAuthorized}
-                  title={
-                    !isLifecycleAuthorized
-                      ? 'Restricted: Only Platform Owner and Platform Admin can manage tenant lifecycle'
-                      : 'Suspend tenant in read-only or fully blocked mode'
-                  }
-                  onClick={() => setShowSuspendModal(true)}
-                  className="h-10 px-4 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-orange-700 dark:text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Ban className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-                  <span>Suspend</span>
-                  {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-orange-400" />}
-                </button>
-              )}
+                  {(tenant.status === 'Active' || tenant.status === 'Trial' || tenant.status === 'Past_due') && (
+                    <button
+                      type="button"
+                      title="Suspend tenant in read-only or fully blocked mode"
+                      onClick={() => setShowSuspendModal(true)}
+                      className="h-10 px-4 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <Ban className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                      <span>Suspend</span>
+                    </button>
+                  )}
 
-              {tenant.status !== 'Cancelled' && tenant.status !== 'Pending_deletion' && tenant.status !== 'Deleted' && (
-                <button
-                  type="button"
-                  disabled={!isLifecycleAuthorized}
-                  title={
-                    !isLifecycleAuthorized
-                      ? 'Restricted: Only Platform Owner and Platform Admin can manage tenant lifecycle'
-                      : 'Cancel tenant subscription and hold in read-only archive'
-                  }
-                  onClick={() => setShowCancelModal(true)}
-                  className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-rose-500/10 dark:bg-slate-800 dark:hover:bg-rose-950/30 text-slate-700 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 hover:border-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <X className="h-3.5 w-3.5 text-rose-500" />
-                  <span>Cancel Account</span>
-                  {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-slate-400" />}
-                </button>
-              )}
+                  {tenant.status !== 'Cancelled' && tenant.status !== 'Pending_deletion' && tenant.status !== 'Deleted' && (
+                    <button
+                      type="button"
+                      title="Cancel tenant subscription and hold in read-only archive"
+                      onClick={() => setShowCancelModal(true)}
+                      className="h-10 px-4 rounded-xl bg-slate-100 hover:bg-rose-500/10 dark:bg-slate-800 dark:hover:bg-rose-950/30 text-slate-700 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 hover:border-rose-500/30 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5 text-rose-500" />
+                      <span>Cancel Account</span>
+                    </button>
+                  )}
 
-              {tenant.status !== 'Pending_deletion' && tenant.status !== 'Deleted' && (
-                <button
-                  type="button"
-                  disabled={!isLifecycleAuthorized}
-                  title={
-                    !isLifecycleAuthorized
-                      ? 'Restricted: Only Platform Owner and Platform Admin can manage tenant lifecycle'
-                      : 'Schedule permanent tenant deletion with 30-day grace period'
-                  }
-                  onClick={() => setShowScheduleDeletionModal(true)}
-                  className="h-10 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-rose-700 dark:text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
-                  <span>Schedule Deletion</span>
-                  {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-rose-400" />}
-                </button>
+                  {tenant.status !== 'Pending_deletion' && tenant.status !== 'Deleted' && (
+                    <button
+                      type="button"
+                      title="Schedule permanent tenant deletion with 30-day grace period"
+                      onClick={() => setShowScheduleDeletionModal(true)}
+                      className="h-10 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                      <span>Schedule Deletion</span>
+                    </button>
+                  )}
+                </>
               )}
             </PermissionGate>
           </div>
@@ -1464,30 +1438,34 @@ export function TenantDetailView({
                   </p>
                 </div>
                 <div>
-                  {tenant.status === 'Pending_deletion' ? (
-                    <button
-                      type="button"
-                      disabled={!isLifecycleAuthorized}
-                      title={!isLifecycleAuthorized ? 'Requires Platform Owner or Platform Admin role' : 'Abort deletion and restore to active'}
-                      onClick={() => setShowCancelDeletionModal(true)}
-                      className="w-full h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      <span>Cancel Deletion</span>
-                      {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-emerald-200" />}
-                    </button>
+                  {isLifecycleAuthorized ? (
+                    tenant.status === 'Pending_deletion' ? (
+                      <button
+                        type="button"
+                        title="Abort deletion and restore to active"
+                        onClick={() => setShowCancelDeletionModal(true)}
+                        className="w-full h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Cancel Deletion</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={tenant.status === 'Deleted'}
+                        title="Schedule 30-day permanent deletion"
+                        onClick={() => setShowScheduleDeletionModal(true)}
+                        className="w-full h-9 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Schedule 30-Day Deletion</span>
+                      </button>
+                    )
                   ) : (
-                    <button
-                      type="button"
-                      disabled={!isLifecycleAuthorized || tenant.status === 'Deleted'}
-                      title={!isLifecycleAuthorized ? 'Requires Platform Owner or Platform Admin role' : 'Schedule 30-day permanent deletion'}
-                      onClick={() => setShowScheduleDeletionModal(true)}
-                      className="w-full h-9 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Schedule 30-Day Deletion</span>
-                      {!isLifecycleAuthorized && <Lock className="h-3 w-3 ml-1 text-rose-200" />}
-                    </button>
+                    <div className="w-full h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center gap-1.5 text-xs text-slate-400 font-semibold border border-slate-200 dark:border-slate-700">
+                      <Lock className="h-3.5 w-3.5 text-slate-400" />
+                      <span>Owner/Admin Only</span>
+                    </div>
                   )}
                 </div>
               </div>

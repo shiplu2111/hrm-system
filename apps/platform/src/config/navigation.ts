@@ -117,7 +117,7 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: Workflow,
         badge: 'BullMQ',
         badgeTone: 'emerald',
-        permission: { module: 'platform', action: 'manage' },
+        permission: { module: 'platform', action: 'edit' },
       },
     ],
   },
@@ -315,7 +315,7 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         icon: UserCheck,
         badge: 'Audited',
         badgeTone: 'amber',
-        permission: { module: 'tenant', action: 'view' },
+        permission: { module: 'support', action: 'view' },
       },
       {
         key: 'global-kb',

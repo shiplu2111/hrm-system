@@ -23,6 +23,7 @@ import type {
   RedeliverWebhookResult,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import {
@@ -60,6 +61,7 @@ export class PlatformWebhookMonitorController {
   // ==========================================
 
   @Get('summary')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Get overview KPI metrics for cross-tenant webhook deliveries' })
   async getSummary(): Promise<ApiEnvelope<PlatformWebhookMonitorSummary>> {
     const data = await this.webhookMonitorService.getSummary();
@@ -71,6 +73,7 @@ export class PlatformWebhookMonitorController {
   // ==========================================
 
   @Get('deliveries')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List webhook deliveries across all tenants with status and filters' })
   async listDeliveries(
     @Query() query: PlatformWebhookDeliveriesQuery,
@@ -80,6 +83,7 @@ export class PlatformWebhookMonitorController {
   }
 
   @Get('deliveries/:id')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Get single webhook delivery detail with full payload' })
   async getDeliveryDetail(
     @Param('id') id: string,
@@ -89,6 +93,7 @@ export class PlatformWebhookMonitorController {
   }
 
   @Post('deliveries/:id/redeliver')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Trigger manual redelivery of a webhook delivery' })
   async redeliver(
     @Param('id') id: string,
@@ -104,6 +109,7 @@ export class PlatformWebhookMonitorController {
   // ==========================================
 
   @Get('endpoints')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List all webhook endpoints across tenants with 7d health stats' })
   async listEndpoints(
     @Query() query: PlatformWebhookEndpointsQuery,
@@ -113,6 +119,7 @@ export class PlatformWebhookMonitorController {
   }
 
   @Patch('endpoints/:id/status')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Manually enable or disable a webhook endpoint' })
   async toggleEndpointStatus(
     @Param('id') id: string,
@@ -129,6 +136,7 @@ export class PlatformWebhookMonitorController {
   }
 
   @Post('auto-disable')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({
     summary:
       'Auto-disable endpoints failing continuously for N days with notification to the tenant',

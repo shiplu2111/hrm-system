@@ -31,7 +31,7 @@ export class PlatformSupportSessionsController {
   ) {}
 
   @Get('sessions')
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({
     summary: 'List cross-tenant support access sessions with audit counts',
   })
@@ -41,7 +41,7 @@ export class PlatformSupportSessionsController {
   }
 
   @Get('stats')
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({
     summary: 'Aggregate metrics and operational statistics for support access',
   })
@@ -52,7 +52,7 @@ export class PlatformSupportSessionsController {
 
   @Post('sessions/:requestId/token')
   @HttpCode(HttpStatus.OK)
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'impersonate')
   @ApiOperation({
     summary: 'Issue cryptographically signed impersonation token from log view',
   })
@@ -70,7 +70,7 @@ export class PlatformSupportSessionsController {
 
   @Post('sessions/:requestId/revoke')
   @HttpCode(HttpStatus.OK)
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({
     summary: 'Terminate active support session immediately from log view',
   })

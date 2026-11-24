@@ -38,10 +38,12 @@ import {
   redeliverPlatformWebhook,
   togglePlatformWebhookEndpointStatus,
 } from '../../lib/platform-webhook-monitor-api';
+import { usePermission } from '@/hooks/usePermission';
 
 type TabKey = 'deliveries' | 'endpoints';
 
 export const WebhookMonitorPage: React.FC = () => {
+  const canEdit = usePermission('platform', 'edit');
   const [activeTab, setActiveTab] = useState<TabKey>('deliveries');
 
   // Summary state
@@ -344,16 +346,18 @@ export const WebhookMonitorPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setShowAutoDisableModal(true);
-              setAutoDisableResult(null);
-            }}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg transition"
-          >
-            <ShieldAlert className="h-4 w-4" />
-            Run Auto-Disable
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => {
+                setShowAutoDisableModal(true);
+                setAutoDisableResult(null);
+              }}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg transition"
+            >
+              <ShieldAlert className="h-4 w-4" />
+              Run Auto-Disable
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -657,14 +661,16 @@ export const WebhookMonitorPage: React.FC = () => {
                             <Eye className="h-4 w-4" />
                           </button>
 
-                          <button
-                            onClick={() => handleRedeliver(d.id)}
-                            disabled={redeliveringId === d.id}
-                            title="Trigger Manual Redelivery"
-                            className="px-2.5 py-1 text-xs font-semibold text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 rounded-md transition disabled:opacity-50"
-                          >
-                            {redeliveringId === d.id ? 'Queuing...' : 'Redeliver'}
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => handleRedeliver(d.id)}
+                              disabled={redeliveringId === d.id}
+                              title="Trigger Manual Redelivery"
+                              className="px-2.5 py-1 text-xs font-semibold text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 rounded-md transition disabled:opacity-50"
+                            >
+                              {redeliveringId === d.id ? 'Queuing...' : 'Redeliver'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -869,16 +875,20 @@ export const WebhookMonitorPage: React.FC = () => {
                         </td>
 
                         <td className="px-4 py-3.5 text-right space-x-2">
-                          <button
-                            onClick={() => handleToggleEndpoint(ep)}
-                            className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition ${
-                              ep.status === 'active'
-                                ? 'text-amber-300 bg-amber-950/40 hover:bg-amber-900/60 border-amber-800/60'
-                                : 'text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-800/60'
-                            }`}
-                          >
-                            {ep.status === 'active' ? 'Disable' : 'Enable'}
-                          </button>
+                          {canEdit ? (
+                            <button
+                              onClick={() => handleToggleEndpoint(ep)}
+                              className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition ${
+                                ep.status === 'active'
+                                  ? 'text-amber-300 bg-amber-950/40 hover:bg-amber-900/60 border-amber-800/60'
+                                  : 'text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-800/60'
+                              }`}
+                            >
+                              {ep.status === 'active' ? 'Disable' : 'Enable'}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">Read-only</span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -980,17 +990,19 @@ export const WebhookMonitorPage: React.FC = () => {
               >
                 Close
               </button>
-              <button
-                type="button"
-                onClick={() => handleRedeliver(inspectingDelivery.id)}
-                disabled={redeliveringId === inspectingDelivery.id}
-                className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {redeliveringId === inspectingDelivery.id
-                  ? 'Queuing...'
-                  : 'Trigger Immediate Redelivery'}
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => handleRedeliver(inspectingDelivery.id)}
+                  disabled={redeliveringId === inspectingDelivery.id}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {redeliveringId === inspectingDelivery.id
+                    ? 'Queuing...'
+                    : 'Trigger Immediate Redelivery'}
+                </button>
+              )}
             </div>
           </div>
         </div>

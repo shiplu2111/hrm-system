@@ -32,7 +32,7 @@ export class PlatformSupportAccessController {
   ) {}
 
   @Post('request')
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({
     summary: 'Request time-boxed support access grant for a tenant (max 4h)',
   })
@@ -51,7 +51,7 @@ export class PlatformSupportAccessController {
   }
 
   @Get('requests')
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'List support access requests for tenant' })
   async listRequests(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     const data = await this.supportAccessService.listRequests(tenantId);
@@ -59,7 +59,7 @@ export class PlatformSupportAccessController {
   }
 
   @Get('active')
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'view')
   @ApiOperation({ summary: 'Get currently active support session for tenant' })
   async getActiveSession(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     const data = await this.supportAccessService.getActiveSession(tenantId);
@@ -68,7 +68,7 @@ export class PlatformSupportAccessController {
 
   @Post('requests/:requestId/token')
   @HttpCode(HttpStatus.OK)
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'impersonate')
   @ApiOperation({
     summary:
       'Issue cryptographically signed impersonation token for approved support grant',
@@ -88,7 +88,7 @@ export class PlatformSupportAccessController {
 
   @Post('requests/:requestId/revoke')
   @HttpCode(HttpStatus.OK)
-  @RequirePlatformPermission('tenant', 'view')
+  @RequirePlatformPermission('support', 'manage')
   @ApiOperation({ summary: 'Terminate active support session early' })
   async revokeSession(
     @Param('tenantId', ParseUUIDPipe) _tenantId: string,

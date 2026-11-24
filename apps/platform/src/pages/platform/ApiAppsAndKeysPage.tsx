@@ -37,10 +37,12 @@ import {
   revokePlatformOAuthClient,
   setTenantRateLimitOverride,
 } from '../../lib/platform-api-registry-api';
+import { usePermission } from '@/hooks/usePermission';
 
 type TabKey = 'keys' | 'oauth' | 'rate-limits';
 
 export const ApiAppsAndKeysPage: React.FC = () => {
+  const canEdit = usePermission('platform', 'edit');
   const [activeTab, setActiveTab] = useState<TabKey>('keys');
 
   // Summary state
@@ -662,18 +664,22 @@ export const ApiAppsAndKeysPage: React.FC = () => {
 
                         {/* Action */}
                         <td className="px-4 py-3.5 text-right">
-                          {k.status === 'active' ? (
-                            <button
-                              onClick={() => {
-                                setRevokingKey(k);
-                                setRevokeKeyReason('');
-                              }}
-                              className="px-2.5 py-1 text-xs font-medium text-rose-300 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 rounded-md transition"
-                            >
-                              Revoke
-                            </button>
+                          {canEdit ? (
+                            k.status === 'active' ? (
+                              <button
+                                onClick={() => {
+                                  setRevokingKey(k);
+                                  setRevokeKeyReason('');
+                                }}
+                                className="px-2.5 py-1 text-xs font-medium text-rose-300 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 rounded-md transition"
+                              >
+                                Revoke
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-600">Revoked</span>
+                            )
                           ) : (
-                            <span className="text-xs text-slate-600">Revoked</span>
+                            <span className="text-xs text-slate-500 italic">Read-only</span>
                           )}
                         </td>
                       </tr>
@@ -830,18 +836,22 @@ export const ApiAppsAndKeysPage: React.FC = () => {
                         </td>
 
                         <td className="px-4 py-3.5 text-right">
-                          {c.status === 'active' ? (
-                            <button
-                              onClick={() => {
-                                setRevokingOauth(c);
-                                setRevokeOauthReason('');
-                              }}
-                              className="px-2.5 py-1 text-xs font-medium text-rose-300 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 rounded-md transition"
-                            >
-                              Revoke
-                            </button>
+                          {canEdit ? (
+                            c.status === 'active' ? (
+                              <button
+                                onClick={() => {
+                                  setRevokingOauth(c);
+                                  setRevokeOauthReason('');
+                                }}
+                                className="px-2.5 py-1 text-xs font-medium text-rose-300 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 rounded-md transition"
+                              >
+                                Revoke
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-600">Revoked</span>
+                            )
                           ) : (
-                            <span className="text-xs text-slate-600">Revoked</span>
+                            <span className="text-xs text-slate-500 italic">Read-only</span>
                           )}
                         </td>
                       </tr>
@@ -1030,21 +1040,27 @@ export const ApiAppsAndKeysPage: React.FC = () => {
 
                         {/* Actions */}
                         <td className="px-4 py-3.5 text-right space-x-2">
-                          <button
-                            onClick={() => handleOpenOverrideModal(t)}
-                            className="px-2.5 py-1 text-xs font-medium text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 rounded-md transition"
-                          >
-                            {t.override ? 'Edit Override' : 'Set Override'}
-                          </button>
+                          {canEdit ? (
+                            <>
+                              <button
+                                onClick={() => handleOpenOverrideModal(t)}
+                                className="px-2.5 py-1 text-xs font-medium text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 rounded-md transition"
+                              >
+                                {t.override ? 'Edit Override' : 'Set Override'}
+                              </button>
 
-                          {t.override && (
-                            <button
-                              onClick={() => handleRemoveOverride(t)}
-                              title="Reset to plan tier default"
-                              className="px-2 py-1 text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 border border-slate-700 hover:border-rose-800/50 rounded-md transition"
-                            >
-                              Reset
-                            </button>
+                              {t.override && (
+                                <button
+                                  onClick={() => handleRemoveOverride(t)}
+                                  title="Reset to plan tier default"
+                                  className="px-2 py-1 text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 border border-slate-700 hover:border-rose-800/50 rounded-md transition"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">Read-only</span>
                           )}
                         </td>
                       </tr>

@@ -24,6 +24,7 @@ import type {
   TenantRateLimitItem,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
 import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import {
@@ -59,6 +60,7 @@ export class PlatformApiRegistryController {
   // ==========================================
 
   @Get('summary')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Get overview KPI metrics for cross-tenant API keys and rate limits' })
   async getSummary(): Promise<ApiEnvelope<PlatformApiRegistrySummary>> {
     const data = await this.registryService.getSummary();
@@ -70,6 +72,7 @@ export class PlatformApiRegistryController {
   // ==========================================
 
   @Get('keys')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List API keys across all tenants' })
   async listKeys(
     @Query() query: PlatformApiKeyQuery,
@@ -79,6 +82,7 @@ export class PlatformApiRegistryController {
   }
 
   @Post('keys/:id/revoke')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Immediately revoke an API key from the platform control plane' })
   async revokeKey(
     @Param('id') id: string,
@@ -95,6 +99,7 @@ export class PlatformApiRegistryController {
   // ==========================================
 
   @Get('oauth-clients')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List OAuth 2.0 clients across all tenants' })
   async listOAuthClients(
     @Query() query: PlatformOAuthClientQuery,
@@ -104,6 +109,7 @@ export class PlatformApiRegistryController {
   }
 
   @Post('oauth-clients/:id/revoke')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Immediately revoke an OAuth client across all tenants' })
   async revokeOAuthClient(
     @Param('id') id: string,
@@ -120,6 +126,7 @@ export class PlatformApiRegistryController {
   // ==========================================
 
   @Get('rate-limits')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List tenants with baseline plan limits and active overrides' })
   async listRateLimits(
     @Query() query: PlatformRateLimitQuery,
@@ -129,6 +136,7 @@ export class PlatformApiRegistryController {
   }
 
   @Post('rate-limits/:tenantId')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Set or update rate limit override for a tenant' })
   async setRateLimitOverride(
     @Param('tenantId') tenantId: string,
@@ -141,6 +149,7 @@ export class PlatformApiRegistryController {
   }
 
   @Delete('rate-limits/:tenantId')
+  @RequirePlatformPermission('platform', 'edit')
   @ApiOperation({ summary: 'Remove rate limit override for a tenant' })
   async removeRateLimitOverride(
     @Param('tenantId') tenantId: string,

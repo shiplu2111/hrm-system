@@ -34,8 +34,11 @@ import {
   issueSupportSessionTokenDirect,
   revokeSupportSessionDirect,
 } from '@/lib/api-client';
+import { usePermission } from '@/hooks/usePermission';
 
 export function SupportSessionsLogPage() {
+  const canImpersonate = usePermission('support', 'impersonate');
+  const canManage = usePermission('support', 'manage');
   const [sessions, setSessions] = useState<SupportSessionListItem[]>([]);
   const [stats, setStats] = useState<SupportSessionStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -665,7 +668,7 @@ export function SupportSessionsLogPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Launch button if active */}
-                          {isActive && (
+                          {isActive && canImpersonate && (
                             <button
                               type="button"
                               onClick={() => handleLaunchSession(session)}
@@ -683,7 +686,7 @@ export function SupportSessionsLogPage() {
                           )}
 
                           {/* Revoke button if active */}
-                          {isActive && (
+                          {isActive && canManage && (
                             <button
                               type="button"
                               onClick={() => {
