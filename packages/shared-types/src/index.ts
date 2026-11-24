@@ -57,6 +57,7 @@ export * from './support-access';
 export * from './branding';
 export * from './compliance-calendar';
 export * from './platform-templates';
+export * from './platform-staff';
 export * from './platform-exchange-rates';
 export * from './language-packs';
 export * from './platform-settings';

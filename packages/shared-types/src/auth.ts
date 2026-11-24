@@ -130,8 +130,13 @@ export interface PlatformUserView {
   roleId: string;
   roleName: string;
   isActive: boolean;
+  status?: 'active' | 'invited' | 'deactivated';
   totpEnabled: boolean;
+  totpEnrolled?: boolean;
+  hasPending2faReset?: boolean;
+  pending2faResetRequestId?: string | null;
   lastLoginAt: string | null;
+  invitedAt?: string | null;
   createdAt: string;
   permissions: PlatformPermissionClaim[];
 }

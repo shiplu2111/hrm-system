@@ -5851,6 +5851,7 @@ model PlatformUser {
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime? @map("locked_until")
   lastLoginAt         DateTime? @map("last_login_at")
+  invitedAt           DateTime? @map("invited_at")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
@@ -5859,6 +5860,9 @@ model PlatformUser {
   loginHistory PlatformLoginHistory[]
   auditLogs    PlatformAuditLog[]
   supportAccessRequests SupportAccessRequest[]
+  resetRequestsReceived  Platform2faResetRequest[] @relation("Platform2faResetTarget")
+  resetRequestsInitiated Platform2faResetRequest[] @relation("Platform2faResetRequester")
+  resetRequestsReviewed  Platform2faResetRequest[] @relation("Platform2faResetReviewer")
 
   @@index([email])
   @@index([roleId])
@@ -5921,6 +5925,36 @@ model PlatformAuditLog {
   @@index([recordId])
   @@index([createdAt])
   @@map("platform_audit_logs")
+}
+
+enum Platform2faResetStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model Platform2faResetRequest {
+  id           String                 @id @default(uuid()) @db.Uuid
+  targetUserId String                 @map("target_user_id") @db.Uuid
+  requestedBy  String                 @map("requested_by") @db.Uuid
+  reason       String
+  status       Platform2faResetStatus @default(pending)
+  reviewedBy   String?                @map("reviewed_by") @db.Uuid
+  reviewedAt   DateTime?              @map("reviewed_at")
+  reviewReason String?                @map("review_reason")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+
+  targetUser PlatformUser  @relation("Platform2faResetTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  requester  PlatformUser  @relation("Platform2faResetRequester", fields: [requestedBy], references: [id], onDelete: Restrict)
+  reviewer   PlatformUser? @relation("Platform2faResetReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([targetUserId])
+  @@index([requestedBy])
+  @@index([reviewedBy])
+  @@index([status])
+  @@map("platform_2fa_reset_requests")
 }
 
 // ---------------------------------------------------------------------------
