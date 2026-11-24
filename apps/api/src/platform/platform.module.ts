@@ -17,6 +17,8 @@ import { PlatformLanguagePacksModule } from './language-packs/platform-language-
 import { PlatformMaintenanceModule } from './maintenance/platform-maintenance.module';
 import { PlatformSettingsModule } from './settings/platform-settings.module';
 import { PlatformAnnouncementsModule } from './announcements/platform-announcements.module';
+import { PlatformHealthModule } from './health/platform-health.module';
+import { UsageMeteringModule } from './usage/usage-metering.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { PlatformAnnouncementsModule } from './announcements/platform-announceme
     PlatformMaintenanceModule,
     PlatformSettingsModule,
     PlatformAnnouncementsModule,
+    PlatformHealthModule,
+    UsageMeteringModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,
@@ -50,6 +54,8 @@ import { PlatformAnnouncementsModule } from './announcements/platform-announceme
     PlatformMaintenanceModule,
     PlatformSettingsModule,
     PlatformAnnouncementsModule,
+    PlatformHealthModule,
+    UsageMeteringModule,
     PlatformInvoicesModule,
     PlatformPaymentsModule,
     PlatformPlansModule,

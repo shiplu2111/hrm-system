@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 import { DataScopeService } from '../rbac/data-scope.service';
 import { TimesheetEntriesService } from '../timesheets/timesheet-entries.service';
 import type { TimesheetSyncEventDto } from '../timesheets/dto/timesheet.dto';
+import { getTenantIdFromSession } from '../tenant/tenant.context';
 
 export type TimesheetSyncItemStatus = 'created' | 'duplicate' | 'rejected';
 
@@ -33,6 +34,32 @@ export class TimesheetSyncService {
     for (const event of events) {
       results.push(await this.processEvent(event, user));
     }
+
+    const tenantId = user.tenantId || getTenantIdFromSession();
+    if (tenantId && events.length > 0) {
+      const createdCount = results.filter((r) => r.status === 'created').length;
+      const duplicateCount = results.filter((r) => r.status === 'duplicate').length;
+      const rejectedCount = results.filter((r) => r.status === 'rejected').length;
+      const reasons = results
+        .filter((r) => r.status === 'rejected' && r.reason)
+        .map((r) => r.reason as string);
+
+      this.prisma.unscoped.mobileSyncLog
+        .create({
+          data: {
+            tenantId,
+            deviceId: deviceId || 'unknown',
+            entityType: 'timesheet',
+            totalEvents: events.length,
+            createdCount,
+            duplicateCount,
+            rejectedCount,
+            reasons,
+          },
+        })
+        .catch(() => {});
+    }
+
     return results;
   }
 

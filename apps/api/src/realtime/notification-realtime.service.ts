@@ -27,4 +27,8 @@ export class NotificationRealtimeService {
       .to(userRoom(userId))
       .emit(REALTIME_SOCKET_EVENT.notification, notification);
   }
+
+  getConnectedClientsCount(): number {
+    return this.server?.sockets?.sockets?.size ?? 0;
+  }
 }

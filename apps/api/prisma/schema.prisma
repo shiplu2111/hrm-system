@@ -238,6 +238,8 @@ model Tenant {
   brandings                   TenantBranding?
   customDomains               TenantCustomDomain[]
   complianceEventNotices      ComplianceEventNotice[]
+  usageDailyRecords           UsageDaily[]
+  mobileSyncLogs              MobileSyncLog[]
 
   @@map("tenants")
 }
@@ -6548,6 +6550,51 @@ model PlatformAnnouncementRead {
   @@index([tenantId, userId])
   @@map("platform_announcement_reads")
 }
+
+model UsageDaily {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  date                   DateTime @db.Date
+  activeEmployees        Int      @default(0) @map("active_employees")
+  storageUsedBytes       BigInt   @default(0) @map("storage_used_bytes")
+  apiCalls               Int      @default(0) @map("api_calls")
+  notificationsTotal     Int      @default(0) @map("notifications_total")
+  notificationsEmail     Int      @default(0) @map("notifications_email")
+  notificationsSms       Int      @default(0) @map("notifications_sms")
+  notificationsPush      Int      @default(0) @map("notifications_push")
+  notificationsInApp     Int      @default(0) @map("notifications_in_app")
+  attendanceEventsSynced Int      @default(0) @map("attendance_events_synced")
+  metadata               Json     @default("{}")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date], map: "usage_daily_tenant_id_date_key")
+  @@index([tenantId])
+  @@index([date])
+  @@map("usage_daily")
+}
+
+model MobileSyncLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  deviceId       String   @map("device_id")
+  entityType     String   @default("attendance") @map("entity_type")
+  totalEvents    Int      @default(0) @map("total_events")
+  createdCount   Int      @default(0) @map("created_count")
+  duplicateCount Int      @default(0) @map("duplicate_count")
+  rejectedCount  Int      @default(0) @map("rejected_count")
+  reasons        Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("mobile_sync_logs")
+}
+
 
 
 

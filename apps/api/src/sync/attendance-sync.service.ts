@@ -66,6 +66,31 @@ export class AttendanceSyncService {
       results.push(await this.processEvent(deviceId, event, user));
     }
 
+    const tenantId = user.tenantId || getTenantIdFromSession();
+    if (tenantId && events.length > 0) {
+      const createdCount = results.filter((r) => r.status === 'created').length;
+      const duplicateCount = results.filter((r) => r.status === 'duplicate').length;
+      const rejectedCount = results.filter((r) => r.status === 'rejected').length;
+      const reasons = results
+        .filter((r) => r.status === 'rejected' && r.reason)
+        .map((r) => r.reason as string);
+
+      this.prisma.unscoped.mobileSyncLog
+        .create({
+          data: {
+            tenantId,
+            deviceId,
+            entityType: 'attendance',
+            totalEvents: events.length,
+            createdCount,
+            duplicateCount,
+            rejectedCount,
+            reasons,
+          },
+        })
+        .catch(() => {});
+    }
+
     return results;
   }
 
