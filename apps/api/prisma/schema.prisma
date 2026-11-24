@@ -240,6 +240,7 @@ model Tenant {
   complianceEventNotices      ComplianceEventNotice[]
   usageDailyRecords           UsageDaily[]
   mobileSyncLogs              MobileSyncLog[]
+  platformAuditLogs           PlatformAuditLog[]
 
   @@map("tenants")
 }
@@ -5913,6 +5914,7 @@ model PlatformAuditLog {
   action    String
   module    String
   recordId  String?  @map("record_id")
+  tenantId  String?  @map("tenant_id") @db.Uuid
   reason    String?  @map("reason")
   oldValue  Json?    @map("old_value")
   newValue  Json?    @map("new_value")
@@ -5920,9 +5922,11 @@ model PlatformAuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user PlatformUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   PlatformUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tenant Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([tenantId])
   @@index([module])
   @@index([recordId])
   @@index([createdAt])

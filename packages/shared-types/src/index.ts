@@ -67,3 +67,4 @@ export * from './platform-usage-health';
 export * from './platform-queue-inspector';
 export * from './platform-support';
 export * from './global-kb';
+export * from './platform-audit';
