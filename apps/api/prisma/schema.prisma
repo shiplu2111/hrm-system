@@ -6595,6 +6595,32 @@ model MobileSyncLog {
   @@map("mobile_sync_logs")
 }
 
+model PlatformIncident {
+  id              String    @id @default(uuid()) @db.Uuid
+  incidentNumber  String    @unique @map("incident_number")
+  title           String
+  subsystem       String    @map("subsystem")
+  severity        String    @map("severity")
+  status          String    @map("status")
+  impact          String    @map("impact")
+  rootCause       String?   @map("root_cause")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  durationMinutes Int?      @map("duration_minutes")
+  updates         Json      @default("[]")
+  metadata        Json      @default("{}")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([subsystem])
+  @@index([status])
+  @@index([severity])
+  @@index([startedAt])
+  @@map("platform_incidents")
+}
+
+
 
 
 

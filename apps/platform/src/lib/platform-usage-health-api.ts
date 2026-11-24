@@ -4,15 +4,22 @@
 import { apiRequest } from './api-client';
 import type {
   ApiLatencyAndErrorRate,
+  CreatePlatformIncidentInput,
   DatabaseConnectionHealth,
+  HealthTimeseriesResponse,
   MobileSyncHealth,
+  NotificationProvidersHealth,
   PlatformComprehensiveHealth,
+  PlatformIncidentItem,
+  PlatformIncidentsResponse,
   QueueHealthSummary,
   RedisHealth,
+  StorageHealth,
   TenantUsageOverviewFilter,
   TenantUsageOverviewResponse,
   TenantUsageTrendsResponse,
   TriggerUsageMeteringInput,
+  UpdatePlatformIncidentInput,
   UsageDailyRecord,
   UsageDailySummary,
   UsageMeteringFilter,
@@ -94,6 +101,50 @@ export function getPlatformWebSocketHealth(): Promise<WebSocketHealth> {
 
 export function getPlatformMobileSyncHealth(): Promise<MobileSyncHealth> {
   return apiRequest<MobileSyncHealth>('/platform/health/mobile-sync');
+}
+
+export function getPlatformStorageHealth(): Promise<StorageHealth> {
+  return apiRequest<StorageHealth>('/platform/health/storage');
+}
+
+export function getPlatformNotificationsHealth(): Promise<NotificationProvidersHealth> {
+  return apiRequest<NotificationProvidersHealth>('/platform/health/notifications');
+}
+
+export function getPlatformHealthTrends(
+  timeRange: '1h' | '6h' | '24h' | '7d' = '24h',
+): Promise<HealthTimeseriesResponse> {
+  return apiRequest<HealthTimeseriesResponse>(`/platform/health/trends?timeRange=${timeRange}`);
+}
+
+export function getPlatformIncidents(params?: {
+  subsystem?: string;
+  status?: string;
+}): Promise<PlatformIncidentsResponse> {
+  const q = new URLSearchParams();
+  if (params?.subsystem && params.subsystem !== 'all') q.append('subsystem', params.subsystem);
+  if (params?.status && params.status !== 'all') q.append('status', params.status);
+  const qs = q.toString();
+  return apiRequest<PlatformIncidentsResponse>(`/platform/health/incidents${qs ? `?${qs}` : ''}`);
+}
+
+export function createPlatformIncident(
+  input: CreatePlatformIncidentInput,
+): Promise<PlatformIncidentItem> {
+  return apiRequest<PlatformIncidentItem>('/platform/health/incidents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePlatformIncident(
+  id: string,
+  input: UpdatePlatformIncidentInput,
+): Promise<PlatformIncidentItem> {
+  return apiRequest<PlatformIncidentItem>(`/platform/health/incidents/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export function listDailyUsage(

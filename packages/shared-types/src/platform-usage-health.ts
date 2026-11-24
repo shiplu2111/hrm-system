@@ -134,6 +134,41 @@ export interface MobileSyncHealth {
   lastSyncAt: string | null;
 }
 
+export interface StorageHealth {
+  status: OverallHealthStatus;
+  driver: 'local' | 's3' | 'minio';
+  bucketName?: string;
+  totalSpaceBytes: number;
+  usedSpaceBytes: number;
+  availableSpaceBytes: number;
+  usedPercentage: number;
+  readLatencyMs: number;
+  writeLatencyMs: number;
+  isHealthy: boolean;
+  lastCheckedAt: string;
+}
+
+export interface NotificationChannelHealth {
+  channel: 'email' | 'sms' | 'push' | 'in_app';
+  channelLabel: string;
+  provider: string;
+  status: OverallHealthStatus;
+  deliverabilityRate: number;
+  sentLast24h: number;
+  failedLast24h: number;
+  avgLatencyMs: number;
+  lastDispatchAt: string;
+}
+
+export interface NotificationProvidersHealth {
+  status: OverallHealthStatus;
+  overallDeliverability: number;
+  totalSent24h: number;
+  totalFailed24h: number;
+  channels: NotificationChannelHealth[];
+  lastCheckedAt: string;
+}
+
 export interface PlatformComprehensiveHealth {
   status: OverallHealthStatus;
   timestamp: string;
@@ -144,8 +179,100 @@ export interface PlatformComprehensiveHealth {
   database: DatabaseConnectionHealth;
   redis: RedisHealth;
   queues: QueueHealthSummary;
+  storage: StorageHealth;
+  notifications: NotificationProvidersHealth;
   websocket: WebSocketHealth;
   mobileSync: MobileSyncHealth;
+}
+
+// ============================================================================
+// Latency & Error Trends Types
+// ============================================================================
+
+export interface HealthTimeseriesTrendPoint {
+  timestamp: string;
+  label: string;
+  avgLatencyMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  requestsTotal: number;
+  requests5xx: number;
+  requests4xx: number;
+  errorRatePercentage: number;
+  dbPingMs: number;
+  redisPingMs: number;
+}
+
+export interface HealthTimeseriesResponse {
+  timeRange: '1h' | '6h' | '24h' | '7d';
+  points: HealthTimeseriesTrendPoint[];
+  summary: {
+    avgLatencyMs: number;
+    p95LatencyMs: number;
+    p99LatencyMs: number;
+    maxLatencyMs: number;
+    errorRatePercentage: number;
+    total5xxErrors: number;
+    total4xxErrors: number;
+  };
+}
+
+// ============================================================================
+// Platform Incident Management Types (DESIGN_SYSTEM.md §5 Colour States)
+// ============================================================================
+
+export type IncidentSeverity = 'minor' | 'major' | 'critical' | 'maintenance';
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
+
+export interface PlatformIncidentUpdate {
+  timestamp: string;
+  message: string;
+  status: IncidentStatus;
+}
+
+export interface PlatformIncidentItem {
+  id: string;
+  incidentNumber: string;
+  title: string;
+  subsystem: 'api' | 'database' | 'redis' | 'queues' | 'storage' | 'notifications';
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  impact: string;
+  rootCause?: string | null;
+  startedAt: string;
+  resolvedAt?: string | null;
+  durationMinutes?: number | null;
+  updates: PlatformIncidentUpdate[];
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformIncidentsResponse {
+  incidents: PlatformIncidentItem[];
+  activeIncidentsCount: number;
+  resolvedIncidentsCount: number;
+  currentMajorOutages: number;
+}
+
+export interface CreatePlatformIncidentInput {
+  title: string;
+  subsystem: 'api' | 'database' | 'redis' | 'queues' | 'storage' | 'notifications';
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  impact: string;
+  rootCause?: string;
+  initialMessage?: string;
+}
+
+export interface UpdatePlatformIncidentInput {
+  status?: IncidentStatus;
+  severity?: IncidentSeverity;
+  impact?: string;
+  rootCause?: string;
+  updateMessage?: string;
+  resolve?: boolean;
 }
 
 // ============================================================================

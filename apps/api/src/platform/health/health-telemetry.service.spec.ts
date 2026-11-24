@@ -18,6 +18,20 @@ describe('HealthTelemetryService', () => {
       attendanceSyncEvent: {
         count: jest.fn(),
       },
+      notificationDelivery: {
+        findMany: jest.fn(),
+      },
+      inAppNotification: {
+        count: jest.fn(),
+      },
+      platformIncident: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        createMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        findUnique: jest.fn(),
+      },
     },
   };
 
@@ -144,6 +158,90 @@ describe('HealthTelemetryService', () => {
       expect(syncHealth.successRatePercentage).toBe(90); // 9 / 10 = 90%
       expect(syncHealth.timeAnomalyCount).toBe(1);
       expect(syncHealth.topRejectionReasons).toEqual([{ reason: 'invalid_timestamp', count: 1 }]);
+    });
+  });
+
+  describe('Storage Health', () => {
+    it('verifies platform storage driver, available space and latency', async () => {
+      const storage = await service.getStorageHealth();
+      expect(storage.status).toBe('healthy');
+      expect(storage.driver).toBeDefined();
+      expect(storage.totalSpaceBytes).toBeGreaterThan(0);
+      expect(storage.availableSpaceBytes).toBeGreaterThan(0);
+      expect(storage.readLatencyMs).toBeGreaterThan(0);
+      expect(storage.writeLatencyMs).toBeGreaterThan(0);
+      expect(storage.isHealthy).toBe(true);
+    });
+  });
+
+  describe('Notification Providers Health', () => {
+    it('aggregates deliverability across Email, SMS, Push, and In-App channels', async () => {
+      mockPrisma.unscoped.notificationDelivery.findMany.mockResolvedValueOnce([
+        { channel: 'email', status: 'sent' },
+        { channel: 'email', status: 'sent' },
+        { channel: 'push', status: 'sent' },
+      ]);
+      mockPrisma.unscoped.inAppNotification.count.mockResolvedValueOnce(50);
+
+      const notifHealth = await service.getNotificationProvidersHealth();
+      expect(notifHealth.status).toBe('healthy');
+      expect(notifHealth.channels.length).toBe(4);
+
+      const emailChannel = notifHealth.channels.find((c) => c.channel === 'email')!;
+      expect(emailChannel.status).toBe('healthy');
+      expect(emailChannel.deliverabilityRate).toBeGreaterThanOrEqual(95);
+
+      const inAppChannel = notifHealth.channels.find((c) => c.channel === 'in_app')!;
+      expect(inAppChannel.deliverabilityRate).toBe(100);
+      expect(inAppChannel.sentLast24h).toBeGreaterThanOrEqual(50);
+    });
+  });
+
+  describe('Latency and Error Trends', () => {
+    it('generates timeseries trend points for past 24 hours', async () => {
+      mockPrisma.unscoped.$queryRawUnsafe
+        .mockResolvedValueOnce([{ '?column?': 1 }])
+        .mockResolvedValueOnce([{ total: 10, active: 3, idle: 7 }])
+        .mockResolvedValueOnce([{ max_connections: '100' }]);
+
+      const trends = await service.getLatencyAndErrorTrends('24h');
+      expect(trends.timeRange).toBe('24h');
+      expect(trends.points.length).toBe(24);
+      expect(trends.summary.avgLatencyMs).toBeGreaterThan(0);
+      expect(trends.summary.p95LatencyMs).toBeGreaterThan(0);
+      expect(trends.points[0].p95LatencyMs).toBeDefined();
+    });
+  });
+
+  describe('Recent Incidents', () => {
+    it('returns seeded or queried incidents with status counts', async () => {
+      mockPrisma.unscoped.platformIncident.findMany
+        .mockResolvedValueOnce([]) // initial empty -> triggers seed
+        .mockResolvedValueOnce([
+          {
+            id: 'inc-1',
+            incidentNumber: 'INC-2026-081',
+            title: 'Elevated latency on auth API',
+            subsystem: 'api',
+            severity: 'minor',
+            status: 'resolved',
+            impact: 'P95 latency reached 140ms',
+            rootCause: 'Cache warming',
+            startedAt: new Date(),
+            resolvedAt: new Date(),
+            durationMinutes: 12,
+            updates: [],
+            createdBy: 'system.monitor@cmsnbd.com',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ]);
+      mockPrisma.unscoped.platformIncident.createMany.mockResolvedValueOnce({ count: 3 });
+
+      const result = await service.getRecentIncidents();
+      expect(result.incidents.length).toBe(1);
+      expect(result.resolvedIncidentsCount).toBe(1);
+      expect(result.activeIncidentsCount).toBe(0);
     });
   });
 });
