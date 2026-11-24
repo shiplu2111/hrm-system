@@ -68,3 +68,4 @@ export * from './platform-queue-inspector';
 export * from './platform-support';
 export * from './global-kb';
 export * from './platform-audit';
+export * from './platform-api-registry';

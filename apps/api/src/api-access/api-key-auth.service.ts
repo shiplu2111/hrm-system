@@ -53,7 +53,10 @@ export class ApiKeyAuthService {
     void this.prisma.unscoped.tenantApiKey
       .update({
         where: { id: row.id },
-        data: { lastUsedAt: new Date() },
+        data: {
+          lastUsedAt: new Date(),
+          callVolume: { increment: 1 },
+        },
       })
       .catch(() => undefined);
 

@@ -16,6 +16,7 @@ import {
   HardDrive,
   Headphones,
   Inbox,
+  KeyRound,
   Languages,
   LayoutDashboard,
   Megaphone,
@@ -57,6 +58,7 @@ export type PlatformViewKey =
   | 'support-tickets'
   | 'support-sessions'
   | 'global-kb'
+  | 'api-registry'
   | 'system-notifications'
   | 'platform-users'
   | 'my-account'
@@ -320,6 +322,15 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         badge: 'Global',
         badgeTone: 'emerald',
         permission: { module: 'support', action: 'view' },
+      },
+      {
+        key: 'api-registry',
+        label: 'API Apps & Keys',
+        description: 'Cross-tenant API keys registry, immediate revocation, and tenant rate-limit overrides',
+        icon: KeyRound,
+        badge: 'Stage 22',
+        badgeTone: 'indigo',
+        permission: { module: 'platform', action: 'view' },
       },
       {
         key: 'system-notifications',

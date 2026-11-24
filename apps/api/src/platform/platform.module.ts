@@ -22,6 +22,7 @@ import { UsageMeteringModule } from './usage/usage-metering.module';
 import { PlatformQueuesModule } from './queues/platform-queues.module';
 import { PlatformSupportTicketsModule } from './support-tickets/platform-support-tickets.module';
 import { PlatformKbModule } from './knowledge-base/platform-kb.module';
+import { PlatformApiRegistryModule } from './api-registry/platform-api-registry.module';
 
 @Module({
   imports: [
@@ -47,12 +48,14 @@ import { PlatformKbModule } from './knowledge-base/platform-kb.module';
     PlatformSupportAccessModule,
     PlatformSupportTicketsModule,
     PlatformKbModule,
+    PlatformApiRegistryModule,
     PlatformTenantsModule,
   ],
   exports: [
     CountriesModule,
     PlatformAuthModule,
     PlatformAuditModule,
+    PlatformApiRegistryModule,
     PlatformBrandingModule,
     PlatformDashboardModule,
     PlatformExchangeRatesModule,
