@@ -58,6 +58,7 @@ import type {
   PlatformComprehensiveHealth,
   PlatformIncidentItem,
   PlatformIncidentsResponse,
+  PlatformIncidentSubsystem,
   QueueHealthItem,
   QueueHealthSummary,
   RedisHealth,
@@ -196,17 +197,31 @@ export function SystemHealthPage() {
   const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [expandedIncidentId, setExpandedIncidentId] = useState<string | null>(null);
 
-  // Incident Modal State
+  // Incident Create Modal State
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [newIncidentTitle, setNewIncidentTitle] = useState('');
-  const [newIncidentSubsystem, setNewIncidentSubsystem] = useState<'api' | 'database' | 'redis' | 'queues' | 'storage' | 'notifications'>('api');
+  const [newIncidentSubsystem, setNewIncidentSubsystem] = useState<PlatformIncidentSubsystem>('api');
   const [newIncidentSeverity, setNewIncidentSeverity] = useState<IncidentSeverity>('minor');
   const [newIncidentStatus, setNewIncidentStatus] = useState<IncidentStatus>('investigating');
   const [newIncidentImpact, setNewIncidentImpact] = useState('');
+  const [newIncidentMessage, setNewIncidentMessage] = useState('');
   const [newIncidentRootCause, setNewIncidentRootCause] = useState('');
+  const [newIncidentIsPublic, setNewIncidentIsPublic] = useState(true);
   const [submittingIncident, setSubmittingIncident] = useState(false);
 
-  // Quick Resolve / Update Modal State
+  // Incident Update Modal State
+  const [editingIncident, setEditingIncident] = useState<PlatformIncidentItem | null>(null);
+  const [editIncidentTitle, setEditIncidentTitle] = useState('');
+  const [editIncidentSubsystem, setEditIncidentSubsystem] = useState<PlatformIncidentSubsystem>('api');
+  const [editIncidentSeverity, setEditIncidentSeverity] = useState<IncidentSeverity>('minor');
+  const [editIncidentStatus, setEditIncidentStatus] = useState<IncidentStatus>('investigating');
+  const [editIncidentImpact, setEditIncidentImpact] = useState('');
+  const [editIncidentRootCause, setEditIncidentRootCause] = useState('');
+  const [editIncidentMessage, setEditIncidentMessage] = useState('');
+  const [editIncidentIsPublic, setEditIncidentIsPublic] = useState(true);
+  const [submittingUpdate, setSubmittingUpdate] = useState(false);
+
+  // Quick Resolve Modal State
   const [resolvingIncidentId, setResolvingIncidentId] = useState<string | null>(null);
   const [resolveNote, setResolveNote] = useState('');
   const [submittingResolve, setSubmittingResolve] = useState(false);
@@ -320,28 +335,77 @@ export function SystemHealthPage() {
   // Handle Log Incident
   const handleCreateIncident = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIncidentTitle || !newIncidentImpact) return;
+    if (!newIncidentTitle.trim() || !newIncidentImpact.trim()) return;
     setSubmittingIncident(true);
     try {
       await createPlatformIncident({
-        title: newIncidentTitle,
+        title: newIncidentTitle.trim(),
         subsystem: newIncidentSubsystem,
         severity: newIncidentSeverity,
         status: newIncidentStatus,
-        impact: newIncidentImpact,
-        rootCause: newIncidentRootCause || undefined,
-        initialMessage: `Incident opened via Platform Super Admin Console.`,
+        impact: newIncidentImpact.trim(),
+        rootCause: newIncidentRootCause.trim() || undefined,
+        initialMessage:
+          newIncidentMessage.trim() ||
+          `Incident opened (${newIncidentSeverity}): ${newIncidentImpact.trim()}`,
+        isPublic: newIncidentIsPublic,
       });
       setShowIncidentModal(false);
       setNewIncidentTitle('');
+      setNewIncidentSubsystem('api');
+      setNewIncidentSeverity('minor');
+      setNewIncidentStatus('investigating');
       setNewIncidentImpact('');
+      setNewIncidentMessage('');
       setNewIncidentRootCause('');
+      setNewIncidentIsPublic(true);
       await loadIncidents();
       await loadHealthData();
     } catch (err: any) {
       alert(`Failed to create incident: ${err?.message}`);
     } finally {
       setSubmittingIncident(false);
+    }
+  };
+
+  // Open Update Incident Modal
+  const openEditIncidentModal = (incident: PlatformIncidentItem) => {
+    setEditingIncident(incident);
+    setEditIncidentTitle(incident.title);
+    setEditIncidentSubsystem(incident.subsystem);
+    setEditIncidentSeverity(incident.severity);
+    setEditIncidentStatus(incident.status);
+    setEditIncidentImpact(incident.impact);
+    setEditIncidentRootCause(incident.rootCause || '');
+    setEditIncidentMessage('');
+    setEditIncidentIsPublic(incident.isPublic !== false);
+  };
+
+  // Handle Update Incident
+  const handleUpdateIncident = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingIncident || !editIncidentTitle.trim() || !editIncidentImpact.trim()) return;
+    setSubmittingUpdate(true);
+    try {
+      await updatePlatformIncident(editingIncident.id, {
+        title: editIncidentTitle.trim(),
+        subsystem: editIncidentSubsystem,
+        severity: editIncidentSeverity,
+        status: editIncidentStatus,
+        impact: editIncidentImpact.trim(),
+        rootCause: editIncidentRootCause.trim(),
+        updateMessage: editIncidentMessage.trim() || undefined,
+        resolve: editIncidentStatus === 'resolved',
+        isPublic: editIncidentIsPublic,
+      });
+      setEditingIncident(null);
+      setEditIncidentMessage('');
+      await loadIncidents();
+      await loadHealthData();
+    } catch (err: any) {
+      alert(`Failed to update incident: ${err?.message}`);
+    } finally {
+      setSubmittingUpdate(false);
     }
   };
 
@@ -1146,11 +1210,13 @@ export function SystemHealthPage() {
                   >
                     <option value="all">All Subsystems</option>
                     <option value="api">API</option>
+                    <option value="web_app">Web Application</option>
+                    <option value="mobile_sync">Mobile Sync</option>
+                    <option value="notifications">Notifications</option>
                     <option value="database">Database</option>
                     <option value="redis">Redis</option>
                     <option value="queues">Queues</option>
                     <option value="storage">Storage</option>
-                    <option value="notifications">Notifications</option>
                   </select>
                 </div>
 
@@ -1168,6 +1234,16 @@ export function SystemHealthPage() {
                     <option value="resolved">Resolved</option>
                   </select>
                 </div>
+
+                <button
+                  type="button"
+                  data-testid="platform-incidents-create-btn"
+                  onClick={() => setShowIncidentModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1 transition"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New Incident</span>
+                </button>
               </div>
             </div>
 
@@ -1191,6 +1267,7 @@ export function SystemHealthPage() {
                   return (
                     <div
                       key={incident.id}
+                      data-testid={`platform-incident-card-${incident.incidentNumber}`}
                       className={`border rounded-xl p-4 transition-all ${
                         incident.status !== 'resolved'
                           ? 'border-rose-300 dark:border-rose-900 bg-rose-50/30 dark:bg-rose-950/20'
@@ -1219,6 +1296,15 @@ export function SystemHealthPage() {
                             <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-semibold uppercase">
                               {incident.subsystem}
                             </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                incident.isPublic !== false
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                              }`}
+                            >
+                              {incident.isPublic !== false ? 'Public on /status' : 'Internal Only'}
+                            </span>
                           </div>
 
                           <h4 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -1239,6 +1325,15 @@ export function SystemHealthPage() {
                               </strong>
                             </div>
                           </div>
+
+                          <button
+                            type="button"
+                            data-testid={`platform-incident-update-btn-${incident.incidentNumber}`}
+                            onClick={() => openEditIncidentModal(incident)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition"
+                          >
+                            Update
+                          </button>
 
                           {incident.status !== 'resolved' && (
                             <button
@@ -1425,14 +1520,18 @@ export function SystemHealthPage() {
 
       {/* Log Incident Modal */}
       {showIncidentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div
+          data-testid="platform-incident-create-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <AlertCircle className="h-5 w-5 text-rose-500" />
-                Log Platform Infrastructure Incident
+                Log Platform Incident
               </h3>
               <button
+                type="button"
                 onClick={() => setShowIncidentModal(false)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
@@ -1450,73 +1549,114 @@ export function SystemHealthPage() {
                   required
                   value={newIncidentTitle}
                   onChange={(e) => setNewIncidentTitle(e.target.value)}
-                  placeholder="e.g. S3 Storage Read Latency Spike in ap-southeast-1"
+                  placeholder="e.g. Elevated API latency affecting logins"
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Impacted Subsystem
+                    Component / Subsystem
                   </label>
                   <select
                     value={newIncidentSubsystem}
-                    onChange={(e) => setNewIncidentSubsystem(e.target.value as any)}
+                    onChange={(e) => setNewIncidentSubsystem(e.target.value as PlatformIncidentSubsystem)}
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
                   >
-                    <option value="api">API Gateway</option>
-                    <option value="database">PostgreSQL Database</option>
-                    <option value="redis">Redis Cluster</option>
-                    <option value="queues">BullMQ Queues</option>
-                    <option value="storage">Platform Storage</option>
-                    <option value="notifications">Notification Providers</option>
+                    <option value="api">API</option>
+                    <option value="web_app">Web Application</option>
+                    <option value="mobile_sync">Mobile Sync</option>
+                    <option value="notifications">Notifications</option>
+                    <option value="database">Database (Maps to API)</option>
+                    <option value="redis">Cache Layer (Maps to API)</option>
+                    <option value="queues">Background Workers (Maps to API)</option>
+                    <option value="storage">File Storage (Maps to API)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Severity Level
+                    Severity
                   </label>
                   <select
                     value={newIncidentSeverity}
-                    onChange={(e) => setNewIncidentSeverity(e.target.value as any)}
+                    onChange={(e) => setNewIncidentSeverity(e.target.value as IncidentSeverity)}
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
                   >
-                    <option value="minor">Minor Warning</option>
-                    <option value="major">Major Outage</option>
+                    <option value="minor">Minor Degradation</option>
+                    <option value="major">Major Degradation</option>
                     <option value="critical">Critical Outage</option>
                     <option value="maintenance">Maintenance</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={newIncidentStatus}
+                    onChange={(e) => setNewIncidentStatus(e.target.value as IncidentStatus)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="investigating">Investigating</option>
+                    <option value="identified">Identified</option>
+                    <option value="monitoring">Monitoring</option>
+                    <option value="resolved">Resolved</option>
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Customer / Tenant Impact
+                  Customer-Facing Impact Summary
                 </label>
                 <textarea
                   required
                   rows={2}
                   value={newIncidentImpact}
                   onChange={(e) => setNewIncidentImpact(e.target.value)}
-                  placeholder="Describe impact on employees, mobile sync, or tenant admins..."
+                  placeholder="Describe visible impact clearly without internal hostnames or error traces..."
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Root Cause (Optional)
+                  Initial Timeline Update Note (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={newIncidentMessage}
+                  onChange={(e) => setNewIncidentMessage(e.target.value)}
+                  placeholder="e.g. Our engineering team is actively investigating delays."
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Internal Root Cause (Private — not exposed on /status)
                 </label>
                 <input
                   type="text"
                   value={newIncidentRootCause}
                   onChange={(e) => setNewIncidentRootCause(e.target.value)}
-                  placeholder="e.g. AWS S3 network partition, connection pool exhaustion..."
+                  placeholder="Internal notes for platform staff only..."
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
                 />
               </div>
+
+              <label className="flex items-center gap-2 pt-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newIncidentIsPublic}
+                  onChange={(e) => setNewIncidentIsPublic(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>Publish this incident to the public Status page (/status)</span>
+              </label>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -1532,6 +1672,164 @@ export function SystemHealthPage() {
                   className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition disabled:opacity-50"
                 >
                   {submittingIncident ? 'Logging Incident...' : 'Confirm & Open Incident'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Update Incident Modal */}
+      {editingIncident && (
+        <div
+          data-testid="platform-incident-update-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Activity className="h-5 w-5 text-indigo-500" />
+                Update Incident {editingIncident.incidentNumber}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingIncident(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateIncident} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Incident Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editIncidentTitle}
+                  onChange={(e) => setEditIncidentTitle(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Component / Subsystem
+                  </label>
+                  <select
+                    value={editIncidentSubsystem}
+                    onChange={(e) => setEditIncidentSubsystem(e.target.value as PlatformIncidentSubsystem)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="api">API</option>
+                    <option value="web_app">Web Application</option>
+                    <option value="mobile_sync">Mobile Sync</option>
+                    <option value="notifications">Notifications</option>
+                    <option value="database">Database</option>
+                    <option value="redis">Cache Layer</option>
+                    <option value="queues">Background Workers</option>
+                    <option value="storage">File Storage</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Severity
+                  </label>
+                  <select
+                    value={editIncidentSeverity}
+                    onChange={(e) => setEditIncidentSeverity(e.target.value as IncidentSeverity)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="minor">Minor Degradation</option>
+                    <option value="major">Major Degradation</option>
+                    <option value="critical">Critical Outage</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editIncidentStatus}
+                    onChange={(e) => setEditIncidentStatus(e.target.value as IncidentStatus)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="investigating">Investigating</option>
+                    <option value="identified">Identified</option>
+                    <option value="monitoring">Monitoring</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Customer-Facing Impact Summary
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={editIncidentImpact}
+                  onChange={(e) => setEditIncidentImpact(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Append Timeline Update Note
+                </label>
+                <textarea
+                  rows={2}
+                  value={editIncidentMessage}
+                  onChange={(e) => setEditIncidentMessage(e.target.value)}
+                  placeholder="e.g. Mitigation deployed; monitoring error rates and latency."
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Internal Root Cause (Private — not exposed on /status)
+                </label>
+                <input
+                  type="text"
+                  value={editIncidentRootCause}
+                  onChange={(e) => setEditIncidentRootCause(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 pt-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editIncidentIsPublic}
+                  onChange={(e) => setEditIncidentIsPublic(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>Visible on public Status page (/status)</span>
+              </label>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingIncident(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingUpdate}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition disabled:opacity-50"
+                >
+                  {submittingUpdate ? 'Saving Update...' : 'Save Incident Update'}
                 </button>
               </div>
             </form>

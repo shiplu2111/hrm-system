@@ -375,3 +375,26 @@ export interface PlatformAuditLogView {
   createdAt: string;
 }
 
+export type PublicPortalTarget = 'portal' | 'employee';
+
+export interface PublicLoginDiscoverPayload {
+  identifier: string;
+  portal?: PublicPortalTarget;
+}
+
+export interface PublicLoginDiscoverResponse {
+  action: 'redirect' | 'check_address' | 'email_sent';
+  redirectUrl?: string;
+  message: string;
+}
+
+export interface PublicForgotCompanyPayload {
+  workEmail: string;
+  website?: string;
+}
+
+export interface PublicForgotCompanyResponse {
+  accepted: true;
+  message: string;
+}
+

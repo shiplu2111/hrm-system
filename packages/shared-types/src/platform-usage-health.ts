@@ -224,18 +224,28 @@ export interface HealthTimeseriesResponse {
 
 export type IncidentSeverity = 'minor' | 'major' | 'critical' | 'maintenance';
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
+export type PlatformIncidentSubsystem =
+  | 'api'
+  | 'web_app'
+  | 'mobile_sync'
+  | 'notifications'
+  | 'database'
+  | 'redis'
+  | 'queues'
+  | 'storage';
 
 export interface PlatformIncidentUpdate {
   timestamp: string;
   message: string;
   status: IncidentStatus;
+  author?: string;
 }
 
 export interface PlatformIncidentItem {
   id: string;
   incidentNumber: string;
   title: string;
-  subsystem: 'api' | 'database' | 'redis' | 'queues' | 'storage' | 'notifications';
+  subsystem: PlatformIncidentSubsystem;
   severity: IncidentSeverity;
   status: IncidentStatus;
   impact: string;
@@ -244,6 +254,7 @@ export interface PlatformIncidentItem {
   resolvedAt?: string | null;
   durationMinutes?: number | null;
   updates: PlatformIncidentUpdate[];
+  isPublic: boolean;
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -258,21 +269,85 @@ export interface PlatformIncidentsResponse {
 
 export interface CreatePlatformIncidentInput {
   title: string;
-  subsystem: 'api' | 'database' | 'redis' | 'queues' | 'storage' | 'notifications';
+  subsystem: PlatformIncidentSubsystem;
   severity: IncidentSeverity;
   status: IncidentStatus;
   impact: string;
   rootCause?: string;
   initialMessage?: string;
+  isPublic?: boolean;
 }
 
 export interface UpdatePlatformIncidentInput {
+  title?: string;
+  subsystem?: PlatformIncidentSubsystem;
   status?: IncidentStatus;
   severity?: IncidentSeverity;
   impact?: string;
   rootCause?: string;
   updateMessage?: string;
   resolve?: boolean;
+  isPublic?: boolean;
+}
+
+// ============================================================================
+// Public Coarse System Status & 90-Day Uptime Types
+// ============================================================================
+
+export type PublicStatusComponentId = 'api' | 'web_app' | 'mobile_sync' | 'notifications';
+export type PublicComponentState = 'operational' | 'degraded' | 'outage' | 'maintenance';
+
+export interface PublicDailyUptimeDay {
+  date: string;
+  state: PublicComponentState;
+  uptimePercentage: number;
+  incidentCount: number;
+}
+
+export interface PublicStatusComponent {
+  id: PublicStatusComponentId;
+  name: string;
+  description: string;
+  state: PublicComponentState;
+  uptime90dPercentage: number;
+  days: PublicDailyUptimeDay[];
+}
+
+export interface PublicIncidentUpdate {
+  timestamp: string;
+  status: IncidentStatus;
+  message: string;
+}
+
+export interface PublicStatusIncident {
+  id: string;
+  incidentNumber: string;
+  title: string;
+  component: PublicStatusComponentId;
+  componentLabel: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  impact: string;
+  startedAt: string;
+  resolvedAt: string | null;
+  durationMinutes: number | null;
+  updates: PublicIncidentUpdate[];
+}
+
+export interface PublicPlatformStatusResponse {
+  overallState: PublicComponentState;
+  updatedAt: string;
+  refreshIntervalSeconds: number;
+  maintenance: {
+    active: boolean;
+    scheduled: boolean;
+    scheduledStart: string | null;
+    scheduledEnd: string | null;
+    message: string | null;
+  };
+  components: PublicStatusComponent[];
+  activeIncidents: PublicStatusIncident[];
+  incidentHistory: PublicStatusIncident[];
 }
 
 // ============================================================================

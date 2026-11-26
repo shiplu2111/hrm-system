@@ -147,6 +147,18 @@ export const PLATFORM_PERMISSION_DEFINITIONS: PlatformPermissionDefinition[] = [
     actions: ['view', 'create', 'edit', 'manage'],
   },
   {
+    key: 'leads',
+    label: 'Leads & Demo Requests',
+    description: 'Sales pipeline triage, demo requests, staff assignment, notes, and CSV exports.',
+    actions: ['view', 'edit', 'manage'],
+  },
+  {
+    key: 'cms',
+    label: 'Website CMS & Publishing',
+    description: 'Website pages, drafts, immutable versions, preview tokens, scheduled publishing, menus, posts, changelog, careers, and site settings.',
+    actions: ['view', 'create', 'edit', 'delete', 'manage', 'raw_html'],
+  },
+  {
     key: 'platform',
     label: 'Control Plane Operations',
     description: 'Core platform administration, announcements, feature flags, and health telemetry.',

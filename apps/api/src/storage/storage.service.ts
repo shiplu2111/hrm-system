@@ -98,6 +98,11 @@ export class StorageService {
     return this.driver.upload(key, file, meta);
   }
 
+  /** Upload a platform-owned asset (e.g. DPA PDF) directly without tenant quota scoping. */
+  uploadPlatformAsset(key: string, file: Buffer, meta: FileMeta): Promise<string> {
+    return this.driver.upload(key, file, meta);
+  }
+
   getUrl(key: string, expirySeconds?: number): Promise<string> {
     return this.driver.getUrl(key, expirySeconds);
   }

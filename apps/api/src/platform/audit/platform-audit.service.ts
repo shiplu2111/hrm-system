@@ -31,6 +31,7 @@ export interface PlatformActorContext {
   id?: string;
   email?: string;
   roleName?: string;
+  timezone?: string;
   permissions?: Array<{ module: string; action: string }>;
 }
 

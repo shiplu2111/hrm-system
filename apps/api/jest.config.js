@@ -6,8 +6,11 @@ module.exports = {
   maxWorkers: 2,
   workerIdleMemoryLimit: '512MB',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: { allowJs: true } }],
   },
+  transformIgnorePatterns: [
+    '/node_modules/(?!(htmlparser2|domelementtype|domhandler|domutils|dom-serializer|entities|escape-string-regexp|parse-srcset|nanoid)/)',
+  ],
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',

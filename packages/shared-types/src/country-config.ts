@@ -324,6 +324,27 @@ export interface CountrySummary {
   configStatus?: CountryConfigStatusSummary;
 }
 
+export interface PublicCountryStatutorySupport {
+  tax: boolean;
+  socialSecurityOrSuperannuation: boolean;
+  socialSecurityType: 'superannuation' | 'social_security' | 'pension';
+  statutoryLeave: boolean;
+  publicHolidays: boolean;
+  overtime: boolean;
+}
+
+export interface PublicCountryView {
+  id: string;
+  slug: string;
+  name: string;
+  isoCode: string;
+  currency: string;
+  defaultPayFrequency: string;
+  payFrequencies: string[];
+  statutorySupport: PublicCountryStatutorySupport;
+  statesCount: number;
+}
+
 export interface TaxBracketRecord {
   id: string;
   countryId: string;

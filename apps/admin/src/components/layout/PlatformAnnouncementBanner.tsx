@@ -39,10 +39,6 @@ export function PlatformAnnouncementBanner() {
     return () => clearInterval(interval);
   }, [fetchAnnouncements]);
 
-  if (!items.length) {
-    return null;
-  }
-
   const current = items[currentIndex] || items[0];
 
   useEffect(() => {
@@ -51,7 +47,7 @@ export function PlatformAnnouncementBanner() {
     }
   }, [current?.id]);
 
-  if (!current) {
+  if (!items.length || !current) {
     return null;
   }
 

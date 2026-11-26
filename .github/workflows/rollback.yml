@@ -1,0 +1,91 @@
+# DEPLOYMENT.md §6 & §10 — One-step rollback to a previous immutable image/deployment tag.
+name: One-Step Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Service(s) to roll back
+        required: true
+        type: choice
+        default: website
+        options:
+          - website
+          - api
+          - both
+      environment:
+        description: Target deployment environment
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+      target_tag:
+        description: Previous immutable image tag or Git SHA (e.g. prod-abc1234 or staging-abc1234)
+        required: true
+        type: string
+      reason:
+        description: Incident ticket or rollback justification
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.target }} in ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote previous website image & purge ISR/CDN cache
+        if: inputs.target == 'website' || inputs.target == 'both'
+        env:
+          ROLLBACK_WEBHOOK_URL: ${{ secrets.WEBSITE_ROLLBACK_WEBHOOK_URL || secrets.PRODUCTION_WEBSITE_DEPLOY_WEBHOOK_URL || secrets.STAGING_WEBSITE_DEPLOY_WEBHOOK_URL }}
+          ROLLBACK_WEBHOOK_TOKEN: ${{ secrets.WEBSITE_ROLLBACK_WEBHOOK_TOKEN || secrets.PRODUCTION_WEBSITE_DEPLOY_WEBHOOK_TOKEN || secrets.STAGING_WEBSITE_DEPLOY_WEBHOOK_TOKEN }}
+          REVALIDATE_SECRET: ${{ secrets.PRODUCTION_REVALIDATE_SECRET || secrets.STAGING_REVALIDATE_SECRET }}
+          WEBSITE_URL: ${{ vars.PRODUCTION_WEBSITE_URL || vars.STAGING_WEBSITE_URL }}
+        run: |
+          SOURCE_IMAGE="ghcr.io/${{ github.repository }}/website:${{ inputs.target_tag }}"
+          TARGET_IMAGE="ghcr.io/${{ github.repository }}/website:${{ inputs.environment }}"
+          echo "Rolling back website in ${{ inputs.environment }} to $SOURCE_IMAGE (reason: ${{ inputs.reason }})"
+          docker buildx imagetools create -t "$TARGET_IMAGE" "$SOURCE_IMAGE"
+          if [ -n "$ROLLBACK_WEBHOOK_URL" ]; then
+            curl -fsSL -X POST "$ROLLBACK_WEBHOOK_URL" \
+              -H "Authorization: Bearer $ROLLBACK_WEBHOOK_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"action\":\"rollback\",\"environment\":\"${{ inputs.environment }}\",\"image\":\"$TARGET_IMAGE\",\"targetTag\":\"${{ inputs.target_tag }}\",\"reason\":\"${{ inputs.reason }}\"}"
+          fi
+          if [ -n "$WEBSITE_URL" ] && [ -n "$REVALIDATE_SECRET" ]; then
+            curl -fsSL -X POST "$WEBSITE_URL/api/revalidate" \
+              -H "x-revalidate-secret: $REVALIDATE_SECRET" \
+              -H "Content-Type: application/json" \
+              -d '{"scopes":["all"]}' || true
+          fi
+
+      - name: Promote previous API image tag
+        if: inputs.target == 'api' || inputs.target == 'both'
+        env:
+          ROLLBACK_WEBHOOK_URL: ${{ secrets.API_ROLLBACK_WEBHOOK_URL || secrets.PRODUCTION_DEPLOY_WEBHOOK_URL || secrets.STAGING_DEPLOY_WEBHOOK_URL }}
+          ROLLBACK_WEBHOOK_TOKEN: ${{ secrets.API_ROLLBACK_WEBHOOK_TOKEN || secrets.PRODUCTION_DEPLOY_WEBHOOK_TOKEN || secrets.STAGING_DEPLOY_WEBHOOK_TOKEN }}
+        run: |
+          SOURCE_IMAGE="ghcr.io/${{ github.repository }}/api:${{ inputs.target_tag }}"
+          TARGET_IMAGE="ghcr.io/${{ github.repository }}/api:${{ inputs.environment }}"
+          echo "Rolling back API in ${{ inputs.environment }} to $SOURCE_IMAGE (reason: ${{ inputs.reason }})"
+          docker buildx imagetools create -t "$TARGET_IMAGE" "$SOURCE_IMAGE"
+          if [ -n "$ROLLBACK_WEBHOOK_URL" ]; then
+            curl -fsSL -X POST "$ROLLBACK_WEBHOOK_URL" \
+              -H "Authorization: Bearer $ROLLBACK_WEBHOOK_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"action\":\"rollback\",\"environment\":\"${{ inputs.environment }}\",\"image\":\"$TARGET_IMAGE\",\"targetTag\":\"${{ inputs.target_tag }}\",\"reason\":\"${{ inputs.reason }}\"}"
+          fi

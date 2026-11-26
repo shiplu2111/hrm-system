@@ -4,12 +4,13 @@ import { PrismaModule } from '../../database/prisma.module';
 import { RealtimeModule } from '../../realtime/realtime.module';
 import { PlatformAuthModule } from '../auth/platform-auth.module';
 import { PlatformHealthController } from './platform-health.controller';
+import { PublicStatusController } from './public-status.controller';
 import { HealthTelemetryService } from './health-telemetry.service';
 import { HealthMetricsInterceptor } from './health-metrics.interceptor';
 
 @Module({
   imports: [PrismaModule, RealtimeModule, forwardRef(() => PlatformAuthModule)],
-  controllers: [PlatformHealthController],
+  controllers: [PlatformHealthController, PublicStatusController],
   providers: [HealthTelemetryService, HealthMetricsInterceptor],
   exports: [HealthTelemetryService, HealthMetricsInterceptor],
 })

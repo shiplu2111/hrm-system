@@ -131,6 +131,7 @@ export function GlobalKnowledgeBasePage() {
   const [artSummary, setArtSummary] = useState<string>('');
   const [artBody, setArtBody] = useState<string>('');
   const [artStatus, setArtStatus] = useState<GlobalKbStatus>('draft');
+  const [artIsPublic, setArtIsPublic] = useState<boolean>(true);
   const [artCountries, setArtCountries] = useState<string[]>(['ALL']);
   const [artPlans, setArtPlans] = useState<string[]>(['ALL']);
   const [artTags, setArtTags] = useState<string>('');
@@ -189,6 +190,7 @@ export function GlobalKnowledgeBasePage() {
     setArtSummary('');
     setArtBody('');
     setArtStatus('draft');
+    setArtIsPublic(true);
     setArtCountries(['ALL']);
     setArtPlans(['ALL']);
     setArtTags('');
@@ -208,6 +210,7 @@ export function GlobalKnowledgeBasePage() {
       setArtSummary(detail.summary);
       setArtBody(detail.body);
       setArtStatus(detail.status);
+      setArtIsPublic(detail.isPublic ?? true);
       setArtCountries(detail.targetCountries.length > 0 ? detail.targetCountries : ['ALL']);
       setArtPlans(detail.targetPlans.length > 0 ? detail.targetPlans : ['ALL']);
       setArtTags(detail.tags.join(', '));
@@ -250,6 +253,7 @@ export function GlobalKnowledgeBasePage() {
         summary: artSummary.trim(),
         body: artBody.trim(),
         status: artStatus,
+        isPublic: artIsPublic,
         targetCountries: artCountries,
         targetPlans: artPlans,
         tags: parsedTags,
@@ -1143,6 +1147,22 @@ export function GlobalKnowledgeBasePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Public Website Help Center Toggle */}
+              <label className="flex items-start gap-2.5 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={artIsPublic}
+                  onChange={(e) => setArtIsPublic(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                  <strong className="block text-slate-900 dark:text-white">
+                    Show on Public Website Help Center
+                  </strong>
+                  When enabled and Published with Global (All Countries + All Subscription Tiers), this article appears on the public marketing Help Center. Per-country or per-plan articles always remain private to signed-in workspaces.
+                </span>
+              </label>
 
               {/* Row 5: Tags */}
               <div className="space-y-1">

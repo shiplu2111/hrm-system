@@ -57,6 +57,8 @@ npm run migrate -- --name create_organization_structure
 | `20260902111231_create_roster_shift_and_leave_tables` | pay/leave/payroll tables, tax_brackets |
 | `20260902111525_create_audit_rbac_and_settings_tables` | audit_logs, roles, permissions, tenant_settings, platform_settings |
 | `20260902153000_create_users_and_refresh_tokens` | users, refresh_tokens |
+| `20261126143000_add_platform_cms_model` | platform CMS tables (`cms_pages`, `cms_page_locales`, `cms_page_versions`, `cms_media`, `cms_menus`, `cms_menu_items`, `cms_redirects`, `cms_post_categories`, `cms_authors`, `cms_posts`, `cms_changelog_entries`, `cms_careers`, `cms_faqs`, `cms_site_settings`) + slug/lock/immutability triggers |
+| `20261126160000_cms_workflow_approvals_timezone` | `platform_users.timezone`, legal four-eyes approval fields on `cms_pages`, timezone-aware scheduling on `cms_pages`/`cms_posts`/`cms_changelog_entries` |
 
 ## 8. Rollout Process
 

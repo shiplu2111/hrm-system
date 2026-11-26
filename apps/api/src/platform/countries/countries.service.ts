@@ -15,6 +15,7 @@ import type {
   CountrySummary,
   InheritingTenantsResponse,
   InheritingTenantView,
+  PublicCountryView,
   StateProvinceView,
   TaxBracketRecord,
 } from '@hrm/shared-types';
@@ -1022,6 +1023,125 @@ export class CountriesService {
         message: `Unsupported rule type: ${ruleType}`,
       });
     }
+  }
+
+  async listPublicCountries(): Promise<PublicCountryView[]> {
+    const countries = await this.prisma.unscoped.country.findMany({
+      where: { status: CountryStatus.active },
+      orderBy: { name: 'asc' },
+      include: {
+        statesProvinces: {
+          where: { status: StateProvinceStatus.active },
+          select: { id: true },
+        },
+        countryRules: {
+          where: { status: RuleVersionStatus.published },
+          select: { ruleType: true, payload: true },
+        },
+        taxBrackets: {
+          where: { status: RuleVersionStatus.published },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    return countries.map((country) => this.toPublicCountryView(country));
+  }
+
+  async getPublicCountryBySlug(slugOrIso: string): Promise<PublicCountryView> {
+    const normalized = slugOrIso.trim().toLowerCase();
+    const countries = await this.listPublicCountries();
+    const match = countries.find(
+      (c) => c.slug === normalized || c.isoCode.toLowerCase() === normalized,
+    );
+
+    if (!match) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Active country not found',
+      });
+    }
+
+    return match;
+  }
+
+  private toCountrySlug(name: string): string {
+    return name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  private toPublicCountryView(country: {
+    id: string;
+    name: string;
+    isoCode: string;
+    currency: string;
+    defaultPayFrequency: string;
+    statesProvinces: { id: string }[];
+    countryRules: { ruleType: CountryRuleType; payload: unknown }[];
+    taxBrackets: { id: string }[];
+  }): PublicCountryView {
+    const publishedRuleTypes = new Set(country.countryRules.map((r) => r.ruleType));
+    const hasTax = country.taxBrackets.length > 0 || publishedRuleTypes.has('tax');
+    const hasSocialSecurity =
+      publishedRuleTypes.has('social_security') || publishedRuleTypes.has('pension');
+
+    // Determine label flavor (superannuation vs pension vs social security) without exposing rates
+    let socialSecurityType: 'superannuation' | 'social_security' | 'pension' = 'social_security';
+    for (const rule of country.countryRules) {
+      if (rule.ruleType === 'social_security' || rule.ruleType === 'pension') {
+        const payload = rule.payload as Record<string, unknown> | null;
+        const schemeName = typeof payload?.schemeName === 'string' ? payload.schemeName.toLowerCase() : '';
+        if (
+          payload?.superannuationGuaranteeRate !== undefined ||
+          schemeName.includes('super')
+        ) {
+          socialSecurityType = 'superannuation';
+          break;
+        }
+        if (rule.ruleType === 'pension' || schemeName.includes('pension') || schemeName.includes('provident')) {
+          socialSecurityType = 'pension';
+        }
+      }
+    }
+
+    // Read supported pay schedules if present on employment rules; default to country's configured frequency
+    const freqSet = new Set<string>([country.defaultPayFrequency]);
+    for (const rule of country.countryRules) {
+      const payload = rule.payload as Record<string, unknown> | null;
+      const list = Array.isArray(payload?.supportedPayFrequencies)
+        ? payload.supportedPayFrequencies
+        : Array.isArray(payload?.payFrequencies)
+          ? payload.payFrequencies
+          : [];
+      for (const item of list) {
+        if (typeof item === 'string' && item.trim()) {
+          freqSet.add(item.trim().toLowerCase());
+        }
+      }
+    }
+
+    return {
+      id: country.id,
+      slug: this.toCountrySlug(country.name),
+      name: country.name,
+      isoCode: country.isoCode,
+      currency: country.currency,
+      defaultPayFrequency: country.defaultPayFrequency,
+      payFrequencies: Array.from(freqSet),
+      statutorySupport: {
+        tax: hasTax,
+        socialSecurityOrSuperannuation: hasSocialSecurity,
+        socialSecurityType,
+        statutoryLeave: publishedRuleTypes.has('leave'),
+        publicHolidays: publishedRuleTypes.has('public_holiday'),
+        overtime: publishedRuleTypes.has('ot'),
+      },
+      statesCount: country.statesProvinces.length,
+    };
   }
 
   private parseDateOnly(value: string): Date {

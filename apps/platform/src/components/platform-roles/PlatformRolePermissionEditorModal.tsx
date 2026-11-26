@@ -32,7 +32,7 @@ interface Props {
   onDeleteRequest?: (role: PlatformRoleRecord) => void;
 }
 
-const ALL_ACTIONS = ['view', 'create', 'edit', 'delete', 'manage', 'impersonate'] as const;
+const ALL_ACTIONS = ['view', 'create', 'edit', 'delete', 'manage', 'impersonate', 'raw_html'] as const;
 
 function grantKey(module: string, action: string) {
   return `${module}:${action}`;

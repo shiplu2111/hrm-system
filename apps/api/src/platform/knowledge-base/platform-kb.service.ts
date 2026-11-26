@@ -51,6 +51,7 @@ export class PlatformKbService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedInitialGlobalArticlesIfEmpty();
+    await this.seedPublicHelpCenterArticles();
   }
 
   /**
@@ -367,7 +368,10 @@ export class PlatformKbService implements OnModuleInit {
       summary: a.summary,
       status: (a.status as GlobalKbStatus) || (a.published ? 'published' : 'draft'),
       published: a.published ?? (a.status === 'published'),
+      isPublic: a.isPublic ?? true,
       viewCount: a.viewCount || 0,
+      helpfulYesCount: a.helpfulYesCount || 0,
+      helpfulNoCount: a.helpfulNoCount || 0,
       targetCountries: a.targetCountries || [],
       targetPlans: a.targetPlans || [],
       tags: a.tags || [],
@@ -434,7 +438,10 @@ export class PlatformKbService implements OnModuleInit {
       body: article.body,
       status: (article.status as GlobalKbStatus) || (article.published ? 'published' : 'draft'),
       published: article.published ?? (article.status === 'published'),
+      isPublic: article.isPublic ?? true,
       viewCount: currentViewCount,
+      helpfulYesCount: article.helpfulYesCount || 0,
+      helpfulNoCount: article.helpfulNoCount || 0,
       targetCountries: article.targetCountries || [],
       targetPlans: article.targetPlans || [],
       tags: article.tags || [],
@@ -501,6 +508,7 @@ export class PlatformKbService implements OnModuleInit {
         body: input.body.trim(),
         status: input.status || 'draft',
         published: isPublished,
+        isPublic: input.isPublic ?? true,
         viewCount: 0,
         targetCountries: countries,
         targetPlans: plans,
@@ -527,7 +535,10 @@ export class PlatformKbService implements OnModuleInit {
       body: created.body,
       status: (created.status as GlobalKbStatus) || (created.published ? 'published' : 'draft'),
       published: created.published,
+      isPublic: created.isPublic ?? true,
       viewCount: created.viewCount || 0,
+      helpfulYesCount: created.helpfulYesCount || 0,
+      helpfulNoCount: created.helpfulNoCount || 0,
       targetCountries: created.targetCountries,
       targetPlans: created.targetPlans,
       tags: created.tags,
@@ -596,6 +607,7 @@ export class PlatformKbService implements OnModuleInit {
                   : existing.publishedAt,
             }
           : {}),
+        ...(input.isPublic !== undefined ? { isPublic: input.isPublic } : {}),
         ...(input.targetCountries !== undefined
           ? { targetCountries: input.targetCountries.map((c) => c.toUpperCase()) }
           : {}),
@@ -624,7 +636,10 @@ export class PlatformKbService implements OnModuleInit {
       body: updated.body,
       status: (updated.status as GlobalKbStatus) || (updated.published ? 'published' : 'draft'),
       published: updated.published,
+      isPublic: updated.isPublic ?? true,
       viewCount: updated.viewCount || 0,
+      helpfulYesCount: updated.helpfulYesCount || 0,
+      helpfulNoCount: updated.helpfulNoCount || 0,
       targetCountries: updated.targetCountries,
       targetPlans: updated.targetPlans,
       tags: updated.tags,
@@ -845,6 +860,78 @@ export class PlatformKbService implements OnModuleInit {
       this.logger.log(`Successfully seeded ${defaultCategories.length} categories and ${seedArticles.length} global articles.`);
     } catch (err: any) {
       this.logger.warn(`Could not seed global KB articles (might already exist): ${err.message}`);
+    }
+  }
+
+  /**
+   * Ensures core Help Center articles (public, published, ALL countries & ALL plans)
+   * exist idempotently with headings, step lists, diagrams, and callouts.
+   */
+  async seedPublicHelpCenterArticles(): Promise<void> {
+    try {
+      const catSlugs = ['getting-started', 'payroll-compliance', 'attendance-scheduling'];
+      const cats = await this.db.globalKbCategory.findMany({
+        where: { slug: { in: catSlugs } },
+        select: { id: true, slug: true },
+      });
+      const catBySlug = new Map<string, string>(cats.map((c: any) => [c.slug, c.id]));
+
+      const publicArticles = [
+        {
+          categorySlug: 'getting-started',
+          title: 'How the Multi-Layer Rule Resolver Works Across Countries & Policies',
+          slug: 'how-rule-resolver-works',
+          summary:
+            'Understand how Global Defaults, Country Rules, State Rules, Company Policies, and Employee Contracts combine automatically.',
+          body: `## Rule Resolution Chain\n\nCMSN-HR evaluates every leave, overtime, holiday, and payroll policy deterministically from broad defaults down to individual contracts.\n\n![Rule Resolver precedence hierarchy diagram](/images/help/rule-resolver-chain.svg "Five-layer rule resolution chain from Global Default to Employee Contract")\n\n> [!NOTE] Every calculation resolves rules active on the payroll period or attendance date rather than today's system date.\n\n### Step-by-Step Setup Order\n\n1. Verify your company country and state/province during onboarding so statutory rule packs bind automatically.\n2. Review company-level policy overrides under **Settings -> Policies** to customize carryover caps or notice periods.\n3. Adjust employee-specific contract terms only when an individual offer differs from company policy.\n\n> [!TIP] Test any draft policy override in your workspace preview before finalizing a payroll period.`,
+          tags: ['rules', 'onboarding', 'policies', 'countries'],
+        },
+        {
+          categorySlug: 'payroll-compliance',
+          title: 'Running Deterministic Payroll & Issuing Adjustment Records',
+          slug: 'deterministic-payroll-and-adjustments',
+          summary:
+            'Walk through previewing pay runs, locking finalized batches, and issuing linked adjustment entries without mutating finalized rows.',
+          body: `## Deterministic Payroll Workflow\n\nIdentical timecards, contracts, and statutory rule versions always produce identical net pay and tax deductions.\n\n![Payroll run and adjustment flow diagram](/images/help/payroll-run-cycle.svg "Preview, lock, and linked payroll adjustments flow")\n\n### How to Run & Finalize Payroll\n\n1. Open **Payroll -> Pay Runs** and select your active pay period.\n2. Run **Calculate Draft** to generate payslip previews, overtime totals, and statutory deductions.\n3. Audit variance highlights and export the draft summary for finance sign-off.\n4. Click **Finalize Pay Run** to lock all rows and generate payslips.\n\n> [!IMPORTANT] Finalized payroll runs are locked permanently. Any post-finalization correction creates a linked adjustment record (\`payroll_adjustments\`) so historical filings remain reproducible.`,
+          tags: ['payroll', 'adjustments', 'audit', 'payslips'],
+        },
+        {
+          categorySlug: 'attendance-scheduling',
+          title: 'Capturing Attendance Offline & Setting Up Shift Schedules',
+          slug: 'offline-attendance-and-schedules',
+          summary:
+            'Learn how field teams clock in offline, how server timestamps prevent clock tampering, and how shifts feed overtime rules.',
+          body: `## Offline-First Mobile Check-Ins\n\nField and shift teams can record clock-ins, breaks, and clock-outs even without network coverage.\n\n![Offline attendance queue and server sync diagram](/images/help/offline-sync-flow.svg "Client UUID buffering and authoritative server reconciliation")\n\n### Setup & Reconciliation Steps\n\n1. Assign work shifts and break templates to each branch or department.\n2. Employees check in using the mobile app; offline events store a unique \`local_id\` UUID.\n3. When connectivity returns, buffered punches sync idempotently without creating duplicate records.\n4. Significant clock skew between device and server automatically raises a \`time_anomaly\` flag for supervisor review.\n\n> [!WARNING] Only server-validated attendance records become eligible for payroll hours.`,
+          tags: ['attendance', 'offline', 'shifts', 'mobile', 'overtime'],
+        },
+      ];
+
+      for (const item of publicArticles) {
+        const categoryId = catBySlug.get(item.categorySlug);
+        if (!categoryId) continue;
+
+        await this.db.globalKbArticle.upsert({
+          where: { slug: item.slug },
+          create: {
+            categoryId,
+            title: item.title,
+            slug: item.slug,
+            summary: item.summary,
+            body: item.body,
+            status: 'published',
+            published: true,
+            isPublic: true,
+            targetCountries: ['ALL'],
+            targetPlans: ['ALL'],
+            tags: item.tags,
+            authorName: 'Platform Documentation',
+            publishedAt: new Date(),
+          },
+          update: {},
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not seed public Help Center articles: ${err?.message}`);
     }
   }
 }

@@ -1,11 +1,13 @@
 // health-telemetry.service.ts
 // Platform Health Telemetry Collector: API latency/error rate, DB connections, Redis, BullMQ queues, WebSockets, and Mobile Sync
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PlatformSettingCategory } from '@prisma/client';
 import type {
   ApiLatencyAndErrorRate,
   CreatePlatformIncidentInput,
   DatabaseConnectionHealth,
+  GlobalKillSwitch,
   HealthTimeseriesResponse,
   HealthTimeseriesTrendPoint,
   MobileSyncHealth,
@@ -15,6 +17,10 @@ import type {
   PlatformComprehensiveHealth,
   PlatformIncidentItem,
   PlatformIncidentsResponse,
+  PublicComponentState,
+  PublicPlatformStatusResponse,
+  PublicStatusComponent,
+  PublicStatusComponentId,
   QueueHealthItem,
   QueueHealthSummary,
   RedisHealth,
@@ -28,6 +34,14 @@ import { PrismaService } from '../../database/prisma.service';
 import { getRedisConnection, isRedisConfigured } from '../../queue/redis.connection';
 import { NotificationRealtimeService } from '../../realtime/notification-realtime.service';
 import { Queue } from 'bullmq';
+import {
+  compute90DayUptime,
+  getComponentLabel,
+  isPublicIncidentRecord,
+  mapSubsystemToPublicComponent,
+  maxComponentState,
+  toPublicIncident,
+} from './public-status.sanitizer';
 
 interface RequestSample {
   timestamp: number;
@@ -252,6 +266,20 @@ export class HealthTelemetryService {
     }
   }
 
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   /**
    * Redis status, memory consumption, and connected clients.
    */
@@ -268,12 +296,21 @@ export class HealthTelemetryService {
     const t0 = Date.now();
     try {
       const redis = getRedisConnection();
-      await redis.ping();
+      if (redis.status === 'end' || redis.status === 'close' || redis.status === 'reconnecting') {
+        return {
+          status: 'disconnected',
+          pingLatencyMs: 0,
+          usedMemory: 'Unavailable',
+          connectedClients: 0,
+        };
+      }
+
+      await this.withTimeout(redis.ping(), 1200, 'Redis ping');
       const pingLatencyMs = Date.now() - t0;
 
-      const memInfo = await redis.info('memory');
-      const clientInfo = await redis.info('clients');
-      const serverInfo = await redis.info('server');
+      const memInfo = await this.withTimeout(redis.info('memory'), 1200, 'Redis memory info');
+      const clientInfo = await this.withTimeout(redis.info('clients'), 1200, 'Redis client info');
+      const serverInfo = await this.withTimeout(redis.info('server'), 1200, 'Redis server info');
 
       const usedMemHuman = memInfo.match(/used_memory_human:([^\r\n]+)/)?.[1]?.trim() ?? 'N/A';
       const usedMemPeak = memInfo.match(/used_memory_peak_human:([^\r\n]+)/)?.[1]?.trim() ?? 'N/A';
@@ -313,6 +350,33 @@ export class HealthTelemetryService {
     const queues: QueueHealthItem[] = [];
     let totalQueueDepth = 0;
     let totalFailedJobs = 0;
+    let unreachableQueues = 0;
+
+    if (isRedisConfigured()) {
+      try {
+        const redis = getRedisConnection();
+        if (redis.status === 'end' || redis.status === 'close' || redis.status === 'reconnecting') {
+          return {
+            status: 'degraded',
+            totalQueues: KNOWN_BULLMQ_QUEUES.length,
+            totalQueueDepth: 0,
+            totalFailedJobs: 0,
+            queues: KNOWN_BULLMQ_QUEUES.map((name) => ({
+              queueName: name,
+              status: 'error',
+              waiting: 0,
+              active: 0,
+              delayed: 0,
+              failed: 0,
+              completed: 0,
+              queueDepth: 0,
+            })),
+          };
+        }
+      } catch {
+        // Proceed to individual queue checks
+      }
+    }
 
     for (const name of KNOWN_BULLMQ_QUEUES) {
       const q = this.queueMap.get(name);
@@ -331,7 +395,11 @@ export class HealthTelemetryService {
       }
 
       try {
-        const counts = await q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed');
+        const counts = await this.withTimeout(
+          q.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
+          1200,
+          `Queue ${name} counts`,
+        );
         const depth = (counts.waiting ?? 0) + (counts.active ?? 0) + (counts.delayed ?? 0);
         const failed = counts.failed ?? 0;
         totalQueueDepth += depth;
@@ -355,9 +423,10 @@ export class HealthTelemetryService {
           queueDepth: depth,
         });
       } catch {
+        unreachableQueues++;
         queues.push({
           queueName: name,
-          status: 'healthy',
+          status: 'error',
           waiting: 0,
           active: 0,
           delayed: 0,
@@ -371,7 +440,11 @@ export class HealthTelemetryService {
     let summaryStatus: OverallHealthStatus = 'healthy';
     if (totalFailedJobs > 20) {
       summaryStatus = 'unhealthy';
-    } else if (totalFailedJobs > 0 || totalQueueDepth > 100) {
+    } else if (
+      totalFailedJobs > 0 ||
+      totalQueueDepth > 100 ||
+      (isRedisConfigured() && unreachableQueues > 0)
+    ) {
       summaryStatus = 'degraded';
     }
 
@@ -845,11 +918,11 @@ export class HealthTelemetryService {
         data: [
           {
             incidentNumber: 'INC-2026-081',
-            title: 'Elevated latency on auth API during morning login rush',
+            title: 'Elevated latency on authentication requests',
             subsystem: 'api',
             severity: 'minor',
             status: 'resolved',
-            impact: 'API P95 response times reached 140ms for 12 minutes in eu-central-1.',
+            impact: 'Sign-in and token validation responses experienced brief latency for 12 minutes.',
             rootCause: 'Transient connection saturation on JWT signing key validation cache.',
             startedAt: new Date(Date.now() - 36 * 60 * 60 * 1000),
             resolvedAt: new Date(Date.now() - 35 * 60 * 60 * 1000 - 48 * 60 * 1000),
@@ -857,25 +930,25 @@ export class HealthTelemetryService {
             updates: [
               {
                 timestamp: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-                message: 'Automated telemetry flagged P95 latency > 100ms.',
+                message: 'Platform engineering is investigating elevated authentication response times.',
                 status: 'investigating',
               },
               {
                 timestamp: new Date(Date.now() - 35 * 60 * 60 * 1000 - 48 * 60 * 1000).toISOString(),
-                message: 'Redis token cache warmed up. P95 latency recovered to 28ms.',
+                message: 'Token cache capacity stabilized and response times returned to normal baselines.',
                 status: 'resolved',
               },
             ],
-            metadata: {},
+            metadata: { isPublic: true },
             createdBy: 'system.monitor@cmsnbd.com',
           },
           {
             incidentNumber: 'INC-2026-082',
-            title: 'PostgreSQL autovacuum lock contention on payroll_runs',
+            title: 'Temporary slowdown on background payroll processing',
             subsystem: 'database',
             severity: 'major',
             status: 'resolved',
-            impact: 'Database connection pool usage reached 85% during month-end payroll calculation.',
+            impact: 'Some scheduled background jobs completed slower than usual for 25 minutes.',
             rootCause: 'Heavy table autovacuum coincided with scheduled background payroll generation jobs.',
             startedAt: new Date(Date.now() - 72 * 60 * 60 * 1000),
             resolvedAt: new Date(Date.now() - 71 * 60 * 60 * 1000 - 35 * 60 * 1000),
@@ -883,42 +956,42 @@ export class HealthTelemetryService {
             updates: [
               {
                 timestamp: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
-                message: 'Pool saturation alert triggered.',
+                message: 'Elevated database query contention detected during scheduled batch processing.',
                 status: 'investigating',
               },
               {
                 timestamp: new Date(Date.now() - 71 * 60 * 60 * 1000 - 35 * 60 * 1000).toISOString(),
-                message: 'Vacuum job completed. Connection pool normalized.',
+                message: 'Contention cleared and throughput returned to normal levels.',
                 status: 'resolved',
               },
             ],
-            metadata: {},
+            metadata: { isPublic: true },
             createdBy: 'system.monitor@cmsnbd.com',
           },
           {
             incidentNumber: 'INC-2026-083',
-            title: 'FCM push notification rate throttling by Google Cloud',
+            title: 'Delayed delivery on mobile push reminders',
             subsystem: 'notifications',
             severity: 'minor',
             status: 'resolved',
-            impact: 'Push delivery delay of ~90 seconds for shift attendance reminders.',
-            rootCause: 'Burst dispatch exceeded quota limit; backoff exponential retry absorbed backlog.',
+            impact: 'Push reminders experienced delivery delays of approximately 90 seconds.',
+            rootCause: 'Burst dispatch exceeded upstream push quota limit; exponential backoff retry absorbed backlog.',
             startedAt: new Date(Date.now() - 96 * 60 * 60 * 1000),
             resolvedAt: new Date(Date.now() - 95 * 60 * 60 * 1000 - 15 * 60 * 1000),
             durationMinutes: 45,
             updates: [
               {
                 timestamp: new Date(Date.now() - 96 * 60 * 60 * 1000).toISOString(),
-                message: 'Firebase returned 429 quota throttle.',
+                message: 'Investigating delayed push notification dispatches with upstream delivery partner.',
                 status: 'investigating',
               },
               {
                 timestamp: new Date(Date.now() - 95 * 60 * 60 * 1000 - 15 * 60 * 1000).toISOString(),
-                message: 'Backoff queue dispatched all delayed tokens.',
+                message: 'Queued notifications delivered and delivery latency normalized.',
                 status: 'resolved',
               },
             ],
-            metadata: {},
+            metadata: { isPublic: true },
             createdBy: 'system.monitor@cmsnbd.com',
           },
         ],
@@ -943,6 +1016,7 @@ export class HealthTelemetryService {
       resolvedAt: r.resolvedAt ? r.resolvedAt.toISOString() : null,
       durationMinutes: r.durationMinutes,
       updates: r.updates as any,
+      isPublic: isPublicIncidentRecord(r),
       createdBy: r.createdBy,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
@@ -974,10 +1048,15 @@ export class HealthTelemetryService {
 
     const status = input.status || 'investigating';
     const now = new Date();
+    const resolvedAt = status === 'resolved' ? now : null;
+    const isPublic = input.isPublic !== false;
     const initialUpdate = {
       timestamp: now.toISOString(),
-      message: input.initialMessage || `Incident opened with severity ${input.severity}: ${input.impact}`,
+      message:
+        input.initialMessage?.trim() ||
+        `Incident opened (${input.severity}): ${input.impact}`,
       status,
+      author: actorEmail,
     };
 
     const record = await this.prisma.unscoped.platformIncident.create({
@@ -990,7 +1069,10 @@ export class HealthTelemetryService {
         impact: input.impact,
         rootCause: input.rootCause || null,
         startedAt: now,
+        resolvedAt,
+        durationMinutes: status === 'resolved' ? 1 : null,
         updates: [initialUpdate],
+        metadata: { isPublic },
         createdBy: actorEmail || 'platform.admin@cmsnbd.com',
       },
     });
@@ -1008,6 +1090,7 @@ export class HealthTelemetryService {
       resolvedAt: record.resolvedAt ? record.resolvedAt.toISOString() : null,
       durationMinutes: record.durationMinutes,
       updates: record.updates as any,
+      isPublic: isPublicIncidentRecord(record),
       createdBy: record.createdBy,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
@@ -1015,7 +1098,7 @@ export class HealthTelemetryService {
   }
 
   /**
-   * Update an existing platform incident (add update note, resolve, adjust severity).
+   * Update an existing platform incident (add update note, resolve, adjust severity/component).
    */
   async updateIncident(
     id: string,
@@ -1026,17 +1109,18 @@ export class HealthTelemetryService {
       where: { id },
     });
     if (!existing) {
-      throw new Error(`Platform incident with ID ${id} not found.`);
+      throw new NotFoundException(`Platform incident with ID ${id} not found.`);
     }
 
     const updates = Array.isArray(existing.updates) ? [...(existing.updates as any[])] : [];
     const now = new Date();
+    const nextStatus = input.resolve ? 'resolved' : input.status || existing.status;
 
-    if (input.updateMessage) {
+    if (input.updateMessage?.trim()) {
       updates.push({
         timestamp: now.toISOString(),
-        message: input.updateMessage,
-        status: input.status || existing.status,
+        message: input.updateMessage.trim(),
+        status: nextStatus,
         author: actorEmail,
       });
     }
@@ -1044,27 +1128,42 @@ export class HealthTelemetryService {
     let resolvedAt = existing.resolvedAt;
     let durationMinutes = existing.durationMinutes;
 
-    if (input.resolve || input.status === 'resolved') {
+    if (nextStatus === 'resolved' && existing.status !== 'resolved') {
       resolvedAt = now;
       durationMinutes = Math.max(1, Math.round((now.getTime() - existing.startedAt.getTime()) / 60000));
-      updates.push({
-        timestamp: now.toISOString(),
-        message: 'Incident marked as resolved. Normal operational baselines restored.',
-        status: 'resolved',
-        author: actorEmail,
-      });
+      if (!input.updateMessage?.trim()) {
+        updates.push({
+          timestamp: now.toISOString(),
+          message: 'Incident marked as resolved. Normal operational baselines restored.',
+          status: 'resolved',
+          author: actorEmail,
+        });
+      }
+    } else if (nextStatus !== 'resolved' && existing.status === 'resolved') {
+      resolvedAt = null;
+      durationMinutes = null;
     }
+
+    const existingMeta =
+      existing.metadata && typeof existing.metadata === 'object'
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const nextMetadata =
+      input.isPublic !== undefined ? { ...existingMeta, isPublic: input.isPublic } : existingMeta;
 
     const updated = await this.prisma.unscoped.platformIncident.update({
       where: { id },
       data: {
-        status: input.resolve ? 'resolved' : input.status || existing.status,
+        title: input.title?.trim() || existing.title,
+        subsystem: input.subsystem || existing.subsystem,
+        status: nextStatus,
         severity: input.severity || existing.severity,
-        impact: input.impact || existing.impact,
-        rootCause: input.rootCause || existing.rootCause,
+        impact: input.impact?.trim() || existing.impact,
+        rootCause: input.rootCause !== undefined ? input.rootCause.trim() || null : existing.rootCause,
         resolvedAt,
         durationMinutes,
         updates,
+        metadata: nextMetadata as any,
       },
     });
 
@@ -1081,9 +1180,288 @@ export class HealthTelemetryService {
       resolvedAt: updated.resolvedAt ? updated.resolvedAt.toISOString() : null,
       durationMinutes: updated.durationMinutes,
       updates: updated.updates as any,
+      isPublic: isPublicIncidentRecord(updated),
       createdBy: updated.createdBy,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  private async probeOptionalWebApp(): Promise<boolean> {
+    const probeUrl = process.env.WEB_APP_HEALTH_URL?.trim();
+    if (!probeUrl) return true;
+    try {
+      const response = await fetch(probeUrl, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: AbortSignal.timeout(1200),
+      });
+      return response.ok || response.status < 500;
+    } catch {
+      return false;
+    }
+  }
+
+  private async getMaintenanceAndKillSwitchSummary(): Promise<{
+    active: boolean;
+    scheduled: boolean;
+    scheduledStart: string | null;
+    scheduledEnd: string | null;
+    message: string | null;
+    outgoingSmsDisabled: boolean;
+  }> {
+    try {
+      const rows = await this.prisma.unscoped.platformSetting?.findMany?.({
+        where: { category: PlatformSettingCategory.maintenance },
+      });
+      if (!rows || rows.length === 0) {
+        return {
+          active: false,
+          scheduled: false,
+          scheduledStart: null,
+          scheduledEnd: null,
+          message: null,
+          outgoingSmsDisabled: false,
+        };
+      }
+
+      const configRow = rows.find((r) => r.key === 'config');
+      const switchesRow = rows.find((r) => r.key === 'kill_switches');
+
+      let active = false;
+      let scheduled = false;
+      let scheduledStart: string | null = null;
+      let scheduledEnd: string | null = null;
+      let message: string | null = null;
+
+      if (configRow?.value && typeof configRow.value === 'object') {
+        const val = configRow.value as Record<string, any>;
+        scheduledStart = val.scheduledStart || null;
+        scheduledEnd = val.scheduledEnd || null;
+        if (val.enabled) {
+          active = true;
+          message = typeof val.customMessage === 'string' ? val.customMessage : null;
+        } else if (scheduledStart && scheduledEnd) {
+          const nowMs = Date.now();
+          const startMs = new Date(scheduledStart).getTime();
+          const endMs = new Date(scheduledEnd).getTime();
+          if (nowMs >= startMs && nowMs <= endMs) {
+            active = true;
+            message = typeof val.customMessage === 'string' ? val.customMessage : null;
+          } else if (nowMs < startMs) {
+            scheduled = true;
+            message = typeof val.customMessage === 'string' ? val.customMessage : null;
+          }
+        }
+      }
+
+      const switches = Array.isArray(switchesRow?.value)
+        ? (switchesRow.value as unknown as GlobalKillSwitch[])
+        : [];
+      const smsSwitch = switches.find((s) => s.key === 'outgoing_sms');
+
+      return {
+        active,
+        scheduled,
+        scheduledStart,
+        scheduledEnd,
+        message,
+        outgoingSmsDisabled: smsSwitch ? smsSwitch.enabled === false : false,
+      };
+    } catch {
+      return {
+        active: false,
+        scheduled: false,
+        scheduledStart: null,
+        scheduledEnd: null,
+        message: null,
+        outgoingSmsDisabled: false,
+      };
+    }
+  }
+
+  /**
+   * Public Status overview (Super Admin Stage Q.2 -> Public /status).
+   * Returns only coarse component states, 90-day uptime bars, and sanitized staff incident history.
+   * Never exposes internal hostnames, queue names, provider names, emails, or raw errors.
+   */
+  async getPublicStatusOverview(): Promise<PublicPlatformStatusResponse> {
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000);
+
+    const [
+      api,
+      database,
+      redis,
+      queues,
+      storage,
+      notifications,
+      mobileSync,
+      webAppReachable,
+      maintenanceInfo,
+      rawIncidents,
+    ] = await Promise.all([
+      Promise.resolve(this.getApiLatencyAndErrorRate()),
+      this.getDatabaseConnectionHealth(),
+      this.getRedisHealth(),
+      this.getBullMqQueuesHealth(),
+      this.getStorageHealth(),
+      this.getNotificationProvidersHealth(),
+      this.getMobileSyncHealth(),
+      this.probeOptionalWebApp(),
+      this.getMaintenanceAndKillSwitchSummary(),
+      this.prisma.unscoped.platformIncident
+        .findMany({
+          where: {
+            OR: [
+              { status: { not: 'resolved' } },
+              { startedAt: { gte: ninetyDaysAgo } },
+              { resolvedAt: { gte: ninetyDaysAgo } },
+            ],
+          },
+          orderBy: { startedAt: 'desc' },
+          take: 100,
+        })
+        .catch(() => []),
+    ]);
+
+    const publicRecords = rawIncidents.filter((inc) => isPublicIncidentRecord(inc));
+    const activePublicRecords = publicRecords.filter((inc) => inc.status !== 'resolved');
+
+    const redisUnavailable = isRedisConfigured() && redis.status === 'disconnected';
+    const queuesDegraded = queues.status !== 'healthy';
+
+    const stateFromActiveIncidents = (componentId: PublicStatusComponentId): PublicComponentState => {
+      let state: PublicComponentState = 'operational';
+      for (const inc of activePublicRecords) {
+        if (mapSubsystemToPublicComponent(inc.subsystem) !== componentId) continue;
+        if (inc.severity === 'critical') state = maxComponentState(state, 'outage');
+        else if (inc.severity === 'maintenance') state = maxComponentState(state, 'maintenance');
+        else if (inc.severity === 'major') state = maxComponentState(state, 'degraded');
+        else state = maxComponentState(state, 'degraded');
+      }
+      return state;
+    };
+
+    const maintenanceFloor: PublicComponentState = maintenanceInfo.active ? 'maintenance' : 'operational';
+
+    let apiState: PublicComponentState = maxComponentState(
+      maintenanceFloor,
+      stateFromActiveIncidents('api'),
+    );
+    if (database.status === 'unhealthy' || api.status === 'unhealthy') {
+      apiState = maxComponentState(apiState, 'outage');
+    } else if (
+      api.status === 'degraded' ||
+      database.status === 'degraded' ||
+      storage.status !== 'healthy' ||
+      redisUnavailable ||
+      queuesDegraded
+    ) {
+      apiState = maxComponentState(apiState, 'degraded');
+    }
+
+    let webAppState: PublicComponentState = maxComponentState(
+      maintenanceFloor,
+      stateFromActiveIncidents('web_app'),
+    );
+    if (!webAppReachable || database.status === 'unhealthy') {
+      webAppState = maxComponentState(webAppState, 'degraded');
+    }
+
+    let mobileSyncState: PublicComponentState = maxComponentState(
+      maintenanceFloor,
+      stateFromActiveIncidents('mobile_sync'),
+    );
+    if (mobileSync.status === 'unhealthy') {
+      mobileSyncState = maxComponentState(mobileSyncState, 'outage');
+    } else if (mobileSync.status === 'degraded' || redisUnavailable) {
+      mobileSyncState = maxComponentState(mobileSyncState, 'degraded');
+    }
+
+    let notificationsState: PublicComponentState = maxComponentState(
+      maintenanceFloor,
+      stateFromActiveIncidents('notifications'),
+    );
+    if (notifications.status === 'unhealthy') {
+      notificationsState = maxComponentState(notificationsState, 'outage');
+    } else if (
+      notifications.status === 'degraded' ||
+      maintenanceInfo.outgoingSmsDisabled ||
+      redisUnavailable
+    ) {
+      notificationsState = maxComponentState(notificationsState, 'degraded');
+    }
+
+    const componentDefs: Array<{
+      id: PublicStatusComponentId;
+      description: string;
+      state: PublicComponentState;
+    }> = [
+      {
+        id: 'api',
+        description: 'Core workspace REST services, authentication, payroll engine, and data persistence.',
+        state: apiState,
+      },
+      {
+        id: 'web_app',
+        description: 'Employer Admin Portal, Employee Self-Service web workspace, and public onboarding.',
+        state: webAppState,
+      },
+      {
+        id: 'mobile_sync',
+        description: 'Offline-first mobile punch synchronization, leave requests, and timesheet uploads.',
+        state: mobileSyncState,
+      },
+      {
+        id: 'notifications',
+        description: 'Transactional email alerts, SMS verifications, mobile push, and live workspace updates.',
+        state: notificationsState,
+      },
+    ];
+
+    const now = new Date();
+    const components: PublicStatusComponent[] = componentDefs.map((def) => {
+      const { days, uptime90dPercentage } = compute90DayUptime(
+        def.id,
+        publicRecords,
+        def.state,
+        now,
+      );
+      return {
+        id: def.id,
+        name: getComponentLabel(def.id),
+        description: def.description,
+        state: def.state,
+        uptime90dPercentage,
+        days,
+      };
+    });
+
+    let overallState: PublicComponentState = 'operational';
+    for (const c of components) {
+      overallState = maxComponentState(overallState, c.state);
+    }
+
+    const sanitizedIncidents = publicRecords.map(toPublicIncident);
+    const activeIncidents = sanitizedIncidents.filter((inc) => inc.status !== 'resolved');
+    const incidentHistory = sanitizedIncidents
+      .filter((inc) => inc.status === 'resolved')
+      .slice(0, 20);
+
+    return {
+      overallState,
+      updatedAt: now.toISOString(),
+      refreshIntervalSeconds: 30,
+      maintenance: {
+        active: maintenanceInfo.active,
+        scheduled: maintenanceInfo.scheduled,
+        scheduledStart: maintenanceInfo.scheduledStart,
+        scheduledEnd: maintenanceInfo.scheduledEnd,
+        message: maintenanceInfo.message,
+      },
+      components,
+      activeIncidents,
+      incidentHistory,
     };
   }
 }

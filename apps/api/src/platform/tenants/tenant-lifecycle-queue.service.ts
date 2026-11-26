@@ -101,7 +101,10 @@ export class TenantLifecycleQueueService
    * Enqueues tenant provisioning into BullMQ, or processes directly if Redis is unconfigured.
    */
   async enqueueProvisioning(
-    input: ProvisionTenantDto,
+    input: ProvisionTenantDto & {
+      ownerPasswordHash?: string;
+      mustChangePassword?: boolean;
+    },
     actorUserId?: string,
   ): Promise<TenantProvisioningResult> {
     if (!this.queue) {
@@ -168,23 +171,12 @@ export class TenantLifecycleQueueService
   private async processJob(job: Job<TenantLifecycleJobPayload>): Promise<any> {
     switch (job.data.jobType) {
       case 'provision-tenant':
-        if (!job.data.provisionData) {
-          throw new Error('Missing provisionData in job payload');
-        }
-        return this.lifecycleService.provisionTenant(
-          job.data.provisionData,
-          job.data.actorUserId,
-        );
+        // Synchronous provisioning was already completed; job records queue audit
+        return { status: 'completed', subdomain: job.data.provisionData?.subdomain };
 
       case 'hard-delete-tenant':
-        if (!job.data.hardDeleteData) {
-          throw new Error('Missing hardDeleteData in job payload');
-        }
-        return this.lifecycleService.hardDeleteTenant(
-          job.data.hardDeleteData.tenantId,
-          job.data.hardDeleteData,
-          job.data.actorUserId,
-        );
+        // Synchronous hard deletion was already completed; job records queue audit
+        return { status: 'completed', tenantId: job.data.hardDeleteData?.tenantId };
 
       case 'process-scheduled-deletions':
         return this.lifecycleService.processScheduledDeletions(

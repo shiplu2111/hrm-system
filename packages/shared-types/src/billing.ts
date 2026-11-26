@@ -120,6 +120,67 @@ export interface PlatformPlanDetailView {
   limits: PlatformPlanLimitView[];
 }
 
+export type PublicPlanPricingModel =
+  | 'free'
+  | 'base_plus_employee'
+  | 'per_employee'
+  | 'flat'
+  | 'custom';
+
+export interface PublicPlanFeatureView {
+  key: string;
+  label: string;
+  included: boolean;
+}
+
+export interface PublicPlanLimitView {
+  key: string;
+  label: string;
+  value: number | null;
+}
+
+export interface PublicPlanPriceView {
+  currency: string;
+  billingCycle: 'monthly' | 'annual';
+  amount: number;
+  perSeatAmount: number | null;
+  effectiveFrom: string;
+}
+
+export interface PublicPlanView {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  rank: number;
+  pricingModel: PublicPlanPricingModel;
+  includedSeats: number;
+  isPopular: boolean;
+  features: PublicPlanFeatureView[];
+  limits: PublicPlanLimitView[];
+  prices: PublicPlanPriceView[];
+}
+
+export interface PublicCurrencyCountryRef {
+  isoCode: string;
+  name: string;
+  slug: string;
+}
+
+export interface PublicCurrencyView {
+  code: string;
+  symbol: string;
+  name: string;
+  decimalPlaces: number;
+  isDefault: boolean;
+  countries: PublicCurrencyCountryRef[];
+}
+
+export interface PublicCurrenciesMeta {
+  detectedCountry: string | null;
+  defaultCurrency: string;
+}
+
 export type SubscriptionState =
   | 'trialing'
   | 'active'

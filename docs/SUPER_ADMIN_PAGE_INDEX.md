@@ -6,7 +6,7 @@ This document provides the definitive specification of the Super Admin (Platform
 
 ## 1. Platform Staff Roles & Responsibilities
 
-The CMSN-HR platform control plane defines six built-in system roles operating under root scope (`aud: platform`). Multi-tenant isolation is strictly maintained (`@SkipTenantScope()` on platform endpoints with JWT platform session authentication).
+The CMSN-HR platform control plane defines seven built-in system roles operating under root scope (`aud: platform`). Multi-tenant isolation is strictly maintained (`@SkipTenantScope()` on platform endpoints with JWT platform session authentication).
 
 | Role Name | Scope & Authority | Primary Responsibilities |
 |---|---|---|
@@ -15,6 +15,7 @@ The CMSN-HR platform control plane defines six built-in system roles operating u
 | **Billing Admin** | Invoicing & Revenue Control | Tenant subscriptions, plan tiers, payment gateways, invoice management, MRR/ARR analytics, financial churn tracking, and billing audit logs. |
 | **Support Agent** | Tenant Support & Escalations | Cross-tenant support ticket queue management, internal collaboration notes, global knowledge base curation, and time-boxed audited tenant impersonation sessions (`support:impersonate`). |
 | **Compliance Admin** | Statutory & Regulatory Governance | Statutory labor baselines, country-level tax bracket versions, compliance calendar, four-eyes rule approval workflows, payroll calculation sandbox simulation, and currency exchange rates. |
+| **Sales** | Commercial Pipeline & Leads | Triage website sales leads, demo requests, and contact messages; filter pipeline; assign staff; add notes; transition statuses (`new`, `contacted`, `qualified`, `closed`); export CSV. Restricted from tenant operations, billing, staff roles, and support access. |
 | **Read-Only Auditor** | Independent Compliance & Audit | Read-only inspection access across all operational, financial, and compliance domains; immutable platform audit log review; CSV export. All mutating, editing, or destructive actions are strictly blocked. |
 
 ---
@@ -57,52 +58,56 @@ The platform application contains 32 distinct administrative views organised int
 | 30 | Settings | Platform Staff & Roles | `platform-users` | `#/platform-users` | `user:view` | Operator accounts, RBAC permissions, and mandatory 2FA enforcement. |
 | 31 | Settings | Language Packs | `language-packs` | `#/language-packs` | `platform:view` | Supported languages, translation completeness, and JSON import/export. |
 | 32 | Settings | Platform Settings | `platform-settings` | `#/platform-settings` | `setting:view` | Global fallback SMTP, S3 storage buckets, and security thresholds. |
+| 53 | Sales & Growth | Leads | `leads` | `#/leads` | `leads:view` (+ Role Gate) | Commercial sales leads and contact messages with status/country/date/source filters, detail & notes, staff assignment, audit-logged status transitions, and CSV export. |
+| 54 | Sales & Growth | Demo Requests | `demo-requests` | `#/demo-requests` | `leads:view` (+ Role Gate) | Public Book a Demo requests with qualification filters, assignee routing, call notes, audit timeline, and CSV export. |
 
 ---
 
 ## 3. Verified Role x Page Access Matrix
 
-The following matrix represents the verified access configuration across all 6 platform staff roles.
+The following matrix represents the verified access configuration across all 7 platform staff roles.
 
 > **Legend**:
 > - `✓ Granted`: Authorized page access. Route accessible, navigation item visible, API endpoints accessible.
 > - `— Denied`: Restricted page. Navigation item hidden from sidebar, route navigation intercepted, API access returns `403 Forbidden`.
 
-| # | Page Name | Key | Platform Owner | Platform Admin | Billing Admin | Support Agent | Compliance Admin | Read-Only Auditor |
-|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | Platform Overview | `dashboard` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 2 | System Health | `system-health` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 3 | Job Queue Inspector | `queue-inspector` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied |
-| 4 | Tenants Directory | `tenants` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
-| 5 | Usage & Storage | `usage-storage` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
-| 6 | Sandbox Tenants | `sandbox-tenants` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
-| 7 | Provision Tenant | `tenant-provisioning` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied |
-| 8 | Tenant Isolation | `tenant-isolation` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
-| 9 | Branding & Custom Domains | `branding-domains` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
-| 10 | Subscriptions & Plans | `billing` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
-| 11 | Revenue & Financial Reports | `billing-invoices` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
-| 12 | Country Configuration | `country-compliance` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 13 | Compliance Calendar | `compliance-calendar` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 14 | Rule Approvals Inbox | `rule-approvals` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 15 | Rule Test Sandbox | `rule-sandbox` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 16 | Default Templates | `provisioning-templates` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 17 | Exchange Rates | `exchange-rates` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 18 | Statutory Baselines | `statutory-rules` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | ✓ Granted |
-| 19 | Feature Flags | `feature-flags` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 20 | Announcements | `platform-announcements` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 21 | Platform Audit Logs | `platform-audit` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | ✓ Granted |
-| 22 | Support Tickets | `support-tickets` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | ✓ Granted |
-| 23 | Support Sessions Log | `support-sessions` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | ✓ Granted |
-| 24 | Global Knowledge Base | `global-kb` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | ✓ Granted |
-| 25 | API Apps & Keys | `api-registry` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 26 | Webhook Monitor | `webhook-monitor` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 27 | Backups & Restore Requests | `backups-compliance` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied |
-| 28 | Maintenance & Toggles | `system-notifications` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 29 | My Account & Security | `my-account` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 30 | Platform Staff & Roles | `platform-users` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied |
-| 31 | Language Packs | `language-packs` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
-| 32 | Platform Settings | `platform-settings` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied |
-| **Total Accessible Pages** | | | **32 / 32** | **32 / 32** | **17 / 32** | **17 / 32** | **18 / 32** | **26 / 32** |
+| # | Page Name | Key | Platform Owner | Platform Admin | Billing Admin | Support Agent | Compliance Admin | Sales | Read-Only Auditor |
+|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | Platform Overview | `dashboard` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
+| 2 | System Health | `system-health` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 3 | Job Queue Inspector | `queue-inspector` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied | — Denied |
+| 4 | Tenants Directory | `tenants` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 5 | Usage & Storage | `usage-storage` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 6 | Sandbox Tenants | `sandbox-tenants` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 7 | Provision Tenant | `tenant-provisioning` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied | — Denied |
+| 8 | Tenant Isolation | `tenant-isolation` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 9 | Branding & Custom Domains | `branding-domains` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 10 | Subscriptions & Plans | `billing` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | ✓ Granted |
+| 11 | Revenue & Financial Reports | `billing-invoices` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | ✓ Granted |
+| 12 | Country Configuration | `country-compliance` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 13 | Compliance Calendar | `compliance-calendar` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 14 | Rule Approvals Inbox | `rule-approvals` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 15 | Rule Test Sandbox | `rule-sandbox` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 16 | Default Templates | `provisioning-templates` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 17 | Exchange Rates | `exchange-rates` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 18 | Statutory Baselines | `statutory-rules` | ✓ Granted | ✓ Granted | — Denied | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 19 | Feature Flags | `feature-flags` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 20 | Announcements | `platform-announcements` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 21 | Platform Audit Logs | `platform-audit` | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | ✓ Granted |
+| 22 | Support Tickets | `support-tickets` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 23 | Support Sessions Log | `support-sessions` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 24 | Global Knowledge Base | `global-kb` | ✓ Granted | ✓ Granted | — Denied | ✓ Granted | — Denied | — Denied | ✓ Granted |
+| 25 | API Apps & Keys | `api-registry` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 26 | Webhook Monitor | `webhook-monitor` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 27 | Backups & Restore Requests | `backups-compliance` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied | — Denied |
+| 28 | Maintenance & Toggles | `system-notifications` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 29 | My Account & Security | `my-account` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted |
+| 30 | Platform Staff & Roles | `platform-users` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied | — Denied |
+| 31 | Language Packs | `language-packs` | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | ✓ Granted | — Denied | ✓ Granted |
+| 32 | Platform Settings | `platform-settings` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | — Denied | — Denied |
+| 53 | Leads | `leads` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | ✓ Granted | — Denied |
+| 54 | Demo Requests | `demo-requests` | ✓ Granted | ✓ Granted | — Denied | — Denied | — Denied | ✓ Granted | — Denied |
+| **Total Accessible Pages** | | | **34 / 34** | **34 / 34** | **17 / 34** | **17 / 34** | **18 / 34** | **4 / 34** | **26 / 34** |
 
 ---
 
@@ -134,6 +139,8 @@ To adhere strictly to zero-trust principles, all destructive and state-mutating 
 | **Trigger Platform Backup** | `POST /platform/backups/runs` | `setting:edit` | Platform Owner, Platform Admin | Billing Admin, Support Agent, Compliance Admin, Read-Only Auditor | **403 Forbidden** | Entire page hidden |
 | **Approve Tenant Restore** | `POST /platform/backups/restore-requests/:id/approve` | `setting:edit` + Dual Control | Platform Owner, Platform Admin (Dual) | Submitter, Billing Admin, Support Agent, Compliance Admin, Auditor | **403 Forbidden** | Dual control prompt |
 | **Approve Rule Version** | `POST /platform/countries/rule-versions/:id/approve` | Four-Eyes Review Gate | Platform Owner, Platform Admin | Rule Submitter, Compliance Admin, Billing Admin, Support Agent, Auditor | **403 Forbidden** | Approve button hidden |
+| **Update / Assign Lead or Demo Request** | `PATCH /platform/leads/:kind/:id` | `leads:edit` + Role Gate | Platform Owner, Platform Admin, Sales | Billing Admin, Support Agent, Compliance Admin, Read-Only Auditor | **403 Forbidden** | Entire page hidden (Access Restricted) |
+| **Export Leads / Demo CSV** | `GET /platform/leads/export` | `leads:view` + Role Gate | Platform Owner, Platform Admin, Sales | Billing Admin, Support Agent, Compliance Admin, Read-Only Auditor | **403 Forbidden** | Entire page hidden |
 
 ---
 

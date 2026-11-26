@@ -303,6 +303,24 @@ export const SEEDED_MOCK_PLATFORM_USERS: Record<string, PlatformUserView> = {
     createdAt: '2026-01-01T00:00:00.000Z',
     lastLoginAt: '2026-03-01T12:00:00.000Z',
   },
+  'sales.rep@cmsnbd.com': {
+    id: 'mock-sales-id',
+    email: 'sales.rep@cmsnbd.com',
+    firstName: 'Sales',
+    lastName: 'Rep',
+    roleName: 'Sales',
+    roleId: 'role-sales',
+    permissions: [
+      { module: 'leads', action: 'view' },
+      { module: 'leads', action: 'edit' },
+      { module: 'leads', action: 'manage' },
+      { module: 'platform', action: 'view' },
+    ],
+    isActive: true,
+    totpEnabled: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastLoginAt: '2026-03-01T12:00:00.000Z',
+  },
 };
 
 /**

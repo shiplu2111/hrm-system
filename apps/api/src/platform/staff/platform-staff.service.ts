@@ -69,6 +69,7 @@ export const DEFAULT_PLATFORM_ROLES: DefaultPlatformRoleDefinition[] = [
       { module: 'audit', action: 'view' },
       { module: 'setting', action: 'manage' },
       { module: 'user', action: 'manage' },
+      { module: 'cms', action: 'manage' },
     ],
   },
   {
@@ -95,6 +96,48 @@ export const DEFAULT_PLATFORM_ROLES: DefaultPlatformRoleDefinition[] = [
       { module: 'user', action: 'view' },
       { module: 'user', action: 'create' },
       { module: 'user', action: 'edit' },
+      { module: 'leads', action: 'view' },
+      { module: 'leads', action: 'edit' },
+      { module: 'leads', action: 'manage' },
+      { module: 'cms', action: 'view' },
+      { module: 'cms', action: 'create' },
+      { module: 'cms', action: 'edit' },
+      { module: 'cms', action: 'delete' },
+      { module: 'cms', action: 'manage' },
+    ],
+  },
+  {
+    name: 'Content Editor',
+    description:
+      'Author and edit website CMS drafts, translations, and submit legal pages for review. Cannot publish, schedule, unpublish, trash, or approve.',
+    permissions: [
+      { module: 'cms', action: 'view' },
+      { module: 'cms', action: 'create' },
+      { module: 'cms', action: 'edit' },
+      { module: 'platform', action: 'view' },
+    ],
+  },
+  {
+    name: 'Content Publisher',
+    description:
+      'Full website CMS publishing authority: publish now, schedule in timezone, unpublish, trash/restore, and approve legal page revisions.',
+    permissions: [
+      { module: 'cms', action: 'view' },
+      { module: 'cms', action: 'create' },
+      { module: 'cms', action: 'edit' },
+      { module: 'cms', action: 'delete' },
+      { module: 'cms', action: 'manage' },
+      { module: 'platform', action: 'view' },
+    ],
+  },
+  {
+    name: 'Sales',
+    description: 'Commercial leads, demo requests, pipeline qualification, notes, and CSV exports.',
+    permissions: [
+      { module: 'leads', action: 'view' },
+      { module: 'leads', action: 'edit' },
+      { module: 'leads', action: 'manage' },
+      { module: 'platform', action: 'view' },
     ],
   },
   {
@@ -301,6 +344,35 @@ export class PlatformStaffService implements OnModuleInit {
         update: {
           passwordHash,
           roleId: adminRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+    }
+
+    // Seed Sales operator for leads & demo requests triage
+    const salesRole = await this.prisma.unscoped.platformRole.findUnique({
+      where: { name: 'Sales' },
+    });
+    if (salesRole) {
+      await this.prisma.unscoped.platformUser.upsert({
+        where: { email: 'sales.rep@cmsnbd.com' },
+        create: {
+          email: 'sales.rep@cmsnbd.com',
+          passwordHash,
+          firstName: 'Sales',
+          lastName: 'Rep',
+          roleId: salesRole.id,
+          isActive: true,
+          totpSecretEncrypted: encryptedSecret,
+          totpEnabled: true,
+        },
+        update: {
+          passwordHash,
+          roleId: salesRole.id,
           isActive: true,
           totpSecretEncrypted: encryptedSecret,
           totpEnabled: true,

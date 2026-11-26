@@ -41,8 +41,21 @@ import { PlatformUsersPage } from '@/pages/platform/PlatformUsersPage';
 import { PlatformSettingsPage } from '@/pages/platform/PlatformSettingsPage';
 import { PlatformMaintenancePage } from '@/pages/platform/PlatformMaintenancePage';
 import { PlatformAnnouncementsPage } from '@/pages/platform/PlatformAnnouncementsPage';
+import { PlatformDemoRequestsPage } from '@/pages/platform/PlatformDemoRequestsPage';
+import { PlatformLeadsPage } from '@/pages/platform/PlatformLeadsPage';
 import { MyAccountPage } from '@/pages/platform/MyAccountPage';
 import { SupportSessionsLogPage } from '@/pages/platform/SupportSessionsLogPage';
+import { ContentDashboardPage } from '@/pages/platform/ContentDashboardPage';
+import { CmsPagesPage } from '@/pages/platform/CmsPagesPage';
+import { BlogManagementPage } from '@/pages/platform/BlogManagementPage';
+import { ChangelogManagementPage } from '@/pages/platform/ChangelogManagementPage';
+import { CareersManagementPage } from '@/pages/platform/CareersManagementPage';
+import { FaqLibraryPage } from '@/pages/platform/FaqLibraryPage';
+import { MediaLibraryPage } from '@/pages/platform/MediaLibraryPage';
+import { NavigationMenusPage } from '@/pages/platform/NavigationMenusPage';
+import { RedirectsPage } from '@/pages/platform/RedirectsPage';
+import { SiteSettingsPage } from '@/pages/platform/SiteSettingsPage';
+import { CustomPageBuilder } from '@/components/cms/CustomPageBuilderModal';
 
 interface PlatformShellProps {
   currentUser: PlatformUserView | null;
@@ -106,9 +119,15 @@ export function PlatformShell({
 
   const activeItem = allNavItems.get(currentView);
 
+  const isLeadsRoute = currentView === 'leads' || currentView === 'demo-requests';
+  const isRoleAllowedForLeads = ['Platform Owner', 'Platform Admin', 'Sales'].includes(
+    currentUser?.roleName || '',
+  );
+
   const isAccessDenied =
-    activeItem?.permission &&
-    !can(activeItem.permission.module, activeItem.permission.action);
+    (activeItem?.permission &&
+      !can(activeItem.permission.module, activeItem.permission.action)) ||
+    (isLeadsRoute && !isRoleAllowedForLeads);
 
   const renderContent = () => {
     if (isAccessDenied) {
@@ -170,10 +189,44 @@ export function PlatformShell({
         return <TenantIsolationPage />;
       case 'branding-domains':
         return <BrandingDomainsPage />;
+      case 'cms-dashboard':
+        return <ContentDashboardPage />;
+      case 'cms-pages':
+        return <CmsPagesPage />;
+      case 'cms-blog':
+        return <BlogManagementPage />;
+      case 'cms-changelog':
+        return <ChangelogManagementPage />;
+      case 'cms-careers':
+        return <CareersManagementPage />;
+      case 'cms-faqs':
+        return <FaqLibraryPage />;
+      case 'cms-media':
+        return <MediaLibraryPage />;
+      case 'cms-menus':
+        return <NavigationMenusPage />;
+      case 'cms-redirects':
+        return <RedirectsPage />;
+      case 'cms-site-settings':
+        return <SiteSettingsPage />;
+      case 'cms-create-page':
+        return (
+          <CustomPageBuilder
+            mode="create"
+            isStandalonePage
+            onCreated={() => {
+              selectView('cms-pages');
+            }}
+          />
+        );
       case 'billing':
         return <PlatformBillingPage />;
       case 'billing-invoices':
         return <RevenueReportPage />;
+      case 'leads':
+        return <PlatformLeadsPage />;
+      case 'demo-requests':
+        return <PlatformDemoRequestsPage />;
       case 'country-compliance':
         return <CountryCompliancePage />;
       case 'compliance-calendar':

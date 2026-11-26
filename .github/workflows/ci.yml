@@ -71,6 +71,21 @@ jobs:
       - run: npm run build -w @hrm/shared-types
       - run: npm run prisma:generate
       - run: npm run build
+      - run: npm run perf:budget -w @hrm/website
+      - run: npm run security:scan -w @hrm/website
+
+  dependency-scan:
+    name: Dependency & secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Scan production dependency tree for high/critical advisories
+        run: npm audit --omit=dev --audit-level=high
 
   integration-test:
     name: Integration tests (E2E)

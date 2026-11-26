@@ -488,6 +488,13 @@ export class FeatureGateService {
         where: { id: tenantId },
         select: { planId: true },
       });
+      if (isUuid(tenant?.planId)) {
+        const p = await (this.prisma.unscoped as any).plan?.findUnique({
+          where: { id: tenant.planId },
+          select: { code: true },
+        });
+        if (p?.code) return normalizePlanId(p.code);
+      }
       return normalizePlanId(tenant?.planId);
     } catch {
       return DEFAULT_PLAN;
@@ -502,8 +509,7 @@ export class FeatureGateService {
       where: { id: tenantId },
       select: { planId: true, status: true },
     });
-    const planCode = normalizePlanId(tenant.planId);
-    const planName = planCode.charAt(0).toUpperCase() + planCode.slice(1);
+    let planCode = normalizePlanId(tenant.planId);
 
     const [dbPlan, featureOverrides, platformFlags, limitOverrides, usedEmployees, usedCompanies] =
       await Promise.all([
@@ -523,6 +529,11 @@ export class FeatureGateService {
         this.getCurrentUsage(tenantId, 'employees'),
         this.getCurrentUsage(tenantId, 'companies'),
       ]);
+
+    if (dbPlan?.code) {
+      planCode = normalizePlanId(dbPlan.code);
+    }
+    const planName = planCode.charAt(0).toUpperCase() + planCode.slice(1);
 
     const activeOverridesMap = new Map<string, any>();
     for (const ov of featureOverrides) {

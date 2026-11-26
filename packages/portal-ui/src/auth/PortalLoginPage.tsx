@@ -44,6 +44,16 @@ const PORTAL_META: Record<
   },
 };
 
+function resolveInitialTenant(defaultTenant: string): string {
+  if (typeof window === 'undefined') return defaultTenant;
+  try {
+    const param = new URLSearchParams(window.location.search).get('tenant')?.trim();
+    return param || defaultTenant;
+  } catch {
+    return defaultTenant;
+  }
+}
+
 export function PortalLoginPage({
   portal,
   onLogin,
@@ -61,7 +71,7 @@ export function PortalLoginPage({
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [tenant, setTenant] = useState(meta.defaultTenant);
+  const [tenant, setTenant] = useState(() => resolveInitialTenant(meta.defaultTenant));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

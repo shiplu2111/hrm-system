@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 240" role="img" aria-label="Rule Resolver Five-Layer Hierarchy">
+  <rect width="840" height="240" rx="16" fill="#F8FAFC"/>
+  <rect x="24" y="64" width="136" height="112" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="92" y="108" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">1. Global Default</text>
+  <text x="92" y="132" font-family="system-ui,sans-serif" font-size="11" fill="#475569" text-anchor="middle">Baseline fallbacks</text>
+
+  <path d="M162 120 L186 120" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+  <rect x="188" y="64" width="136" height="112" rx="12" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="256" y="108" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1E3A8A" text-anchor="middle">2. Country Rules</text>
+  <text x="256" y="132" font-family="system-ui,sans-serif" font-size="11" fill="#1D4ED8" text-anchor="middle">Statutory tax &amp; leave</text>
+
+  <path d="M326 120 L350 120" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+  <rect x="352" y="64" width="136" height="112" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="420" y="108" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">3. State / Province</text>
+  <text x="420" y="132" font-family="system-ui,sans-serif" font-size="11" fill="#475569" text-anchor="middle">Regional overrides</text>
+
+  <path d="M490 120 L514 120" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+  <rect x="516" y="64" width="136" height="112" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="584" y="108" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">4. Company Policy</text>
+  <text x="584" y="132" font-family="system-ui,sans-serif" font-size="11" fill="#475569" text-anchor="middle">Workspace config</text>
+
+  <path d="M654 120 L678 120" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+  <rect x="680" y="64" width="136" height="112" rx="12" fill="#ECFDF5" stroke="#6EE7B7" stroke-width="1.5"/>
+  <text x="748" y="108" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#065F46" text-anchor="middle">5. Employee Contract</text>
+  <text x="748" y="132" font-family="system-ui,sans-serif" font-size="11" fill="#047857" text-anchor="middle">Highest precedence</text>
+</svg>

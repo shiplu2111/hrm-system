@@ -14,21 +14,46 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { createGlobalValidationPipe } from './common/pipes/validation.pipe';
+import { createCorsDelegate } from './common/security/cors.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors({
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'x-request-id', 'x-tenant-id'],
-  });
-  app.useWebSocketAdapter(new IoAdapter(app));
-  app.use((req: any, _res: any, next: any) => {
-    if (typeof req.url === 'string' && req.url.startsWith('/platform/') && !req.url.startsWith('/api/v1/platform/')) {
-      req.url = `/api/v1${req.url}`;
+  const httpAdapter = app.getHttpAdapter();
+  const expressInstance = httpAdapter?.getInstance?.();
+  if (expressInstance && typeof expressInstance.set === 'function') {
+    // Respect X-Forwarded-For behind Render / Nginx / Cloudflare proxies for accurate rate limiting
+    expressInstance.set('trust proxy', 1);
+    if (typeof expressInstance.disable === 'function') {
+      expressInstance.disable('x-powered-by');
     }
-    next();
+  }
+
+  app.enableCors(createCorsDelegate());
+  app.useWebSocketAdapter(new IoAdapter(app));
+
+  // Baseline HTTP security headers and strict 64 KB payload guard on unauthenticated public routes
+  app.use((req: any, res: any, next: any) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+    const url = typeof req.url === 'string' ? req.url : '';
+    if (url.startsWith('/api/v1/public') || url.startsWith('/public')) {
+      const contentLength = Number(req.headers?.['content-length'] ?? 0);
+      if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
+        return res.status(413).json({
+          error: {
+            code: 'PAYLOAD_TOO_LARGE',
+            message: 'Public endpoint payload exceeds the 64 KB limit.',
+          },
+        });
+      }
+    }
+
+    if (url.startsWith('/platform/') && !url.startsWith('/api/v1/platform/')) {
+      req.url = `/api/v1${url}`;
+    }
+    return next();
   });
   app.setGlobalPrefix('api/v1', {
     exclude: ['', 'health'],

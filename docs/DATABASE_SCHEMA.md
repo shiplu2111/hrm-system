@@ -282,4 +282,79 @@ workplace_incident_parties / injury_log_entries / safety_compliance_records / sa
   -- compliance checklists, and safety inspection records scoped by tenant_id & company_id.
 ```
 
+## 14. Platform Website CMS (Platform-Level, No `tenant_id`)
+
+Public marketing website content lives at platform scope (no `tenant_id`), managed from the Platform Console with explicit bilingual (`en`, `bn`) locale tracking, English fallback, reserved slug protection (`admin`, `api`, `app`, `platform`, `login`, `signup`, `public`, `_next`), lowercase URL-safe slugs, and database-enforced system-page locking & version immutability:
+
+```
+cms_pages
+  id, kind (system|custom), slug (unique, lowercase URL-safe, reserved slugs rejected),
+  status (draft|scheduled|published|unpublished|trashed), locked (true for system pages),
+  requires_approval (true for legal pages), approval_status (none|pending_approval|approved|rejected),
+  pending_approval_version_id, submitted_for_approval_by_id, submitted_for_approval_at, submission_note,
+  approved_by_id, approved_at, approval_note, rejected_by_id, rejected_at, rejection_reason,
+  scheduled_at, scheduled_timezone, scheduled_by_id, published_at,
+  current_published_version_id (nullable → cms_page_versions), deleted_at, created_at, updated_at
+  -- DB trigger blocks DELETE, slug rename, unlock, soft-delete, or unpublish/trash on system/locked pages.
+
+cms_page_locales
+  id, page_id (→ cms_pages), locale (en|bn), is_translated,
+  translation_status (untranslated|in_review|translated),
+  current_draft_version_id, current_published_version_id, created_at, updated_at
+  UNIQUE (page_id, locale)
+  -- Requested `bn` resolves cleanly to `en` fallback when untranslated/unpublished.
+
+cms_page_versions
+  id, page_id (→ cms_pages), version_number, locale (en|bn),
+  title, seo_title, seo_description, canonical_path, og_image_url, no_index,
+  blocks (jsonb), is_translated, author_id (→ platform_users), author_name,
+  change_note, created_at
+  UNIQUE (page_id, locale, version_number)
+  -- Append-only immutable snapshot (no updated_at; UPDATE and DELETE blocked by DB trigger).
+
+cms_media
+  id, filename, original_name, mime_type, size_bytes, storage_key (unique), public_url,
+  width, height, alt_en, alt_bn, caption_en, caption_bn, folder, uploaded_by_id, deleted_at,
+  created_at, updated_at
+
+cms_menus / cms_menu_items
+  cms_menus: id, slug (unique), name, location (header|footer|mobile|legal|custom), is_active, created_at, updated_at
+  cms_menu_items: id, menu_id (→ cms_menus), parent_id (self-ref), label_en, label_bn,
+    description_en, description_bn, target_page_id (→ cms_pages), href, badge_en, badge_bn,
+    sort_order, open_in_new_tab, is_visible, created_at, updated_at
+
+cms_redirects
+  id, source_path (unique), destination_url, redirect_type (permanent_308|permanent_301|temporary_302|temporary_307),
+  is_active, hit_count, note, created_by_id, created_at, updated_at
+
+cms_post_categories / cms_authors / cms_posts
+  cms_post_categories: id, slug (unique), name_en, name_bn, description_en, description_bn, sort_order, created_at, updated_at
+  cms_authors: id, slug (unique), display_name, display_name_bn, role_title, role_title_bn, bio_en, bio_bn,
+    avatar_media_id (→ cms_media), platform_user_id (unique → platform_users), is_active, created_at, updated_at
+  cms_posts: id, slug (unique), status (draft|scheduled|published|unpublished|trashed),
+    category_id (→ cms_post_categories), author_id (→ cms_authors), cover_media_id (→ cms_media),
+    title_en, title_bn, excerpt_en, excerpt_bn, body_json_en, body_html_en, body_json_bn, body_html_bn,
+    is_bn_translated, bn_translation_status, seo_title_en, seo_description_en, seo_title_bn, seo_description_bn,
+    tags, reading_time_minutes, scheduled_at, scheduled_timezone, scheduled_by_id, published_at, deleted_at, created_at, updated_at
+
+cms_changelog_entries
+  id, slug (unique), version_label, release_date, tag (new|improved|fixed|security), module_refs,
+  title_en, summary_en, highlights_en, title_bn, summary_bn, highlights_bn, is_bn_translated,
+  is_published, scheduled_at, scheduled_timezone, scheduled_by_id, published_at, deleted_at,
+  author_id (→ platform_users), created_at, updated_at
+
+cms_careers
+  id, slug (unique), status (draft|open|paused|closed), department, location_type, location_text,
+  employment_type, title_en, summary_en, description_html_en, title_bn, summary_bn, description_html_bn,
+  is_bn_translated, apply_email, published_at, closes_at, deleted_at, created_at, updated_at
+
+cms_faqs
+  id, category, page_slug, question_en, answer_en, question_bn, answer_bn, is_bn_translated,
+  sort_order, is_published, created_at, updated_at
+
+cms_site_settings
+  id, key (unique), value_json (jsonb), description, is_public, updated_by_id, updated_by_name,
+  created_at, updated_at
+```
+
 See MIGRATIONS.md for how schema changes are rolled out.

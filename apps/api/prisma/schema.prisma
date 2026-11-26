@@ -5870,6 +5870,7 @@ model PlatformUser {
   firstName           String    @map("first_name")
   lastName            String    @map("last_name")
   roleId              String    @map("role_id") @db.Uuid
+  timezone            String    @default("UTC")
   isActive            Boolean   @default(true) @map("is_active")
   totpSecretEncrypted String?   @map("totp_secret_encrypted")
   totpEnabled         Boolean   @default(true) @map("totp_enabled")
@@ -5888,6 +5889,12 @@ model PlatformUser {
   resetRequestsReceived  Platform2faResetRequest[] @relation("Platform2faResetTarget")
   resetRequestsInitiated Platform2faResetRequest[] @relation("Platform2faResetRequester")
   resetRequestsReviewed  Platform2faResetRequest[] @relation("Platform2faResetReviewer")
+  cmsPageVersions        CmsPageVersion[]
+  cmsMediaUploads        CmsMedia[]
+  cmsAuthorProfiles      CmsAuthor[]
+  cmsChangelogEntries    CmsChangelogEntry[]
+  cmsRedirectsCreated    CmsRedirect[]
+  cmsSiteSettingsUpdated CmsSiteSetting[]
 
   @@index([email])
   @@index([roleId])
@@ -6670,7 +6677,10 @@ model GlobalKbArticle {
   body                String    @db.Text
   status              String    @default("draft")
   published           Boolean   @default(false)
+  isPublic            Boolean   @default(true) @map("is_public")
   viewCount           Int       @default(0) @map("view_count")
+  helpfulYesCount     Int       @default(0) @map("helpful_yes_count")
+  helpfulNoCount      Int       @default(0) @map("helpful_no_count")
   targetCountries     String[]  @default([]) @map("target_countries")
   targetPlans         String[]  @default([]) @map("target_plans")
   tags                String[]  @default([])
@@ -6685,6 +6695,7 @@ model GlobalKbArticle {
   category GlobalKbCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@index([status, published])
+  @@index([status, published, isPublic])
   @@index([categoryId])
   @@map("global_kb_articles")
 }
@@ -6856,4 +6867,663 @@ model DataRequest {
   @@index([type])
   @@index([deadline])
   @@map("data_requests")
+}
+
+// ---------------------------------------------------------------------------
+// §25 Public Self-Service Signup Staging (AUTH_FLOW, SECURITY, Stage E.0)
+// ---------------------------------------------------------------------------
+
+enum PendingSignupStatus {
+  pending
+  verified
+  provisioning
+  provisioned
+  failed
+  expired
+
+  @@map("pending_signup_status")
+}
+
+model PendingSignup {
+  id                    String              @id @default(uuid()) @db.Uuid
+  companyName           String              @map("company_name")
+  companyNameNormalized String              @map("company_name_normalized")
+  countryCode           String              @map("country_code") @db.VarChar(10)
+  workEmail             String              @map("work_email")
+  ownerName             String              @map("owner_name")
+  ownerFirstName        String              @map("owner_first_name")
+  ownerLastName         String              @map("owner_last_name")
+  authMethod            String              @default("password") @map("auth_method")
+  passwordHash          String?             @map("password_hash")
+  desiredSubdomain      String              @map("desired_subdomain")
+  termsVersion          String              @map("terms_version")
+  termsAcceptedAt       DateTime            @map("terms_accepted_at") @db.Timestamptz(6)
+  verificationTokenHash String              @unique @map("verification_token_hash")
+  attemptCount          Int                 @default(1) @map("attempt_count")
+  lastAttemptAt         DateTime            @default(now()) @map("last_attempt_at") @db.Timestamptz(6)
+  attemptWindowStart    DateTime            @default(now()) @map("attempt_window_start") @db.Timestamptz(6)
+  ipAddress             String?             @map("ip_address")
+  marketingConsent      Boolean             @default(false) @map("marketing_consent")
+  utmSource             String?             @map("utm_source")
+  utmMedium             String?             @map("utm_medium")
+  utmCampaign           String?             @map("utm_campaign")
+  utmTerm               String?             @map("utm_term")
+  utmContent            String?             @map("utm_content")
+  referrer              String?             @map("referrer")
+  status                PendingSignupStatus @default(pending)
+  expiresAt             DateTime            @map("expires_at") @db.Timestamptz(6)
+  verifiedAt            DateTime?           @map("verified_at") @db.Timestamptz(6)
+  provisionedTenantId   String?             @map("provisioned_tenant_id") @db.Uuid
+  loginUrl              String?             @map("login_url")
+  failureReason         String?             @map("failure_reason")
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workEmail])
+  @@index([desiredSubdomain])
+  @@index([status, expiresAt])
+  @@index([companyNameNormalized, workEmail])
+  @@map("pending_signups")
+}
+
+// ---------------------------------------------------------------------------
+// §26 Marketing Lead Capture, Demo Requests & Contact Messages (Stage F.0)
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  new
+  contacted
+  qualified
+  closed
+
+  @@map("lead_status")
+}
+
+model Lead {
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String
+  workEmail         String     @map("work_email")
+  company           String?
+  country           String?
+  employeeCountBand String?    @map("employee_count_band")
+  message           String?    @db.Text
+  sourcePage        String?    @map("source_page")
+  utmSource         String?    @map("utm_source")
+  utmMedium         String?    @map("utm_medium")
+  utmCampaign       String?    @map("utm_campaign")
+  utmTerm           String?    @map("utm_term")
+  utmContent        String?    @map("utm_content")
+  referrer          String?
+  privacyConsent    Boolean    @default(false) @map("privacy_consent")
+  marketingConsent  Boolean    @default(false) @map("marketing_consent")
+  consentAt         DateTime?  @map("consent_at") @db.Timestamptz(6)
+  status            LeadStatus @default(new)
+  assigneeUserId    String?    @map("assignee_user_id") @db.Uuid
+  assigneeName      String?    @map("assignee_name")
+  notes             String?    @db.Text
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workEmail])
+  @@index([status])
+  @@index([country])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model DemoRequest {
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String
+  workEmail         String     @map("work_email")
+  company           String
+  country           String?
+  employeeCountBand String?    @map("employee_count_band")
+  message           String?    @db.Text
+  sourcePage        String?    @map("source_page")
+  utmSource         String?    @map("utm_source")
+  utmMedium         String?    @map("utm_medium")
+  utmCampaign       String?    @map("utm_campaign")
+  utmTerm           String?    @map("utm_term")
+  utmContent        String?    @map("utm_content")
+  referrer          String?
+  privacyConsent    Boolean    @default(false) @map("privacy_consent")
+  marketingConsent  Boolean    @default(false) @map("marketing_consent")
+  consentAt         DateTime?  @map("consent_at") @db.Timestamptz(6)
+  status            LeadStatus @default(new)
+  assigneeUserId    String?    @map("assignee_user_id") @db.Uuid
+  assigneeName      String?    @map("assignee_name")
+  notes             String?    @db.Text
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workEmail])
+  @@index([status])
+  @@index([country])
+  @@index([createdAt])
+  @@map("demo_requests")
+}
+
+model ContactMessage {
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String
+  workEmail         String     @map("work_email")
+  company           String?
+  country           String?
+  employeeCountBand String?    @map("employee_count_band")
+  topic             String     @default("general")
+  message           String     @db.Text
+  sourcePage        String?    @map("source_page")
+  utmSource         String?    @map("utm_source")
+  utmMedium         String?    @map("utm_medium")
+  utmCampaign       String?    @map("utm_campaign")
+  utmTerm           String?    @map("utm_term")
+  utmContent        String?    @map("utm_content")
+  referrer          String?
+  privacyConsent    Boolean    @default(false) @map("privacy_consent")
+  marketingConsent  Boolean    @default(false) @map("marketing_consent")
+  consentAt         DateTime?  @map("consent_at") @db.Timestamptz(6)
+  status            LeadStatus @default(new)
+  assigneeUserId    String?    @map("assignee_user_id") @db.Uuid
+  assigneeName      String?    @map("assignee_name")
+  notes             String?    @db.Text
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workEmail])
+  @@index([status])
+  @@index([topic])
+  @@index([createdAt])
+  @@map("contact_messages")
+}
+
+model EmailSubscription {
+  id             String    @id @default(uuid()) @db.Uuid
+  email          String
+  channel        String    @default("blog")
+  consentGranted Boolean   @default(true) @map("consent_granted")
+  consentText    String    @map("consent_text")
+  consentVersion String    @default("2026-11") @map("consent_version")
+  consentAt      DateTime  @map("consent_at") @db.Timestamptz(6)
+  sourcePage     String?   @map("source_page")
+  ipAddress      String?   @map("ip_address")
+  unsubscribedAt DateTime? @map("unsubscribed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([email, channel])
+  @@index([channel])
+  @@index([createdAt])
+  @@map("email_subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// §27 Platform Website CMS (Platform-level, no tenant_id)
+// ---------------------------------------------------------------------------
+
+enum CmsLocale {
+  en
+  bn
+
+  @@map("cms_locale")
+}
+
+enum CmsTranslationStatus {
+  untranslated
+  in_review
+  translated
+
+  @@map("cms_translation_status")
+}
+
+enum CmsPageKind {
+  system
+  custom
+
+  @@map("cms_page_kind")
+}
+
+enum CmsPageStatus {
+  draft
+  scheduled
+  published
+  unpublished
+  trashed
+
+  @@map("cms_page_status")
+}
+
+enum CmsApprovalStatus {
+  none
+  pending_approval
+  approved
+  rejected
+
+  @@map("cms_approval_status")
+}
+
+enum CmsPostStatus {
+  draft
+  scheduled
+  published
+  unpublished
+  trashed
+
+  @@map("cms_post_status")
+}
+
+enum CmsChangelogTag {
+  new
+  improved
+  fixed
+  security
+
+  @@map("cms_changelog_tag")
+}
+
+enum CmsCareerStatus {
+  draft
+  open
+  paused
+  closed
+
+  @@map("cms_career_status")
+}
+
+enum CmsMenuLocation {
+  header
+  footer
+  mobile
+  legal
+  custom
+
+  @@map("cms_menu_location")
+}
+
+enum CmsRedirectType {
+  permanent_308
+  permanent_301
+  temporary_302
+  temporary_307
+
+  @@map("cms_redirect_type")
+}
+
+model CmsPage {
+  id                        String            @id @default(uuid()) @db.Uuid
+  kind                      CmsPageKind       @default(custom)
+  slug                      String            @unique
+  status                    CmsPageStatus     @default(draft)
+  locked                    Boolean           @default(false)
+  requiresApproval          Boolean           @default(false) @map("requires_approval")
+  approvalStatus            CmsApprovalStatus @default(none) @map("approval_status")
+  pendingApprovalVersionId  String?           @map("pending_approval_version_id") @db.Uuid
+  submittedForApprovalById  String?           @map("submitted_for_approval_by_id") @db.Uuid
+  submittedForApprovalAt    DateTime?         @map("submitted_for_approval_at") @db.Timestamptz(6)
+  submissionNote            String?           @map("submission_note") @db.Text
+  approvedById              String?           @map("approved_by_id") @db.Uuid
+  approvedAt                DateTime?         @map("approved_at") @db.Timestamptz(6)
+  approvalNote              String?           @map("approval_note") @db.Text
+  rejectedById              String?           @map("rejected_by_id") @db.Uuid
+  rejectedAt                DateTime?         @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason           String?           @map("rejection_reason") @db.Text
+  scheduledAt               DateTime?         @map("scheduled_at") @db.Timestamptz(6)
+  scheduledTimezone         String?           @map("scheduled_timezone")
+  scheduledById             String?           @map("scheduled_by_id") @db.Uuid
+  publishedAt               DateTime?         @map("published_at") @db.Timestamptz(6)
+  currentPublishedVersionId String?           @map("current_published_version_id") @db.Uuid
+  deletedAt                 DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  currentPublishedVersion CmsPageVersion?  @relation("CmsCurrentPublishedPageVersion", fields: [currentPublishedVersionId], references: [id], onDelete: SetNull)
+  versions                CmsPageVersion[] @relation("CmsPageVersions")
+  locales                 CmsPageLocale[]
+  menuItems               CmsMenuItem[]
+
+  @@index([kind])
+  @@index([status])
+  @@index([status, scheduledAt])
+  @@index([approvalStatus])
+  @@index([deletedAt])
+  @@index([currentPublishedVersionId])
+  @@map("cms_pages")
+}
+
+model CmsPageLocale {
+  id                        String               @id @default(uuid()) @db.Uuid
+  pageId                    String               @map("page_id") @db.Uuid
+  locale                    CmsLocale
+  isTranslated              Boolean              @default(false) @map("is_translated")
+  translationStatus         CmsTranslationStatus @default(untranslated) @map("translation_status")
+  currentDraftVersionId     String?              @map("current_draft_version_id") @db.Uuid
+  currentPublishedVersionId String?              @map("current_published_version_id") @db.Uuid
+  createdAt                 DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  page                    CmsPage         @relation(fields: [pageId], references: [id], onDelete: Restrict)
+  currentDraftVersion     CmsPageVersion? @relation("CmsLocaleDraftVersion", fields: [currentDraftVersionId], references: [id], onDelete: SetNull)
+  currentPublishedVersion CmsPageVersion? @relation("CmsLocalePublishedVersion", fields: [currentPublishedVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([pageId, locale])
+  @@index([locale, isTranslated])
+  @@map("cms_page_locales")
+}
+
+model CmsPageVersion {
+  id             String    @id @default(uuid()) @db.Uuid
+  pageId         String    @map("page_id") @db.Uuid
+  versionNumber  Int       @map("version_number")
+  locale         CmsLocale @default(en)
+  title          String
+  seoTitle       String?   @map("seo_title")
+  seoDescription String?   @map("seo_description") @db.Text
+  canonicalPath  String?   @map("canonical_path")
+  ogImageUrl     String?   @map("og_image_url")
+  noIndex        Boolean   @default(false) @map("no_index")
+  blocks         Json      @default("[]")
+  isTranslated   Boolean   @default(false) @map("is_translated")
+  authorId       String?   @map("author_id") @db.Uuid
+  authorName     String?   @map("author_name")
+  changeNote     String?   @map("change_note") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  page                    CmsPage         @relation("CmsPageVersions", fields: [pageId], references: [id], onDelete: Restrict)
+  author                  PlatformUser?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  activeOnPages           CmsPage[]       @relation("CmsCurrentPublishedPageVersion")
+  activeOnLocaleDrafts    CmsPageLocale[] @relation("CmsLocaleDraftVersion")
+  activeOnLocalePublished CmsPageLocale[] @relation("CmsLocalePublishedVersion")
+
+  @@unique([pageId, locale, versionNumber])
+  @@index([pageId, locale])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("cms_page_versions")
+}
+
+model CmsMedia {
+  id           String    @id @default(uuid()) @db.Uuid
+  filename     String
+  originalName String    @map("original_name")
+  mimeType     String    @map("mime_type")
+  sizeBytes    Int       @map("size_bytes")
+  storageKey   String    @unique @map("storage_key")
+  publicUrl    String    @map("public_url")
+  width        Int?
+  height       Int?
+  altEn        String?   @map("alt_en")
+  altBn        String?   @map("alt_bn")
+  captionEn    String?   @map("caption_en")
+  captionBn    String?   @map("caption_bn")
+  folder       String    @default("general")
+  tags         String[]  @default([])
+  variantsJson Json?     @map("variants_json")
+  exifStripped Boolean   @default(true) @map("exif_stripped")
+  uploadedById String?   @map("uploaded_by_id") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  uploadedBy    PlatformUser? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  authorAvatars CmsAuthor[]   @relation("CmsAuthorAvatar")
+  postCovers    CmsPost[]     @relation("CmsPostCover")
+
+  @@index([folder])
+  @@index([mimeType])
+  @@index([uploadedById])
+  @@index([deletedAt])
+  @@map("cms_media")
+}
+
+model CmsMenu {
+  id        String          @id @default(uuid()) @db.Uuid
+  slug      String          @unique
+  name      String
+  location  CmsMenuLocation @default(header)
+  isActive  Boolean         @default(true) @map("is_active")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items CmsMenuItem[]
+
+  @@index([location, isActive])
+  @@map("cms_menus")
+}
+
+model CmsMenuItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  menuId        String   @map("menu_id") @db.Uuid
+  parentId      String?  @map("parent_id") @db.Uuid
+  labelEn       String   @map("label_en")
+  labelBn       String?  @map("label_bn")
+  descriptionEn String?  @map("description_en")
+  descriptionBn String?  @map("description_bn")
+  targetPageId  String?  @map("target_page_id") @db.Uuid
+  href          String
+  badgeEn       String?  @map("badge_en")
+  badgeBn       String?  @map("badge_bn")
+  sortOrder     Int      @default(0) @map("sort_order")
+  openInNewTab  Boolean  @default(false) @map("open_in_new_tab")
+  isVisible     Boolean  @default(true) @map("is_visible")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  menu       CmsMenu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  parent     CmsMenuItem?  @relation("CmsMenuItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children   CmsMenuItem[] @relation("CmsMenuItemTree")
+  targetPage CmsPage?      @relation(fields: [targetPageId], references: [id], onDelete: SetNull)
+
+  @@index([menuId, sortOrder])
+  @@index([parentId])
+  @@index([targetPageId])
+  @@map("cms_menu_items")
+}
+
+model CmsRedirect {
+  id             String          @id @default(uuid()) @db.Uuid
+  sourcePath     String          @unique @map("source_path")
+  destinationUrl String          @map("destination_url")
+  redirectType   CmsRedirectType @default(permanent_308) @map("redirect_type")
+  isActive       Boolean         @default(true) @map("is_active")
+  hitCount       Int             @default(0) @map("hit_count")
+  note           String?         @db.Text
+  createdById    String?         @map("created_by_id") @db.Uuid
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy PlatformUser? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@index([createdById])
+  @@map("cms_redirects")
+}
+
+model CmsPostCategory {
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique
+  nameEn        String   @map("name_en")
+  nameBn        String?  @map("name_bn")
+  descriptionEn String?  @map("description_en") @db.Text
+  descriptionBn String?  @map("description_bn") @db.Text
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  posts CmsPost[]
+
+  @@index([sortOrder])
+  @@map("cms_post_categories")
+}
+
+model CmsAuthor {
+  id             String   @id @default(uuid()) @db.Uuid
+  slug           String   @unique
+  displayName    String   @map("display_name")
+  displayNameBn  String?  @map("display_name_bn")
+  roleTitle      String?  @map("role_title")
+  roleTitleBn    String?  @map("role_title_bn")
+  bioEn          String?  @map("bio_en") @db.Text
+  bioBn          String?  @map("bio_bn") @db.Text
+  avatarMediaId  String?  @map("avatar_media_id") @db.Uuid
+  platformUserId String?  @unique @map("platform_user_id") @db.Uuid
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  avatarMedia  CmsMedia?     @relation("CmsAuthorAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  platformUser PlatformUser? @relation(fields: [platformUserId], references: [id], onDelete: SetNull)
+  posts        CmsPost[]
+
+  @@index([isActive])
+  @@map("cms_authors")
+}
+
+model CmsPost {
+  id                  String               @id @default(uuid()) @db.Uuid
+  slug                String               @unique
+  status              CmsPostStatus        @default(draft)
+  categoryId          String               @map("category_id") @db.Uuid
+  authorId            String               @map("author_id") @db.Uuid
+  coverMediaId        String?              @map("cover_media_id") @db.Uuid
+  coverAltEn          String?              @map("cover_alt_en")
+  coverAltBn          String?              @map("cover_alt_bn")
+  titleEn             String               @map("title_en")
+  titleBn             String?              @map("title_bn")
+  excerptEn           String               @map("excerpt_en") @db.Text
+  excerptBn           String?              @map("excerpt_bn") @db.Text
+  bodyJsonEn          Json                 @default("{}") @map("body_json_en")
+  bodyHtmlEn          String               @default("") @map("body_html_en") @db.Text
+  bodyJsonBn          Json?                @map("body_json_bn")
+  bodyHtmlBn          String?              @map("body_html_bn") @db.Text
+  isBnTranslated      Boolean              @default(false) @map("is_bn_translated")
+  bnTranslationStatus CmsTranslationStatus @default(untranslated) @map("bn_translation_status")
+  seoTitleEn          String?              @map("seo_title_en")
+  seoDescriptionEn    String?              @map("seo_description_en") @db.Text
+  seoTitleBn          String?              @map("seo_title_bn")
+  seoDescriptionBn    String?              @map("seo_description_bn") @db.Text
+  tags                String[]             @default([])
+  relatedPostIds      String[]             @default([]) @map("related_post_ids")
+  readingTimeMinutes  Int                  @default(3) @map("reading_time_minutes")
+  scheduledAt         DateTime?            @map("scheduled_at") @db.Timestamptz(6)
+  scheduledTimezone   String?              @map("scheduled_timezone")
+  scheduledById       String?              @map("scheduled_by_id") @db.Uuid
+  publishedAt         DateTime?            @map("published_at") @db.Timestamptz(6)
+  deletedAt           DateTime?            @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  category   CmsPostCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  author     CmsAuthor       @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  coverMedia CmsMedia?       @relation("CmsPostCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
+
+  @@index([status, publishedAt])
+  @@index([status, scheduledAt])
+  @@index([categoryId])
+  @@index([authorId])
+  @@index([deletedAt])
+  @@map("cms_posts")
+}
+
+model CmsChangelogEntry {
+  id                String          @id @default(uuid()) @db.Uuid
+  slug              String          @unique
+  versionLabel      String          @default("") @map("version_label")
+  releaseDate       DateTime        @map("release_date") @db.Date
+  tag               CmsChangelogTag @default(improved)
+  moduleRefs        String?         @map("module_refs")
+  titleEn           String          @map("title_en")
+  summaryEn         String          @default("") @map("summary_en") @db.Text
+  bodyHtmlEn        String          @default("") @map("body_html_en") @db.Text
+  bodyJsonEn        Json            @default("{}") @map("body_json_en")
+  highlightsEn      String[]        @default([]) @map("highlights_en")
+  titleBn           String?         @map("title_bn")
+  summaryBn         String?         @map("summary_bn") @db.Text
+  bodyHtmlBn        String?         @map("body_html_bn") @db.Text
+  bodyJsonBn        Json?           @map("body_json_bn")
+  highlightsBn      String[]        @default([]) @map("highlights_bn")
+  isBnTranslated    Boolean         @default(false) @map("is_bn_translated")
+  isPublished       Boolean         @default(false) @map("is_published")
+  scheduledAt       DateTime?       @map("scheduled_at") @db.Timestamptz(6)
+  scheduledTimezone String?         @map("scheduled_timezone")
+  scheduledById     String?         @map("scheduled_by_id") @db.Uuid
+  publishedAt       DateTime?       @map("published_at") @db.Timestamptz(6)
+  deletedAt         DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  authorId          String?         @map("author_id") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  author PlatformUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([isPublished, releaseDate])
+  @@index([isPublished, scheduledAt])
+  @@index([deletedAt])
+  @@index([tag])
+  @@map("cms_changelog_entries")
+}
+
+model CmsCareer {
+  id                String          @id @default(uuid()) @db.Uuid
+  slug              String          @unique
+  status            CmsCareerStatus @default(draft)
+  department        String          @default("General")
+  locationType      String          @map("location_type")
+  locationText      String          @map("location_text")
+  employmentType    String          @map("employment_type")
+  titleEn           String          @map("title_en")
+  summaryEn         String          @default("") @map("summary_en") @db.Text
+  descriptionHtmlEn String          @map("description_html_en") @db.Text
+  descriptionJsonEn Json            @default("{}") @map("description_json_en")
+  titleBn           String?         @map("title_bn")
+  summaryBn         String?         @map("summary_bn") @db.Text
+  descriptionHtmlBn String?         @map("description_html_bn") @db.Text
+  descriptionJsonBn Json?           @map("description_json_bn")
+  isBnTranslated    Boolean         @default(false) @map("is_bn_translated")
+  applyEmail        String?         @map("apply_email")
+  applyUrl          String?         @map("apply_url")
+  publishedAt       DateTime?       @map("published_at") @db.Timestamptz(6)
+  closesAt          DateTime?       @map("closes_at") @db.Timestamptz(6)
+  deletedAt         DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, department])
+  @@index([deletedAt])
+  @@map("cms_careers")
+}
+
+model CmsFaq {
+  id             String   @id @default(uuid()) @db.Uuid
+  category       String   @default("general")
+  pageSlug       String?  @map("page_slug")
+  questionEn     String   @map("question_en")
+  answerEn       String   @map("answer_en") @db.Text
+  answerJsonEn   Json     @default("{}") @map("answer_json_en")
+  questionBn     String?  @map("question_bn")
+  answerBn       String?  @map("answer_bn") @db.Text
+  answerJsonBn   Json?    @map("answer_json_bn")
+  isBnTranslated Boolean  @default(false) @map("is_bn_translated")
+  sortOrder      Int      @default(0) @map("sort_order")
+  isPublished    Boolean  @default(true) @map("is_published")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([category, isPublished, sortOrder])
+  @@index([pageSlug, isPublished, sortOrder])
+  @@map("cms_faqs")
+}
+
+model CmsSiteSetting {
+  id            String   @id @default(uuid()) @db.Uuid
+  key           String   @unique
+  valueJson     Json     @map("value_json")
+  description   String?  @db.Text
+  isPublic      Boolean  @default(true) @map("is_public")
+  updatedById   String?  @map("updated_by_id") @db.Uuid
+  updatedByName String?  @map("updated_by_name")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy PlatformUser? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([isPublic])
+  @@map("cms_site_settings")
 }

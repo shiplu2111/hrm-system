@@ -420,6 +420,7 @@ export function PlatformLoginPage({
                 { label: 'Billing Admin', email: 'billing.admin@cmsnbd.com' },
                 { label: 'Support Agent', email: 'support.agent@cmsnbd.com' },
                 { label: 'Compliance Admin', email: 'compliance.admin@cmsnbd.com' },
+                { label: 'Sales', email: 'sales.rep@cmsnbd.com' },
                 { label: 'Read-Only Auditor', email: 'auditor@cmsnbd.com' },
               ].map((r) => (
                 <button

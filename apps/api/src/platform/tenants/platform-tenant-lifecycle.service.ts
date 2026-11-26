@@ -140,7 +140,10 @@ export class PlatformTenantLifecycleService {
    * 9. Records audit log with mandatory reason
    */
   async provisionTenant(
-    input: ProvisionTenantDto,
+    input: ProvisionTenantDto & {
+      ownerPasswordHash?: string;
+      mustChangePassword?: boolean;
+    },
     actorUserId?: string,
   ): Promise<TenantProvisioningResult> {
     if (this.maintenanceService) {
@@ -200,8 +203,13 @@ export class PlatformTenantLifecycleService {
       ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000)
       : null;
 
-    // Temporary password hash for the owner
-    const tempPasswordHash = await bcrypt.hash('InitialSecure2026!#', 10);
+    // Password hash for owner: honor self-service pre-hashed password if supplied, else generate temporary secret
+    const ownerPasswordHash =
+      input.ownerPasswordHash ?? (await bcrypt.hash('InitialSecure2026!#', 10));
+    const ownerMustChangePassword =
+      input.mustChangePassword !== undefined
+        ? input.mustChangePassword
+        : !input.ownerPasswordHash;
 
     // Resolve effective platform default templates for this tenant's country (Stage C.0)
     // Changing a default affects only tenants created afterwards, never existing tenants.
@@ -396,7 +404,9 @@ export class PlatformTenantLifecycleService {
               ? lt.defaultDays
               : 14;
         const accrualType =
-          (lt.accrualType as LeaveAccrualType) || LeaveAccrualType.yearly;
+          ['monthly', 'yearly', 'on_hire'].includes(lt.accrualType)
+            ? (lt.accrualType as LeaveAccrualType)
+            : LeaveAccrualType.yearly;
 
         await tx.leavePolicy.create({
           data: {
@@ -539,10 +549,10 @@ export class PlatformTenantLifecycleService {
           tenantId: tenant.id,
           employeeId: ownerEmployee.id,
           email: input.ownerEmail.trim().toLowerCase(),
-          passwordHash: tempPasswordHash,
+          passwordHash: ownerPasswordHash,
           roleId: ownerRoleId,
           isActive: true,
-          mustChangePassword: true,
+          mustChangePassword: ownerMustChangePassword,
         },
       });
 

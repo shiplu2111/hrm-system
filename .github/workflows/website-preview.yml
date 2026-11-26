@@ -1,0 +1,60 @@
+# DEPLOYMENT.md §10 — Per-PR marketing website preview build, quality gates, and optional Vercel Preview deploy.
+name: Website PR Preview
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'apps/website/**'
+      - 'packages/shared-types/**'
+      - 'packages/portal-ui/**'
+      - '.github/workflows/website-preview.yml'
+
+concurrency:
+  group: website-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview-build:
+    name: Build & verify website PR preview
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: '--max-old-space-size=4096'
+      NEXT_PUBLIC_APP_ENV: development
+      SITE_IS_STAGING: 'true'
+      NEXT_PUBLIC_NOINDEX: 'true'
+      NEXT_PUBLIC_SITE_URL: ${{ vars.STAGING_WEBSITE_URL || 'https://staging.cmsn-hr.example' }}
+      NEXT_PUBLIC_API_URL: ${{ vars.STAGING_API_URL || 'http://localhost:3000' }}
+      NEXT_PUBLIC_PORTAL_URL: ${{ vars.STAGING_PORTAL_URL || 'http://localhost:5174' }}
+      NEXT_PUBLIC_PLATFORM_URL: ${{ vars.STAGING_PLATFORM_URL || 'http://localhost:5176' }}
+      NEXT_PUBLIC_CACHE_REVALIDATE_SECONDS: '10'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build -w @hrm/shared-types
+      - run: npm run lint -w @hrm/website
+      - run: npm run typecheck -w @hrm/website
+      - run: npm run build -w @hrm/website
+      - run: npm run perf:budget -w @hrm/website
+      - run: npm run security:scan -w @hrm/website
+
+      - name: Deploy PR Preview (Vercel when configured)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_WEBSITE_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "VERCEL_TOKEN/ORG/PROJECT secrets not set — verified isolated PR preview build cleanly in CI."
+            exit 0
+          fi
+          npx vercel pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd=apps/website
+          npx vercel build --token="$VERCEL_TOKEN" --cwd=apps/website
+          PREVIEW_URL=$(npx vercel deploy --prebuilt --token="$VERCEL_TOKEN" --cwd=apps/website)
+          echo "Deployed PR Preview URL: $PREVIEW_URL"

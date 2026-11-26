@@ -22,9 +22,14 @@ import { UsageMeteringModule } from './usage/usage-metering.module';
 import { PlatformQueuesModule } from './queues/platform-queues.module';
 import { PlatformSupportTicketsModule } from './support-tickets/platform-support-tickets.module';
 import { PlatformKbModule } from './knowledge-base/platform-kb.module';
+import { PlatformCmsModule } from './cms/platform-cms.module';
 import { PlatformApiRegistryModule } from './api-registry/platform-api-registry.module';
 import { PlatformWebhookMonitorModule } from './webhook-monitor/platform-webhook-monitor.module';
 import { PlatformBackupsModule } from './backups/platform-backups.module';
+import { PublicLeadsModule } from './leads/public-leads.module';
+import { PublicComplianceModule } from './legal/public-compliance.module';
+import { PublicLoginModule } from './login/public-login.module';
+import { PublicSignupModule } from './signup/public-signup.module';
 
 @Module({
   imports: [
@@ -50,10 +55,15 @@ import { PlatformBackupsModule } from './backups/platform-backups.module';
     PlatformSupportAccessModule,
     PlatformSupportTicketsModule,
     PlatformKbModule,
+    PlatformCmsModule,
     PlatformApiRegistryModule,
     PlatformWebhookMonitorModule,
     PlatformBackupsModule,
     PlatformTenantsModule,
+    PublicSignupModule,
+    PublicLeadsModule,
+    PublicComplianceModule,
+    PublicLoginModule,
   ],
   exports: [
     CountriesModule,
@@ -81,7 +91,12 @@ import { PlatformBackupsModule } from './backups/platform-backups.module';
     PlatformSupportAccessModule,
     PlatformSupportTicketsModule,
     PlatformKbModule,
+    PlatformCmsModule,
     PlatformTenantsModule,
+    PublicSignupModule,
+    PublicLeadsModule,
+    PublicComplianceModule,
+    PublicLoginModule,
   ],
 })
 export class PlatformModule { }

@@ -1,0 +1,4 @@
+ALTER TABLE "cms_posts"
+  ADD COLUMN IF NOT EXISTS "cover_alt_en" TEXT,
+  ADD COLUMN IF NOT EXISTS "cover_alt_bn" TEXT,
+  ADD COLUMN IF NOT EXISTS "related_post_ids" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

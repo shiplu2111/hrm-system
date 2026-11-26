@@ -85,7 +85,12 @@ export const PLAN_CATALOG: readonly PlanDefinition[] = PLAN_ORDER.map(
 );
 
 export function normalizePlanId(planId: string | null | undefined): SubscriptionPlanTier {
-  const normalized = (planId ?? DEFAULT_PLAN).toLowerCase();
+  if (!planId) return DEFAULT_PLAN;
+  const normalized = planId.toLowerCase();
+  if (normalized === '10000000-0000-4000-8000-000000000701') return 'free';
+  if (normalized === '10000000-0000-4000-8000-000000000702') return 'starter';
+  if (normalized === '10000000-0000-4000-8000-000000000703') return 'business';
+  if (normalized === '10000000-0000-4000-8000-000000000704') return 'enterprise';
   if (
     normalized === 'free' ||
     normalized === 'starter' ||

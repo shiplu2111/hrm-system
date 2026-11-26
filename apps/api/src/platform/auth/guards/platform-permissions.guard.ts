@@ -11,6 +11,8 @@ import {
   RequiredPlatformPermission,
 } from '../decorators/require-platform-permission.decorator';
 
+const EXPLICIT_ONLY_PLATFORM_ACTIONS = new Set(['raw_html']);
+
 @Injectable()
 export class PlatformPermissionsGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -49,7 +51,20 @@ export class PlatformPermissionsGuard implements CanActivate {
       });
     }
 
-    // Platform Owner has full access to all platform operations
+    if (EXPLICIT_ONLY_PLATFORM_ACTIONS.has(required.action)) {
+      const hasExplicit = user.permissions.some(
+        (p) => p.module === required.module && p.action === required.action,
+      );
+      if (!hasExplicit) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: `Requires explicit platform permission ${required.module}:${required.action}`,
+        });
+      }
+      return true;
+    }
+
+    // Platform Owner has full access to all standard platform operations
     if (user.roleName === 'Platform Owner') {
       return true;
     }

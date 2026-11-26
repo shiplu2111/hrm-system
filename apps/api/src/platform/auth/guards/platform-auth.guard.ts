@@ -118,6 +118,7 @@ export class PlatformAuthGuard implements CanActivate {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      timezone: (user as { timezone?: string }).timezone ?? 'UTC',
       roleId: user.roleId,
       roleName: user.role.name,
       permissions: user.role.permissions.map((p: any) => ({

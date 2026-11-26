@@ -1,24 +1,33 @@
 import type { ComponentType } from 'react';
 import {
   Activity,
+  ArrowRightLeft,
   BellRing,
   BookOpen,
+  Briefcase,
   Building2,
   CalendarClock,
+  CalendarCheck2,
   CircleDollarSign,
   Coins,
   CreditCard,
   Database,
   FileCheck2,
   FileClock,
+  FilePlus2,
+  FileText,
   FlaskConical,
   Globe2,
   HardDrive,
   Headphones,
+  HelpCircle,
+  Image as ImageIcon,
   Inbox,
   KeyRound,
   Languages,
+  Layers,
   LayoutDashboard,
+  ListTree,
   Megaphone,
   Palette,
   PlusCircle,
@@ -27,10 +36,12 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
+  Target,
   UserCog,
   UserCheck,
   Webhook,
   Workflow,
+  Wrench,
 } from 'lucide-react';
 
 export type PlatformViewKey =
@@ -46,10 +57,23 @@ export type PlatformViewKey =
   | 'branding-domains'
   | 'billing'
   | 'billing-invoices'
+  | 'leads'
+  | 'demo-requests'
   | 'country-compliance'
   | 'compliance-calendar'
   | 'rule-approvals'
   | 'rule-sandbox'
+  | 'cms-dashboard'
+  | 'cms-pages'
+  | 'cms-create-page'
+  | 'cms-blog'
+  | 'cms-changelog'
+  | 'cms-careers'
+  | 'cms-faqs'
+  | 'cms-media'
+  | 'cms-menus'
+  | 'cms-redirects'
+  | 'cms-site-settings'
   | 'provisioning-templates'
   | 'exchange-rates'
   | 'language-packs'
@@ -174,6 +198,116 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
         badge: 'Live',
         badgeTone: 'emerald',
         permission: { module: 'tenant', action: 'view' },
+      },
+    ],
+  },
+  {
+    id: 'sales',
+    title: 'Sales & Growth',
+    items: [
+      {
+        key: 'leads',
+        label: 'Leads',
+        description: 'Website sales leads & contact inquiries with qualification workflow and CSV export',
+        icon: Target,
+        badge: 'Sales',
+        badgeTone: 'indigo',
+        permission: { module: 'leads', action: 'view' },
+      },
+      {
+        key: 'demo-requests',
+        label: 'Demo Requests',
+        description: 'Public Book a Demo requests with assignee routing, notes, and audit history',
+        icon: CalendarCheck2,
+        badge: 'Demo',
+        badgeTone: 'amber',
+        permission: { module: 'leads', action: 'view' },
+      },
+    ],
+  },
+  {
+    id: 'cms',
+    title: 'Website CMS',
+    items: [
+      {
+        key: 'cms-dashboard',
+        label: 'Content Dashboard',
+        description:
+          'Drafts, scheduled publishes, legal approvals, Bengali translation gaps, broken links, recent changes, and quick create',
+        icon: FileText,
+        badge: 'CMS',
+        badgeTone: 'indigo',
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-pages',
+        label: 'Pages',
+        description: 'All system and custom website pages with lock protection, versions, translations, previews, and publishing controls',
+        icon: Layers,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-create-page',
+        label: 'Create Page',
+        description: 'Create custom CMS pages with templates, live slug validation, drag-and-drop blocks, and optional menu placement',
+        icon: FilePlus2,
+        permission: { module: 'cms', action: 'create' },
+      },
+      {
+        key: 'cms-blog',
+        label: 'Blog & Authors',
+        description: 'Blog posts with rich-text editor, scheduled publishing, categories, authors, reading time, and RSS feed',
+        icon: BookOpen,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-changelog',
+        label: 'Changelog',
+        description: 'Release notes with release date, New/Improved/Fixed tag, rich-text body, and public visibility toggle',
+        icon: Sparkles,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-careers',
+        label: 'Careers',
+        description: 'Job listings with title, location, type, rich-text description, open/closed status, and apply email/URL',
+        icon: Briefcase,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-faqs',
+        label: 'FAQ Library',
+        description: 'Reusable rich-text Q&A library grouped by topic, pickable into any page FAQ block per locale',
+        icon: HelpCircle,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-media',
+        label: 'Media Library',
+        description: 'Images, PDF downloads, resized WebP/AVIF variants, EXIF stripping, alt text, folders, tags, and usage tracking',
+        icon: ImageIcon,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-menus',
+        label: 'Navigation Menus',
+        description: 'Header mega-menu groups, footer link columns, drag-and-drop ordering, EN/BN labels, and broken/unpublished link flags',
+        icon: ListTree,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-redirects',
+        label: 'Redirects',
+        description: 'Manual 301/302 rules, automatic slug-change/delete 301s, loop & chain guard, CSV import/export, and hit counts',
+        icon: ArrowRightLeft,
+        permission: { module: 'cms', action: 'view' },
+      },
+      {
+        key: 'cms-site-settings',
+        label: 'Site Settings',
+        description: 'Contact details, sales/support emails, social links, scheduled announcement bar, footer/cookie wording, default OG image, and language',
+        icon: Wrench,
+        permission: { module: 'cms', action: 'view' },
       },
     ],
   },

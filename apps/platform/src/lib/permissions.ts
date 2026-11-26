@@ -5,11 +5,29 @@ export interface PlatformPermissionRequirement {
   action: string;
 }
 
-type PermissionUser = Pick<PlatformUserView, 'permissions' | 'roleName'> | null | undefined;
+export type PermissionUser = Pick<PlatformUserView, 'permissions' | 'roleName'> | null | undefined;
+
+const EXPLICIT_ONLY_PLATFORM_ACTIONS = new Set(['raw_html']);
+
+/**
+ * Checks whether the platform staff member holds an explicit module:action grant
+ * without wildcard or role-name bypasses.
+ */
+export function hasExplicitPlatformPermission(
+  user: PermissionUser,
+  module: string,
+  action: string,
+): boolean {
+  if (!user) return false;
+  return (user.permissions ?? []).some(
+    (p) => p.module === module && p.action === action,
+  );
+}
 
 /**
  * Evaluates whether the platform staff member possesses the requested permission.
- * - Platform Owner is superuser with root wildcard access across all modules and actions.
+ * - Explicit-only actions (such as `cms:raw_html`) require an explicit claim.
+ * - Platform Owner is superuser with root wildcard access across all standard modules and actions.
  * - 'platform' module grants access across all platform modules.
  * - 'manage' action grants access to any action (view, edit, create, delete).
  * - Write actions ('edit', 'create', 'delete') implicitly grant 'view' access.
@@ -23,7 +41,11 @@ export function hasPlatformPermission(
 ): boolean {
   if (!user) return false;
 
-  // Platform Owner has full access to all platform operations
+  if (EXPLICIT_ONLY_PLATFORM_ACTIONS.has(action)) {
+    return hasExplicitPlatformPermission(user, module, action);
+  }
+
+  // Platform Owner has full access to all standard platform operations
   if (user.roleName === 'Platform Owner') {
     return true;
   }

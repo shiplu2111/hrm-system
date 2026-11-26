@@ -1,0 +1,44 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "cd ../.. && npm ci",
+  "buildCommand": "cd ../.. && npm run build -w @hrm/shared-types && npm run build -w @hrm/website && npm run perf:budget -w @hrm/website && npm run security:scan -w @hrm/website",
+  "headers": [
+    {
+      "source": "/pricing",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    },
+    {
+      "source": "/bn/pricing",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    },
+    {
+      "source": "/solutions/countries/(.*)",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    },
+    {
+      "source": "/bn/solutions/countries/(.*)",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    },
+    {
+      "source": "/help/(.*)",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    },
+    {
+      "source": "/bn/help/(.*)",
+      "headers": [
+        { "key": "CDN-Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    }
+  ]
+}

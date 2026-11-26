@@ -29,6 +29,9 @@ export class MaintenanceGuard implements CanActivate {
     // 2. Bypass public status, health, and docs endpoints
     if (
       path.includes('/system/status') ||
+      path.includes('/public/status') ||
+      path.includes('/public/legal') ||
+      path.includes('/public/content') ||
       path.includes('/maintenance/status') ||
       path.includes('/health') ||
       path.includes('/api/docs')

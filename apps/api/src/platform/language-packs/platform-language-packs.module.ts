@@ -3,6 +3,7 @@ import { PrismaModule } from '../../database/prisma.module';
 import { PlatformAuthModule } from '../auth/platform-auth.module';
 import { PlatformAuditModule } from '../audit/platform-audit.module';
 import { PlatformLanguagePacksController } from './platform-language-packs.controller';
+import { PublicLanguagesController } from './public-languages.controller';
 import { PlatformLanguagePacksService } from './platform-language-packs.service';
 
 @Module({
@@ -11,7 +12,7 @@ import { PlatformLanguagePacksService } from './platform-language-packs.service'
     PlatformAuthModule,
     PlatformAuditModule,
   ],
-  controllers: [PlatformLanguagePacksController],
+  controllers: [PlatformLanguagePacksController, PublicLanguagesController],
   providers: [PlatformLanguagePacksService],
   exports: [PlatformLanguagePacksService],
 })

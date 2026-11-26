@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HealthTelemetryService } from './health-telemetry.service';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationRealtimeService } from '../../realtime/notification-realtime.service';
+import { sanitizePublicText } from './public-status.sanitizer';
 
 describe('HealthTelemetryService', () => {
   let service: HealthTelemetryService;
@@ -31,6 +32,9 @@ describe('HealthTelemetryService', () => {
         create: jest.fn(),
         update: jest.fn(),
         findUnique: jest.fn(),
+      },
+      platformSetting: {
+        findMany: jest.fn(),
       },
     },
   };
@@ -242,6 +246,119 @@ describe('HealthTelemetryService', () => {
       expect(result.incidents.length).toBe(1);
       expect(result.resolvedIncidentsCount).toBe(1);
       expect(result.activeIncidentsCount).toBe(0);
+    });
+  });
+
+  describe('Public Status Overview & Sanitization (Stage Q.2)', () => {
+    it('returns coarse component states, 90-day uptime bars, and scrubs internal hostnames/queues/errors', async () => {
+      mockPrisma.unscoped.$queryRawUnsafe
+        .mockResolvedValueOnce([{ '?column?': 1 }])
+        .mockResolvedValueOnce([{ total: 6, active: 2, idle: 4 }])
+        .mockResolvedValueOnce([{ max_connections: '100' }]);
+
+      mockPrisma.unscoped.mobileSyncLog.findMany.mockResolvedValueOnce([
+        {
+          totalEvents: 20,
+          createdCount: 19,
+          duplicateCount: 0,
+          rejectedCount: 1,
+          reasons: ['invalid_timestamp'],
+          createdAt: new Date(),
+        },
+      ]);
+      mockPrisma.unscoped.attendanceSyncEvent.count
+        .mockResolvedValueOnce(19)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0);
+
+      mockPrisma.unscoped.notificationDelivery.findMany.mockResolvedValueOnce([
+        { channel: 'email', status: 'sent' },
+      ]);
+      mockPrisma.unscoped.inAppNotification.count.mockResolvedValueOnce(10);
+      mockPrisma.unscoped.platformSetting.findMany.mockResolvedValueOnce([]);
+      mockPrisma.unscoped.platformIncident.findMany.mockResolvedValueOnce([
+        {
+          id: 'inc-public-1',
+          incidentNumber: 'INC-2026-091',
+          title: 'Slow webhook-delivery queue on PostgreSQL localhost:5432',
+          subsystem: 'api',
+          severity: 'minor',
+          status: 'resolved',
+          impact: 'ECONNREFUSED from 10.0.0.12 caused elevated P95 latency for ops@example.com.',
+          rootCause: 'SECRET_ROOT_CAUSE_STACK_TRACE',
+          startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          resolvedAt: new Date(Date.now() - 60 * 60 * 1000),
+          durationMinutes: 60,
+          updates: [
+            {
+              timestamp: new Date().toISOString(),
+              status: 'resolved',
+              message: 'BullMQ webhook-delivery recovered in us-east-1.',
+              author: 'internal.staff@cmsnbd.com',
+            },
+          ],
+          metadata: { isPublic: true },
+          createdBy: 'internal.staff@cmsnbd.com',
+        },
+        {
+          id: 'inc-signup-private',
+          incidentNumber: 'INC-SIGNUP-12345',
+          title: 'Private signup provisioning failure',
+          subsystem: 'signup',
+          severity: 'major',
+          status: 'investigating',
+          impact: 'Tenant acme failed provisioning',
+          rootCause: 'Internal stack trace',
+          startedAt: new Date(),
+          resolvedAt: null,
+          durationMinutes: null,
+          updates: [],
+          metadata: { internalOnly: true },
+          createdBy: 'system:public-signup',
+        },
+      ]);
+
+      const status = await service.getPublicStatusOverview();
+
+      expect(status.components.map((c) => c.id)).toEqual([
+        'api',
+        'web_app',
+        'mobile_sync',
+        'notifications',
+      ]);
+      for (const component of status.components) {
+        expect(component.days).toHaveLength(90);
+        expect(['operational', 'degraded', 'outage', 'maintenance']).toContain(component.state);
+      }
+
+      const mobileSync = status.components.find((c) => c.id === 'mobile_sync')!;
+      expect(mobileSync.state).toBe('degraded');
+      expect(status.overallState).toBe('degraded');
+
+      // Internal signup alerts never appear publicly
+      expect(status.activeIncidents).toHaveLength(0);
+      expect(status.incidentHistory).toHaveLength(1);
+
+      const serialized = JSON.stringify(status);
+      expect(serialized).not.toContain('webhook-delivery');
+      expect(serialized).not.toContain('PostgreSQL');
+      expect(serialized).not.toContain('localhost:5432');
+      expect(serialized).not.toContain('10.0.0.12');
+      expect(serialized).not.toContain('ECONNREFUSED');
+      expect(serialized).not.toContain('SECRET_ROOT_CAUSE_STACK_TRACE');
+      expect(serialized).not.toContain('internal.staff@cmsnbd.com');
+      expect(serialized).not.toContain('BullMQ');
+      expect(serialized).not.toContain('us-east-1');
+    });
+
+    it('sanitizePublicText strips internal identifiers cleanly', () => {
+      const cleaned = sanitizePublicText(
+        'Twilio SMS 429 quota on custom-domain https://internal.local:8080/health by dev@company.com',
+      );
+      expect(cleaned).not.toContain('Twilio');
+      expect(cleaned).not.toContain('custom-domain');
+      expect(cleaned).not.toContain('internal.local');
+      expect(cleaned).not.toContain('dev@company.com');
     });
   });
 });

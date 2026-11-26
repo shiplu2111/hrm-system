@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 220" role="img" aria-label="Offline Mobile Attendance Sync Architecture">
+  <rect width="840" height="220" rx="16" fill="#F8FAFC"/>
+  <rect x="36" y="56" width="220" height="108" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="146" y="102" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">Offline Device Queue</text>
+  <text x="146" y="126" font-family="system-ui,sans-serif" font-size="11" fill="#475569" text-anchor="middle">Assigns local_id UUID</text>
+
+  <path d="M262 110 L306 110" stroke="#2563EB" stroke-width="2"/>
+  <rect x="310" y="56" width="220" height="108" rx="12" fill="#EFF6FF" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="420" y="102" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1E3A8A" text-anchor="middle">Idempotent Sync API</text>
+  <text x="420" y="126" font-family="system-ui,sans-serif" font-size="11" fill="#1D4ED8" text-anchor="middle">UNIQUE(employee_id, local_id)</text>
+
+  <path d="M536 110 L580 110" stroke="#2563EB" stroke-width="2"/>
+  <rect x="584" y="56" width="220" height="108" rx="12" fill="#ECFDF5" stroke="#6EE7B7" stroke-width="1.5"/>
+  <text x="694" y="102" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#065F46" text-anchor="middle">Server Reconciliation</text>
+  <text x="694" y="126" font-family="system-ui,sans-serif" font-size="11" fill="#047857" text-anchor="middle">Checks clock skew &amp; payroll lock</text>
+</svg>

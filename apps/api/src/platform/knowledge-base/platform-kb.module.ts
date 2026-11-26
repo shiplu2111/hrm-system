@@ -4,11 +4,13 @@ import { PrismaModule } from '../../database/prisma.module';
 import { PlatformAuthModule } from '../auth/platform-auth.module';
 import { PlatformKbController } from './platform-kb.controller';
 import { PlatformKbService } from './platform-kb.service';
+import { PublicKbController } from './public-kb.controller';
+import { PublicKbService } from './public-kb.service';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => PlatformAuthModule)],
-  controllers: [PlatformKbController],
-  providers: [PlatformKbService],
-  exports: [PlatformKbService],
+  controllers: [PlatformKbController, PublicKbController],
+  providers: [PlatformKbService, PublicKbService],
+  exports: [PlatformKbService, PublicKbService],
 })
 export class PlatformKbModule {}

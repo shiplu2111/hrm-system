@@ -27,9 +27,14 @@ Thumbs.db
 # Test / coverage
 coverage/
 
-# NestJS
+# NestJS & Next.js
 apps/api/dist/
 apps/backend/
+.next/
+out/
+
+# Verification screenshots
+scratch/*.png
 
 # React Native / Expo
 apps/mobile/.expo/

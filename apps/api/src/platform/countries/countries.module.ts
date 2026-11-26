@@ -5,6 +5,7 @@ import { PlatformAuthModule } from '../auth/platform-auth.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { CountriesController } from './countries.controller';
 import { ComplianceNoticesController } from './compliance-notices.controller';
+import { PublicCountriesController } from './public-countries.controller';
 import { CountriesService } from './countries.service';
 import { RuleVersionsService } from './rule-versions.service';
 import { RuleSandboxService } from './rule-sandbox.service';
@@ -19,7 +20,7 @@ import { PlatformDefaultTemplatesService } from './platform-default-templates.se
     PlatformAuditModule,
     NotificationsModule,
   ],
-  controllers: [CountriesController, ComplianceNoticesController],
+  controllers: [CountriesController, ComplianceNoticesController, PublicCountriesController],
   providers: [
     CountriesService,
     RuleVersionsService,

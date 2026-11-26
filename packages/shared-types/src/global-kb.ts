@@ -27,7 +27,10 @@ export interface GlobalKbArticleListItem {
   summary: string;
   status: GlobalKbStatus;
   published: boolean;
+  isPublic?: boolean;
   viewCount: number;
+  helpfulYesCount?: number;
+  helpfulNoCount?: number;
   targetCountries: string[];
   targetPlans: string[];
   tags: string[];
@@ -67,6 +70,7 @@ export interface CreateGlobalKbArticleInput {
   summary: string;
   body: string;
   status?: GlobalKbStatus;
+  isPublic?: boolean;
   targetCountries?: string[];
   targetPlans?: string[];
   tags?: string[];
@@ -79,6 +83,7 @@ export interface UpdateGlobalKbArticleInput {
   summary?: string;
   body?: string;
   status?: GlobalKbStatus;
+  isPublic?: boolean;
   targetCountries?: string[];
   targetPlans?: string[];
   tags?: string[];
@@ -113,4 +118,55 @@ export interface GlobalKbArticlesResponse {
 export interface IncrementArticleViewResult {
   articleId: string;
   viewCount: number;
+}
+
+/** Public Help Center Contracts (Website Stage H.1) */
+
+export interface PublicKbCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string | null;
+  sortOrder: number;
+  articleCount: number;
+}
+
+export interface PublicKbArticleSummary {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  categorySlug: string;
+  title: string;
+  slug: string;
+  summary: string;
+  tags: string[];
+  authorName: string | null;
+  viewCount: number;
+  helpfulYesCount: number;
+  helpfulNoCount: number;
+  readingTimeMinutes: number;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface PublicKbArticleDetail extends PublicKbArticleSummary {
+  body: string;
+  relatedArticles: PublicKbArticleSummary[];
+}
+
+export interface PublicKbCategoryDetail {
+  category: PublicKbCategory;
+  articles: PublicKbArticleSummary[];
+}
+
+export interface PublicKbFeedbackInput {
+  helpful: boolean;
+}
+
+export interface PublicKbFeedbackResponse {
+  articleId: string;
+  slug: string;
+  helpfulYesCount: number;
+  helpfulNoCount: number;
 }

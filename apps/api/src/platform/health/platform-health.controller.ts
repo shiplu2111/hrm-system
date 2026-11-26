@@ -21,18 +21,21 @@ import type {
   WebSocketHealth,
 } from '@hrm/shared-types';
 import { SkipTenantScope } from '../../common/decorators/skip-tenant-scope.decorator';
+import { RequirePlatformPermission } from '../auth/decorators/require-platform-permission.decorator';
 import { PlatformAuthGuard } from '../auth/guards/platform-auth.guard';
+import { PlatformPermissionsGuard } from '../auth/guards/platform-permissions.guard';
 import { HealthTelemetryService } from './health-telemetry.service';
 
 @ApiTags('platform-health')
 @ApiBearerAuth('platform-token')
 @SkipTenantScope()
-@UseGuards(PlatformAuthGuard)
+@UseGuards(PlatformAuthGuard, PlatformPermissionsGuard)
 @Controller('platform/health')
 export class PlatformHealthController {
   constructor(private readonly healthTelemetry: HealthTelemetryService) {}
 
   @Get()
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({
     summary: 'Comprehensive platform health status and metrics',
     description:
@@ -45,6 +48,7 @@ export class PlatformHealthController {
   }
 
   @Get('storage')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Platform Storage driver status, disk space, and I/O latency' })
   async getStorageHealth(): Promise<ApiEnvelope<StorageHealth>> {
     const data = await this.healthTelemetry.getStorageHealth();
@@ -52,6 +56,7 @@ export class PlatformHealthController {
   }
 
   @Get('notifications')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Notification providers health: Email SMTP, SMS, Firebase Push, and In-App' })
   async getNotificationProvidersHealth(): Promise<ApiEnvelope<NotificationProvidersHealth>> {
     const data = await this.healthTelemetry.getNotificationProvidersHealth();
@@ -59,6 +64,7 @@ export class PlatformHealthController {
   }
 
   @Get('trends')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Timeseries latency percentiles and error rate trends' })
   async getLatencyAndErrorTrends(
     @Query('timeRange') timeRange?: '1h' | '6h' | '24h' | '7d',
@@ -68,6 +74,7 @@ export class PlatformHealthController {
   }
 
   @Get('incidents')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'List recent platform incidents with impact and root cause' })
   async getRecentIncidents(
     @Query('subsystem') subsystem?: string,
@@ -78,6 +85,7 @@ export class PlatformHealthController {
   }
 
   @Post('incidents')
+  @RequirePlatformPermission('platform', 'manage')
   @ApiOperation({ summary: 'Log a new platform incident' })
   async createIncident(
     @Body() input: CreatePlatformIncidentInput,
@@ -89,6 +97,7 @@ export class PlatformHealthController {
   }
 
   @Patch('incidents/:id')
+  @RequirePlatformPermission('platform', 'manage')
   @ApiOperation({ summary: 'Update or resolve a platform incident' })
   async updateIncident(
     @Param('id') id: string,
@@ -101,6 +110,7 @@ export class PlatformHealthController {
   }
 
   @Get('api')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'API latency, percentiles, and error rate metrics' })
   getApiMetrics(): ApiEnvelope<ApiLatencyAndErrorRate> {
     const data = this.healthTelemetry.getApiLatencyAndErrorRate();
@@ -108,6 +118,7 @@ export class PlatformHealthController {
   }
 
   @Get('database')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Database connection pool and query ping latency' })
   async getDatabaseHealth(): Promise<ApiEnvelope<DatabaseConnectionHealth>> {
     const data = await this.healthTelemetry.getDatabaseConnectionHealth();
@@ -115,6 +126,7 @@ export class PlatformHealthController {
   }
 
   @Get('redis')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Redis connection, memory consumption, and connected clients' })
   async getRedisHealth(): Promise<ApiEnvelope<RedisHealth>> {
     const data = await this.healthTelemetry.getRedisHealth();
@@ -122,6 +134,7 @@ export class PlatformHealthController {
   }
 
   @Get('queues')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Queue depth and failed-job counts per BullMQ queue' })
   async getQueuesHealth(): Promise<ApiEnvelope<QueueHealthSummary>> {
     const data = await this.healthTelemetry.getBullMqQueuesHealth();
@@ -129,6 +142,7 @@ export class PlatformHealthController {
   }
 
   @Get('websocket')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'WebSocket realtime gateway connected clients count' })
   getWebSocketHealth(): ApiEnvelope<WebSocketHealth> {
     const data = this.healthTelemetry.getWebSocketHealth();
@@ -136,6 +150,7 @@ export class PlatformHealthController {
   }
 
   @Get('mobile-sync')
+  @RequirePlatformPermission('platform', 'view')
   @ApiOperation({ summary: 'Mobile sync success rate and diagnostics per OFFLINE_SYNC.md §4' })
   async getMobileSyncHealth(): Promise<ApiEnvelope<MobileSyncHealth>> {
     const data = await this.healthTelemetry.getMobileSyncHealth();

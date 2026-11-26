@@ -73,3 +73,73 @@ jobs:
             -H "Authorization: Bearer $DEPLOY_WEBHOOK_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"ref\":\"${{ github.event.workflow_run.head_sha }}\",\"environment\":\"staging\",\"image\":\"ghcr.io/${{ github.repository }}/api:staging-${{ github.event.workflow_run.head_sha }}\"}"
+
+  deploy-website-staging:
+    name: Deploy website to staging
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'develop'
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_WEBSITE_URL }}
+    env:
+      NEXT_PUBLIC_APP_ENV: development
+      SITE_IS_STAGING: 'true'
+      NEXT_PUBLIC_NOINDEX: 'true'
+      NEXT_PUBLIC_SITE_URL: ${{ vars.STAGING_WEBSITE_URL || 'https://staging.cmsn-hr.example' }}
+      NEXT_PUBLIC_API_URL: ${{ vars.STAGING_API_URL || 'https://api-staging.cmsn-hr.example' }}
+      NEXT_PUBLIC_PORTAL_URL: ${{ vars.STAGING_PORTAL_URL || 'https://app-staging.cmsn-hr.example' }}
+      NEXT_PUBLIC_PLATFORM_URL: ${{ vars.STAGING_PLATFORM_URL || 'https://platform-staging.cmsn-hr.example' }}
+      NEXT_PUBLIC_CACHE_REVALIDATE_SECONDS: '10'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push staging website image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/website/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_APP_ENV=development
+            SITE_IS_STAGING=true
+            NEXT_PUBLIC_SITE_URL=${{ env.NEXT_PUBLIC_SITE_URL }}
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_PORTAL_URL=${{ env.NEXT_PUBLIC_PORTAL_URL }}
+            NEXT_PUBLIC_PLATFORM_URL=${{ env.NEXT_PUBLIC_PLATFORM_URL }}
+            NEXT_PUBLIC_CACHE_REVALIDATE_SECONDS=10
+          tags: |
+            ghcr.io/${{ github.repository }}/website:staging
+            ghcr.io/${{ github.repository }}/website:staging-${{ github.event.workflow_run.head_sha }}
+
+      - name: Trigger staging website rollout & cache purge
+        env:
+          WEBSITE_DEPLOY_WEBHOOK_URL: ${{ secrets.STAGING_WEBSITE_DEPLOY_WEBHOOK_URL }}
+          WEBSITE_DEPLOY_WEBHOOK_TOKEN: ${{ secrets.STAGING_WEBSITE_DEPLOY_WEBHOOK_TOKEN }}
+          REVALIDATE_SECRET: ${{ secrets.STAGING_REVALIDATE_SECRET }}
+        run: |
+          if [ -n "$WEBSITE_DEPLOY_WEBHOOK_URL" ]; then
+            curl -fsSL -X POST "$WEBSITE_DEPLOY_WEBHOOK_URL" \
+              -H "Authorization: Bearer $WEBSITE_DEPLOY_WEBHOOK_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"ref\":\"${{ github.event.workflow_run.head_sha }}\",\"environment\":\"staging\",\"image\":\"ghcr.io/${{ github.repository }}/website:staging-${{ github.event.workflow_run.head_sha }}\"}"
+          else
+            echo "STAGING_WEBSITE_DEPLOY_WEBHOOK_URL not set — image pushed to GHCR only."
+          fi
+          if [ -n "${{ vars.STAGING_WEBSITE_URL }}" ] && [ -n "$REVALIDATE_SECRET" ]; then
+            curl -fsSL -X POST "${{ vars.STAGING_WEBSITE_URL }}/api/revalidate" \
+              -H "x-revalidate-secret: $REVALIDATE_SECRET" \
+              -H "Content-Type: application/json" \
+              -d '{"scopes":["all"]}' || true
+          fi

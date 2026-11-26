@@ -14,6 +14,7 @@ import { PAY_FORMULA_LOAN_INSTALLMENT } from '@hrm/shared-types';
 import bcrypt from 'bcryptjs';
 import { FieldEncryptionService } from '../src/crypto/field-encryption.service';
 import { seedPlans } from './seed-plans';
+import { seedPlatformCms } from './seed-cms';
 
 const prisma = new PrismaClient();
 
@@ -4288,6 +4289,7 @@ async function main(): Promise<void> {
   });
 
   await seedPlatformStaff(prisma);
+  await seedPlatformCms(prisma);
 
   console.log('Seed complete.');
   console.log(`  Tenant:   ${tenant.name} (subdomain: demo)`);
